@@ -38,3 +38,24 @@ class TrendImportResponse(BaseModel):
     skipped_count: int = 0
     failed_count: int
     results: list[TrendImportResult]
+
+
+class TrendFetchSourceResult(BaseModel):
+    source_url: str
+    source_label: str
+    status: str
+    fetched_count: int
+    created_count: int
+    skipped_count: int
+    failed_count: int
+    error: str | None = None
+
+
+class TrendFetchResponse(BaseModel):
+    run_id: int | None = None
+    requested_source_count: int
+    processed_source_count: int
+    created_count: int
+    skipped_count: int
+    failed_count: int
+    results: list[TrendFetchSourceResult]

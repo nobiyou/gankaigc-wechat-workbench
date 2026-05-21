@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import {
+  fetchLiveTrends,
   fetchTrackedArticles,
   fetchTrends,
   fetchWechatMpSession,
@@ -90,6 +91,7 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
   const [actionSlug, setActionSlug] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [fetchingTrends, setFetchingTrends] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
@@ -144,6 +146,33 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
       setActionError(error instanceof Error ? error.message : "从参考文章生成选题失败。");
     } finally {
       setActionSlug(null);
+    }
+  }
+
+  async function handleFetchLiveTrends() {
+    try {
+      setFetchingTrends(true);
+      setActionError(null);
+      const result = await fetchLiveTrends();
+      const trends = await fetchTrends();
+      setLoadState((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              data: {
+                ...current.data,
+                trends,
+              },
+            }
+          : current,
+      );
+      setActionMessage(
+        `实时抓取完成：新增 ${result.created_count} 条，跳过 ${result.skipped_count} 条，处理来源 ${result.processed_source_count}/${result.requested_source_count} 个。`,
+      );
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "抓取实时热点失败。");
+    } finally {
+      setFetchingTrends(false);
     }
   }
 
@@ -261,6 +290,13 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
               <span>共 {loadState.data.trends.length} 条</span>
               <span>筛选后 {visibleTrends.length} 条</span>
             </div>
+            <button type="button" className="dashboard-button" onClick={handleFetchLiveTrends} disabled={fetchingTrends}>
+              {fetchingTrends ? "抓取中..." : "立即抓取"}
+            </button>
+          </div>
+
+          <div className="workspace-note workspace-note--info">
+            <p>实时抓取依赖后端 `.env` 里的 `TREND_FEED_URLS` 配置；未配置时会直接返回明确错误。</p>
           </div>
 
           {visibleTrends.length === 0 ? (

@@ -49,6 +49,25 @@ export type TrendImportResponse = {
   results: TrendImportResult[];
 };
 
+export type TrendFetchResponse = {
+  run_id: number | null;
+  requested_source_count: number;
+  processed_source_count: number;
+  created_count: number;
+  skipped_count: number;
+  failed_count: number;
+  results: Array<{
+    source_url: string;
+    source_label: string;
+    status: string;
+    fetched_count: number;
+    created_count: number;
+    skipped_count: number;
+    failed_count: number;
+    error: string | null;
+  }>;
+};
+
 export type TopicItem = {
   slug: string;
   trend_slug: string | null;
@@ -328,10 +347,19 @@ export type BatchCreateProjectsResponse = {
   results: BatchCreateProjectResult[];
 };
 
+async function buildApiError(response: Response, fallbackMessage: string): Promise<Error> {
+  try {
+    const payload = (await response.json()) as { detail?: string; message?: string };
+    return new Error(payload.detail || payload.message || fallbackMessage);
+  } catch {
+    return new Error(fallbackMessage);
+  }
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`);
   if (!response.ok) {
-    throw new Error(`Failed to fetch ${path}`);
+    throw await buildApiError(response, `Failed to fetch ${path}`);
   }
   return response.json() as Promise<T>;
 }
@@ -345,7 +373,7 @@ async function sendJson<T>(path: string, method: string, body: unknown): Promise
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(`Failed to ${method} ${path}`);
+    throw await buildApiError(response, `Failed to ${method} ${path}`);
   }
   return response.json() as Promise<T>;
 }
@@ -452,6 +480,10 @@ export function importTrends(rawText: string): Promise<TrendImportResponse> {
   return sendJson<TrendImportResponse>("/trends/import", "POST", {
     raw_text: rawText,
   });
+}
+
+export function fetchLiveTrends(): Promise<TrendFetchResponse> {
+  return sendJson<TrendFetchResponse>("/trends/fetch", "POST", {});
 }
 
 export function updateTrend(trendSlug: string, payload: TrendUpdatePayload): Promise<TrendItem> {

@@ -1,5 +1,6 @@
 export const taskTypeLabelMap: Record<string, string> = {
   trend_import: "批量导入热点",
+  trend_fetch: "抓取实时热点",
   trend_created: "录入热点",
   trend_updated: "更新热点",
   topic_created: "创建选题",

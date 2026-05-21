@@ -6,9 +6,12 @@ import re
 import sqlite3
 import threading
 import uuid
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import HTTPException
 
 from app.core.settings import settings
@@ -40,7 +43,15 @@ from app.schemas.projects import (
 from app.schemas.tone_profiles import ToneProfileItem, ToneProfileReorder, ToneProfileUpsert
 from app.schemas.tracked_articles import TrackedArticleCreate, TrackedArticleItem
 from app.schemas.topics import TopicCreateFromTrend, TopicItem, TopicUpdate
-from app.schemas.trends import TrendCreate, TrendImportResponse, TrendImportResult, TrendItem, TrendUpdate
+from app.schemas.trends import (
+    TrendCreate,
+    TrendFetchResponse,
+    TrendFetchSourceResult,
+    TrendImportResponse,
+    TrendImportResult,
+    TrendItem,
+    TrendUpdate,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -1016,6 +1027,7 @@ def _create_tracked_article_in_connection(
 def _summarize_source_ingestion(source_kind: str, created_count: int, skipped_count: int, failed_count: int) -> str:
     labels = {
         "trend_import": "热点导入",
+        "trend_fetch": "实时热点抓取",
         "wechat_mp_import": "公众号文章导入",
     }
     prefix = labels.get(source_kind, source_kind)
@@ -1113,6 +1125,164 @@ def create_trend(payload: TrendCreate) -> TrendItem:
 def _slugify_text(value: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return normalized or "trend"
+
+
+def _fetch_trend_feed_xml(source_url: str) -> bytes:
+    with httpx.Client(timeout=settings.trend_fetch_request_timeout_seconds) as client:
+        response = client.get(source_url)
+        response.raise_for_status()
+        return response.content
+
+
+def _get_trend_source_label(source_url: str, root: ET.Element) -> str:
+    channel_title = root.findtext(".//channel/title")
+    if channel_title and channel_title.strip():
+        return channel_title.strip()
+    atom_title = root.findtext(".//{*}title")
+    if atom_title and atom_title.strip():
+        return atom_title.strip()
+    return urlparse(source_url).netloc or source_url
+
+
+def _extract_trend_feed_items(root: ET.Element) -> list[tuple[str, str]]:
+    items: list[tuple[str, str]] = []
+
+    for item in root.findall(".//item"):
+        title = (item.findtext("title") or "").strip()
+        if not title:
+            continue
+        link = (item.findtext("link") or "").strip()
+        items.append((title, link))
+
+    if items:
+        return items
+
+    for entry in root.findall(".//{*}entry"):
+        title = (entry.findtext("{*}title") or "").strip()
+        if not title:
+            continue
+        link = ""
+        link_node = entry.find("{*}link")
+        if link_node is not None:
+            link = str(link_node.attrib.get("href") or "").strip()
+        items.append((title, link))
+
+    return items
+
+
+def fetch_trends_from_live_sources() -> dict[str, object]:
+    source_urls = [url.strip() for url in settings.trend_feed_urls if url.strip()]
+    if not source_urls:
+        raise HTTPException(status_code=400, detail="No trend feed sources configured")
+
+    existing_titles = {trend.title for trend in list_trends()}
+    title_counts: dict[str, int] = {}
+    results: list[TrendFetchSourceResult] = []
+    created_count = 0
+    skipped_count = 0
+    failed_count = 0
+    processed_source_count = 0
+
+    for source_url in source_urls:
+        try:
+            root = ET.fromstring(_fetch_trend_feed_xml(source_url))
+            source_label = _get_trend_source_label(source_url, root)
+            feed_items = _extract_trend_feed_items(root)[: settings.trend_fetch_max_items_per_feed]
+        except httpx.HTTPError as exc:
+            failed_count += 1
+            results.append(
+                TrendFetchSourceResult(
+                    source_url=source_url,
+                    source_label=urlparse(source_url).netloc or source_url,
+                    status="failed",
+                    fetched_count=0,
+                    created_count=0,
+                    skipped_count=0,
+                    failed_count=1,
+                    error=str(exc),
+                )
+            )
+            continue
+        except ET.ParseError as exc:
+            failed_count += 1
+            results.append(
+                TrendFetchSourceResult(
+                    source_url=source_url,
+                    source_label=urlparse(source_url).netloc or source_url,
+                    status="failed",
+                    fetched_count=0,
+                    created_count=0,
+                    skipped_count=0,
+                    failed_count=1,
+                    error=f"Malformed feed XML: {exc}",
+                )
+            )
+            continue
+
+        processed_source_count += 1
+        source_created_count = 0
+        source_skipped_count = 0
+        source_failed_count = 0
+
+        for title, _link in feed_items:
+            if title in existing_titles:
+                source_skipped_count += 1
+                skipped_count += 1
+                continue
+
+            base_slug = _slugify_text(title)
+            title_counts[base_slug] = title_counts.get(base_slug, 0) + 1
+            slug = f"{base_slug}-{title_counts[base_slug]}"
+
+            try:
+                create_trend(
+                    TrendCreate(
+                        slug=slug,
+                        title=title,
+                        source=source_label,
+                        heat_score=50,
+                        status="screening",
+                    )
+                )
+                source_created_count += 1
+                created_count += 1
+                existing_titles.add(title)
+            except HTTPException:
+                source_failed_count += 1
+                failed_count += 1
+
+        results.append(
+            TrendFetchSourceResult(
+                source_url=source_url,
+                source_label=source_label,
+                status="done" if source_failed_count == 0 else "partial",
+                fetched_count=len(feed_items),
+                created_count=source_created_count,
+                skipped_count=source_skipped_count,
+                failed_count=source_failed_count,
+            )
+        )
+
+    with _get_connection() as connection:
+        run_id = _record_source_ingestion_run(
+            connection,
+            source_kind="trend_fetch",
+            requested_count=len(source_urls),
+            created_count=created_count,
+            skipped_count=skipped_count,
+            failed_count=failed_count,
+        )
+        connection.commit()
+
+    return TrendFetchResponse(
+        run_id=run_id,
+        requested_source_count=len(source_urls),
+        processed_source_count=processed_source_count,
+        created_count=created_count,
+        skipped_count=skipped_count,
+        failed_count=failed_count,
+        results=results,
+    ).model_dump()
 
 
 def import_trends(raw_text: str) -> TrendImportResponse:

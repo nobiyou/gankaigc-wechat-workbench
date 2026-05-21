@@ -2,11 +2,12 @@ from fastapi import APIRouter, status
 
 from app.schemas.projects import BatchGenerateTopicsRequest
 from app.schemas.topics import TopicCreateFromTrend
-from app.schemas.trends import TrendCreate, TrendImportRequest, TrendUpdate
+from app.schemas.trends import TrendCreate, TrendFetchResponse, TrendImportRequest, TrendUpdate
 from app.services.workbench import (
     batch_generate_topics,
     create_topic_from_trend,
     create_trend,
+    fetch_trends_from_live_sources,
     generate_topic_from_trend,
     import_trends,
     list_trends,
@@ -30,6 +31,11 @@ def post_trend(payload: TrendCreate) -> dict[str, object]:
 @router.post("/import", status_code=status.HTTP_201_CREATED)
 def post_import_trends(payload: TrendImportRequest) -> dict[str, object]:
     return import_trends(payload.raw_text).model_dump()
+
+
+@router.post("/fetch", status_code=status.HTTP_201_CREATED)
+def post_fetch_trends() -> dict[str, object]:
+    return TrendFetchResponse(**fetch_trends_from_live_sources()).model_dump()
 
 
 @router.patch("/{trend_slug}")

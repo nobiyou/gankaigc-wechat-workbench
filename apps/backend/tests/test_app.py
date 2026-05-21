@@ -136,6 +136,58 @@ def test_import_trends_supports_multiline_text_defaults_and_per_item_results() -
     assert any(item["slug"] == "trend-2" for item in trends)
 
 
+def test_fetch_trends_requires_configured_feed_sources(monkeypatch) -> None:
+    monkeypatch.setattr(workbench.settings, "trend_feed_urls", [])
+
+    response = client.post("/api/trends/fetch")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "No trend feed sources configured"
+
+
+def test_fetch_trends_imports_new_feed_items_and_skips_existing_titles(monkeypatch) -> None:
+    monkeypatch.setattr(workbench.settings, "trend_feed_urls", ["https://example.com/feed.xml"])
+    monkeypatch.setattr(workbench.settings, "trend_fetch_max_items_per_feed", 10)
+    monkeypatch.setattr(
+        workbench,
+        "_fetch_trend_feed_xml",
+        lambda _source_url: """
+        <rss>
+          <channel>
+            <title>示例热榜</title>
+            <item><title>办公室倦怠修复</title><link>https://example.com/1</link></item>
+            <item><title>情绪恢复不是拖延</title><link>https://example.com/2</link></item>
+          </channel>
+        </rss>
+        """.encode("utf-8"),
+    )
+
+    response = client.post("/api/trends/fetch")
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["requested_source_count"] == 1
+    assert payload["processed_source_count"] == 1
+    assert payload["created_count"] == 1
+    assert payload["skipped_count"] == 1
+    assert payload["failed_count"] == 0
+    assert payload["run_id"] is not None
+    assert payload["results"][0]["source_label"] == "示例热榜"
+    assert payload["results"][0]["fetched_count"] == 2
+    assert payload["results"][0]["created_count"] == 1
+    assert payload["results"][0]["skipped_count"] == 1
+
+    trends_response = client.get("/api/trends")
+    assert trends_response.status_code == 200
+    trends = trends_response.json()
+    assert any(item["title"] == "情绪恢复不是拖延" and item["source"] == "示例热榜" for item in trends)
+
+    dashboard_response = client.get("/api/dashboard/summary")
+    assert dashboard_response.status_code == 200
+    dashboard = dashboard_response.json()
+    assert dashboard["source_ingestion_runs_count"] == 1
+    assert dashboard["latest_source_ingestion_kind"] == "trend_fetch"
+    assert dashboard["source_freshness_state"] == "fresh"
+
+
 def test_convert_trend_to_topic_creates_pending_topic() -> None:
     response = client.post(
         "/api/trends/office-burnout-recovery/to-topic",
