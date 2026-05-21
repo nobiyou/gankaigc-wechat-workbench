@@ -52,6 +52,32 @@ function formatCount(count: number): string {
   return `${count} 项`;
 }
 
+function formatSourceFreshnessLabel(state: DashboardSummary["source_freshness_state"]): string {
+  if (state === "fresh") {
+    return "今日已更新";
+  }
+  if (state === "stale") {
+    return "来源待刷新";
+  }
+  return "尚无来源批次";
+}
+
+function formatSourceTimestamp(timestamp: string | null): string {
+  if (!timestamp) {
+    return "暂无来源导入记录";
+  }
+  const parsed = Date.parse(timestamp);
+  if (Number.isNaN(parsed)) {
+    return "来源时间未知";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(parsed));
+}
+
 export function DashboardPage() {
   const [loadState, setLoadState] = useState<DashboardLoadState>({ status: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
@@ -189,6 +215,33 @@ export function DashboardPage() {
                 <span className="dashboard-metric__label">待发布项目</span>
                 <strong>{formatCount(loadState.data.summary.publish_ready_projects)}</strong>
               </article>
+              <article className="dashboard-metric">
+                <span className="dashboard-metric__label">参考文章池</span>
+                <strong>{formatCount(loadState.data.summary.tracked_articles_count)}</strong>
+              </article>
+            </div>
+          </section>
+
+          <section className="dashboard-section dashboard-section--compact">
+            <div className="dashboard-section__header">
+              <div>
+                <p className="dashboard-section__eyebrow">Sources</p>
+                <h4>来源新鲜度</h4>
+              </div>
+              <Link className="dashboard-inline-link" to="/sources/wechat-import">
+                打开来源入口
+              </Link>
+            </div>
+            <div className="dashboard-panel-note">
+              <p>
+                {formatSourceFreshnessLabel(loadState.data.summary.source_freshness_state)}
+                {` · 最近来源批次：${formatSourceTimestamp(loadState.data.summary.latest_source_ingestion_at)}`}
+              </p>
+              <p>
+                {`来源批次 ${loadState.data.summary.source_ingestion_runs_count} 次 · 最近类型 ${
+                  loadState.data.summary.latest_source_ingestion_kind ?? "未记录"
+                }`}
+              </p>
             </div>
           </section>
 

@@ -264,6 +264,7 @@ class WechatMpClient:
                 }
             )
         return {
+            "requested_count": len(payload.articles),
             "imported_count": len(created),
             "created": created,
         }

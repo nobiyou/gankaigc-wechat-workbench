@@ -353,6 +353,25 @@ def _ensure_tracked_articles_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def _ensure_source_ingestion_runs_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS source_ingestion_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_kind TEXT NOT NULL,
+            status TEXT NOT NULL,
+            requested_count INTEGER NOT NULL,
+            created_count INTEGER NOT NULL,
+            skipped_count INTEGER NOT NULL,
+            failed_count INTEGER NOT NULL,
+            summary TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            completed_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 def _ensure_background_tasks_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -532,6 +551,7 @@ def initialize_store(reset: bool = False) -> None:
         _ensure_publish_packages_schema(connection)
         _ensure_project_retros_schema(connection)
         _ensure_tracked_articles_schema(connection)
+        _ensure_source_ingestion_runs_schema(connection)
         _ensure_background_tasks_schema(connection)
         _ensure_task_logs_schema(connection)
 
@@ -545,6 +565,7 @@ def initialize_store(reset: bool = False) -> None:
             connection.execute("DELETE FROM publish_packages")
             connection.execute("DELETE FROM project_retros")
             connection.execute("DELETE FROM tracked_articles")
+            connection.execute("DELETE FROM source_ingestion_runs")
             connection.execute("DELETE FROM task_logs")
             connection.execute("DELETE FROM tone_profiles")
             connection.execute("DELETE FROM background_tasks")
@@ -931,6 +952,135 @@ def _update_background_task_log_status(
     )
 
 
+def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
+    return TrackedArticleItem(
+        slug=str(row["slug"]),
+        source_name=_normalize_tracked_article_source_name(str(row["source_name"])),
+        title=str(row["title"]),
+        url=str(row["url"]),
+        author=str(row["author"]),
+        summary=str(row["summary"]),
+        structure_notes=str(row["structure_notes"]),
+        tags=json.loads(str(row["tags"])),
+    )
+
+
+def _find_tracked_article_by_url(connection: sqlite3.Connection, url: str) -> TrackedArticleItem | None:
+    normalized_url = url.strip()
+    if not normalized_url:
+        return None
+    row = connection.execute(
+        """
+        SELECT slug, source_name, title, url, author, summary, structure_notes, tags
+        FROM tracked_articles
+        WHERE url = ?
+        """,
+        (normalized_url,),
+    ).fetchone()
+    if not row:
+        return None
+    return _hydrate_tracked_article_row(row)
+
+
+def _create_tracked_article_in_connection(
+    connection: sqlite3.Connection,
+    payload: TrackedArticleCreate,
+) -> TrackedArticleItem:
+    source_name = _normalize_tracked_article_source_name(payload.source_name)
+    connection.execute(
+        """
+        INSERT INTO tracked_articles (slug, source_name, title, url, author, summary, structure_notes, tags)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            payload.slug,
+            source_name,
+            payload.title,
+            payload.url.strip(),
+            payload.author,
+            payload.summary,
+            payload.structure_notes,
+            json.dumps(payload.tags, ensure_ascii=False),
+        ),
+    )
+    _record_task(
+        connection,
+        task_type="tracked_article_created",
+        status="done",
+        entity_slug=payload.slug,
+        entity_type="tracked_article",
+    )
+    return TrackedArticleItem(**{**payload.model_dump(), "source_name": source_name, "url": payload.url.strip()})
+
+
+def _summarize_source_ingestion(source_kind: str, created_count: int, skipped_count: int, failed_count: int) -> str:
+    labels = {
+        "trend_import": "热点导入",
+        "wechat_mp_import": "公众号文章导入",
+    }
+    prefix = labels.get(source_kind, source_kind)
+    return f"{prefix}：新增 {created_count}，跳过 {skipped_count}，失败 {failed_count}"
+
+
+def _resolve_source_ingestion_status(*, requested_count: int, created_count: int, skipped_count: int, failed_count: int) -> str:
+    if requested_count == 0:
+        return "done"
+    if failed_count == requested_count:
+        return "failed"
+    if failed_count > 0:
+        return "partial"
+    if created_count == 0 and skipped_count > 0:
+        return "skipped"
+    return "done"
+
+
+def _record_source_ingestion_run(
+    connection: sqlite3.Connection,
+    *,
+    source_kind: str,
+    requested_count: int,
+    created_count: int,
+    skipped_count: int,
+    failed_count: int,
+) -> int:
+    created_at = _utc_now_iso()
+    status = _resolve_source_ingestion_status(
+        requested_count=requested_count,
+        created_count=created_count,
+        skipped_count=skipped_count,
+        failed_count=failed_count,
+    )
+    summary = _summarize_source_ingestion(source_kind, created_count, skipped_count, failed_count)
+    connection.execute(
+        """
+        INSERT INTO source_ingestion_runs (
+            source_kind, status, requested_count, created_count, skipped_count, failed_count, summary, created_at, completed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            source_kind,
+            status,
+            requested_count,
+            created_count,
+            skipped_count,
+            failed_count,
+            summary,
+            created_at,
+            created_at,
+        ),
+    )
+    run_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+    _record_task(
+        connection,
+        task_type=source_kind,
+        status=status,
+        entity_slug=str(run_id),
+        entity_type="source_ingestion_run",
+    )
+    return run_id
+
+
 def create_trend(payload: TrendCreate) -> TrendItem:
     with _get_connection() as connection:
         try:
@@ -969,6 +1119,8 @@ def import_trends(raw_text: str) -> TrendImportResponse:
     raw_lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
     results: list[TrendImportResult] = []
     created_count = 0
+    skipped_count = 0
+    failed_count = 0
     title_counts: dict[str, int] = {}
     existing_titles = {trend.title for trend in list_trends()}
 
@@ -984,11 +1136,12 @@ def import_trends(raw_text: str) -> TrendImportResponse:
                 heat_score = 50
         status = parts[3] if len(parts) > 3 and parts[3] else "screening"
         if title in existing_titles:
+            skipped_count += 1
             results.append(
                 TrendImportResult(
                     line_number=line_number,
                     raw_line=raw_line,
-                    status="failed",
+                    status="skipped",
                     error="Trend title already exists",
                 )
             )
@@ -1019,6 +1172,7 @@ def import_trends(raw_text: str) -> TrendImportResponse:
             )
             existing_titles.add(title)
         except HTTPException as exc:
+            failed_count += 1
             results.append(
                 TrendImportResult(
                     line_number=line_number,
@@ -1028,10 +1182,23 @@ def import_trends(raw_text: str) -> TrendImportResponse:
                 )
             )
 
+    with _get_connection() as connection:
+        run_id = _record_source_ingestion_run(
+            connection,
+            source_kind="trend_import",
+            requested_count=len(raw_lines),
+            created_count=created_count,
+            skipped_count=skipped_count,
+            failed_count=failed_count,
+        )
+        connection.commit()
+
     return TrendImportResponse(
+        run_id=run_id,
         requested_count=len(raw_lines),
         created_count=created_count,
-        failed_count=len(raw_lines) - created_count,
+        skipped_count=skipped_count,
+        failed_count=failed_count,
         results=results,
     )
 
@@ -1083,52 +1250,87 @@ def list_tracked_articles() -> list[TrackedArticleItem]:
             ORDER BY rowid DESC
             """
         ).fetchall()
-    return [
-        TrackedArticleItem(
-            slug=str(row["slug"]),
-            source_name=_normalize_tracked_article_source_name(str(row["source_name"])),
-            title=str(row["title"]),
-            url=str(row["url"]),
-            author=str(row["author"]),
-            summary=str(row["summary"]),
-            structure_notes=str(row["structure_notes"]),
-            tags=json.loads(str(row["tags"])),
-        )
-        for row in rows
-    ]
+    return [_hydrate_tracked_article_row(row) for row in rows]
 
 
 def create_tracked_article(payload: TrackedArticleCreate) -> TrackedArticleItem:
-    source_name = _normalize_tracked_article_source_name(payload.source_name)
     with _get_connection() as connection:
+        existing_by_url = _find_tracked_article_by_url(connection, payload.url)
+        if existing_by_url:
+            raise HTTPException(status_code=409, detail="Tracked article already exists for this URL")
         try:
-            connection.execute(
-                """
-                INSERT INTO tracked_articles (slug, source_name, title, url, author, summary, structure_notes, tags)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    payload.slug,
-                    source_name,
-                    payload.title,
-                    payload.url,
-                    payload.author,
-                    payload.summary,
-                    payload.structure_notes,
-                    json.dumps(payload.tags, ensure_ascii=False),
-                ),
-            )
-            _record_task(
-                connection,
-                task_type="tracked_article_created",
-                status="done",
-                entity_slug=payload.slug,
-                entity_type="tracked_article",
-            )
+            created = _create_tracked_article_in_connection(connection, payload)
             connection.commit()
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=409, detail="Tracked article slug already exists") from exc
-    return TrackedArticleItem(**{**payload.model_dump(), "source_name": source_name})
+    return created
+
+
+def import_tracked_articles(
+    payloads: list[TrackedArticleCreate],
+    *,
+    source_kind: str,
+) -> dict[str, object]:
+    created_items: list[TrackedArticleItem] = []
+    results: list[dict[str, object]] = []
+    skipped_count = 0
+    failed_count = 0
+
+    with _get_connection() as connection:
+        for payload in payloads:
+            existing_by_url = _find_tracked_article_by_url(connection, payload.url)
+            if existing_by_url:
+                skipped_count += 1
+                results.append(
+                    {
+                        "status": "skipped",
+                        "reason": "Tracked article already exists for this URL",
+                        "article": existing_by_url.model_dump(),
+                    }
+                )
+                continue
+
+            try:
+                created = _create_tracked_article_in_connection(connection, payload)
+            except sqlite3.IntegrityError:
+                failed_count += 1
+                results.append(
+                    {
+                        "status": "failed",
+                        "reason": "Tracked article slug already exists",
+                        "article": None,
+                    }
+                )
+                continue
+
+            created_items.append(created)
+            results.append(
+                {
+                    "status": "created",
+                    "reason": None,
+                    "article": created.model_dump(),
+                }
+            )
+
+        run_id = _record_source_ingestion_run(
+            connection,
+            source_kind=source_kind,
+            requested_count=len(payloads),
+            created_count=len(created_items),
+            skipped_count=skipped_count,
+            failed_count=failed_count,
+        )
+        connection.commit()
+
+    return {
+        "run_id": run_id,
+        "requested_count": len(payloads),
+        "imported_count": len(created_items),
+        "skipped_count": skipped_count,
+        "failed_count": failed_count,
+        "created": [item.model_dump() for item in created_items],
+        "results": results,
+    }
 
 
 def list_topics() -> list[TopicItem]:
@@ -3091,12 +3293,45 @@ def get_dashboard_summary() -> dict[str, object]:
             LIMIT 3
             """
         ).fetchall()
+        tracked_articles_count = int(connection.execute("SELECT COUNT(*) FROM tracked_articles").fetchone()[0])
+        source_ingestion_runs_count = int(connection.execute("SELECT COUNT(*) FROM source_ingestion_runs").fetchone()[0])
+        latest_source_ingestion_row = connection.execute(
+            """
+            SELECT source_kind, completed_at
+            FROM source_ingestion_runs
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+    latest_source_ingestion_at = (
+        str(latest_source_ingestion_row["completed_at"]) if latest_source_ingestion_row is not None else None
+    )
+    latest_source_ingestion_kind = (
+        str(latest_source_ingestion_row["source_kind"]) if latest_source_ingestion_row is not None else None
+    )
+    source_freshness_state = "missing"
+    if latest_source_ingestion_at:
+        try:
+            completed_at = datetime.fromisoformat(latest_source_ingestion_at)
+            source_freshness_state = (
+                "fresh"
+                if completed_at.astimezone().date() == datetime.now().astimezone().date()
+                else "stale"
+            )
+        except ValueError:
+            source_freshness_state = "stale"
 
     return {
         "today_trends": len(trends),
         "pending_topics": sum(1 for topic in topics if topic.status in {"drafting", "pending"}),
         "draft_ready_projects": sum(1 for project in projects if project.next_required_step is not None),
         "publish_ready_projects": sum(1 for project in projects if project.chain_status == "ready"),
+        "tracked_articles_count": tracked_articles_count,
+        "source_ingestion_runs_count": source_ingestion_runs_count,
+        "latest_source_ingestion_at": latest_source_ingestion_at,
+        "latest_source_ingestion_kind": latest_source_ingestion_kind,
+        "source_freshness_state": source_freshness_state,
         "recent_tasks": [dict(row) for row in recent_task_rows],
     }
 
@@ -3205,6 +3440,16 @@ def batch_generate_topics(trend_slugs: list[str] | None = None) -> BatchGenerate
     failed_count = 0
 
     for trend in selected_trends:
+        if trend.slug in existing_trend_slugs:
+            skipped_count += 1
+            results.append(
+                BatchGenerateTopicResult(
+                    trend_slug=trend.slug,
+                    status="skipped",
+                    error="Topic already exists for this trend",
+                )
+            )
+            continue
         try:
             topic = generate_topic_from_trend(trend.slug)
             processed_count += 1
@@ -3260,6 +3505,16 @@ def batch_generate_topics_from_tracked_articles(
     failed_count = 0
 
     for article in selected_articles:
+        if article.slug in existing_article_slugs:
+            skipped_count += 1
+            results.append(
+                BatchGenerateTrackedArticleTopicResult(
+                    article_slug=article.slug,
+                    status="skipped",
+                    error="Topic already exists for this tracked article",
+                )
+            )
+            continue
         try:
             topic = generate_topic_from_tracked_article(article.slug)
             processed_count += 1

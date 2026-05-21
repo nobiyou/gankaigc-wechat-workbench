@@ -7,7 +7,6 @@ import {
   logoutWechatMp,
   searchWechatMpAccounts,
   startWechatMpLoginQrcode,
-  type TrackedArticleItem,
   type WechatMpAccountItem,
   type WechatMpArticleImportResponse,
   type WechatMpArticlePreviewItem,
@@ -322,13 +321,21 @@ export function WechatMpImportPanel({
         </article>
         <article className="detail-card">
           <h3>导入结果</h3>
-          <p>{importResult ? `本次导入 ${importResult.imported_count} 篇` : "尚未执行导入"}</p>
+          <p>
+            {importResult
+              ? `请求 ${importResult.requested_count} 篇，新增 ${importResult.imported_count} 篇，跳过 ${importResult.skipped_count} 篇`
+              : "尚未执行导入"}
+          </p>
           <ul className="wechat-mp-list">
-            {importResult?.created.map((article: TrackedArticleItem) => (
-              <li key={article.slug}>
+            {importResult?.results.map((result, index) => (
+              <li key={result.article?.slug ?? `${result.status}-${index}`}>
                 <div>
-                  <strong>{article.title}</strong>
-                  <p>{article.source_name}</p>
+                  <strong>{result.article?.title ?? "未创建条目"}</strong>
+                  <p>
+                    {result.article?.source_name ?? "来源未记录"}
+                    {` · ${result.status}`}
+                  </p>
+                  {result.reason ? <p>{result.reason}</p> : null}
                 </div>
               </li>
             )) ?? []}

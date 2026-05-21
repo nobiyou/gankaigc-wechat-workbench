@@ -174,8 +174,13 @@ def test_wechat_mp_import_creates_tracked_articles_and_can_generate_topics(monke
     )
     assert import_response.status_code == 201
     imported_payload = import_response.json()
+    assert imported_payload["requested_count"] == 1
     assert imported_payload["imported_count"] == 1
+    assert imported_payload["skipped_count"] == 0
+    assert imported_payload["failed_count"] == 0
+    assert imported_payload["run_id"] is not None
     assert imported_payload["created"][0]["slug"] == "wechat-mp-night-read-12345-1"
+    assert imported_payload["results"][0]["status"] == "created"
 
     list_response = client.get("/api/tracked-articles")
     assert list_response.status_code == 200
@@ -183,11 +188,89 @@ def test_wechat_mp_import_creates_tracked_articles_and_can_generate_topics(monke
     assert tracked_articles[0]["slug"] == "wechat-mp-night-read-12345-1"
     assert tracked_articles[0]["tags"] == ["wechat-mp", "夜读关系实验室"]
 
+    dashboard_response = client.get("/api/dashboard/summary")
+    assert dashboard_response.status_code == 200
+    dashboard_payload = dashboard_response.json()
+    assert dashboard_payload["tracked_articles_count"] == 1
+    assert dashboard_payload["source_ingestion_runs_count"] == 1
+    assert dashboard_payload["latest_source_ingestion_kind"] == "wechat_mp_import"
+    assert dashboard_payload["source_freshness_state"] == "fresh"
+
     topic_response = client.post("/api/tracked-articles/wechat-mp-night-read-12345-1/generate-topic")
     assert topic_response.status_code == 201
     topic_payload = topic_response.json()
     assert topic_payload["source_type"] == "tracked_article"
     assert topic_payload["title"] == "比解释更重要的，是先接住关系里的那一下失望"
+
+
+def test_wechat_mp_import_skips_duplicate_articles_by_url(monkeypatch) -> None:
+    class FakeClient:
+        def import_articles(self, payload):
+            return {
+                "created": [
+                    {
+                        "slug": "wechat-mp-night-read-12345-1",
+                        "source_name": "夜读关系实验室",
+                        "title": "真正让关系缓回来，不是解释，是先接住那一下失望",
+                        "url": "https://mp.weixin.qq.com/s/example",
+                        "author": "北岛",
+                        "summary": "从关系修复案例提炼表达顺序。",
+                        "structure_notes": "Imported from WeChat MP article list; structure notes pending review.",
+                        "tags": ["wechat-mp", "夜读关系实验室"],
+                    }
+                ],
+            }
+
+    monkeypatch.setattr("app.api.wechat_mp.get_wechat_mp_client", lambda: FakeClient())
+
+    first_response = client.post(
+        "/api/wechat-mp/articles/import",
+        json={
+            "articles": [
+                {
+                    "article_id": "12345_1",
+                    "account_fakeid": "MzA3NzAyMzMyMA==",
+                    "account_nickname": "夜读关系实验室",
+                    "title": "真正让关系缓回来，不是解释，是先接住那一下失望",
+                    "link": "https://mp.weixin.qq.com/s/example",
+                    "author": "北岛",
+                    "digest": "从关系修复案例提炼表达顺序。",
+                    "update_time": 1716012345,
+                }
+            ]
+        },
+    )
+    assert first_response.status_code == 201
+
+    second_response = client.post(
+        "/api/wechat-mp/articles/import",
+        json={
+            "articles": [
+                {
+                    "article_id": "12345_1",
+                    "account_fakeid": "MzA3NzAyMzMyMA==",
+                    "account_nickname": "夜读关系实验室",
+                    "title": "真正让关系缓回来，不是解释，是先接住那一下失望",
+                    "link": "https://mp.weixin.qq.com/s/example",
+                    "author": "北岛",
+                    "digest": "从关系修复案例提炼表达顺序。",
+                    "update_time": 1716012345,
+                }
+            ]
+        },
+    )
+    assert second_response.status_code == 201
+    payload = second_response.json()
+    assert payload["requested_count"] == 1
+    assert payload["imported_count"] == 0
+    assert payload["skipped_count"] == 1
+    assert payload["failed_count"] == 0
+    assert payload["results"][0]["status"] == "skipped"
+    assert payload["results"][0]["reason"] == "Tracked article already exists for this URL"
+
+    list_response = client.get("/api/tracked-articles")
+    assert list_response.status_code == 200
+    assert len(list_response.json()) == 1
 
 
 def test_wechat_mp_import_falls_back_to_selected_account_nickname_when_article_nickname_missing(monkeypatch) -> None:

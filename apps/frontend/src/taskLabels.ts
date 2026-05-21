@@ -1,4 +1,5 @@
 export const taskTypeLabelMap: Record<string, string> = {
+  trend_import: "批量导入热点",
   trend_created: "录入热点",
   trend_updated: "更新热点",
   topic_created: "创建选题",
@@ -8,6 +9,7 @@ export const taskTypeLabelMap: Record<string, string> = {
   batch_create_projects: "批量建项目",
   batch_continue_projects: "批量续链",
   topic_updated: "更新选题",
+  wechat_mp_import: "导入公众号文章",
   tracked_article_created: "录入参考文章",
   project_created: "创建项目",
   outline_generation: "生成大纲",

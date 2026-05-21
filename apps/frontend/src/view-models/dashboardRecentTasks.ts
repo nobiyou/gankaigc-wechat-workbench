@@ -25,6 +25,9 @@ function formatTaskStatusLabel(status?: string): string {
   if (normalized === "skipped") {
     return "已跳过";
   }
+  if (normalized === "partial") {
+    return "部分完成";
+  }
   if (normalized === "queued") {
     return "排队中";
   }
@@ -107,6 +110,19 @@ export function buildDashboardRecentTaskViews(recentTasks: RecentTaskItem[]): Da
           targetPath: "/sources/articles",
           targetLabel: "查看参考文章",
           targetHint: task.entity_slug ?? "tracked_article",
+        };
+      }
+
+      if (task.entity_type === "source_ingestion_run") {
+        const isWechatImport = task.task_type === "wechat_mp_import";
+        return {
+          id: String(task.id ?? fallbackId),
+          label: getTaskTypeLabel(task.task_type),
+          statusLabel: formatTaskStatusLabel(task.status),
+          timestampLabel: formatTimestampLabel(task.created_at),
+          targetPath: isWechatImport ? "/sources/wechat-import" : "/sources/trends",
+          targetLabel: isWechatImport ? "打开公众号导入" : "打开热点池",
+          targetHint: isWechatImport ? "最近公众号导入批次" : "最近热点导入批次",
         };
       }
 

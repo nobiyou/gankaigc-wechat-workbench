@@ -8,6 +8,11 @@ export type DashboardSummary = {
   pending_topics: number;
   draft_ready_projects: number;
   publish_ready_projects: number;
+  tracked_articles_count: number;
+  source_ingestion_runs_count: number;
+  latest_source_ingestion_at: string | null;
+  latest_source_ingestion_kind: string | null;
+  source_freshness_state: "fresh" | "stale" | "missing";
   recent_tasks: Array<{
     id?: string | number;
     task_type?: string;
@@ -36,8 +41,10 @@ export type TrendImportResult = {
 };
 
 export type TrendImportResponse = {
+  run_id: number | null;
   requested_count: number;
   created_count: number;
+  skipped_count: number;
   failed_count: number;
   results: TrendImportResult[];
 };
@@ -92,8 +99,17 @@ export type WechatMpArticlePreviewItem = {
 };
 
 export type WechatMpArticleImportResponse = {
+  run_id: number | null;
+  requested_count: number;
   imported_count: number;
+  skipped_count: number;
+  failed_count: number;
   created: TrackedArticleItem[];
+  results: Array<{
+    status: string;
+    reason: string | null;
+    article: TrackedArticleItem | null;
+  }>;
 };
 
 export type ProjectItem = {

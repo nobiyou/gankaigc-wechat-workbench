@@ -49,6 +49,11 @@ def test_dashboard_summary_shape() -> None:
     assert payload["pending_topics"] == 2
     assert payload["draft_ready_projects"] == 3
     assert payload["publish_ready_projects"] == 0
+    assert payload["tracked_articles_count"] == 0
+    assert payload["source_ingestion_runs_count"] == 0
+    assert payload["latest_source_ingestion_at"] is None
+    assert payload["latest_source_ingestion_kind"] is None
+    assert payload["source_freshness_state"] == "missing"
     assert isinstance(payload["recent_tasks"], list)
 
 
@@ -108,8 +113,10 @@ def test_import_trends_supports_multiline_text_defaults_and_per_item_results() -
 
     assert payload["requested_count"] == 3
     assert payload["created_count"] == 2
-    assert payload["failed_count"] == 1
-    assert [item["status"] for item in payload["results"]] == ["done", "done", "failed"]
+    assert payload["skipped_count"] == 1
+    assert payload["failed_count"] == 0
+    assert payload["run_id"] is not None
+    assert [item["status"] for item in payload["results"]] == ["done", "done", "skipped"]
     assert payload["results"][0]["trend"]["slug"] == "trend-1"
     assert payload["results"][0]["trend"]["title"] == "关系修复表达顺序"
     assert payload["results"][0]["trend"]["source"] == "wechat-search"
@@ -2045,14 +2052,16 @@ def test_batch_generate_topics_uses_queue_by_default_and_can_limit_to_selected_t
     assert selected_task["status"] == "done"
     selected_payload = selected_task["result"]
     assert selected_payload["requested_count"] == 2
-    assert selected_payload["processed_count"] == 2
-    assert selected_payload["skipped_count"] == 0
+    assert selected_payload["processed_count"] == 1
+    assert selected_payload["skipped_count"] == 1
     assert selected_payload["failed_count"] == 0
     assert [item["trend_slug"] for item in selected_payload["results"]] == [
         "office-burnout-recovery",
         "self-worth-rebuild",
     ]
-    assert selected_payload["results"][0]["topic"]["slug"] == "office-burnout-recovery-ai-topic-1"
+    assert selected_payload["results"][0]["status"] == "skipped"
+    assert selected_payload["results"][0]["error"] == "Topic already exists for this trend"
+    assert selected_payload["results"][1]["status"] == "done"
     assert selected_payload["results"][1]["topic"]["slug"] == "self-worth-rebuild-ai-topic-1"
 
 
@@ -2164,15 +2173,16 @@ def test_batch_generate_topics_from_tracked_articles_uses_queue_by_default_and_c
     assert selected_task["status"] == "done"
     selected_payload = selected_task["result"]
     assert selected_payload["requested_count"] == 2
-    assert selected_payload["processed_count"] == 2
-    assert selected_payload["skipped_count"] == 0
+    assert selected_payload["processed_count"] == 0
+    assert selected_payload["skipped_count"] == 2
     assert selected_payload["failed_count"] == 0
     assert [item["article_slug"] for item in selected_payload["results"]] == [
         "repair-selected-repeat",
         "repair-queue-default",
     ]
-    assert selected_payload["results"][0]["topic"]["slug"] == "repair-selected-repeat-ai-topic-2"
-    assert selected_payload["results"][1]["topic"]["slug"] == "repair-queue-default-ai-topic-2"
+    assert [item["status"] for item in selected_payload["results"]] == ["skipped", "skipped"]
+    assert selected_payload["results"][0]["error"] == "Topic already exists for this tracked article"
+    assert selected_payload["results"][1]["error"] == "Topic already exists for this tracked article"
 
 
 def test_batch_create_projects_uses_queue_by_default_and_skips_topics_with_existing_projects() -> None:

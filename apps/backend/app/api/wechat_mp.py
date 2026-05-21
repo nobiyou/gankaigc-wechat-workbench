@@ -7,11 +7,12 @@ from app.schemas.wechat_mp import (
     WechatMpAccountItem,
     WechatMpArticleImportRequest,
     WechatMpArticleImportResponse,
+    WechatMpArticleImportResult,
     WechatMpArticlePreviewItem,
     WechatMpSessionStatus,
 )
 from app.services.wechat_mp_client import get_wechat_mp_client
-from app.services.workbench import create_tracked_article
+from app.services.workbench import import_tracked_articles
 
 
 router = APIRouter(prefix="/wechat-mp", tags=["wechat-mp"])
@@ -61,9 +62,14 @@ def get_wechat_mp_articles(
 @router.post("/articles/import", status_code=status.HTTP_201_CREATED)
 def post_wechat_mp_articles_import(payload: WechatMpArticleImportRequest) -> dict[str, object]:
     result = get_wechat_mp_client().import_articles(payload)
-    created_payloads = [TrackedArticleCreate(**item) for item in result["created"]]
-    created = [create_tracked_article(item).model_dump() for item in created_payloads]
+    created_payloads = [TrackedArticleCreate(**item) for item in result.get("created", [])]
+    imported = import_tracked_articles(created_payloads, source_kind="wechat_mp_import")
     return WechatMpArticleImportResponse(
-        imported_count=len(created),
-        created=created,
+        run_id=imported.get("run_id"),
+        requested_count=int(imported.get("requested_count", result.get("requested_count", 0))),
+        imported_count=int(imported.get("imported_count", 0)),
+        skipped_count=int(imported.get("skipped_count", 0)),
+        failed_count=int(imported.get("failed_count", 0)),
+        created=[TrackedArticleCreate(**item) for item in imported.get("created", [])],
+        results=[WechatMpArticleImportResult(**item) for item in imported.get("results", [])],
     ).model_dump()

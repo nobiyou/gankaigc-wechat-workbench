@@ -32,7 +32,9 @@ class TrendImportResult(BaseModel):
 
 
 class TrendImportResponse(BaseModel):
+    run_id: int | None = None
     requested_count: int
     created_count: int
+    skipped_count: int = 0
     failed_count: int
     results: list[TrendImportResult]

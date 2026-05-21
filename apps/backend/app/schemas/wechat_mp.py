@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 
+from app.schemas.tracked_articles import TrackedArticleItem
+
 
 class WechatMpSessionStatus(BaseModel):
     logged_in: bool
@@ -34,6 +36,17 @@ class WechatMpArticleImportRequest(BaseModel):
     fallback_account_nickname: str | None = None
 
 
+class WechatMpArticleImportResult(BaseModel):
+    status: str
+    reason: str | None = None
+    article: TrackedArticleItem | None = None
+
+
 class WechatMpArticleImportResponse(BaseModel):
+    run_id: int | None = None
+    requested_count: int
     imported_count: int
-    created: list[dict[str, object]]
+    skipped_count: int = 0
+    failed_count: int = 0
+    created: list[TrackedArticleItem]
+    results: list[WechatMpArticleImportResult]
