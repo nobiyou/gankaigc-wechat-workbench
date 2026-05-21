@@ -1,0 +1,16 @@
+import "./taskLabels.test.ts";
+import "./contentSources.test.ts";
+import "./toneProfiles.test.ts";
+import "./retroDraft.test.ts";
+import "./wechatMpImport.test.ts";
+import "./wechatMp.test.ts";
+import "./projectStatus.test.ts";
+import "./app/navigation.test.ts";
+import "./view-models/dashboardQueues.test.ts";
+import "./view-models/dashboardRecentTasks.test.ts";
+import "./view-models/backgroundTaskSummaries.test.ts";
+import "./view-models/projectGroups.test.ts";
+import "./view-models/pipelineViews.test.ts";
+import "./view-models/workbenchStages.test.ts";
+import "./view-models/workbenchHistory.test.ts";
+import "./view-models/workbenchActions.test.ts";

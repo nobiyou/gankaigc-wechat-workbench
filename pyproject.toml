@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gankaigc-wechat-workbench-backend"
+version = "0.1.0"
+description = "WeChat public account content workbench backend"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.116.0,<1.0.0",
+  "uvicorn[standard]>=0.35.0,<1.0.0",
+  "pydantic-settings>=2.10.0,<3.0.0",
+  "openai>=2.30.0,<3.0.0",
+  "httpx>=0.28.0,<1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0,<9.0.0"
+]
+
+[tool.setuptools]
+package-dir = {"" = "apps/backend"}
+
+[tool.setuptools.packages.find]
+where = ["apps/backend"]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["apps/backend/tests"]
+cache_dir = "C:/tmp/gankaigc-wechat-workbench-pytest-cache"

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+.tmp/
+.aegis/
+.env
+.env.local
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+*.egg-info/
+pytest-cache-files-*/
