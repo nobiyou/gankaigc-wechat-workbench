@@ -13,15 +13,17 @@ export type DashboardSummary = {
   latest_source_ingestion_at: string | null;
   latest_source_ingestion_kind: string | null;
   source_freshness_state: "fresh" | "stale" | "missing";
-  recent_tasks: Array<{
-    id?: string | number;
-    task_type?: string;
-    status?: string;
-    entity_slug?: string;
-    entity_type?: string;
-    created_at?: string;
-    background_task_id?: string | null;
-  }>;
+  recent_tasks: TaskLogItem[];
+};
+
+export type TaskLogItem = {
+  id?: string | number;
+  task_type?: string;
+  status?: string;
+  entity_slug?: string;
+  entity_type?: string;
+  created_at?: string;
+  background_task_id?: string | null;
 };
 
 export type TrendItem = {
@@ -139,6 +141,7 @@ export type ProjectItem = {
   owner: string;
   preferred_tone_profile_id: number | null;
   preferred_tone_profile_name: string | null;
+  domain_pack_key: string | null;
   chain_status: "missing" | "stale" | "ready";
   current_chain_state: string;
   next_required_step: string | null;
@@ -154,6 +157,8 @@ export type OutlineItem = {
   version: number;
   hook: string;
   outline_body: string;
+  created_at: string | null;
+  origin: string | null;
   tone_profile_id: number | null;
   tone_profile_name: string | null;
 };
@@ -165,6 +170,8 @@ export type DraftItem = {
   title: string;
   body_markdown: string;
   word_count: number;
+  created_at: string | null;
+  origin: string | null;
   tone_profile_id: number | null;
   tone_profile_name: string | null;
 };
@@ -179,6 +186,8 @@ export type AssetItem = {
   social_teaser: string;
   cover_image_path: string;
   cover_image_url: string;
+  created_at: string | null;
+  origin: string | null;
   tone_profile_id: number | null;
   tone_profile_name: string | null;
 };
@@ -200,6 +209,8 @@ export type PublishPackageItem = {
   review_comment: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
+  created_at: string | null;
+  origin: string | null;
   tone_profile_id: number | null;
   tone_profile_name: string | null;
 };
@@ -233,17 +244,56 @@ export type ToneProfileReorder = {
   profile_ids: number[];
 };
 
+export type AIConfigSummary = {
+  api_key_configured: boolean;
+  base_url: string | null;
+  model: string;
+  image_model: string;
+  reasoning_effort: string | null;
+  request_timeout_seconds: number;
+};
+
+export type AIConfigCheckResult = {
+  ok: boolean;
+  status: string;
+  message: string;
+  checked_at: string;
+};
+
+export type DomainPackSummary = {
+  key: string;
+  label: string;
+  audience: string;
+  voice: string;
+  constraints: string;
+  is_default: boolean;
+};
+
+export type PromptTemplateSummary = {
+  key: string;
+  label: string;
+  role: string;
+  objective: string;
+  output_fields: string[];
+  supports_tone_profile: boolean;
+  supports_domain_pack: boolean;
+  supports_review_feedback: boolean;
+};
+
 export type TrendUpdatePayload = Pick<TrendItem, "title" | "heat_score" | "status">;
+export type TopicCreatePayload = Pick<TopicItem, "slug" | "title" | "angle">;
 export type TopicUpdatePayload = Pick<TopicItem, "title" | "angle" | "status">;
 export type TrackedArticleCreatePayload = TrackedArticleItem;
 
 export type ProjectCreatePayload = Pick<ProjectItem, "slug" | "title" | "owner"> & {
   preferred_tone_profile_id?: number | null;
+  domain_pack_key?: string | null;
 };
 
 export type ProjectUpdatePayload = {
   stage: ProjectItem["stage"];
   preferred_tone_profile_id?: number | null;
+  domain_pack_key?: string | null;
 };
 
 export type ProjectRetroCreatePayload = {
@@ -464,6 +514,22 @@ export function fetchToneProfiles(): Promise<ToneProfileItem[]> {
   return fetchJson<ToneProfileItem[]>("/tone-profiles");
 }
 
+export function fetchAIConfigSummary(): Promise<AIConfigSummary> {
+  return fetchJson<AIConfigSummary>("/settings/ai-config");
+}
+
+export function checkAIConfig(): Promise<AIConfigCheckResult> {
+  return sendJson<AIConfigCheckResult>("/settings/ai-config/check", "POST", {});
+}
+
+export function fetchDomainPacks(): Promise<DomainPackSummary[]> {
+  return fetchJson<DomainPackSummary[]>("/settings/domain-packs");
+}
+
+export function fetchPromptTemplates(): Promise<PromptTemplateSummary[]> {
+  return fetchJson<PromptTemplateSummary[]>("/settings/prompt-templates");
+}
+
 export function fetchProjectDetail(projectSlug: string): Promise<ProjectDetail> {
   return fetchJson<ProjectDetail>(`/projects/${projectSlug}`);
 }
@@ -518,6 +584,10 @@ export function createTrackedArticle(payload: TrackedArticleCreatePayload): Prom
 
 export function updateTopic(topicSlug: string, payload: TopicUpdatePayload): Promise<TopicItem> {
   return sendJson<TopicItem>(`/topics/${topicSlug}`, "PATCH", payload);
+}
+
+export function createTopic(payload: TopicCreatePayload): Promise<TopicItem> {
+  return sendJson<TopicItem>("/topics", "POST", payload);
 }
 
 export function createProjectFromTopic(
@@ -630,6 +700,10 @@ export function batchContinueProjects(projectSlugs?: string[]): Promise<Backgrou
 
 export function fetchBackgroundTask(taskId: string): Promise<BackgroundTaskDetail> {
   return fetchJson<BackgroundTaskDetail>(`/background-tasks/${taskId}`);
+}
+
+export function fetchPipelineTaskLogs(limit = 20): Promise<TaskLogItem[]> {
+  return fetchJson<TaskLogItem[]>(`/background-tasks/logs?scope=pipeline&limit=${limit}`);
 }
 
 export function batchGenerateTopics(trendSlugs?: string[]): Promise<BackgroundTaskSubmission> {

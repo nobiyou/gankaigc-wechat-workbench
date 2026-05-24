@@ -1,12 +1,13 @@
-import type { DashboardSummary, ProjectItem, TopicItem, TrackedArticleItem, TrendItem } from "../api/workbench";
+import type { ProjectItem, TaskLogItem, TopicItem, TrackedArticleItem, TrendItem } from "../api/workbench";
 // @ts-ignore TS5097: the local test harness executes raw .ts modules via Node.
 import { buildTopicQueueTopics, buildTrendQueueTrends } from "./dashboardQueues.ts";
 // @ts-ignore TS5097: the local test harness executes raw .ts modules via Node.
 import { buildPendingTrackedArticles, formatTopicSourceLabel } from "../contentSources.ts";
 
-export type RecentTaskItem = DashboardSummary["recent_tasks"][number];
+export type RecentTaskItem = TaskLogItem;
 export type PipelineTaskStatus = "done" | "running" | "failed" | "skipped";
 export type PipelineTaskLogFilter = "all" | "done" | "running" | "failed" | "skipped";
+export type TopicSourceFilter = "all" | "trend" | "tracked_article" | "manual";
 
 export type TopicQueueItem = {
   topic: TopicItem;
@@ -38,6 +39,13 @@ export type PipelineViewsState = {
       pending: number;
       drafting: number;
     };
+    sourceSummary: {
+      all: number;
+      trend: number;
+      tracked_article: number;
+      manual: number;
+    };
+    filter: TopicSourceFilter;
   };
   batchRuns: {
     items: PipelineTaskItem[];
@@ -120,20 +128,26 @@ export function buildPipelineViewsState({
   projects,
   recentTasks,
   taskLogFilter = "all",
+  topicSourceFilter = "all",
   backgroundTaskDetails = {},
 }: {
   topics: TopicItem[];
   projects: ProjectItem[];
   recentTasks: RecentTaskItem[];
   taskLogFilter?: PipelineTaskLogFilter;
+  topicSourceFilter?: TopicSourceFilter;
   backgroundTaskDetails?: Record<string, { result: Record<string, unknown> | null } | null>;
 }): PipelineViewsState {
   const topicQueueTopics = buildTopicQueueTopics({ topics, projects });
-  const topicQueueItems = topicQueueTopics.map((topic) => ({
+  const allTopicQueueItems = topicQueueTopics.map((topic) => ({
     topic,
     sourceLabel: formatTopicSourceLabel(topic),
     targetPath: `/pipeline/topics?topic=${encodeURIComponent(topic.slug)}`,
   }));
+  const topicQueueItems =
+    topicSourceFilter === "all"
+      ? allTopicQueueItems
+      : allTopicQueueItems.filter((item) => item.topic.source_type === topicSourceFilter);
 
   const allTaskItems = [...recentTasks]
     .sort(compareCreatedAtDesc)
@@ -172,6 +186,13 @@ export function buildPipelineViewsState({
         pending: topicQueueItems.filter((item) => item.topic.status === "pending").length,
         drafting: topicQueueItems.filter((item) => item.topic.status === "drafting").length,
       },
+      sourceSummary: {
+        all: allTopicQueueItems.length,
+        trend: allTopicQueueItems.filter((item) => item.topic.source_type === "trend").length,
+        tracked_article: allTopicQueueItems.filter((item) => item.topic.source_type === "tracked_article").length,
+        manual: allTopicQueueItems.filter((item) => item.topic.source_type === "manual").length,
+      },
+      filter: topicSourceFilter,
     },
     batchRuns: {
       items: batchRunItems,

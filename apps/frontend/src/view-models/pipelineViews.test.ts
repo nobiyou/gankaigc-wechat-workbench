@@ -93,6 +93,49 @@ test("buildPipelineViewsState exposes topic queue, batch runs, and pipeline-owne
   );
   assert.deepEqual(state.batchRuns.statusSummary, { total: 3, done: 1, running: 1, failed: 0, skipped: 1 });
   assert.deepEqual(state.taskLog.statusSummary, { total: 3, done: 1, running: 1, failed: 0, skipped: 1 });
+  assert.deepEqual(state.topicQueue.sourceSummary, { all: 1, trend: 0, tracked_article: 1, manual: 0 });
+});
+
+test("buildPipelineViewsState filters topic queue by source type while preserving global source counts", () => {
+  const state = buildPipelineViewsState({
+    topics: [
+      {
+        slug: "trend-topic",
+        trend_slug: "trend-1",
+        source_type: "trend",
+        source_ref_slug: "trend-1",
+        title: "热点选题",
+        angle: "趋势观点",
+        status: "pending",
+      },
+      {
+        slug: "tracked-topic",
+        trend_slug: null,
+        source_type: "tracked_article",
+        source_ref_slug: "article-1",
+        title: "参考选题",
+        angle: "结构拆解",
+        status: "drafting",
+      },
+      {
+        slug: "manual-topic",
+        trend_slug: null,
+        source_type: "manual",
+        source_ref_slug: "manual-topic",
+        title: "原创选题",
+        angle: "原创洞察",
+        status: "pending",
+      },
+    ],
+    projects: [],
+    recentTasks: [],
+    topicSourceFilter: "manual",
+  });
+
+  assert.deepEqual(state.topicQueue.items.map((item) => item.topic.slug), ["manual-topic"]);
+  assert.equal(state.topicQueue.filter, "manual");
+  assert.deepEqual(state.topicQueue.statusSummary, { total: 1, pending: 1, drafting: 0 });
+  assert.deepEqual(state.topicQueue.sourceSummary, { all: 3, trend: 1, tracked_article: 1, manual: 1 });
 });
 
 test("buildPipelineViewsState filters task log by normalized status and preserves retry signals", () => {

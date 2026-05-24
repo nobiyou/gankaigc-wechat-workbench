@@ -17,6 +17,12 @@ class TopicCreateFromTrend(BaseModel):
     angle: str
 
 
+class TopicCreate(BaseModel):
+    slug: str
+    title: str
+    angle: str
+
+
 class TopicUpdate(BaseModel):
     title: str
     angle: str

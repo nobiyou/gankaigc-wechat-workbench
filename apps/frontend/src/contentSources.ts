@@ -6,6 +6,9 @@ export function formatTopicSourceLabel(topic: {
   trend_slug?: string | null;
 }): string {
   const sourceRef = topic.source_ref_slug ?? topic.trend_slug ?? "未记录来源";
+  if (topic.source_type === "manual") {
+    return "原创选题 / 手动录入";
+  }
   if (topic.source_type === "tracked_article") {
     return `参考文章 / ${sourceRef}`;
   }

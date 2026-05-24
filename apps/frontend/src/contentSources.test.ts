@@ -26,6 +26,13 @@ test("formatTopicSourceLabel renders tracked article source with readable prefix
   );
 });
 
+test("formatTopicSourceLabel renders manual source with readable prefix", () => {
+  assert.equal(
+    formatTopicSourceLabel({ source_type: "manual", source_ref_slug: "late-night-emotion-repair" }),
+    "原创选题 / 手动录入",
+  );
+});
+
 test("filterTrendsByQuery matches trend title and source case-insensitively", () => {
   const filtered = filterTrendsByQuery(
     [

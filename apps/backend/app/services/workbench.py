@@ -15,7 +15,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.core.settings import settings
-from app.schemas.background_tasks import BackgroundTaskDetail, BackgroundTaskSubmission
+from app.schemas.background_tasks import BackgroundTaskDetail, BackgroundTaskSubmission, TaskLogEntry
 from app.services.ai_generator import get_default_generator
 from app.schemas.projects import (
     AssetItem,
@@ -59,6 +59,12 @@ logger = logging.getLogger(__name__)
 DB_PATH = Path(settings.db_path)
 GENERATED_ASSETS_DIR = Path(settings.generated_assets_dir)
 DEFAULT_DB_PATH = Path("C:/tmp/gankaigc-wechat-workbench.db")
+PIPELINE_BATCH_TASK_TYPES = (
+    "batch_continue_projects",
+    "batch_create_projects",
+    "batch_generate_topics",
+    "batch_generate_topics_from_tracked_articles",
+)
 TREND_SEEDS = [
     {
         "slug": "office-burnout-recovery",
@@ -2049,6 +2055,10 @@ def create_project_from_topic(topic_slug: str, payload: ProjectCreate) -> Projec
                     payload.domain_pack_key,
                 ),
             )
+            connection.execute(
+                "UPDATE topics SET status = ? WHERE slug = ?",
+                ("drafting", topic_slug),
+            )
             _record_task(
                 connection,
                 task_type="project_created",
@@ -3850,6 +3860,33 @@ def get_dashboard_summary() -> dict[str, object]:
         "source_freshness_state": source_freshness_state,
         "recent_tasks": [dict(row) for row in recent_task_rows],
     }
+
+
+def list_background_task_logs(*, scope: str = "all", limit: int = 20) -> list[TaskLogEntry]:
+    bounded_limit = max(1, min(limit, 100))
+    query = """
+        SELECT id, task_type, status, entity_slug, entity_type, created_at, background_task_id
+        FROM task_logs
+    """
+    parameters: list[object] = []
+
+    if scope == "pipeline":
+        placeholders = ", ".join("?" for _ in PIPELINE_BATCH_TASK_TYPES)
+        query += f"""
+            WHERE task_type IN ({placeholders})
+        """
+        parameters.extend(PIPELINE_BATCH_TASK_TYPES)
+
+    query += """
+        ORDER BY id DESC
+        LIMIT ?
+    """
+    parameters.append(bounded_limit)
+
+    with _get_connection() as connection:
+        rows = connection.execute(query, parameters).fetchall()
+
+    return [TaskLogEntry(**dict(row)) for row in rows]
 
 
 def _continue_project_next_step(project_slug: str, next_required_step: str):

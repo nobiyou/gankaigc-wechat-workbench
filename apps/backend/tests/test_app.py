@@ -284,6 +284,41 @@ def test_manual_topic_projects_use_manual_source_context_for_outline_generation(
     assert call_payload["topic_angle"] == "原创灵感"
 
 
+def test_create_project_from_topic_persists_topic_as_drafting() -> None:
+    existing_topics = client.get("/api/topics").json()
+    matching_count = sum(1 for topic in existing_topics if topic["slug"].startswith("manual-project-state-topic-"))
+    topic_slug = f"manual-project-state-topic-{matching_count + 1}"
+    project_slug = f"{topic_slug}-project"
+
+    create_topic_response = client.post(
+        "/api/topics",
+        json={
+            "slug": topic_slug,
+            "title": "先把夜班情绪接住，再决定明天怎么推进",
+            "angle": "原创灵感",
+        },
+    )
+    assert create_topic_response.status_code == 201
+
+    create_project_response = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={
+            "slug": project_slug,
+            "title": "夜班情绪接住测试项目",
+            "owner": "editorial",
+        },
+    )
+    assert create_project_response.status_code == 201
+    created_project = create_project_response.json()
+    assert created_project["topic_slug"] == topic_slug
+
+    topics_response = client.get("/api/topics")
+    assert topics_response.status_code == 200
+    topics = topics_response.json()
+    created_topic = next(topic for topic in topics if topic["slug"] == topic_slug)
+    assert created_topic["status"] == "drafting"
+
+
 def test_generate_topic_from_trend_uses_ai_and_persists(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:
@@ -2449,6 +2484,77 @@ def test_dashboard_recent_tasks_include_batch_history_linkage_for_pipeline_views
     assert batch_task["entity_type"] == "batch"
     assert batch_task["status"] == "done"
     assert batch_task["background_task_id"] == queue_submit["task_id"]
+
+
+def test_background_task_logs_pipeline_scope_keeps_batch_history_after_newer_non_batch_actions(monkeypatch) -> None:
+    class FakeGenerator:
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            trend_title = str(payload["trend_title"])
+            return {
+                "title": f"{trend_title} AI 选题",
+                "angle": "情绪识别",
+            }
+
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: FakeGenerator(), raising=False)
+
+    client.post(
+        "/api/trends",
+        json={
+            "slug": "pipeline-history-window",
+            "title": "批量任务历史窗口验证",
+            "source": "manual",
+            "heat_score": 66,
+            "status": "screening",
+        },
+    )
+
+    queue_response = client.post("/api/trends/batch-generate-topics", json={})
+    assert queue_response.status_code == 202
+    queue_submit = queue_response.json()
+
+    task_payload = wait_for_background_task(queue_submit["task_id"])
+    assert task_payload["status"] == "done"
+
+    client.post(
+        "/api/topics",
+        json={
+            "slug": "pipeline-manual-topic",
+            "title": "后续非批量动作 1",
+            "angle": "原创",
+        },
+    )
+    client.post(
+        "/api/topics/pipeline-manual-topic/create-project",
+        json={
+            "slug": "pipeline-manual-topic-project",
+            "title": "后续非批量动作 2",
+            "owner": "editorial",
+        },
+    )
+    client.post(
+        "/api/topics",
+        json={
+            "slug": "pipeline-manual-topic-2",
+            "title": "后续非批量动作 3",
+            "angle": "原创",
+        },
+    )
+
+    summary_response = client.get("/api/dashboard/summary")
+    assert summary_response.status_code == 200
+    assert all(
+        task["background_task_id"] != queue_submit["task_id"] for task in summary_response.json()["recent_tasks"]
+    )
+
+    task_log_response = client.get("/api/background-tasks/logs?scope=pipeline")
+    assert task_log_response.status_code == 200
+    task_logs = task_log_response.json()
+
+    batch_task = next((task for task in task_logs if task["background_task_id"] == queue_submit["task_id"]), None)
+    assert batch_task is not None
+    assert batch_task["task_type"] == "batch_generate_topics"
+    assert batch_task["entity_type"] == "batch"
+    assert batch_task["status"] == "done"
 
 
 def test_batch_generate_topics_from_tracked_articles_uses_queue_by_default_and_can_limit_to_selected_articles(

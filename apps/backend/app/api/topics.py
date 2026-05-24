@@ -1,8 +1,8 @@
 from fastapi import APIRouter, status
 
 from app.schemas.projects import BatchCreateProjectsRequest, ProjectCreate
-from app.schemas.topics import TopicUpdate
-from app.services.workbench import create_project_from_topic, list_topics, submit_background_task, update_topic
+from app.schemas.topics import TopicCreate, TopicUpdate
+from app.services.workbench import create_manual_topic, create_project_from_topic, list_topics, submit_background_task, update_topic
 
 router = APIRouter(prefix="/topics", tags=["topics"])
 
@@ -10,6 +10,11 @@ router = APIRouter(prefix="/topics", tags=["topics"])
 @router.get("")
 def get_topics() -> list[dict[str, object]]:
     return [topic.model_dump() for topic in list_topics()]
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+def post_topic(payload: TopicCreate) -> dict[str, object]:
+    return create_manual_topic(payload).model_dump()
 
 
 @router.patch("/{topic_slug}")

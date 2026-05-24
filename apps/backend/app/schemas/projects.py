@@ -9,6 +9,7 @@ class ProjectItem(BaseModel):
     owner: str
     preferred_tone_profile_id: int | None = None
     preferred_tone_profile_name: str | None = None
+    domain_pack_key: str | None = None
     chain_status: str = "healthy"
     current_chain_state: str = "missing_outline"
     next_required_step: str | None = None
@@ -24,11 +25,13 @@ class ProjectCreate(BaseModel):
     title: str
     owner: str
     preferred_tone_profile_id: int | None = None
+    domain_pack_key: str | None = None
 
 
 class ProjectStageUpdate(BaseModel):
     stage: str
     preferred_tone_profile_id: int | None = None
+    domain_pack_key: str | None = None
 
 
 class BatchContinueProjectsRequest(BaseModel):
@@ -97,6 +100,8 @@ class OutlineItem(BaseModel):
     version: int
     hook: str
     outline_body: str
+    created_at: str | None = None
+    origin: str | None = None
     tone_profile_id: int | None = None
     tone_profile_name: str | None = None
 
@@ -108,6 +113,8 @@ class DraftItem(BaseModel):
     title: str
     body_markdown: str
     word_count: int
+    created_at: str | None = None
+    origin: str | None = None
     tone_profile_id: int | None = None
     tone_profile_name: str | None = None
 
@@ -122,6 +129,8 @@ class AssetItem(BaseModel):
     social_teaser: str
     cover_image_path: str
     cover_image_url: str
+    created_at: str | None = None
+    origin: str | None = None
     tone_profile_id: int | None = None
     tone_profile_name: str | None = None
 
@@ -143,6 +152,8 @@ class PublishPackageItem(BaseModel):
     review_comment: str | None = None
     reviewed_by: str | None = None
     reviewed_at: str | None = None
+    created_at: str | None = None
+    origin: str | None = None
     tone_profile_id: int | None = None
     tone_profile_name: str | None = None
 

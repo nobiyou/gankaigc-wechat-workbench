@@ -1,8 +1,18 @@
-from fastapi import APIRouter
+from typing import Literal
 
-from app.services.workbench import get_background_task
+from fastapi import APIRouter, Query
+
+from app.services.workbench import get_background_task, list_background_task_logs
 
 router = APIRouter(prefix="/background-tasks", tags=["background-tasks"])
+
+
+@router.get("/logs")
+def get_background_task_logs(
+    scope: Literal["all", "pipeline"] = Query(default="all"),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> list[dict[str, object]]:
+    return [item.model_dump() for item in list_background_task_logs(scope=scope, limit=limit)]
 
 
 @router.get("/{task_id}")

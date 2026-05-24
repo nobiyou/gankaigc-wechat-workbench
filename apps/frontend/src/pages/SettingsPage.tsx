@@ -2,14 +2,25 @@ import { useEffect, useState } from "react";
 
 import {
   activateToneProfile,
+  checkAIConfig,
   createToneProfile,
   deleteToneProfile,
   duplicateToneProfile,
+  fetchAIConfigSummary,
+  fetchDomainPacks,
+  fetchPromptTemplates,
   fetchToneProfiles,
   reorderToneProfiles,
   updateToneProfile,
+  type AIConfigCheckResult,
+  type AIConfigSummary,
+  type DomainPackSummary,
+  type PromptTemplateSummary,
   type ToneProfileItem,
 } from "../api/workbench";
+import { formatAiConfigBaseUrl, formatAiConfigReasoning, formatAiConfigSummaryLabel } from "../aiConfig";
+import { buildDomainPackSummaryLines } from "../domainPacks";
+import { buildPromptTemplateSummaryLines } from "../promptTemplates";
 import {
   buildToneProfileFormState,
   buildToneProfileReorderIds,
@@ -31,6 +42,21 @@ type LoadState =
   | { status: "error"; message: string }
   | { status: "ready"; profiles: ToneProfileItem[] };
 
+type AIConfigLoadState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; summary: AIConfigSummary };
+
+type DomainPacksLoadState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; packs: DomainPackSummary[] };
+
+type PromptTemplatesLoadState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; templates: PromptTemplateSummary[] };
+
 type NoticeState = {
   tone: "success" | "error" | "info";
   message: string;
@@ -46,6 +72,9 @@ const SECTION_COPY: Record<SettingsPageProps["section"], { eyebrow: string; titl
 
 export function SettingsPage({ section }: SettingsPageProps) {
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
+  const [aiConfigLoadState, setAiConfigLoadState] = useState<AIConfigLoadState>({ status: "loading" });
+  const [domainPacksLoadState, setDomainPacksLoadState] = useState<DomainPacksLoadState>({ status: "loading" });
+  const [promptTemplatesLoadState, setPromptTemplatesLoadState] = useState<PromptTemplatesLoadState>({ status: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
   const [formState, setFormState] = useState<ToneProfileFormState>(createToneProfileFormState());
@@ -53,10 +82,14 @@ export function SettingsPage({ section }: SettingsPageProps) {
   const [isDirty, setIsDirty] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState>(null);
+  const [aiConfigCheckResult, setAiConfigCheckResult] = useState<AIConfigCheckResult | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
     setLoadState({ status: "loading" });
+    setAiConfigLoadState({ status: "loading" });
+    setDomainPacksLoadState({ status: "loading" });
+    setPromptTemplatesLoadState({ status: "loading" });
 
     fetchToneProfiles()
       .then((profiles) => {
@@ -69,6 +102,51 @@ export function SettingsPage({ section }: SettingsPageProps) {
           setLoadState({
             status: "error",
             message: error instanceof Error ? error.message : "Tone Profiles 加载失败。",
+          });
+        }
+      });
+
+    fetchAIConfigSummary()
+      .then((summary) => {
+        if (!isCancelled) {
+          setAiConfigLoadState({ status: "ready", summary });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!isCancelled) {
+          setAiConfigLoadState({
+            status: "error",
+            message: error instanceof Error ? error.message : "AI 配置摘要加载失败。",
+          });
+        }
+      });
+
+    fetchDomainPacks()
+      .then((packs) => {
+        if (!isCancelled) {
+          setDomainPacksLoadState({ status: "ready", packs });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!isCancelled) {
+          setDomainPacksLoadState({
+            status: "error",
+            message: error instanceof Error ? error.message : "赛道模板加载失败。",
+          });
+        }
+      });
+
+    fetchPromptTemplates()
+      .then((templates) => {
+        if (!isCancelled) {
+          setPromptTemplatesLoadState({ status: "ready", templates });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!isCancelled) {
+          setPromptTemplatesLoadState({
+            status: "error",
+            message: error instanceof Error ? error.message : "阶段模板加载失败。",
           });
         }
       });
@@ -258,6 +336,24 @@ export function SettingsPage({ section }: SettingsPageProps) {
     });
   }
 
+  async function handleCheckAiConfig() {
+    setPendingAction("check-ai-config");
+    setAiConfigCheckResult(null);
+    try {
+      const result = await checkAIConfig();
+      setAiConfigCheckResult(result);
+    } catch (error: unknown) {
+      setAiConfigCheckResult({
+        ok: false,
+        status: "request_failed",
+        message: error instanceof Error ? error.message : "AI 配置检测失败，请稍后重试。",
+        checked_at: new Date().toISOString(),
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
   if (loadState.status === "loading") {
     return (
       <section className="workspace-page">
@@ -288,6 +384,9 @@ export function SettingsPage({ section }: SettingsPageProps) {
   }
 
   const editableProfile = pickEditableToneProfile(loadState.profiles, selectedProfileId);
+  const aiConfigSummary = aiConfigLoadState.status === "ready" ? aiConfigLoadState.summary : null;
+  const domainPacks = domainPacksLoadState.status === "ready" ? domainPacksLoadState.packs : [];
+  const promptTemplates = promptTemplatesLoadState.status === "ready" ? promptTemplatesLoadState.templates : [];
 
   return (
     <section className="workspace-page">
@@ -310,10 +409,159 @@ export function SettingsPage({ section }: SettingsPageProps) {
             <strong>{loadState.profiles.find((profile) => profile.is_active)?.name ?? "未设置"}</strong>
             <p>新项目默认跟随当前激活风格，除非项目显式绑定专属风格。</p>
           </article>
+          <article className="workspace-summary-card">
+            <span>AI 配置</span>
+            <strong>{aiConfigSummary ? formatAiConfigSummaryLabel(aiConfigSummary) : "加载中"}</strong>
+            <p>这里检查当前文本模型链路是否能通，避免等到批量任务失败后才回看日志。</p>
+          </article>
         </div>
       </section>
 
       {notice ? <div className={`workspace-note workspace-note--${notice.tone}`}>{notice.message}</div> : null}
+
+      <section className="workspace-section">
+        <div className="workspace-section__header">
+          <div>
+            <p className="workspace-section__eyebrow">AI Config</p>
+            <h3>模型配置检测</h3>
+            <p className="workspace-section__description">
+              读取当前后端实际生效的模型配置，并发起一次轻量探测请求，优先暴露 key、base URL、模型名或上游服务异常。
+            </p>
+          </div>
+          <button
+            className="dashboard-button"
+            type="button"
+            onClick={() => void handleCheckAiConfig()}
+            disabled={pendingAction !== null || aiConfigLoadState.status !== "ready"}
+          >
+            {pendingAction === "check-ai-config" ? "检测中..." : "检测配置"}
+          </button>
+        </div>
+
+        {aiConfigLoadState.status === "error" ? (
+          <div className="workspace-note workspace-note--error">
+            <p>{aiConfigLoadState.message}</p>
+          </div>
+        ) : null}
+
+        {aiConfigSummary ? (
+          <div className="settings-config-grid">
+            <article className="settings-config-card">
+              <span>接口地址</span>
+              <strong>{formatAiConfigBaseUrl(aiConfigSummary.base_url)}</strong>
+            </article>
+            <article className="settings-config-card">
+              <span>文本模型</span>
+              <strong>{aiConfigSummary.model}</strong>
+            </article>
+            <article className="settings-config-card">
+              <span>出图模型</span>
+              <strong>{aiConfigSummary.image_model}</strong>
+            </article>
+            <article className="settings-config-card">
+              <span>推理强度</span>
+              <strong>{formatAiConfigReasoning(aiConfigSummary)}</strong>
+            </article>
+            <article className="settings-config-card">
+              <span>请求超时</span>
+              <strong>{`${aiConfigSummary.request_timeout_seconds} 秒`}</strong>
+            </article>
+            <article className="settings-config-card">
+              <span>密钥状态</span>
+              <strong>{aiConfigSummary.api_key_configured ? "已配置" : "未配置"}</strong>
+            </article>
+          </div>
+        ) : null}
+
+        {aiConfigCheckResult ? (
+          <div className={`workspace-note ${aiConfigCheckResult.ok ? "workspace-note--success" : "workspace-note--error"}`}>
+            <p>{aiConfigCheckResult.message}</p>
+            <p>{`检测时间：${new Date(aiConfigCheckResult.checked_at).toLocaleString("zh-CN", { hour12: false })}`}</p>
+          </div>
+        ) : (
+          <div className="workspace-note workspace-note--info">
+            <p>点击“检测配置”会向当前文本模型发起一次轻量请求，用于提前发现配置错误或上游临时不可用。</p>
+          </div>
+        )}
+      </section>
+
+      <section className="workspace-section">
+        <div className="workspace-section__header">
+          <div>
+            <p className="workspace-section__eyebrow">Domain Packs</p>
+            <h3>赛道模板</h3>
+            <p className="workspace-section__description">
+              这里展示当前可用的赛道 prompt packs。它们决定生成链的受众、语气和业务约束，用来约束大纲、正文、素材和发布包的生成语境。
+            </p>
+          </div>
+        </div>
+
+        {domainPacksLoadState.status === "error" ? (
+          <div className="workspace-note workspace-note--error">
+            <p>{domainPacksLoadState.message}</p>
+          </div>
+        ) : null}
+
+        {domainPacks.length > 0 ? (
+          <div className="settings-config-grid">
+            {domainPacks.map((pack) => (
+              <article key={pack.key} className="settings-config-card">
+                <span>{pack.is_default ? "默认赛道" : "候选赛道"}</span>
+                <strong>{pack.label}</strong>
+                <p className="settings-config-card__meta">{pack.key}</p>
+                {buildDomainPackSummaryLines(pack).map((line) => (
+                  <p key={`${pack.key}-${line}`} className="settings-config-card__detail">
+                    {line}
+                  </p>
+                ))}
+              </article>
+            ))}
+          </div>
+        ) : domainPacksLoadState.status === "loading" ? (
+          <div className="workspace-note workspace-note--info">
+            <p>正在加载赛道模板与生成语境约束。</p>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="workspace-section">
+        <div className="workspace-section__header">
+          <div>
+            <p className="workspace-section__eyebrow">Prompt Templates</p>
+            <h3>阶段模板</h3>
+            <p className="workspace-section__description">
+              这里展示当前生成链各阶段的模板职责、输出字段和可接收输入，方便核对系统到底按什么链路在生成。
+            </p>
+          </div>
+        </div>
+
+        {promptTemplatesLoadState.status === "error" ? (
+          <div className="workspace-note workspace-note--error">
+            <p>{promptTemplatesLoadState.message}</p>
+          </div>
+        ) : null}
+
+        {promptTemplates.length > 0 ? (
+          <div className="settings-config-grid">
+            {promptTemplates.map((template) => (
+              <article key={template.key} className="settings-config-card">
+                <span>阶段模板</span>
+                <strong>{template.label}</strong>
+                <p className="settings-config-card__meta">{template.key}</p>
+                {buildPromptTemplateSummaryLines(template).map((line) => (
+                  <p key={`${template.key}-${line}`} className="settings-config-card__detail">
+                    {line}
+                  </p>
+                ))}
+              </article>
+            ))}
+          </div>
+        ) : promptTemplatesLoadState.status === "loading" ? (
+          <div className="workspace-note workspace-note--info">
+            <p>正在加载生成链阶段模板。</p>
+          </div>
+        ) : null}
+      </section>
 
       <div className="settings-layout">
         <section className="workspace-section settings-panel">

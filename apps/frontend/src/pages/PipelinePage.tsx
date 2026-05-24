@@ -6,22 +6,57 @@ import {
   batchCreateProjects,
   batchGenerateTopics,
   batchGenerateTopicsFromTrackedArticles,
+  createTopic,
+  createProjectFromTopic,
   fetchBackgroundTask,
   fetchDashboardSummary,
+  fetchDomainPacks,
+  fetchPipelineTaskLogs,
   fetchProjects,
+  fetchToneProfiles,
   fetchTopics,
   fetchTrackedArticles,
   fetchTrends,
+  updateTopic,
   type BackgroundTaskDetail,
   type BackgroundTaskSubmission,
   type DashboardSummary,
+  type DomainPackSummary,
   type ProjectItem,
+  type TaskLogItem,
+  type ToneProfileItem,
   type TopicItem,
   type TrackedArticleItem,
   type TrendItem,
 } from "../api/workbench";
+import { buildProjectCreateDraft, type ProjectCreateDraft } from "../projectCreation";
 import { getTaskTypeLabel } from "../taskLabels";
-import { buildBackgroundTaskSummaryLines } from "../view-models/backgroundTaskSummaries";
+import { getToneProfileSelectionLabel } from "../toneProfiles";
+import {
+  buildTopicCreatePayload,
+  createTopicCreateDraft,
+  syncTopicDraftTitle,
+  type TopicCreateDraft,
+} from "../topicCreation";
+import {
+  buildTopicSelectionSummary,
+  collectBatchDroppableTopicSlugs,
+  collectBatchProjectCreatableTopicSlugs,
+  toggleTopicSelection,
+} from "../topicQueueSelection";
+import { buildTopicDraft, formatTopicStatusLabel, hasTopicDraftChanged, type TopicDraftState } from "../topicDrafts";
+import {
+  type BatchCreateProjectResultView,
+  buildBackgroundTaskErrorLines,
+  buildBackgroundTaskIssueLines,
+  buildRecentBatchCreateProjectResultMap,
+  buildBatchCreateProjectResultMap,
+  buildBackgroundTaskSummaryLines,
+  buildBatchCreateProjectResultLines,
+  mergeBatchCreateProjectResultMaps,
+  patchBatchCreateProjectResultAsDone,
+  pruneBatchCreateProjectResultMap,
+} from "../view-models/backgroundTaskSummaries";
 import {
   buildBatchRunCards,
   buildPipelineViewsState,
@@ -29,16 +64,21 @@ import {
   type BatchRunCardKey,
   type PipelineTaskLogFilter,
   type PipelineTaskStatus,
+  type TopicSourceFilter,
 } from "../view-models/pipelineViews";
+import { buildProjectConfigPreviewLines } from "../projectConfigPreview";
 
 type PipelineSection = "topics" | "runs" | "tasks";
 
 type PipelineData = {
   summary: DashboardSummary;
+  taskLog: TaskLogItem[];
   topics: TopicItem[];
   projects: ProjectItem[];
   trends: TrendItem[];
   trackedArticles: TrackedArticleItem[];
+  domainPacks: DomainPackSummary[];
+  toneProfiles: ToneProfileItem[];
 };
 
 type PipelineLoadState =
@@ -83,19 +123,32 @@ const TASK_LOG_FILTERS: Array<{ key: PipelineTaskLogFilter; label: string }> = [
   { key: "skipped", label: "已跳过" },
 ];
 
+const TOPIC_SOURCE_FILTERS: Array<{ key: TopicSourceFilter; label: string }> = [
+  { key: "all", label: "全部来源" },
+  { key: "trend", label: "热点" },
+  { key: "tracked_article", label: "参考文章" },
+  { key: "manual", label: "原创选题" },
+];
+
 function loadPipelineData(): Promise<PipelineData> {
   return Promise.all([
     fetchDashboardSummary(),
+    fetchPipelineTaskLogs(),
     fetchTopics(),
     fetchProjects(),
     fetchTrends(),
     fetchTrackedArticles(),
-  ]).then(([summary, topics, projects, trends, trackedArticles]) => ({
+    fetchDomainPacks(),
+    fetchToneProfiles(),
+  ]).then(([summary, taskLog, topics, projects, trends, trackedArticles, domainPacks, toneProfiles]) => ({
     summary,
+    taskLog,
     topics,
     projects,
     trends,
     trackedArticles,
+    domainPacks,
+    toneProfiles,
   }));
 }
 
@@ -172,14 +225,54 @@ function resolveRetryBatchRunKey(taskType?: string): BatchRunCardKey | null {
   return null;
 }
 
+function getTopicSourceCount(
+  sourceSummary: {
+    all: number;
+    trend: number;
+    tracked_article: number;
+    manual: number;
+  },
+  filter: TopicSourceFilter,
+): number {
+  if (filter === "all") {
+    return sourceSummary.all;
+  }
+  return sourceSummary[filter];
+}
+
+function formatTopicSourceFilterLabel(filter: TopicSourceFilter): string {
+  if (filter === "trend") {
+    return "热点";
+  }
+  if (filter === "tracked_article") {
+    return "参考文章";
+  }
+  if (filter === "manual") {
+    return "原创选题";
+  }
+  return "全部来源";
+}
+
 export function PipelinePage({ section }: { section: PipelineSection }) {
   const [loadState, setLoadState] = useState<PipelineLoadState>({ status: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
   const [taskLogFilter, setTaskLogFilter] = useState<PipelineTaskLogFilter>("all");
+  const [topicSourceFilter, setTopicSourceFilter] = useState<TopicSourceFilter>("all");
   const [activeRun, setActiveRun] = useState<BatchRunTaskState | null>(null);
   const [taskDetails, setTaskDetails] = useState<Record<string, BackgroundTaskDetail | null>>({});
   const [taskDetailErrors, setTaskDetailErrors] = useState<Record<string, string | null>>({});
   const [runMessage, setRunMessage] = useState<string | null>(null);
+  const [projectDrafts, setProjectDrafts] = useState<Record<string, ProjectCreateDraft>>({});
+  const [topicDrafts, setTopicDrafts] = useState<Record<string, TopicDraftState>>({});
+  const [topicCreateDraft, setTopicCreateDraft] = useState<TopicCreateDraft>(() => createTopicCreateDraft());
+  const [isCreateTopicExpanded, setIsCreateTopicExpanded] = useState(false);
+  const [selectedTopicSlugs, setSelectedTopicSlugs] = useState<string[]>([]);
+  const [topicBatchCreateResultMap, setTopicBatchCreateResultMap] = useState<Record<string, BatchCreateProjectResultView>>({});
+  const [creatingTopicSlug, setCreatingTopicSlug] = useState<string | null>(null);
+  const [creatingManualTopic, setCreatingManualTopic] = useState(false);
+  const [isBulkDroppingTopics, setIsBulkDroppingTopics] = useState(false);
+  const [savingTopicSlug, setSavingTopicSlug] = useState<string | null>(null);
+  const [expandedTopicSlug, setExpandedTopicSlug] = useState<string | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
@@ -189,6 +282,16 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
       .then((data) => {
         if (!isCancelled) {
           setLoadState({ status: "ready", data });
+          setProjectDrafts(
+            Object.fromEntries(
+              data.topics.map((topic) => [topic.slug, buildProjectCreateDraft(topic, data.domainPacks)]),
+            ),
+          );
+          setTopicDrafts(
+            Object.fromEntries(
+              data.topics.map((topic) => [topic.slug, buildTopicDraft(topic)]),
+            ),
+          );
         }
       })
       .catch((error: unknown) => {
@@ -230,6 +333,11 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
               }
             : current,
         );
+        if (detail.job_type === "batch_create_projects") {
+          setTopicBatchCreateResultMap((current) =>
+            mergeBatchCreateProjectResultMaps(current, buildBatchCreateProjectResultMap(detail)),
+          );
+        }
 
         if (detail.status === "queued" || detail.status === "running") {
           timerId = window.setTimeout(() => {
@@ -266,13 +374,36 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
 
   useEffect(() => {
     if (loadState.status !== "ready") {
+      setSelectedTopicSlugs([]);
+      setTopicBatchCreateResultMap({});
+      return;
+    }
+
+    const visibleTopicSlugSet = new Set(
+      buildPipelineViewsState({
+        topics: loadState.data.topics,
+        projects: loadState.data.projects,
+        recentTasks: loadState.data.taskLog,
+        taskLogFilter,
+        topicSourceFilter,
+      }).topicQueue.items.map((item) => item.topic.slug),
+    );
+
+    setSelectedTopicSlugs((current) => current.filter((topicSlug) => visibleTopicSlugSet.has(topicSlug)));
+    setTopicBatchCreateResultMap((current) =>
+      pruneBatchCreateProjectResultMap(current, Array.from(visibleTopicSlugSet)),
+    );
+  }, [loadState, taskLogFilter, topicSourceFilter]);
+
+  useEffect(() => {
+    if (loadState.status !== "ready") {
       return;
     }
 
     const pipelineState = buildPipelineViewsState({
       topics: loadState.data.topics,
       projects: loadState.data.projects,
-      recentTasks: loadState.data.summary.recent_tasks,
+      recentTasks: loadState.data.taskLog,
       taskLogFilter,
     });
 
@@ -348,6 +479,216 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
     await handleRunBatch(retryKey);
   }
 
+  async function handleCreateProject(topic: TopicItem) {
+    if (loadState.status !== "ready") {
+      return;
+    }
+
+    const draft = projectDrafts[topic.slug] ?? buildProjectCreateDraft(topic, loadState.data.domainPacks);
+    try {
+      setCreatingTopicSlug(topic.slug);
+      const created = await createProjectFromTopic(topic.slug, {
+        slug: draft.slug,
+        title: draft.title,
+        owner: draft.owner,
+        domain_pack_key: draft.domain_pack_key,
+        preferred_tone_profile_id: draft.preferred_tone_profile_id,
+      });
+      setRunMessage(`已创建项目：${created.title}`);
+      setLoadState({
+        status: "ready",
+        data: {
+          ...loadState.data,
+          projects: [created, ...loadState.data.projects],
+          topics: loadState.data.topics.map((item) => (item.slug === topic.slug ? { ...item, status: "drafting" } : item)),
+        },
+      });
+      setTopicBatchCreateResultMap((current) =>
+        pruneBatchCreateProjectResultMap(
+          mergeBatchCreateProjectResultMaps(current, {
+            [topic.slug]: {
+              topicSlug: topic.slug,
+              status: "done",
+              canRetry: false,
+              message: null,
+              projectSlug: created.slug,
+              line: `完成: ${topic.slug} -> ${created.slug}`,
+            },
+          }),
+          loadState.data.topics
+            .filter((item) => item.status === "pending" || item.status === "drafting")
+            .map((item) => item.slug),
+        ),
+      );
+      setActiveRun((current) => {
+        if (!current || current.submission.job_type !== "batch_create_projects") {
+          return current;
+        }
+
+        return {
+          ...current,
+          detail: patchBatchCreateProjectResultAsDone(current.detail, created, topic.slug),
+        };
+      });
+    } catch (error: unknown) {
+      setRunMessage(error instanceof Error ? error.message : "创建项目失败。");
+    } finally {
+      setCreatingTopicSlug(null);
+    }
+  }
+
+  async function handleCreateManualTopic() {
+    if (loadState.status !== "ready") {
+      return;
+    }
+
+    try {
+      setCreatingManualTopic(true);
+      setRunMessage(null);
+
+      const payload = buildTopicCreatePayload(topicCreateDraft);
+      const created = await createTopic(payload);
+
+      setLoadState({
+        status: "ready",
+        data: {
+          ...loadState.data,
+          topics: [created, ...loadState.data.topics],
+        },
+      });
+      setTopicDrafts((current) => ({
+        ...current,
+        [created.slug]: buildTopicDraft(created),
+      }));
+      setProjectDrafts((current) => ({
+        ...current,
+        [created.slug]: buildProjectCreateDraft(created, loadState.data.domainPacks),
+      }));
+      setTopicCreateDraft(createTopicCreateDraft());
+      setIsCreateTopicExpanded(false);
+      setExpandedTopicSlug(created.slug);
+      setRunMessage(`已创建原创选题：${created.title}`);
+    } catch (error: unknown) {
+      setRunMessage(error instanceof Error ? error.message : "创建原创选题失败。");
+    } finally {
+      setCreatingManualTopic(false);
+    }
+  }
+
+  async function handleCreateSelectedProjects(topicSlugs: string[]) {
+    try {
+      setRunMessage(null);
+      setActiveRun(null);
+
+      const submission = await batchCreateProjects(topicSlugs);
+      setActiveRun({
+        submission,
+        detail: null,
+        error: null,
+      });
+      setSelectedTopicSlugs([]);
+      setRunMessage(
+        `已提交批量任务：${getBatchRunJobTypeLabel(submission.job_type)}，当前状态 ${submission.status}。`,
+      );
+    } catch (error: unknown) {
+      setRunMessage(error instanceof Error ? error.message : "提交批量建项目失败。");
+      setActiveRun(null);
+    }
+  }
+
+  async function handleDropSelectedTopics() {
+    if (loadState.status !== "ready") {
+      return;
+    }
+
+    const droppableTopicSlugs = collectBatchDroppableTopicSlugs(pipelineState.topicQueue.items, selectedTopicSlugs);
+
+    if (droppableTopicSlugs.length === 0) {
+      setRunMessage("当前选择中没有可批量废弃的选题。");
+      return;
+    }
+
+    try {
+      setIsBulkDroppingTopics(true);
+      setRunMessage(null);
+
+      const result = await Promise.allSettled(
+        droppableTopicSlugs.map(async (topicSlug) => {
+          const topic = loadState.data.topics.find((item) => item.slug === topicSlug);
+          if (!topic) {
+            throw new Error(`Topic not found: ${topicSlug}`);
+          }
+          const draft = topicDrafts[topic.slug] ?? buildTopicDraft(topic);
+          return updateTopic(topic.slug, {
+            ...draft,
+            status: "dropped",
+          });
+        }),
+      );
+
+      const updatedTopics = result
+        .filter((item): item is PromiseFulfilledResult<TopicItem> => item.status === "fulfilled")
+        .map((item) => item.value);
+      const failedCount = result.length - updatedTopics.length;
+
+      if (updatedTopics.length > 0) {
+        const updatedTopicMap = new Map(updatedTopics.map((topic) => [topic.slug, topic]));
+        setLoadState({
+          status: "ready",
+          data: {
+            ...loadState.data,
+            topics: loadState.data.topics.map((topic) => updatedTopicMap.get(topic.slug) ?? topic),
+          },
+        });
+        setTopicDrafts((current) => ({
+          ...current,
+          ...Object.fromEntries(updatedTopics.map((topic) => [topic.slug, buildTopicDraft(topic)])),
+        }));
+      }
+
+      setSelectedTopicSlugs([]);
+      setExpandedTopicSlug((current) => (current && droppableTopicSlugs.includes(current) ? null : current));
+      if (failedCount > 0) {
+        setRunMessage(`批量废弃完成：成功 ${updatedTopics.length} 条，失败 ${failedCount} 条。`);
+      } else {
+        setRunMessage(`已批量废弃 ${updatedTopics.length} 条选题。`);
+      }
+    } catch (error: unknown) {
+      setRunMessage(error instanceof Error ? error.message : "批量废弃选题失败。");
+    } finally {
+      setIsBulkDroppingTopics(false);
+    }
+  }
+
+  async function handleSaveTopic(topic: TopicItem) {
+    if (loadState.status !== "ready") {
+      return;
+    }
+
+    const draft = topicDrafts[topic.slug] ?? buildTopicDraft(topic);
+    try {
+      setSavingTopicSlug(topic.slug);
+      setRunMessage(null);
+      const updated = await updateTopic(topic.slug, draft);
+      setLoadState({
+        status: "ready",
+        data: {
+          ...loadState.data,
+          topics: loadState.data.topics.map((item) => (item.slug === topic.slug ? updated : item)),
+        },
+      });
+      setTopicDrafts((current) => ({
+        ...current,
+        [topic.slug]: buildTopicDraft(updated),
+      }));
+      setRunMessage(`已更新选题：${updated.title}`);
+    } catch (error: unknown) {
+      setRunMessage(error instanceof Error ? error.message : "保存选题失败。");
+    } finally {
+      setSavingTopicSlug(null);
+    }
+  }
+
   if (loadState.status === "loading") {
     return (
       <section className="workspace-page">
@@ -381,8 +722,9 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
   const pipelineState = buildPipelineViewsState({
     topics: loadState.data.topics,
     projects: loadState.data.projects,
-    recentTasks: loadState.data.summary.recent_tasks,
+    recentTasks: loadState.data.taskLog,
     taskLogFilter,
+    topicSourceFilter,
     backgroundTaskDetails: taskDetails,
   });
   const batchRunCards = buildBatchRunCards({
@@ -392,7 +734,60 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
     projects: loadState.data.projects,
   });
   const batchRunSummaryLines = buildBackgroundTaskSummaryLines(activeRun?.detail ?? null);
+  const restoredBatchCreateResultMap = buildRecentBatchCreateProjectResultMap(Object.values(taskDetails));
+  const batchCreateProjectResultMap = mergeBatchCreateProjectResultMaps(
+    mergeBatchCreateProjectResultMaps(restoredBatchCreateResultMap, topicBatchCreateResultMap),
+    buildBatchCreateProjectResultMap(activeRun?.detail ?? null),
+  );
+  const batchCreateProjectResultLines = buildBatchCreateProjectResultLines(activeRun?.detail ?? null);
   const isSubmittingBatchRun = activeRun?.detail?.status === "queued" || activeRun?.detail?.status === "running";
+  const hasAnyTopicQueueItems = pipelineState.topicQueue.sourceSummary.all > 0;
+  const isTopicBatchCreateRun = activeRun?.submission.job_type === "batch_create_projects";
+  const topicSelectionSummary = buildTopicSelectionSummary({
+    selectedTopicSlugs,
+    topicQueueItems: pipelineState.topicQueue.items,
+  });
+  const visibleTopicSlugs = pipelineState.topicQueue.items.map((item) => item.topic.slug);
+  const allVisibleTopicsSelected =
+    visibleTopicSlugs.length > 0 && visibleTopicSlugs.every((topicSlug) => selectedTopicSlugs.includes(topicSlug));
+  const renderBackgroundTaskDiagnostics = (taskId?: string | null) => {
+    if (!taskId) {
+      return null;
+    }
+
+    const detail = taskDetails[taskId] ?? null;
+    const detailFetchError = taskDetailErrors[taskId];
+    const errorLines = buildBackgroundTaskErrorLines(detail);
+    const issueLines = buildBackgroundTaskIssueLines(detail);
+
+    if (errorLines.length === 0 && issueLines.length === 0 && !detailFetchError) {
+      return null;
+    }
+
+    return (
+      <>
+        {errorLines.length > 0 ? (
+          <div className="workspace-note workspace-note--error">
+            {errorLines.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        ) : null}
+        {issueLines.length > 0 ? (
+          <div className={`workspace-note ${errorLines.length > 0 ? "workspace-note--info" : "workspace-note--error"}`}>
+            {issueLines.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        ) : null}
+        {detailFetchError ? (
+          <div className="workspace-note workspace-note--error">
+            <p>{detailFetchError}</p>
+          </div>
+        ) : null}
+      </>
+    );
+  };
 
   return (
     <section className="workspace-page">
@@ -445,16 +840,109 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
                 选题队列是来源到项目之间的集中管理区，不混入来源页的单条素材浏览。
               </p>
             </div>
-            <Link className="dashboard-inline-link" to="/pipeline/runs">
-              去批量建项目
-            </Link>
+            <div className="workspace-actions">
+              <button
+                className="dashboard-button dashboard-button--ghost"
+                type="button"
+                onClick={() => setIsCreateTopicExpanded((current) => !current)}
+              >
+                {isCreateTopicExpanded ? "收起原创选题" : "新建原创选题"}
+              </button>
+              <Link className="dashboard-inline-link" to="/pipeline/runs">
+                去批量建项目
+              </Link>
+            </div>
           </div>
 
-          {pipelineState.topicQueue.items.length === 0 ? (
+          {isCreateTopicExpanded ? (
+            <div className="workspace-subsection workspace-project-config-panel">
+              <div className="workspace-section__header">
+                <div>
+                  <p className="workspace-section__eyebrow">原创选题</p>
+                  <h4>标题、slug 与角度</h4>
+                  <p className="workspace-section__description">适合没有热点来源的原创灵感，先录入再流转到项目队列。</p>
+                </div>
+              </div>
+              <div className="quick-form workspace-actions--row">
+                <label className="workspace-search workspace-search--compact">
+                  <span>选题标题</span>
+                  <input
+                    value={topicCreateDraft.title}
+                    onChange={(event) =>
+                      setTopicCreateDraft((current) => syncTopicDraftTitle(current, event.target.value))
+                    }
+                  />
+                </label>
+                <label className="workspace-search workspace-search--compact">
+                  <span>选题 slug</span>
+                  <input
+                    value={topicCreateDraft.slug}
+                    onChange={(event) =>
+                      setTopicCreateDraft((current) => ({
+                        ...current,
+                        slug: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="workspace-search workspace-search--compact">
+                  <span>选题角度</span>
+                  <input
+                    value={topicCreateDraft.angle}
+                    onChange={(event) =>
+                      setTopicCreateDraft((current) => ({
+                        ...current,
+                        angle: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <button
+                  className="dashboard-button"
+                  type="button"
+                  disabled={creatingManualTopic}
+                  onClick={() => void handleCreateManualTopic()}
+                >
+                  {creatingManualTopic ? "创建中..." : "创建选题"}
+                </button>
+              </div>
+              <div className="workspace-note workspace-note--info">
+                <p>标题会自动联动 slug，手动改过 slug 后会保留自定义值。</p>
+                <p>创建后会直接进入选题队列，并可继续转项目。</p>
+              </div>
+            </div>
+          ) : null}
+
+          {hasAnyTopicQueueItems ? (
+            <div className="workspace-filter-row">
+              {TOPIC_SOURCE_FILTERS.map((item) => (
+                <button
+                  key={item.key}
+                  className={
+                    item.key === topicSourceFilter
+                      ? "workspace-filter-button workspace-filter-button--active"
+                      : "workspace-filter-button"
+                  }
+                  type="button"
+                  onClick={() => setTopicSourceFilter(item.key)}
+                >
+                  {`${item.label} ${getTopicSourceCount(pipelineState.topicQueue.sourceSummary, item.key)}`}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {!hasAnyTopicQueueItems ? (
             <div className="dashboard-state dashboard-state--empty">
               <p className="dashboard-state__eyebrow">暂无数据</p>
               <h3>当前没有待处理选题队列</h3>
               <p>可以回到 Sources 生成单条选题，或去批量运行启动新一轮批量推进。</p>
+            </div>
+          ) : pipelineState.topicQueue.items.length === 0 ? (
+            <div className="dashboard-state dashboard-state--empty">
+              <p className="dashboard-state__eyebrow">筛选结果为空</p>
+              <h3>{`当前没有来自${formatTopicSourceFilterLabel(topicSourceFilter)}的待处理选题`}</h3>
+              <p>可以切回其他来源，或继续从 Sources / 原创入口补充新的 Topic Queue。</p>
             </div>
           ) : (
             <>
@@ -468,25 +956,328 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
                   <strong>{pipelineState.topicQueue.statusSummary.drafting}</strong>
                 </article>
               </div>
+              <div className="workspace-subsection workspace-bulk-toolbar">
+                <div className="workspace-item__header">
+                  <div>
+                    <p className="workspace-section__eyebrow">批量操作</p>
+                    <h4>当前筛选内多选推进</h4>
+                    <p className="workspace-section__description">
+                      {`已选 ${topicSelectionSummary.selectedCount} 条，可批量建项目 ${topicSelectionSummary.projectCreatableCount} 条，可批量废弃 ${topicSelectionSummary.droppableCount} 条。`}
+                    </p>
+                  </div>
+                </div>
+                <div className="workspace-actions workspace-actions--row">
+                  <button
+                    className="dashboard-button dashboard-button--ghost"
+                    type="button"
+                    onClick={() => setSelectedTopicSlugs(allVisibleTopicsSelected ? [] : visibleTopicSlugs)}
+                  >
+                    {allVisibleTopicsSelected ? "清空当前筛选选择" : "全选当前筛选"}
+                  </button>
+                  <button
+                    className="dashboard-button"
+                    type="button"
+                    disabled={topicSelectionSummary.projectCreatableCount === 0 || isSubmittingBatchRun}
+                    onClick={() =>
+                      void handleCreateSelectedProjects(
+                        collectBatchProjectCreatableTopicSlugs(pipelineState.topicQueue.items, selectedTopicSlugs),
+                      )
+                    }
+                  >
+                    {isSubmittingBatchRun ? "提交中..." : "批量建项目"}
+                  </button>
+                  <button
+                    className="dashboard-button dashboard-button--ghost"
+                    type="button"
+                    disabled={topicSelectionSummary.droppableCount === 0 || isBulkDroppingTopics}
+                    onClick={() => void handleDropSelectedTopics()}
+                  >
+                    {isBulkDroppingTopics ? "废弃中..." : "批量废弃"}
+                  </button>
+                </div>
+              </div>
+              {isTopicBatchCreateRun ? (
+                <div className="workspace-note workspace-note--info">
+                  <p>最近一次批量建项目结果</p>
+                  {batchRunSummaryLines.length > 0 ? (
+                    <div className="workspace-tag-list">
+                      {batchRunSummaryLines.map((line) => (
+                        <span key={line} className="workspace-tag">
+                          {line}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>正在等待后台回传批量建项目结果。</p>
+                  )}
+                  {batchCreateProjectResultLines.length > 0 ? (
+                    <>
+                      {batchCreateProjectResultLines.map((line) => (
+                        <p key={line}>{line}</p>
+                      ))}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="workspace-list">
                 {pipelineState.topicQueue.items.map((item) => (
                   <article key={item.topic.slug} className="workspace-item">
+                    {(() => {
+                      const latestBatchCreateResult = batchCreateProjectResultMap[item.topic.slug] ?? null;
+                      const showRetryCreateProject =
+                        latestBatchCreateResult?.status === "failed" || latestBatchCreateResult?.status === "skipped";
+
+                      return (
+                        <>
                     <div className="workspace-item__header">
+                      <label className="workspace-selection-toggle">
+                        <input
+                          type="checkbox"
+                          checked={selectedTopicSlugs.includes(item.topic.slug)}
+                          onChange={() =>
+                            setSelectedTopicSlugs((current) => toggleTopicSelection(current, item.topic.slug))
+                          }
+                        />
+                        <span>选择</span>
+                      </label>
                       <div>
                         <h4>{item.topic.title}</h4>
                         <p>{item.topic.slug}</p>
                       </div>
-                      <span className="workspace-pill">{item.topic.status}</span>
+                      <span className="workspace-pill">{formatTopicStatusLabel(item.topic.status)}</span>
                     </div>
                     <div className="workspace-item__meta">
                       <span>{item.sourceLabel}</span>
                       <span>{item.topic.angle}</span>
                     </div>
+                    {latestBatchCreateResult ? (
+                      <div className="workspace-note workspace-note--info">
+                        <p>最近一次批量建项反馈</p>
+                        <p>{latestBatchCreateResult.line}</p>
+                        {latestBatchCreateResult.canRetry ? (
+                          <div className="workspace-actions workspace-actions--row">
+                            <button
+                              className="dashboard-button dashboard-button--ghost"
+                              type="button"
+                              disabled={creatingTopicSlug === item.topic.slug}
+                              onClick={() => void handleCreateProject(item.topic)}
+                            >
+                              {creatingTopicSlug === item.topic.slug ? "重试中..." : "按当前配置重试"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="workspace-actions">
+                      <button
+                        className="dashboard-button dashboard-button--ghost"
+                        type="button"
+                        onClick={() => setExpandedTopicSlug((current) => (current === item.topic.slug ? null : item.topic.slug))}
+                      >
+                        {expandedTopicSlug === item.topic.slug
+                          ? "收起建项配置"
+                          : showRetryCreateProject
+                            ? "重试建项目"
+                            : "直接建项目"}
+                      </button>
                       <Link className="dashboard-inline-link" to="/pipeline/runs">
                         去批量建项目
                       </Link>
                     </div>
+                    {expandedTopicSlug === item.topic.slug ? (
+                      <div className="workspace-subsection workspace-project-config-panel">
+                        <div className="workspace-section__header">
+                          <div>
+                            <p className="workspace-section__eyebrow">选题配置</p>
+                            <h4>标题、角度与状态</h4>
+                            <p className="workspace-section__description">先确认选题本身，再决定是否转成项目。</p>
+                          </div>
+                        </div>
+                        <div className="quick-form workspace-actions--row">
+                          <label className="workspace-search workspace-search--compact">
+                            <span>选题标题</span>
+                            <input
+                              value={topicDrafts[item.topic.slug]?.title ?? item.topic.title}
+                              onChange={(event) =>
+                                setTopicDrafts((current) => ({
+                                  ...current,
+                                  [item.topic.slug]: {
+                                    ...(current[item.topic.slug] ?? buildTopicDraft(item.topic)),
+                                    title: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="workspace-search workspace-search--compact">
+                            <span>选题角度</span>
+                            <input
+                              value={topicDrafts[item.topic.slug]?.angle ?? item.topic.angle}
+                              onChange={(event) =>
+                                setTopicDrafts((current) => ({
+                                  ...current,
+                                  [item.topic.slug]: {
+                                    ...(current[item.topic.slug] ?? buildTopicDraft(item.topic)),
+                                    angle: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="workspace-search workspace-search--compact">
+                            <span>选题状态</span>
+                            <select
+                              className="workspace-select"
+                              value={topicDrafts[item.topic.slug]?.status ?? item.topic.status}
+                              onChange={(event) =>
+                                setTopicDrafts((current) => ({
+                                  ...current,
+                                  [item.topic.slug]: {
+                                    ...(current[item.topic.slug] ?? buildTopicDraft(item.topic)),
+                                    status: event.target.value,
+                                  },
+                                }))
+                              }
+                            >
+                              <option value="pending">待建项目</option>
+                              <option value="drafting">写作中</option>
+                              <option value="approved">已确认</option>
+                              <option value="dropped">已废弃</option>
+                            </select>
+                          </label>
+                          <button
+                            className="dashboard-button"
+                            type="button"
+                            disabled={
+                              savingTopicSlug === item.topic.slug ||
+                              !hasTopicDraftChanged(item.topic, topicDrafts[item.topic.slug] ?? buildTopicDraft(item.topic))
+                            }
+                            onClick={() => void handleSaveTopic(item.topic)}
+                          >
+                            {savingTopicSlug === item.topic.slug ? "保存中..." : "保存选题"}
+                          </button>
+                        </div>
+                        <div className="workspace-note workspace-note--info">
+                          <p>{`当前状态：${formatTopicStatusLabel(topicDrafts[item.topic.slug]?.status ?? item.topic.status)}`}</p>
+                          <p>把状态切到“已废弃”后，会从 Topic Queue 中移出；切回“待建项目/写作中”会重新回到队列。</p>
+                        </div>
+                        <div className="workspace-section__header">
+                          <div>
+                            <p className="workspace-section__eyebrow">建项目配置</p>
+                            <h4>标题、slug 与赛道</h4>
+                            <p className="workspace-section__description">单条选题可直接建项目，不必先走批量入口。</p>
+                          </div>
+                        </div>
+                      <div className="quick-form workspace-actions--row">
+                          <label className="workspace-search workspace-search--compact">
+                            <span>项目标题</span>
+                            <input
+                              value={projectDrafts[item.topic.slug]?.title ?? item.topic.title}
+                              onChange={(event) =>
+                                setProjectDrafts((current) => ({
+                                  ...current,
+                                  [item.topic.slug]: {
+                                    ...(current[item.topic.slug] ?? buildProjectCreateDraft(item.topic, loadState.data.domainPacks)),
+                                    title: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="workspace-search workspace-search--compact">
+                            <span>项目 slug</span>
+                            <input
+                              value={projectDrafts[item.topic.slug]?.slug ?? item.topic.slug}
+                              onChange={(event) =>
+                                setProjectDrafts((current) => ({
+                                  ...current,
+                                  [item.topic.slug]: {
+                                    ...(current[item.topic.slug] ?? buildProjectCreateDraft(item.topic, loadState.data.domainPacks)),
+                                    slug: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="workspace-search workspace-search--compact">
+                            <span>项目赛道</span>
+                            <select
+                              className="workspace-select"
+                              value={projectDrafts[item.topic.slug]?.domain_pack_key ?? ""}
+                              onChange={(event) =>
+                                setProjectDrafts((current) => ({
+                                  ...current,
+                                  [item.topic.slug]: {
+                                    ...(current[item.topic.slug] ?? buildProjectCreateDraft(item.topic, loadState.data.domainPacks)),
+                                    domain_pack_key: event.target.value || null,
+                                  },
+                                }))
+                              }
+                            >
+                              <option value="">跟随默认赛道</option>
+                              {loadState.data.domainPacks.map((pack) => (
+                                <option key={pack.key} value={pack.key}>
+                                  {pack.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="workspace-search workspace-search--compact">
+                            <span>项目风格</span>
+                            <select
+                              className="workspace-select"
+                              value={
+                                projectDrafts[item.topic.slug]?.preferred_tone_profile_id == null
+                                  ? ""
+                                  : String(projectDrafts[item.topic.slug]?.preferred_tone_profile_id)
+                              }
+                              onChange={(event) =>
+                                setProjectDrafts((current) => ({
+                                  ...current,
+                                  [item.topic.slug]: {
+                                    ...(current[item.topic.slug] ?? buildProjectCreateDraft(item.topic, loadState.data.domainPacks)),
+                                    preferred_tone_profile_id: event.target.value ? Number.parseInt(event.target.value, 10) : null,
+                                  },
+                                }))
+                              }
+                            >
+                              <option value="">跟随当前全局风格</option>
+                              {loadState.data.toneProfiles.map((profile) => (
+                                <option key={profile.id} value={profile.id}>
+                                  {profile.name}
+                                  {profile.is_active ? " · 当前全局" : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button
+                            className="dashboard-button dashboard-button--ghost"
+                            type="button"
+                            disabled={creatingTopicSlug === item.topic.slug}
+                            onClick={() => void handleCreateProject(item.topic)}
+                          >
+                            {creatingTopicSlug === item.topic.slug ? "创建中..." : "确认创建项目"}
+                          </button>
+                        </div>
+                        <div className="workspace-note workspace-note--info">
+                          {buildProjectConfigPreviewLines({
+                            domainPacks: loadState.data.domainPacks,
+                            domainPackKey: projectDrafts[item.topic.slug]?.domain_pack_key ?? null,
+                            toneProfiles: loadState.data.toneProfiles,
+                            toneProfileId: projectDrafts[item.topic.slug]?.preferred_tone_profile_id ?? null,
+                          }).map((line) => (
+                            <p key={line}>{line}</p>
+                          ))}
+                          <p>{`当前选择：${getToneProfileSelectionLabel(
+                            projectDrafts[item.topic.slug]?.preferred_tone_profile_id ?? null,
+                            loadState.data.toneProfiles,
+                          )}`}</p>
+                        </div>
+                      </div>
+                    ) : null}
+                        </>
+                      );
+                    })()}
                   </article>
                 ))}
               </div>
@@ -604,17 +1395,18 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
                       ) : null}
                     </div>
                     {task.backgroundTaskId && taskDetails[task.backgroundTaskId] ? (
-                      <div className="workspace-tag-list">
-                        {buildBackgroundTaskSummaryLines(taskDetails[task.backgroundTaskId] ?? null).map((line) => (
-                          <span key={line} className="workspace-tag">
-                            {line}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    {task.canRetry ? (
-                      <div className="workspace-actions">
-                        <button className="dashboard-button" type="button" onClick={() => void handleRetryTask(task.task_type)}>
+                    <div className="workspace-tag-list">
+                      {buildBackgroundTaskSummaryLines(taskDetails[task.backgroundTaskId] ?? null).map((line) => (
+                        <span key={line} className="workspace-tag">
+                          {line}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {renderBackgroundTaskDiagnostics(task.backgroundTaskId)}
+                  {task.canRetry ? (
+                    <div className="workspace-actions">
+                      <button className="dashboard-button" type="button" onClick={() => void handleRetryTask(task.task_type)}>
                           {getBatchRetryLabel(task.task_type)}
                         </button>
                       </div>
@@ -690,11 +1482,7 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
                       ))}
                     </div>
                   ) : null}
-                  {task.backgroundTaskId && taskDetailErrors[task.backgroundTaskId] ? (
-                    <div className="workspace-note workspace-note--error">
-                      <p>{taskDetailErrors[task.backgroundTaskId]}</p>
-                    </div>
-                  ) : null}
+                  {renderBackgroundTaskDiagnostics(task.backgroundTaskId)}
                   <div className="workspace-actions">
                     {task.canRetry ? (
                       <button

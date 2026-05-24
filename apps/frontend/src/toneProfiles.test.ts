@@ -5,8 +5,10 @@ import {
   buildToneProfileReorderIds,
   buildToneProfileUpdatePayload,
   createToneProfileFormState,
+  getToneProfileSelectionLabel,
   formatVersionToneProfileLabel,
   formatProjectToneProfileLabel,
+  hasProjectToneProfileSelectionChanged,
   pickToneProfileSelectionAfterRemoval,
   pickEditableToneProfile,
   sortToneProfiles,
@@ -180,6 +182,33 @@ test("formatProjectToneProfileLabel shows project binding and falls back to glob
     formatProjectToneProfileLabel({ preferred_tone_profile_name: null }),
     "项目风格：跟随全局",
   );
+});
+
+test("getToneProfileSelectionLabel shows follow-global label and specific profile names", () => {
+  assert.equal(getToneProfileSelectionLabel(null, []), "跟随当前全局风格");
+  assert.equal(
+    getToneProfileSelectionLabel(3, [
+      {
+        id: 3,
+        name: "纪实复盘风",
+        opening_style: "对话开场",
+        paragraph_rhythm: "中短段交错",
+        closing_style: "行动句",
+        forbidden_phrases: [],
+        value_constraints: "不夸大冲突",
+        target_word_count: 1800,
+        is_active: true,
+        sort_order: 1,
+      },
+    ]),
+    "纪实复盘风",
+  );
+});
+
+test("hasProjectToneProfileSelectionChanged compares nullable project binding ids directly", () => {
+  assert.equal(hasProjectToneProfileSelectionChanged({ preferred_tone_profile_id: 2 }, 2), false);
+  assert.equal(hasProjectToneProfileSelectionChanged({ preferred_tone_profile_id: 2 }, null), true);
+  assert.equal(hasProjectToneProfileSelectionChanged({ preferred_tone_profile_id: null }, 3), true);
 });
 
 test("buildToneProfileReorderIds swaps neighboring profiles when moving up or down", () => {

@@ -77,6 +77,44 @@ function buildChecks(baseUrl, projectSlug) {
       markers: ["Sources", "公众号文章导入", "工作边界", "公众号文章导入", "登录状态", "搜索公众号"],
     },
     {
+      name: "pipeline-topics",
+      url: `${baseUrl}/pipeline/topics`,
+      markers: ["Pipeline", "选题队列过渡管理区", "新建原创选题", "去批量建项目"],
+      evaluate(dom) {
+        const hasQueueItems = dom.includes("直接建项目");
+        const hasExpandedProjectConfig =
+          dom.includes("建项目配置") || dom.includes("确认创建项目") || dom.includes("项目赛道");
+        const markerHits = {
+          Pipeline: dom.includes("Pipeline"),
+          "选题队列过渡管理区": dom.includes("选题队列过渡管理区"),
+          "新建原创选题": dom.includes("新建原创选题"),
+          "去批量建项目": dom.includes("去批量建项目"),
+          "直接建项目": hasQueueItems,
+          "全部来源": hasQueueItems ? dom.includes("全部来源") : true,
+          "参考文章": hasQueueItems ? dom.includes("参考文章") : true,
+          "全选当前筛选": hasQueueItems ? dom.includes("全选当前筛选") : true,
+          "批量废弃": hasQueueItems ? dom.includes("批量废弃") : true,
+          "项目赛道": hasExpandedProjectConfig ? dom.includes("项目赛道") : true,
+          "项目风格": hasExpandedProjectConfig ? dom.includes("项目风格") : true,
+          "跟随当前全局风格": hasExpandedProjectConfig ? dom.includes("跟随当前全局风格") : true,
+        };
+
+        return {
+          markerHits,
+          passed:
+            markerHits.Pipeline &&
+            markerHits["选题队列过渡管理区"] &&
+            markerHits["新建原创选题"] &&
+            markerHits["去批量建项目"] &&
+            markerHits["全部来源"] &&
+            markerHits["参考文章"] &&
+            markerHits["全选当前筛选"] &&
+            markerHits["批量废弃"] &&
+            (!hasQueueItems || (markerHits["项目赛道"] && markerHits["项目风格"] && markerHits["跟随当前全局风格"])),
+        };
+      },
+    },
+    {
       name: "pipeline-tasks",
       url: `${baseUrl}/pipeline/tasks`,
       markers: ["Pipeline", "Task Log", "任务日志与失败归位", "异步任务日志", "回到批量运行", "失败"],
@@ -94,12 +132,23 @@ function buildChecks(baseUrl, projectSlug) {
     {
       name: "workbench-publish",
       url: `${baseUrl}/projects/${projectSlug}/workbench/publish`,
-      markers: ["Workbench", "Publish", "当前阶段", "历史版本", "推荐阶段", "复盘"],
+      markers: ["Workbench", "Publish", "当前阶段", "历史版本", "推荐阶段", "切换赛道/风格"],
     },
     {
       name: "settings-tone-profiles",
       url: `${baseUrl}/settings/tone-profiles`,
-      markers: ["Settings", "Tone Profiles", "风格列表", "当前激活", "新建风格", "保存修改"],
+      markers: [
+        "Settings",
+        "Tone Profiles",
+        "风格列表",
+        "当前激活",
+        "新建风格",
+        "保存修改",
+        "赛道模板",
+        "默认赛道",
+        "阶段模板",
+        "选题生成",
+      ],
     },
   ];
 }
@@ -140,14 +189,19 @@ function runCheck(edgePath, check, timeoutMs) {
   try {
     const rawDom = dumpDom(edgePath, check.url, timeoutMs);
     const dom = normalizeDom(rawDom);
-    const markerHits = Object.fromEntries(check.markers.map((marker) => [marker, dom.includes(marker)]));
-    const passed = Object.values(markerHits).every(Boolean);
+    const evaluation =
+      typeof check.evaluate === "function"
+        ? check.evaluate(dom)
+        : {
+            markerHits: Object.fromEntries(check.markers.map((marker) => [marker, dom.includes(marker)])),
+            passed: check.markers.every((marker) => dom.includes(marker)),
+          };
 
     return {
       name: check.name,
       url: check.url,
-      passed,
-      markers: markerHits,
+      passed: evaluation.passed,
+      markers: evaluation.markerHits,
     };
   } catch (error) {
     return {

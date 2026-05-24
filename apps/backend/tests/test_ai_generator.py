@@ -11,6 +11,8 @@ from app.services.ai_generator import (
     OpenAIWorkbenchGenerator,
     OutlineGenerationResult,
     TopicGenerationResult,
+    get_ai_config_summary,
+    run_ai_config_check,
 )
 
 
@@ -56,6 +58,9 @@ def test_generate_outline_prompt_mentions_target_word_count(monkeypatch) -> None
     assert "目标字数：1400" in captured["prompt"]
     assert "按目标字数规划篇幅" in captured["prompt"]
     assert "避免在大纲阶段写得过满" in captured["prompt"]
+    assert "风格档案：女性成长克制陪伴风" in captured["prompt"]
+    assert "开篇方式：从具体场景冷启动切入" in captured["prompt"]
+    assert "禁用表达：你必须 / 立刻改变" in captured["prompt"]
 
 
 def test_generate_draft_prompt_mentions_target_word_count_with_tolerance(monkeypatch) -> None:
@@ -94,6 +99,9 @@ def test_generate_draft_prompt_mentions_target_word_count_with_tolerance(monkeyp
     assert "目标字数：1400" in captured["prompt"]
     assert "上下浮动 10% 到 15%" in captured["prompt"]
     assert "如果明显超出目标字数" in captured["prompt"]
+    assert "段落节奏：短段落，慢推进" in captured["prompt"]
+    assert "收束方式：留白式收束" in captured["prompt"]
+    assert "价值约束：不说教，不制造羞耻感，避免空泛鸡汤" in captured["prompt"]
 
 
 def test_generate_draft_prompt_includes_polish_instruction_and_existing_draft(monkeypatch) -> None:
@@ -219,6 +227,7 @@ def test_generate_topic_supports_tracked_article_payload(monkeypatch) -> None:
     assert "基于参考文章提炼出一个可直接立项的女性情感成长类原创选题" in captured["instructions"]
     assert "参考文章标题：听到伴侣说话就烦" in captured["prompt"]
     assert "来源账号：未知公众号" in captured["prompt"]
+    assert "风格档案：女性成长克制陪伴风" in captured["prompt"]
 
 
 def test_generator_passes_configured_timeout_to_openai_client(monkeypatch) -> None:
@@ -272,10 +281,12 @@ def test_generate_cover_image_uses_low_quality_variant_first(monkeypatch) -> Non
     )
 
     assert result == b"fake-png-bytes"
-    assert captured["size"] == "1024x1024"
+    assert captured["size"] == "1536x1024"
     assert captured["quality"] == "low"
     assert captured["output_format"] == "png"
     assert captured["timeout"] == 180.0
+    assert "21:9" in str(captured["prompt"])
+    assert "横版封面图" in str(captured["prompt"])
 
 
 def test_generate_cover_image_retries_with_second_variant_after_timeout(monkeypatch) -> None:
@@ -306,9 +317,94 @@ def test_generate_cover_image_retries_with_second_variant_after_timeout(monkeypa
 
     assert result == b"second-variant"
     assert len(calls) == 2
-    assert calls[0]["size"] == "1024x1024"
+    assert calls[0]["size"] == "1536x1024"
     assert calls[0]["quality"] == "low"
     assert calls[0]["timeout"] == 180.0
-    assert calls[1]["size"] == "1536x1024"
+    assert calls[1]["size"] == "1024x1024"
     assert calls[1]["quality"] == "low"
     assert calls[1]["timeout"] == 240.0
+
+
+def test_get_ai_config_summary_masks_secret_but_reports_runtime_fields() -> None:
+    summary = get_ai_config_summary(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://example.com/v1",
+            openai_model="test-model",
+            openai_image_model="test-image-model",
+            openai_reasoning_effort="medium",
+            openai_request_timeout_seconds=45.0,
+        )
+    )
+
+    assert summary.api_key_configured is True
+    assert summary.base_url == "https://example.com/v1"
+    assert summary.model == "test-model"
+    assert summary.image_model == "test-image-model"
+    assert summary.reasoning_effort == "medium"
+    assert summary.request_timeout_seconds == 45.0
+
+
+def test_run_ai_config_check_returns_success_when_probe_passes(monkeypatch) -> None:
+    generator = build_generator()
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+
+            class FakeResponse:
+                output_text = "OK"
+
+            return FakeResponse()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", lambda config: generator)
+
+    result = run_ai_config_check(
+        Settings(
+            openai_api_key="test-key",
+            openai_model="test-model",
+            openai_image_model="test-image-model",
+            openai_reasoning_effort="medium",
+        )
+    )
+
+    assert result.ok is True
+    assert result.status == "ok"
+    assert "检测通过" in result.message
+    assert captured["model"] == "test-model"
+    assert captured["input"] == "Reply with exactly OK."
+    assert captured["max_output_tokens"] == 8
+    assert captured["reasoning"] == {"effort": "medium"}
+
+
+def test_run_ai_config_check_surfaces_upstream_failures(monkeypatch) -> None:
+    request = httpx.Request("POST", "https://example.com/v1/responses")
+    response = httpx.Response(502, request=request, json={"error": {"message": "Upstream service temporarily unavailable"}})
+
+    class FailingGenerator:
+        def __init__(self, _config) -> None:
+            pass
+
+        def check_connection(self) -> None:
+            raise openai.InternalServerError(
+                "Upstream service temporarily unavailable",
+                response=response,
+                body={"error": {"message": "Upstream service temporarily unavailable"}},
+            )
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", FailingGenerator)
+
+    result = run_ai_config_check(
+        Settings(
+            openai_api_key="test-key",
+            openai_model="test-model",
+            openai_image_model="test-image-model",
+        )
+    )
+
+    assert result.ok is False
+    assert result.status == "upstream_error"
+    assert "上游服务异常" in result.message
+    assert "Upstream service temporarily unavailable" in result.message

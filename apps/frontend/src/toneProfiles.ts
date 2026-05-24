@@ -81,6 +81,24 @@ export function formatProjectToneProfileLabel(project: { preferred_tone_profile_
     : "项目风格：跟随全局";
 }
 
+export function getToneProfileSelectionLabel(
+  toneProfileId: number | null,
+  toneProfiles: Array<{ id: number; name: string }>,
+): string {
+  if (toneProfileId == null) {
+    return "跟随当前全局风格";
+  }
+
+  return toneProfiles.find((profile) => profile.id === toneProfileId)?.name ?? "所选风格";
+}
+
+export function hasProjectToneProfileSelectionChanged(
+  project: { preferred_tone_profile_id: number | null },
+  nextToneProfileId: number | null,
+): boolean {
+  return project.preferred_tone_profile_id !== nextToneProfileId;
+}
+
 export function pickToneProfileSelectionAfterRemoval(
   profiles: ToneProfileItem[],
   removedProfileId: number,
