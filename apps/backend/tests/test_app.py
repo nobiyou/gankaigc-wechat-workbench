@@ -208,6 +208,82 @@ def test_convert_trend_to_topic_creates_pending_topic() -> None:
     assert topics[0]["slug"] == "office-burnout-recovery-checklist"
 
 
+def test_create_manual_topic_enters_topic_queue_with_manual_source() -> None:
+    existing_topics = client.get("/api/topics").json()
+    matching_count = sum(1 for topic in existing_topics if topic["slug"].startswith("midnight-emotion-repair-manual-"))
+    slug = f"midnight-emotion-repair-manual-{matching_count + 1}"
+
+    response = client.post(
+        "/api/topics",
+        json={
+            "slug": slug,
+            "title": "深夜情绪回稳，不是忍住，而是先把自己接回来",
+            "angle": "原创灵感",
+        },
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["slug"] == slug
+    assert payload["trend_slug"] is None
+    assert payload["source_type"] == "manual"
+    assert payload["source_ref_slug"] == slug
+    assert payload["status"] == "pending"
+
+    topic_list = client.get("/api/topics")
+    assert topic_list.status_code == 200
+    topics = topic_list.json()
+    assert topics[0]["slug"] == slug
+
+
+def test_manual_topic_projects_use_manual_source_context_for_outline_generation(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("outline", payload))
+            return {"hook": "从一次深夜情绪回稳切入", "outline_body": "1. 情绪现场\n2. 自我接住\n3. 回到行动"}
+
+    existing_topics = client.get("/api/topics").json()
+    matching_count = sum(1 for topic in existing_topics if topic["slug"].startswith("manual-outline-topic-"))
+    topic_slug = f"manual-outline-topic-{matching_count + 1}"
+    project_slug = f"{topic_slug}-project"
+
+    create_topic_response = client.post(
+        "/api/topics",
+        json={
+            "slug": topic_slug,
+            "title": "深夜情绪回稳，不是忍住，而是先把自己接回来",
+            "angle": "原创灵感",
+        },
+    )
+    assert create_topic_response.status_code == 201
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    create_project_response = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={
+            "slug": project_slug,
+            "title": "原创情绪回稳项目",
+            "owner": "editorial",
+        },
+    )
+    assert create_project_response.status_code == 201
+
+    outline_response = client.post(f"/api/projects/{project_slug}/generate-outline")
+    assert outline_response.status_code == 201
+    assert outline_response.json()["hook"] == "从一次深夜情绪回稳切入"
+
+    assert len(fake_generator.calls) == 1
+    call_type, call_payload = fake_generator.calls[0]
+    assert call_type == "outline"
+    assert call_payload["trend_title"] == "原创选题 / 手动录入"
+    assert call_payload["topic_title"] == "深夜情绪回稳，不是忍住，而是先把自己接回来"
+    assert call_payload["topic_angle"] == "原创灵感"
+
+
 def test_generate_topic_from_trend_uses_ai_and_persists(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:
@@ -449,20 +525,23 @@ def test_create_project_from_topic_and_advance_stage() -> None:
             "slug": "relationship-boundary-reset-delivery",
             "title": "关系边界重设交付稿",
             "owner": "editorial",
+            "domain_pack_key": "relationship-repair",
         },
     )
     assert create_response.status_code == 201
     project = create_response.json()
     assert project["topic_slug"] == "relationship-boundary-reset-playbook"
     assert project["stage"] == "outline"
+    assert project["domain_pack_key"] == "relationship-repair"
 
     update_response = client.patch(
         "/api/projects/relationship-boundary-reset-delivery",
-        json={"stage": "draft_ready"},
+        json={"stage": "draft_ready", "domain_pack_key": "workplace-growth"},
     )
     assert update_response.status_code == 200
     updated = update_response.json()
     assert updated["stage"] == "draft_ready"
+    assert updated["domain_pack_key"] == "workplace-growth"
 
     dashboard_response = client.get("/api/dashboard/summary")
     assert dashboard_response.status_code == 200
@@ -528,61 +607,72 @@ def test_project_can_bind_tone_profile_and_generation_prefers_project_binding(mo
             "title": "关系边界重设绑定风格项目",
             "owner": "editorial",
             "preferred_tone_profile_id": bound_profile["id"],
+            "domain_pack_key": "relationship-repair",
         },
     )
     assert project_create_response.status_code == 201
     created_project = project_create_response.json()
     assert created_project["preferred_tone_profile_id"] == bound_profile["id"]
     assert created_project["preferred_tone_profile_name"] == "项目专属纪实风"
+    assert created_project["domain_pack_key"] == "relationship-repair"
 
     outline_response = client.post("/api/projects/relationship-boundary-reset-bound-tone/generate-outline")
     assert outline_response.status_code == 201
     first_outline_call = fake_generator.calls[0]
     assert first_outline_call[1]["tone_profile"]["name"] == "项目专属纪实风"
+    assert first_outline_call[1]["domain_pack"]["key"] == "relationship-repair"
 
     draft_response = client.post("/api/projects/relationship-boundary-reset-bound-tone/generate-draft")
     assert draft_response.status_code == 201
     first_draft_call = next(call for call in fake_generator.calls if call[0] == "draft")
     assert first_draft_call[1]["tone_profile"]["name"] == "项目专属纪实风"
+    assert first_draft_call[1]["domain_pack"]["key"] == "relationship-repair"
 
     assets_response = client.post("/api/projects/relationship-boundary-reset-bound-tone/generate-assets")
     assert assets_response.status_code == 201
     first_assets_call = next(call for call in fake_generator.calls if call[0] == "assets")
     assert first_assets_call[1]["tone_profile"]["name"] == "项目专属纪实风"
+    assert first_assets_call[1]["domain_pack"]["key"] == "relationship-repair"
 
     publish_package_response = client.post("/api/projects/relationship-boundary-reset-bound-tone/build-publish-package")
     assert publish_package_response.status_code == 201
     first_publish_package_call = next(call for call in fake_generator.calls if call[0] == "publish_package")
     assert first_publish_package_call[1]["tone_profile"]["name"] == "项目专属纪实风"
+    assert first_publish_package_call[1]["domain_pack"]["key"] == "relationship-repair"
 
     patch_response = client.patch(
         "/api/projects/relationship-boundary-reset-bound-tone",
-        json={"stage": "outline", "preferred_tone_profile_id": None},
+        json={"stage": "outline", "preferred_tone_profile_id": None, "domain_pack_key": None},
     )
     assert patch_response.status_code == 200
     patched_project = patch_response.json()
     assert patched_project["preferred_tone_profile_id"] is None
     assert patched_project["preferred_tone_profile_name"] is None
+    assert patched_project["domain_pack_key"] is None
 
     second_outline_response = client.post("/api/projects/relationship-boundary-reset-bound-tone/generate-outline")
     assert second_outline_response.status_code == 201
     second_outline_call = [call for call in fake_generator.calls if call[0] == "outline"][-1]
     assert second_outline_call[1]["tone_profile"]["name"] == "女性成长克制陪伴风"
+    assert second_outline_call[1]["domain_pack"]["key"] == "women-growth"
 
     second_draft_response = client.post("/api/projects/relationship-boundary-reset-bound-tone/generate-draft")
     assert second_draft_response.status_code == 201
     second_draft_call = [call for call in fake_generator.calls if call[0] == "draft"][-1]
     assert second_draft_call[1]["tone_profile"]["name"] == "女性成长克制陪伴风"
+    assert second_draft_call[1]["domain_pack"]["key"] == "women-growth"
 
     second_assets_response = client.post("/api/projects/relationship-boundary-reset-bound-tone/generate-assets")
     assert second_assets_response.status_code == 201
     second_assets_call = [call for call in fake_generator.calls if call[0] == "assets"][-1]
     assert second_assets_call[1]["tone_profile"]["name"] == "女性成长克制陪伴风"
+    assert second_assets_call[1]["domain_pack"]["key"] == "women-growth"
 
     second_publish_package_response = client.post("/api/projects/relationship-boundary-reset-bound-tone/build-publish-package")
     assert second_publish_package_response.status_code == 201
     second_publish_package_call = [call for call in fake_generator.calls if call[0] == "publish_package"][-1]
     assert second_publish_package_call[1]["tone_profile"]["name"] == "女性成长克制陪伴风"
+    assert second_publish_package_call[1]["domain_pack"]["key"] == "women-growth"
 
 
 def test_tone_profiles_can_be_updated_and_are_applied_to_generation(monkeypatch) -> None:
@@ -790,9 +880,17 @@ def test_generated_versions_record_tone_profile_metadata_and_restore_preserves_i
     versions_response = client.get("/api/projects/office-burnout-recovery-weekly/versions")
     assert versions_response.status_code == 200
     versions = versions_response.json()
+    assert versions["outlines"][0]["created_at"]
+    assert versions["outlines"][0]["origin"] == "generate"
     assert versions["outlines"][0]["tone_profile_name"] == "纪实关系复盘风"
+    assert versions["drafts"][0]["created_at"]
+    assert versions["drafts"][0]["origin"] == "generate"
     assert versions["drafts"][0]["tone_profile_name"] == "纪实关系复盘风"
+    assert versions["assets"][0]["created_at"]
+    assert versions["assets"][0]["origin"] == "generate"
     assert versions["assets"][0]["tone_profile_name"] == "纪实关系复盘风"
+    assert versions["publish_packages"][0]["created_at"]
+    assert versions["publish_packages"][0]["origin"] == "generate"
     assert versions["publish_packages"][0]["tone_profile_name"] == "纪实关系复盘风"
 
     default_profile = next(profile for profile in client.get("/api/tone-profiles").json() if profile["name"] == "女性成长克制陪伴风")
@@ -802,8 +900,204 @@ def test_generated_versions_record_tone_profile_metadata_and_restore_preserves_i
     restored_outline_response = client.post("/api/projects/office-burnout-recovery-weekly/restore-outline/1")
     assert restored_outline_response.status_code == 201
     restored_outline = restored_outline_response.json()
+    assert restored_outline["created_at"]
+    assert restored_outline["origin"] == "restore"
     assert restored_outline["tone_profile_id"] == created_profile["id"]
     assert restored_outline["tone_profile_name"] == "纪实关系复盘风"
+
+
+def test_initialize_store_backfills_missing_version_metadata_from_task_logs() -> None:
+    with workbench._get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO outlines (
+                project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "office-burnout-recovery-weekly",
+                1,
+                "hook v1",
+                "outline v1",
+                None,
+                None,
+                None,
+                "女性成长克制陪伴风",
+            ),
+        )
+        connection.executemany(
+            """
+            INSERT INTO drafts (
+                project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "office-burnout-recovery-weekly",
+                    1,
+                    1,
+                    "draft v1",
+                    "# draft v1",
+                    100,
+                    None,
+                    None,
+                    None,
+                    "女性成长克制陪伴风",
+                ),
+                (
+                    "office-burnout-recovery-weekly",
+                    1,
+                    2,
+                    "draft v2",
+                    "# draft v2",
+                    120,
+                    None,
+                    None,
+                    None,
+                    "女性成长克制陪伴风",
+                ),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO assets (
+                project_slug, draft_version, version, title_options, cover_prompt, cover_copy, social_teaser,
+                cover_image_path, cover_image_url, created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "office-burnout-recovery-weekly",
+                    1,
+                    1,
+                    '["title v1"]',
+                    "prompt v1",
+                    "copy v1",
+                    "teaser v1",
+                    "",
+                    "",
+                    None,
+                    None,
+                    None,
+                    "女性成长克制陪伴风",
+                ),
+                (
+                    "office-burnout-recovery-weekly",
+                    2,
+                    2,
+                    '["title v2"]',
+                    "prompt v2",
+                    "copy v2",
+                    "teaser v2",
+                    "",
+                    "",
+                    None,
+                    None,
+                    None,
+                    "女性成长克制陪伴风",
+                ),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO publish_packages (
+                project_slug, draft_version, assets_version, version, abstract, tags, publish_checklist, editor_note,
+                markdown_path, markdown_url, manifest_path, manifest_url, status, review_comment, reviewed_by, reviewed_at,
+                created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "office-burnout-recovery-weekly",
+                    1,
+                    1,
+                    1,
+                    "abstract v1",
+                    '["tag-v1"]',
+                    '["check-v1"]',
+                    "note v1",
+                    "v1.md",
+                    "/v1.md",
+                    "v1.json",
+                    "/v1.json",
+                    "needs_revision",
+                    "需要加强开头",
+                    "ops",
+                    "2026-05-24T01:04:00Z",
+                    None,
+                    None,
+                    None,
+                    "女性成长克制陪伴风",
+                ),
+                (
+                    "office-burnout-recovery-weekly",
+                    2,
+                    2,
+                    2,
+                    "abstract v2",
+                    '["tag-v2"]',
+                    '["check-v2"]',
+                    "note v2",
+                    "v2.md",
+                    "/v2.md",
+                    "v2.json",
+                    "/v2.json",
+                    "ready",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "女性成长克制陪伴风",
+                ),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO task_logs (task_type, status, entity_slug, entity_type, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                ("outline_generation", "done", "office-burnout-recovery-weekly", "project", "2026-05-24T01:00:00Z"),
+                ("draft_generation", "done", "office-burnout-recovery-weekly", "project", "2026-05-24T01:01:00Z"),
+                ("assets_generation", "done", "office-burnout-recovery-weekly", "project", "2026-05-24T01:02:00Z"),
+                ("publish_package_built", "done", "office-burnout-recovery-weekly", "project", "2026-05-24T01:03:00Z"),
+                ("publish_review", "needs_revision", "office-burnout-recovery-weekly", "project", "2026-05-24T01:04:00Z"),
+                ("draft_generation", "done", "office-burnout-recovery-weekly", "project", "2026-05-24T01:05:00Z"),
+                ("assets_generation", "done", "office-burnout-recovery-weekly", "project", "2026-05-24T01:06:00Z"),
+                ("publish_package_built", "done", "office-burnout-recovery-weekly", "project", "2026-05-24T01:07:00Z"),
+            ],
+        )
+        connection.commit()
+
+    workbench.initialize_store()
+
+    versions_response = client.get("/api/projects/office-burnout-recovery-weekly/versions")
+    assert versions_response.status_code == 200
+    versions = versions_response.json()
+
+    assert versions["outlines"][0]["created_at"] == "2026-05-24T01:00:00Z"
+    assert versions["outlines"][0]["origin"] == "generate"
+
+    assert versions["drafts"][1]["created_at"] == "2026-05-24T01:01:00Z"
+    assert versions["drafts"][1]["origin"] == "generate"
+    assert versions["drafts"][0]["created_at"] == "2026-05-24T01:05:00Z"
+    assert versions["drafts"][0]["origin"] == "review_regeneration"
+
+    assert versions["assets"][1]["created_at"] == "2026-05-24T01:02:00Z"
+    assert versions["assets"][1]["origin"] == "generate"
+    assert versions["assets"][0]["created_at"] == "2026-05-24T01:06:00Z"
+    assert versions["assets"][0]["origin"] == "review_regeneration"
+
+    assert versions["publish_packages"][1]["created_at"] == "2026-05-24T01:03:00Z"
+    assert versions["publish_packages"][1]["origin"] == "generate"
+    assert versions["publish_packages"][0]["created_at"] == "2026-05-24T01:07:00Z"
+    assert versions["publish_packages"][0]["origin"] == "review_regeneration"
 
 
 def test_tone_profiles_support_copy_delete_and_reorder() -> None:

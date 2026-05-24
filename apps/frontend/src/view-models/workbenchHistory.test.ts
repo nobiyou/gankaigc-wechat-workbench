@@ -62,6 +62,39 @@ test("buildWorkbenchHistoryEntries maps stage-specific version history into cont
   assert.deepEqual(draftEntries.map((entry) => entry.reviewState), [null, null]);
 });
 
+test("buildWorkbenchHistoryEntries attaches readable meta lines for timestamps and origins", () => {
+  const entries = buildWorkbenchHistoryEntries({
+    stage: "draft",
+    currentVersionNumber: 2,
+    versions: {
+      project_slug: "demo-project",
+      outlines: [],
+      drafts: [
+        {
+          project_slug: "demo-project",
+          outline_version: 1,
+          version: 2,
+          title: "第二版初稿",
+          body_markdown: "# v2",
+          word_count: 1680,
+          tone_profile_id: null,
+          tone_profile_name: "女性成长克制陪伴风",
+          created_at: "2026-05-24T08:30:00Z",
+          origin: "polish",
+        },
+      ],
+      assets: [],
+      publish_packages: [],
+    },
+  });
+
+  assert.deepEqual(entries[0]?.meta, [
+    "时间：5/24 16:30",
+    "来源：精修生成",
+    "风格：女性成长克制陪伴风",
+  ]);
+});
+
 test("buildWorkbenchHistoryEntries returns empty history for stages without persisted versions", () => {
   const entries = buildWorkbenchHistoryEntries({
     stage: "topic",
@@ -105,6 +138,8 @@ test("buildWorkbenchHistoryEntries renders readable publish review states", () =
           review_comment: null,
           reviewed_by: null,
           reviewed_at: null,
+          created_at: "2026-05-20T02:00:00Z",
+          origin: "generate",
           tone_profile_id: null,
           tone_profile_name: null,
         },
@@ -125,6 +160,8 @@ test("buildWorkbenchHistoryEntries renders readable publish review states", () =
           review_comment: "需要加强开头",
           reviewed_by: "ops",
           reviewed_at: "2026-05-20T01:00:00Z",
+          created_at: "2026-05-20T04:30:00Z",
+          origin: "review_regeneration",
           tone_profile_id: null,
           tone_profile_name: null,
         },
@@ -145,6 +182,8 @@ test("buildWorkbenchHistoryEntries renders readable publish review states", () =
           review_comment: "可以发布",
           reviewed_by: "chief-editor",
           reviewed_at: "2026-05-19T01:00:00Z",
+          created_at: "2026-05-19T01:10:00Z",
+          origin: "generate",
           tone_profile_id: null,
           tone_profile_name: null,
         },
@@ -160,6 +199,9 @@ test("buildWorkbenchHistoryEntries renders readable publish review states", () =
     entries.map((entry) => entry.restorable),
     [false, true, true],
   );
+  assert.deepEqual(entries[1]?.meta.includes("来源：按审核意见重生成"), true);
+  assert.deepEqual(entries[1]?.meta.includes("审核意见：需要加强开头"), true);
+  assert.deepEqual(entries[2]?.meta.includes("审核意见：可以发布"), true);
 });
 
 test("buildWorkbenchHistoryEntries truncates long publish summaries while preserving full text", () => {

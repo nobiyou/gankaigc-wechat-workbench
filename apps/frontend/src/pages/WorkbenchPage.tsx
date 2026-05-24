@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useParams } from "react-router-dom";
 
@@ -5,8 +6,10 @@ import {
   approvePublishPackage,
   fetchBackgroundTask,
   buildPublishPackage,
+  fetchDomainPacks,
   fetchProjectDetail,
   fetchProjectVersions,
+  fetchToneProfiles,
   generateAssets,
   generateDraft,
   generateOutline,
@@ -18,23 +21,30 @@ import {
   restoreDraftVersion,
   restoreOutlineVersion,
   restorePublishPackageVersion,
+  updateProject,
   type BackgroundTaskDetail,
   type BackgroundTaskSubmission,
+  type DomainPackSummary,
   type ProjectDetail,
   type ProjectRetroCreatePayload,
+  type ToneProfileItem,
   type ProjectVersions,
 } from "../api/workbench";
 import { WORKBENCH_STAGES, type WorkbenchStage } from "../app/navigation";
+import { formatProjectDomainPackLabel } from "../domainPacks";
+import { buildProjectConfigPreviewLines } from "../projectConfigPreview";
 import { formatProjectChainStateLabel, formatProjectNextStepLabel } from "../projectStatus";
 import { buildRetroDraft } from "../retroDraft";
+import { formatProjectToneProfileLabel, hasProjectToneProfileSelectionChanged } from "../toneProfiles";
 import { buildWorkbenchActionPlan, type WorkbenchActionKind } from "../view-models/workbenchActions";
 import { buildWorkbenchHistoryEntries, buildWorkbenchHistoryGroups, formatPublishStatusLabel } from "../view-models/workbenchHistory";
+import { buildWorkbenchPreview } from "../view-models/workbenchPreview";
 import { buildWorkbenchStageViews, resolveRecommendedWorkbenchStage } from "../view-models/workbenchStages";
 
 type WorkbenchLoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; detail: ProjectDetail; versions: ProjectVersions };
+  | { status: "ready"; detail: ProjectDetail; versions: ProjectVersions; domainPacks: DomainPackSummary[]; toneProfiles: ToneProfileItem[] };
 
 function buildStageContent(stage: WorkbenchStage, detail: ProjectDetail): { title: string; body: string; meta: string[] } {
   if (stage === "topic") {
@@ -125,6 +135,96 @@ function formatBackgroundTaskStatusLabel(status?: string | null): string {
   return "未知";
 }
 
+function renderSimpleMarkdown(markdown: string): ReactNode {
+  const lines = markdown.split("\n");
+  const nodes: React.ReactNode[] = [];
+  let listItems: string[] = [];
+
+  function flushList() {
+    if (listItems.length === 0) {
+      return;
+    }
+
+    nodes.push(
+      <ol key={`list-${nodes.length}`} className="workbench-markdown__list">
+        {listItems.map((item, index) => (
+          <li key={`${item}-${index}`}>{item}</li>
+        ))}
+      </ol>,
+    );
+    listItems = [];
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushList();
+      continue;
+    }
+
+    const orderedMatch = line.match(/^\d+[.)、]\s+(.*)$/);
+    if (orderedMatch) {
+      listItems.push(orderedMatch[1]);
+      continue;
+    }
+
+    flushList();
+
+    if (line.startsWith("### ")) {
+      nodes.push(
+        <h5 key={`h5-${nodes.length}`} className="workbench-markdown__heading workbench-markdown__heading--sm">
+          {line.slice(4)}
+        </h5>,
+      );
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      nodes.push(
+        <h4 key={`h4-${nodes.length}`} className="workbench-markdown__heading">
+          {line.slice(3)}
+        </h4>,
+      );
+      continue;
+    }
+
+    if (line.startsWith("# ")) {
+      nodes.push(
+        <h3 key={`h3-${nodes.length}`} className="workbench-markdown__heading workbench-markdown__heading--lg">
+          {line.slice(2)}
+        </h3>,
+      );
+      continue;
+    }
+
+    nodes.push(
+      <p key={`p-${nodes.length}`} className="workbench-markdown__paragraph">
+        {line}
+      </p>,
+    );
+  }
+
+  flushList();
+  return nodes;
+}
+
+function renderPreviewBlockBody(block: { content: string; kind?: "text" | "markdown" | "image"; imageUrl?: string }): ReactNode {
+  if (block.kind === "image" && block.imageUrl) {
+    return (
+      <figure className="workbench-preview__image-frame">
+        <img src={block.imageUrl} alt="生成的封面图" className="workbench-preview__image" />
+      </figure>
+    );
+  }
+
+  if (block.kind === "markdown") {
+    return <div className="workbench-preview__body workbench-markdown">{renderSimpleMarkdown(block.content)}</div>;
+  }
+
+  return <pre className="workbench-preview__body">{block.content}</pre>;
+}
+
 export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
   const { projectSlug } = useParams<{ projectSlug: string }>();
   const [loadState, setLoadState] = useState<WorkbenchLoadState>({ status: "loading" });
@@ -136,6 +236,10 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
   const [reviewComment, setReviewComment] = useState("");
   const [retroDraft, setRetroDraft] = useState(() => buildRetroDraft(null));
   const [expandedHistoryVersions, setExpandedHistoryVersions] = useState<number[]>([]);
+  const [isConfigExpanded, setIsConfigExpanded] = useState(false);
+  const [domainPackDraft, setDomainPackDraft] = useState("");
+  const [toneProfileDraft, setToneProfileDraft] = useState("");
+  const [savingConfig, setSavingConfig] = useState(false);
   const historySectionRef = useRef<HTMLElement | null>(null);
   const [activeBackgroundTask, setActiveBackgroundTask] = useState<{
     submission: BackgroundTaskSubmission;
@@ -152,11 +256,13 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     let isCancelled = false;
     setLoadState({ status: "loading" });
 
-    Promise.all([fetchProjectDetail(projectSlug), fetchProjectVersions(projectSlug)])
-      .then(([detail, versions]) => {
+    Promise.all([fetchProjectDetail(projectSlug), fetchProjectVersions(projectSlug), fetchDomainPacks(), fetchToneProfiles()])
+      .then(([detail, versions, domainPacks, toneProfiles]) => {
         if (!isCancelled) {
-          setLoadState({ status: "ready", detail, versions });
+          setLoadState({ status: "ready", detail, versions, domainPacks, toneProfiles });
           setRetroDraft(buildRetroDraft(detail.retro));
+          setDomainPackDraft(detail.project.domain_pack_key ?? "");
+          setToneProfileDraft(detail.project.preferred_tone_profile_id == null ? "" : String(detail.project.preferred_tone_profile_id));
         }
       })
       .catch((error: unknown) => {
@@ -299,11 +405,46 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     detail: loadState.detail,
     historyEntryCount: historyEntries.length,
   });
+  const preview = buildWorkbenchPreview(stage, loadState.detail);
+  const nextToneProfileId = toneProfileDraft ? Number.parseInt(toneProfileDraft, 10) : null;
+  const hasConfigChanged =
+    (loadState.detail.project.domain_pack_key ?? "") !== domainPackDraft ||
+    hasProjectToneProfileSelectionChanged(loadState.detail.project, nextToneProfileId);
 
   async function reloadWorkbench(projectSlugValue: string) {
-    const [detail, versions] = await Promise.all([fetchProjectDetail(projectSlugValue), fetchProjectVersions(projectSlugValue)]);
-    setLoadState({ status: "ready", detail, versions });
+    const [detail, versions, domainPacks, toneProfiles] = await Promise.all([
+      fetchProjectDetail(projectSlugValue),
+      fetchProjectVersions(projectSlugValue),
+      fetchDomainPacks(),
+      fetchToneProfiles(),
+    ]);
+    setLoadState({ status: "ready", detail, versions, domainPacks, toneProfiles });
     setRetroDraft(buildRetroDraft(detail.retro));
+    setDomainPackDraft(detail.project.domain_pack_key ?? "");
+    setToneProfileDraft(detail.project.preferred_tone_profile_id == null ? "" : String(detail.project.preferred_tone_profile_id));
+  }
+
+  async function handleSaveProjectConfig() {
+    if (!projectSlug || loadState.status !== "ready") {
+      return;
+    }
+
+    try {
+      setSavingConfig(true);
+      setActionError(null);
+      setActionMessage(null);
+      await updateProject(projectSlug, {
+        stage: loadState.detail.project.stage,
+        domain_pack_key: domainPackDraft || null,
+        preferred_tone_profile_id: nextToneProfileId,
+      });
+      await reloadWorkbench(projectSlug);
+      setActionMessage("已更新当前项目的赛道和风格配置。");
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "保存项目配置失败。");
+    } finally {
+      setSavingConfig(false);
+    }
   }
 
   async function runAction(actionKind: WorkbenchActionKind, versionNumber?: number) {
@@ -405,14 +546,80 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
           <p className="workbench-shell__description">
             单项目工作台聚焦内容链路各阶段，把历史和审核留在当前阶段语境里。
           </p>
+          <div className="workspace-tag-list">
+            <span className="workspace-tag">{formatProjectDomainPackLabel(loadState.detail.project, loadState.domainPacks)}</span>
+            <span className="workspace-tag">{formatProjectToneProfileLabel(loadState.detail.project)}</span>
+          </div>
         </div>
         <div className="workbench-shell__header-actions">
           <span className="workspace-pill">推荐阶段：{recommendedStage}</span>
+          <button
+            className="dashboard-button dashboard-button--ghost"
+            type="button"
+            onClick={() => setIsConfigExpanded((current) => !current)}
+          >
+            {isConfigExpanded ? "收起项目配置" : "切换赛道/风格"}
+          </button>
           <Link className="workbench-shell__backlink" to="/projects">
             返回项目列表
           </Link>
         </div>
       </header>
+
+      {isConfigExpanded ? (
+        <section className="workspace-subsection workspace-project-config-panel workbench-shell__config-panel">
+          <div className="workspace-section__header">
+            <div>
+              <p className="workspace-section__eyebrow">项目配置</p>
+              <h4>当前项目的赛道与风格</h4>
+              <p className="workspace-section__description">这里的切换只影响当前项目后续生成，不会改动全局默认风格。</p>
+            </div>
+          </div>
+          <div className="workspace-actions workspace-actions--row workspace-actions--project-config">
+            <label className="workspace-search workspace-search--compact">
+              <span>项目赛道</span>
+              <select className="workspace-select" value={domainPackDraft} onChange={(event) => setDomainPackDraft(event.target.value)}>
+                <option value="">跟随默认赛道</option>
+                {loadState.domainPacks.map((pack) => (
+                  <option key={pack.key} value={pack.key}>
+                    {pack.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="workspace-search workspace-search--compact">
+              <span>项目风格</span>
+              <select className="workspace-select" value={toneProfileDraft} onChange={(event) => setToneProfileDraft(event.target.value)}>
+                <option value="">跟随当前全局风格</option>
+                {loadState.toneProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                    {profile.is_active ? " · 当前全局" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="dashboard-button"
+              type="button"
+              onClick={() => void handleSaveProjectConfig()}
+              disabled={savingConfig || !hasConfigChanged}
+            >
+              {savingConfig ? "保存中..." : "保存当前配置"}
+            </button>
+          </div>
+          <div className="workspace-note workspace-note--info">
+            {buildProjectConfigPreviewLines({
+              domainPacks: loadState.domainPacks,
+              domainPackKey: domainPackDraft || null,
+              toneProfiles: loadState.toneProfiles,
+              toneProfileId: nextToneProfileId,
+            }).map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {actionMessage ? (
         <div className="workspace-note workspace-note--success">
@@ -460,7 +667,8 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
         </nav>
 
         <div className="workbench-shell__content">
-          <section ref={historySectionRef} className="workbench-shell__panel">
+          <div className="workbench-shell__main-column">
+            <section ref={historySectionRef} className="workbench-shell__panel">
             <p className="workbench-shell__eyebrow">当前阶段</p>
             <h2>{WORKBENCH_STAGES.find((item) => item.key === stage)?.label ?? stage}</h2>
             <p className="workbench-shell__description">{stageContent.title}</p>
@@ -599,159 +807,194 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
                 </button>
               ))}
             </div>
-          </section>
+            </section>
 
-          <section className="workbench-shell__panel">
-            <p className="workbench-shell__eyebrow">Stage history</p>
-            <h2>历史版本</h2>
-            {historyEntries.length === 0 ? (
-              <p className="workbench-shell__description">当前阶段还没有可展示的历史版本。</p>
-            ) : historyGroups.length > 0 ? (
-              <div className="workspace-section-list">
-                {historyGroups.map((group) => (
-                  <section key={group.key} className="workspace-subsection">
-                    <div className="workspace-section__header">
-                      <div>
-                        <p className="workspace-section__eyebrow">Publish history</p>
-                        <h4>{group.title}</h4>
-                        <p className="workspace-section__description">{group.description}</p>
+            <section className="workbench-shell__panel">
+              <p className="workbench-shell__eyebrow">Stage history</p>
+              <h2>历史版本</h2>
+              {historyEntries.length === 0 ? (
+                <p className="workbench-shell__description">当前阶段还没有可展示的历史版本。</p>
+              ) : historyGroups.length > 0 ? (
+                <div className="workspace-section-list">
+                  {historyGroups.map((group) => (
+                    <section key={group.key} className="workspace-subsection">
+                      <div className="workspace-section__header">
+                        <div>
+                          <p className="workspace-section__eyebrow">Publish history</p>
+                          <h4>{group.title}</h4>
+                          <p className="workspace-section__description">{group.description}</p>
+                        </div>
+                        <span className="workspace-run-card__count">{group.entries.length}</span>
                       </div>
-                      <span className="workspace-run-card__count">{group.entries.length}</span>
-                    </div>
-                    <div className="workspace-list">
-                      {group.entries.map((entry) => (
-                        <article key={entry.versionNumber} className="workspace-item">
-                          <div className="workspace-item__header">
-                            <div>
-                              <h4>版本 {entry.versionNumber}</h4>
-                              <p>
-                                {expandedHistoryVersions.includes(entry.versionNumber) ? entry.fullSummary : entry.summary}
-                              </p>
-                              {entry.truncated ? (
+                      <div className="workspace-list">
+                        {group.entries.map((entry) => (
+                          <article key={entry.versionNumber} className="workspace-item">
+                            <div className="workspace-item__header">
+                              <div>
+                                <h4>版本 {entry.versionNumber}</h4>
+                                <p>
+                                  {expandedHistoryVersions.includes(entry.versionNumber) ? entry.fullSummary : entry.summary}
+                                </p>
+                                {entry.truncated ? (
+                                  <button
+                                    className="workspace-inline-toggle"
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedHistoryVersions((current) =>
+                                        current.includes(entry.versionNumber)
+                                          ? current.filter((versionNumber) => versionNumber !== entry.versionNumber)
+                                          : [...current, entry.versionNumber],
+                                      )
+                                    }
+                                  >
+                                    {expandedHistoryVersions.includes(entry.versionNumber) ? "收起" : "展开"}
+                                  </button>
+                                ) : null}
+                                {entry.meta.length > 0 ? (
+                                  <div className="workspace-tag-list">
+                                    {entry.meta.map((item) => (
+                                      <span key={item} className="workspace-tag">
+                                        {item}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <span className="workspace-pill">{entry.restorable ? "可恢复" : "当前版本"}</span>
+                            </div>
+                            {entry.restorable && actionPlan.canRestoreHistory ? (
+                              <div className="workspace-actions">
                                 <button
-                                  className="workspace-inline-toggle"
+                                  className="dashboard-button dashboard-button--ghost"
                                   type="button"
                                   onClick={() =>
-                                    setExpandedHistoryVersions((current) =>
-                                      current.includes(entry.versionNumber)
-                                        ? current.filter((versionNumber) => versionNumber !== entry.versionNumber)
-                                        : [...current, entry.versionNumber],
+                                    void runAction(
+                                      stage === "outline"
+                                        ? "restore_outline"
+                                        : stage === "draft"
+                                          ? "restore_draft"
+                                          : stage === "assets"
+                                            ? "restore_assets"
+                                            : "restore_publish_package",
+                                      entry.versionNumber,
                                     )
                                   }
+                                  disabled={
+                                    activeAction ===
+                                    `${
+                                      stage === "outline"
+                                        ? "restore_outline"
+                                        : stage === "draft"
+                                          ? "restore_draft"
+                                          : stage === "assets"
+                                            ? "restore_assets"
+                                            : "restore_publish_package"
+                                    }-${entry.versionNumber}`
+                                  }
                                 >
-                                  {expandedHistoryVersions.includes(entry.versionNumber) ? "收起" : "展开"}
+                                  恢复这个版本
                                 </button>
-                              ) : null}
-                            </div>
-                            <span className="workspace-pill">{entry.restorable ? "可恢复" : "当前版本"}</span>
-                          </div>
-                          {entry.restorable && actionPlan.canRestoreHistory ? (
-                            <div className="workspace-actions">
-                              <button
-                                className="dashboard-button dashboard-button--ghost"
-                                type="button"
-                                onClick={() =>
-                                  void runAction(
-                                    stage === "outline"
-                                      ? "restore_outline"
-                                      : stage === "draft"
-                                        ? "restore_draft"
-                                        : stage === "assets"
-                                          ? "restore_assets"
-                                          : "restore_publish_package",
-                                    entry.versionNumber,
-                                  )
-                                }
-                                disabled={
-                                  activeAction ===
-                                  `${
-                                    stage === "outline"
-                                      ? "restore_outline"
-                                      : stage === "draft"
-                                        ? "restore_draft"
-                                        : stage === "assets"
-                                          ? "restore_assets"
-                                          : "restore_publish_package"
-                                  }-${entry.versionNumber}`
-                                }
-                              >
-                                恢复这个版本
-                              </button>
+                              </div>
+                            ) : null}
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <div className="workspace-list">
+                  {historyEntries.map((entry) => (
+                    <article key={entry.versionNumber} className="workspace-item">
+                      <div className="workspace-item__header">
+                        <div>
+                          <h4>版本 {entry.versionNumber}</h4>
+                          <p>
+                            {expandedHistoryVersions.includes(entry.versionNumber) ? entry.fullSummary : entry.summary}
+                          </p>
+                          {entry.truncated ? (
+                            <button
+                              className="workspace-inline-toggle"
+                              type="button"
+                              onClick={() =>
+                                setExpandedHistoryVersions((current) =>
+                                  current.includes(entry.versionNumber)
+                                    ? current.filter((versionNumber) => versionNumber !== entry.versionNumber)
+                                    : [...current, entry.versionNumber],
+                                )
+                              }
+                            >
+                              {expandedHistoryVersions.includes(entry.versionNumber) ? "收起" : "展开"}
+                            </button>
+                          ) : null}
+                          {entry.meta.length > 0 ? (
+                            <div className="workspace-tag-list">
+                              {entry.meta.map((item) => (
+                                <span key={item} className="workspace-tag">
+                                  {item}
+                                </span>
+                              ))}
                             </div>
                           ) : null}
-                        </article>
-                      ))}
-                    </div>
+                        </div>
+                        <span className="workspace-pill">{entry.restorable ? "可恢复" : "当前版本"}</span>
+                      </div>
+                      {entry.restorable && actionPlan.canRestoreHistory ? (
+                        <div className="workspace-actions">
+                          <button
+                            className="dashboard-button dashboard-button--ghost"
+                            type="button"
+                            onClick={() =>
+                              void runAction(
+                                stage === "outline"
+                                  ? "restore_outline"
+                                  : stage === "draft"
+                                    ? "restore_draft"
+                                    : stage === "assets"
+                                      ? "restore_assets"
+                                      : "restore_publish_package",
+                                entry.versionNumber,
+                              )
+                            }
+                            disabled={
+                              activeAction ===
+                              `${
+                                stage === "outline"
+                                  ? "restore_outline"
+                                  : stage === "draft"
+                                    ? "restore_draft"
+                                    : stage === "assets"
+                                      ? "restore_assets"
+                                      : "restore_publish_package"
+                              }-${entry.versionNumber}`
+                            }
+                          >
+                            恢复这个版本
+                          </button>
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+
+          {preview ? (
+            <aside className="workbench-shell__panel workbench-shell__preview">
+              <p className="workbench-shell__eyebrow">{preview.eyebrow}</p>
+              <h2>{preview.title}</h2>
+              <p className="workbench-shell__description">{preview.summary}</p>
+              <div className={`workbench-preview workbench-preview--${preview.tone}`}>
+                {preview.blocks.map((block) => (
+                  <section key={block.key} className="workbench-preview__section">
+                    <h3>{block.label}</h3>
+                    {renderPreviewBlockBody(block)}
                   </section>
                 ))}
               </div>
-            ) : (
-              <div className="workspace-list">
-                {historyEntries.map((entry) => (
-                  <article key={entry.versionNumber} className="workspace-item">
-                    <div className="workspace-item__header">
-                      <div>
-                        <h4>版本 {entry.versionNumber}</h4>
-                        <p>
-                          {expandedHistoryVersions.includes(entry.versionNumber) ? entry.fullSummary : entry.summary}
-                        </p>
-                        {entry.truncated ? (
-                          <button
-                            className="workspace-inline-toggle"
-                            type="button"
-                            onClick={() =>
-                              setExpandedHistoryVersions((current) =>
-                                current.includes(entry.versionNumber)
-                                  ? current.filter((versionNumber) => versionNumber !== entry.versionNumber)
-                                  : [...current, entry.versionNumber],
-                              )
-                            }
-                          >
-                            {expandedHistoryVersions.includes(entry.versionNumber) ? "收起" : "展开"}
-                          </button>
-                        ) : null}
-                      </div>
-                      <span className="workspace-pill">{entry.restorable ? "可恢复" : "当前版本"}</span>
-                    </div>
-                    {entry.restorable && actionPlan.canRestoreHistory ? (
-                      <div className="workspace-actions">
-                        <button
-                          className="dashboard-button dashboard-button--ghost"
-                          type="button"
-                          onClick={() =>
-                            void runAction(
-                              stage === "outline"
-                                ? "restore_outline"
-                                : stage === "draft"
-                                  ? "restore_draft"
-                                  : stage === "assets"
-                                    ? "restore_assets"
-                                    : "restore_publish_package",
-                              entry.versionNumber,
-                            )
-                          }
-                          disabled={
-                            activeAction ===
-                            `${
-                              stage === "outline"
-                                ? "restore_outline"
-                                : stage === "draft"
-                                  ? "restore_draft"
-                                  : stage === "assets"
-                                    ? "restore_assets"
-                                    : "restore_publish_package"
-                            }-${entry.versionNumber}`
-                          }
-                        >
-                          恢复这个版本
-                        </button>
-                      </div>
-                    ) : null}
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
+            </aside>
+          ) : null}
         </div>
       </div>
     </div>

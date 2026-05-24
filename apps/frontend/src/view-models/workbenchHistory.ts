@@ -1,4 +1,4 @@
-import type { ProjectVersions } from "../api/workbench";
+import type { ProjectVersions, PublishPackageItem } from "../api/workbench";
 import type { WorkbenchStage } from "../app/navigation";
 
 export type WorkbenchHistoryEntry = {
@@ -7,6 +7,7 @@ export type WorkbenchHistoryEntry = {
   fullSummary: string;
   truncated: boolean;
   restorable: boolean;
+  meta: string[];
   reviewState: string | null;
 };
 
@@ -18,6 +19,63 @@ export type WorkbenchHistoryGroup = {
 };
 
 const HISTORY_SUMMARY_PREVIEW_LENGTH = 72;
+
+function formatHistoryTimestamp(createdAt: string | null): string | null {
+  if (!createdAt) {
+    return null;
+  }
+
+  const value = new Date(createdAt);
+  if (Number.isNaN(value.getTime())) {
+    return null;
+  }
+
+  return `时间：${value.getMonth() + 1}/${value.getDate()} ${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatHistoryOrigin(origin: string | null): string | null {
+  if (!origin) {
+    return null;
+  }
+
+  if (origin === "generate") {
+    return "来源：AI 生成";
+  }
+  if (origin === "polish") {
+    return "来源：精修生成";
+  }
+  if (origin === "review_regeneration") {
+    return "来源：按审核意见重生成";
+  }
+  if (origin === "restore") {
+    return "来源：历史恢复";
+  }
+  return `来源：${origin}`;
+}
+
+function buildHistoryMeta(item: { created_at: string | null; origin: string | null; tone_profile_name: string | null }): string[] {
+  const meta: string[] = [];
+  const createdAtLabel = formatHistoryTimestamp(item.created_at);
+  if (createdAtLabel) {
+    meta.push(createdAtLabel);
+  }
+
+  const originLabel = formatHistoryOrigin(item.origin);
+  if (originLabel) {
+    meta.push(originLabel);
+  }
+
+  meta.push(item.tone_profile_name ? `风格：${item.tone_profile_name}` : "风格：未记录");
+  return meta;
+}
+
+function buildPublishHistoryMeta(item: PublishPackageItem): string[] {
+  const meta = buildHistoryMeta(item);
+  if (item.review_comment) {
+    meta.push(`审核意见：${item.review_comment}`);
+  }
+  return meta;
+}
 
 function buildSummaryText(summary: string): { summary: string; fullSummary: string; truncated: boolean } {
   const normalized = summary.trim();
@@ -63,6 +121,7 @@ export function buildWorkbenchHistoryEntries({
       versionNumber: item.version,
       ...buildSummaryText(`${item.hook || "大纲版本"} · v${item.version}`),
       restorable: item.version !== currentVersionNumber,
+      meta: buildHistoryMeta(item),
       reviewState: null,
     }));
   }
@@ -72,6 +131,7 @@ export function buildWorkbenchHistoryEntries({
       versionNumber: item.version,
       ...buildSummaryText(`${item.title} · ${item.word_count} 字`),
       restorable: item.version !== currentVersionNumber,
+      meta: buildHistoryMeta(item),
       reviewState: null,
     }));
   }
@@ -81,6 +141,7 @@ export function buildWorkbenchHistoryEntries({
       versionNumber: item.version,
       ...buildSummaryText(`${item.title_options[0] ?? "素材版本"} · ${item.cover_copy}`),
       restorable: item.version !== currentVersionNumber,
+      meta: buildHistoryMeta(item),
       reviewState: null,
     }));
   }
@@ -90,6 +151,7 @@ export function buildWorkbenchHistoryEntries({
       versionNumber: item.version,
       ...buildSummaryText(`${formatPublishStatusLabel(item.status)} · ${item.abstract}`),
       restorable: item.version !== currentVersionNumber,
+      meta: buildPublishHistoryMeta(item),
       reviewState: item.status,
     }));
   }
