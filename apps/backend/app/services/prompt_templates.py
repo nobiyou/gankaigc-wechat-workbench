@@ -84,7 +84,7 @@ PROMPT_TEMPLATE_DESCRIPTORS: list[PromptTemplateDescriptor] = [
         key="draft",
         label="初稿生成",
         role="正文作者",
-        objective="基于大纲扩写正文，并支持精修与审核意见回写。",
+        objective="基于大纲扩写正文，并支持原创增强精修与审核意见回写。",
         output_fields=["title", "body_markdown"],
         supports_tone_profile=True,
         supports_domain_pack=True,
@@ -250,21 +250,124 @@ def build_stage_instructions(
     )
 
 
+def _render_reference_article_section(payload: Mapping[str, object]) -> str:
+    source_type = _as_clean_text(payload.get("source_type"))
+    if source_type != "tracked_article":
+        return ""
+
+    title = _as_clean_text(payload.get("reference_article_title"))
+    author = _as_clean_text(payload.get("reference_article_author"))
+    source_name = _as_clean_text(payload.get("reference_article_source_name"))
+    summary = _as_clean_text(payload.get("reference_article_summary"))
+    structure_notes = _as_clean_text(payload.get("reference_article_structure_notes"))
+    tags_value = payload.get("reference_article_tags")
+
+    tags: list[str] = []
+    if isinstance(tags_value, list):
+        tags = [_as_clean_text(tag) for tag in tags_value if _as_clean_text(tag)]
+
+    return (
+        "参考文章信息：\n"
+        f"参考文章标题：{title or '无'}\n"
+        f"参考文章作者：{author or '未知'}\n"
+        f"参考文章来源账号：{source_name or '手动录入'}\n"
+        f"参考文章摘要：{summary or '无'}\n"
+        f"参考文章结构备注：{structure_notes or '无'}\n"
+        f"参考文章标签：{' / '.join(tags) or '无'}\n"
+    )
+
+
+def _build_reference_article_instructions(*, stage: str) -> str:
+    if stage == "outline":
+        return (
+            "参考文章只用于提炼冲突、结构灵感和情绪线索。"
+            "禁止复写参考文章的标题、开头句、段落顺序，必须改写成新的叙事路径和新的表达组织。"
+        )
+    if stage == "draft":
+        return (
+            "参考文章只用于提炼冲突、结构灵感和情绪线索。"
+            "禁止复写参考文章的标题、开头句、段落顺序。"
+            "不要沿用参考文章的句子，不要做逐段近义改写，正文必须形成新的场景组织和新的收束表达。"
+        )
+    return ""
+
+
+def _build_original_expression_instructions(*, stage: str) -> str:
+    if stage == "outline":
+        return (
+            "大纲不要直接罗列三四条抽象道理，先设计一个具体、可感知的开篇瞬间或动作入口。"
+            "中段要写清视角如何从场景推进到情绪、再推进到判断或动作。"
+            "结尾要回到人物处境或心绪余波，不要停在口号式总结。"
+        )
+    if stage == "draft":
+        return (
+            "原创不是把现成观点换一批近义词，而是重新建立观察路径、场景重心和句子节奏。"
+            "优先从一个具体、可感知的瞬间起笔，让动作、环境、声音或身体感受先出现，再带出判断。"
+            "不要先复述题眼或给观点下定义，先把读者带进一个可见、可听、可感的当下。"
+            "把抽象情绪落到动作停顿、物件光线、空间距离或身体反应上，让情绪有抓手。"
+            "正文不要写成标准答案式观点罗列，要让场景、情绪和判断自然推进。"
+            "避免每段都写成“观点句 + 解释句”的模板结构，至少让一处段落先发生事情，再慢慢显出判断。"
+            "少用“不是A，是B”这类过于整齐的判断句，尤其不要连续拿它做标题、开头或结尾。"
+            "减少“第一步、第二步、第三步”式教程骨架，优先写成自然展开的叙事或观察推进。"
+            "不要为了显得完整而过度解释每一个判断，允许留白，允许有些意思停在动作或场景里。"
+            "避免反复用“一点、一下、一些、一个、一种”去切分感受和动作，同一种量词节奏不要整篇反复出现。"
+            "多用具体细节承载观点，少写空泛抒情、万能道理和模板化金句。"
+            "句子节奏要有长短变化和呼吸感，不要整篇都像统一模板口播稿。"
+            "结尾回到人物处境或心绪余波，克制收束，不要用励志口号硬收。"
+        )
+    return ""
+
+
+def _build_wechat_public_account_draft_instructions() -> str:
+    return (
+        "正文要更贴近真实公众号作者写作，而不是模型一次性生成的标准成品。"
+        "允许局部段落更松一点、更口语一点，但整体仍然要干净、可读、适合公众号排版。"
+        "多写人是怎么感到累、怎么停一下、怎么把情绪往回压，少写完整方法论和对所有人的通用结论。"
+        "不要把每个判断都解释透，留一点空白给读者自己接上。"
+        "避免机械扩写、刻意增肥和整篇统一修辞，不要为了像人写而堆砌“了、的、地、一下、一点、一阵”这类填充。"
+        "避免系统性把“和”改成“以及”、“并”改成“并且”、“为了”改成“为了能够”这类生硬替换。"
+        "不要把句子润成网文腔、鸡汤腔或文学仿写腔，仍然保持当代中文公众号的自然表达。"
+        "专有名词、项目标题、人物关系和核心事实不能改，不能为了润色改掉原本的因果和立场。"
+        "如果需要增强原创感，优先更换叙述重心、段落重音和细节抓手，而不是把原句拖长。"
+    )
+
+
+def _build_polish_protocol() -> str:
+    return (
+        "这不是局部润色任务，而是原创增强精修任务。"
+        "必须重写开头段和结尾段，优先调整段落连接、场景组织和观点推进顺序。"
+        "必须改写场景入口段、中段关键推进段和收束段。"
+        "先判断原稿哪些段落最像模板话，再优先拆掉这些段落的原顺序重写。"
+        "至少把一个抽象判断段改写成可见场景段，把一个平铺说理段改写成情绪推进段。"
+        "如果“一点、一下、一个、一种、一件”这类量词起手过密，主动改掉一半以上，不要整篇都靠同一节奏往下写。"
+        "如果原稿一上来就在讲道理，请改成先落画面再带判断。"
+        "必要时可以删除过熟的总结句和万能结论，不必把原稿每个判断都保留下来。"
+        "不要只做同义词替换、语序微调或局部句子抛光，输出结果要像基于原稿重新写出的一版新正文。"
+        "优先更换观察角度、细节选择、段落重心和句子节奏，而不是只修饰原句表面。"
+    )
+
+
 def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     tone_profile = payload.get("tone_profile")
     style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
     target_wording = _render_outline_target_wording(tone_profile if isinstance(tone_profile, Mapping) else None)
+    reference_article_section = _render_reference_article_section(payload)
+    reference_article_instructions = _build_reference_article_instructions(stage="outline")
+    original_expression_instructions = _build_original_expression_instructions(stage="outline")
     return PromptTemplate(
         instructions=build_stage_instructions(
             role="内容策划编辑",
             task_brief="请基于给定选题，输出一个适合女性情感成长公众号的文章大纲。",
             domain_pack=payload.get("domain_pack"),
-        ),
+        )
+        + original_expression_instructions
+        + reference_article_instructions,
         prompt=(
             f"趋势标题：{payload['trend_title']}\n"
             f"选题标题：{payload['topic_title']}\n"
             f"切入角度：{payload['topic_angle']}\n"
             f"项目标题：{payload['project_title']}\n\n"
+            f"{reference_article_section}"
             f"{style_section}"
             f"{target_wording}"
             "返回：\n"
@@ -331,6 +434,10 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     tone_profile = payload.get("tone_profile")
     style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
     target_wording = _render_draft_target_wording(tone_profile if isinstance(tone_profile, Mapping) else None)
+    reference_article_section = _render_reference_article_section(payload)
+    reference_article_instructions = _build_reference_article_instructions(stage="draft")
+    original_expression_instructions = _build_original_expression_instructions(stage="draft")
+    wechat_public_account_instructions = _build_wechat_public_account_draft_instructions()
     review_comment = _as_clean_text(payload.get("review_comment"))
     polish_instruction = _as_clean_text(payload.get("polish_instruction"))
     current_draft = payload.get("draft")
@@ -349,17 +456,23 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         if polish_instruction and isinstance(current_draft, Mapping)
         else ""
     )
+    polish_protocol = _build_polish_protocol() if polish_instruction and isinstance(current_draft, Mapping) else ""
     return PromptTemplate(
         instructions=build_stage_instructions(
             role="正文作者",
             task_brief="请把选题和大纲扩写成一篇可直接进入编辑流程的中文初稿。要求有清晰标题、自然分段、具体场景和收束段。",
             domain_pack=payload.get("domain_pack"),
-        ),
+        )
+        + original_expression_instructions
+        + wechat_public_account_instructions
+        + polish_protocol
+        + reference_article_instructions,
         prompt=(
             f"趋势标题：{payload['trend_title']}\n"
             f"选题标题：{payload['topic_title']}\n"
             f"切入角度：{payload['topic_angle']}\n"
             f"项目标题：{payload['project_title']}\n"
+            f"{reference_article_section}"
             f"{style_section}"
             f"{target_wording}"
             f"大纲钩子：{outline['hook']}\n"
@@ -389,7 +502,9 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             role="包装编辑",
             task_brief="请围绕正文产出封面和分发素材。",
             domain_pack=payload.get("domain_pack"),
-        ),
+        )
+        + "封面图提示词必须服务于 21:9 横版公众号头图。"
+        + "禁止输出竖版、9:16、手机海报、竖构图或会导致上下裁切的画幅描述。",
         prompt=(
             f"趋势标题：{payload['trend_title']}\n"
             f"选题标题：{payload['topic_title']}\n"
@@ -399,6 +514,11 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             f"正文标题：{draft['title']}\n"
             f"正文内容：\n{draft['body_markdown']}\n"
             f"{review_section}\n"
+            "封面图提示词要求：\n"
+            "1. 明确写成 21:9 横版公众号头图或横向宽画幅构图\n"
+            "2. 主体位于画面中部安全区，避免关键元素贴近上下边缘\n"
+            "3. 禁止出现竖版、9:16、手机海报、竖构图等冲突词\n"
+            "4. 用场景、人物状态、光线和留白描述画面，不要把长文案直接写进图里\n"
             "返回：\n"
             "1. 3 个标题备选 title_options\n"
             "2. 1 条封面图提示词 cover_prompt\n"

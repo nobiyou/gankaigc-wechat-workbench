@@ -19,6 +19,7 @@ TONE_PROFILE = {
     "forbidden_phrases": ["你必须", "立刻改变"],
     "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
     "target_word_count": 1400,
+    "default_polish_instruction": "重写开头和结尾，打散重复句式。",
 }
 
 
@@ -74,6 +75,10 @@ def test_build_assets_prompt_includes_style_and_review_feedback() -> None:
     assert "风格档案：女性成长克制陪伴风" in template.prompt
     assert "审核修改意见：封面文案太满，收一点。" in template.prompt
     assert "正文标题：越在乎的人，为什么越想在关系里反复确认" in template.prompt
+    assert "21:9 横版公众号头图" in template.instructions
+    assert "禁止输出竖版、9:16、手机海报、竖构图" in template.instructions
+    assert "明确写成 21:9 横版公众号头图或横向宽画幅构图" in template.prompt
+    assert "禁止出现竖版、9:16、手机海报、竖构图等冲突词" in template.prompt
 
 
 def test_build_publish_package_prompt_includes_style_and_asset_context() -> None:
@@ -154,6 +159,53 @@ def test_stage_templates_share_domain_pack_but_keep_stage_specific_roles() -> No
     assert "内容策划编辑" in outline_template.instructions
     assert "正文作者" in draft_template.instructions
     assert "发布编辑" in publish_template.instructions
+    assert "先设计一个具体、可感知的开篇瞬间或动作入口" in outline_template.instructions
+    assert "原创不是把现成观点换一批近义词，而是重新建立观察路径、场景重心和句子节奏" in draft_template.instructions
+    assert "不要先复述题眼或给观点下定义" in draft_template.instructions
+    assert "避免每段都写成“观点句 + 解释句”的模板结构" in draft_template.instructions
+    assert "句子节奏要有长短变化和呼吸感" in draft_template.instructions
+
+
+def test_draft_prompt_includes_anti_ai_flavor_guardrails() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "tone_profile": TONE_PROFILE,
+            "outline": {
+                "hook": "先接住身体发出的报警",
+                "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+            },
+        }
+    )
+
+    assert "少用“不是A，是B”这类过于整齐的判断句" in template.instructions
+    assert "减少“第一步、第二步、第三步”式教程骨架" in template.instructions
+    assert "不要为了显得完整而过度解释每一个判断" in template.instructions
+
+
+def test_draft_prompt_includes_wechat_public_account_naturalness_rules() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "工位上的那种累，先别急着怪自己",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "tone_profile": TONE_PROFILE,
+            "outline": {
+                "hook": "午休刚过，屏幕又亮了。",
+                "outline_body": "1. 提示音\n2. 累从哪里来\n3. 怎么慢慢往回收",
+            },
+        }
+    )
+
+    assert "正文要更贴近真实公众号作者写作" in template.instructions
+    assert "不要把每个判断都解释透，留一点空白给读者自己接上" in template.instructions
+    assert "避免机械扩写、刻意增肥和整篇统一修辞" in template.instructions
+    assert "避免系统性把“和”改成“以及”、“并”改成“并且”" in template.instructions
+    assert "不要把句子润成网文腔、鸡汤腔或文学仿写腔" in template.instructions
 
 
 def test_stage_templates_allow_domain_pack_override_without_touching_tone_profile() -> None:

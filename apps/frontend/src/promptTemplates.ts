@@ -14,7 +14,7 @@ export function buildPromptTemplateSummaryLines(template: PromptTemplateSummary)
 
   return [
     `职责：${template.role}`,
-    `目标：${template.objective}`,
+    `目标：${template.key === "draft" ? `${template.objective} 默认按公众号正文自然表达与原创增强约束执行。` : template.objective}`,
     `输出：${template.output_fields.join(" / ")}`,
     `输入：${inputCapabilities.length > 0 ? inputCapabilities.join(" / ") : "固定模板"}`,
   ];
