@@ -7,8 +7,11 @@ export type WorkbenchActionKind =
   | "generate_draft"
   | "polish_draft"
   | "restore_draft"
+  | "polish_and_generate_assets"
   | "generate_assets"
+  | "regenerate_cover_image"
   | "restore_assets"
+  | "polish_and_build_publish_package"
   | "build_publish_package"
   | "restore_publish_package"
   | "approve_publish_package"
@@ -29,6 +32,41 @@ export type WorkbenchActionPlan = {
   showPublishReviewForm: boolean;
   showRetroForm: boolean;
 };
+
+const BACKGROUND_ACTION_KINDS = new Set<WorkbenchActionKind>([
+  "regenerate_cover_image",
+  "polish_and_build_publish_package",
+  "build_publish_package",
+  "regenerate_from_review",
+]);
+
+export function shouldKeepWorkbenchActionActive(actionKind: WorkbenchActionKind, backgroundTaskSubmitted: boolean): boolean {
+  return backgroundTaskSubmitted && BACKGROUND_ACTION_KINDS.has(actionKind);
+}
+
+export function shouldRetryWorkbenchBackgroundTaskPoll(status?: string | null): boolean {
+  return status === "queued" || status === "running";
+}
+
+export function shouldClearWorkbenchActionAfterPollError(hasActiveBackgroundTask: boolean): boolean {
+  return !hasActiveBackgroundTask;
+}
+
+export function getWorkbenchBackgroundTaskDisplayError({
+  taskError,
+  pollError,
+}: {
+  taskError?: string | null;
+  pollError?: string | null;
+}): string | null {
+  const normalizedTaskError = taskError?.trim();
+  if (normalizedTaskError) {
+    return normalizedTaskError;
+  }
+
+  const normalizedPollError = pollError?.trim();
+  return normalizedPollError || null;
+}
 
 export function buildWorkbenchActionPlan({
   stage,
@@ -52,7 +90,7 @@ export function buildWorkbenchActionPlan({
 
   if (stage === "draft") {
     return {
-      primaryAction: detail.draft ? { kind: "polish_draft", label: "精修初稿" } : { kind: "generate_draft", label: "生成初稿" },
+      primaryAction: detail.draft ? { kind: "polish_draft", label: "原创增强精修" } : { kind: "generate_draft", label: "生成初稿" },
       secondaryActions: [
         ...(detail.outline ? [{ kind: "generate_draft" as const, label: detail.draft ? "重新生成初稿" : "生成初稿" }] : []),
         ...(historyEntryCount > 1 ? [{ kind: "restore_draft" as const, label: "恢复历史初稿" }] : []),
@@ -66,10 +104,19 @@ export function buildWorkbenchActionPlan({
 
   if (stage === "assets") {
     return {
-      primaryAction: detail.assets ? { kind: "generate_assets", label: "重新生成素材包" } : { kind: "generate_assets", label: "生成素材包" },
-      secondaryActions: historyEntryCount > 1 ? [{ kind: "restore_assets", label: "恢复历史素材" }] : [],
+      primaryAction: detail.draft
+        ? {
+            kind: "polish_and_generate_assets",
+            label: detail.assets ? "原创增强后重生成素材包" : "原创增强后生成素材包",
+          }
+        : { kind: "generate_assets", label: detail.assets ? "重新生成素材包" : "生成素材包" },
+      secondaryActions: [
+        ...(detail.draft ? [{ kind: "generate_assets" as const, label: detail.assets ? "仅重生成素材包" : "仅生成素材包" }] : []),
+        ...(detail.assets ? [{ kind: "regenerate_cover_image" as const, label: "重生成封面图" }] : []),
+        ...(historyEntryCount > 1 ? [{ kind: "restore_assets" as const, label: "恢复历史素材" }] : []),
+      ],
       canRestoreHistory: historyEntryCount > 1,
-      showInstructionField: false,
+      showInstructionField: true,
       showPublishReviewForm: false,
       showRetroForm: false,
     };
@@ -142,10 +189,18 @@ export function buildWorkbenchActionPlan({
     }
 
     return {
-      primaryAction: { kind: "build_publish_package", label: detail.publish_package ? "重新生成发布包" : "生成发布包" },
-      secondaryActions: historyEntryCount > 1 ? [{ kind: "restore_publish_package", label: "基于历史版本重建发布包" }] : [],
+      primaryAction: detail.draft
+        ? {
+            kind: "polish_and_build_publish_package",
+            label: detail.publish_package ? "原创增强后重生成发布包" : "原创增强后生成发布包",
+          }
+        : { kind: "build_publish_package", label: detail.publish_package ? "重新生成发布包" : "生成发布包" },
+      secondaryActions: [
+        ...(detail.assets ? [{ kind: "build_publish_package" as const, label: detail.publish_package ? "仅重生成发布包" : "仅生成发布包" }] : []),
+        ...(historyEntryCount > 1 ? [{ kind: "restore_publish_package" as const, label: "基于历史版本重建发布包" }] : []),
+      ],
       canRestoreHistory: historyEntryCount > 1,
-      showInstructionField: false,
+      showInstructionField: detail.draft != null,
       showPublishReviewForm: false,
       showRetroForm: false,
     };

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 
-import { buildWorkbenchActionPlan } from "./workbenchActions.ts";
+import {
+  buildWorkbenchActionPlan,
+  getWorkbenchBackgroundTaskDisplayError,
+  shouldRetryWorkbenchBackgroundTaskPoll,
+  shouldClearWorkbenchActionAfterPollError,
+  shouldKeepWorkbenchActionActive,
+} from "./workbenchActions.ts";
 
 function test(name: string, fn: () => void) {
   try {
@@ -115,10 +121,111 @@ test("buildWorkbenchActionPlan exposes draft generation and polish paths when dr
   });
 
   assert.equal(plan.primaryAction?.kind, "polish_draft");
-  assert.equal(plan.primaryAction?.label, "精修初稿");
+  assert.equal(plan.primaryAction?.label, "原创增强精修");
   assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_draft"), true);
   assert.equal(plan.showInstructionField, true);
   assert.equal(plan.canRestoreHistory, true);
+});
+
+test("buildWorkbenchActionPlan exposes cover-only regeneration separately from full assets regeneration", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "assets",
+    detail: {
+      project: {
+        ...baseProject,
+        stage: "assets_ready",
+        chain_status: "ready",
+        current_chain_state: "assets_ready",
+        next_required_step: "build_publish_package",
+        current_outline_version: 1,
+        current_draft_version: 1,
+        current_assets_version: 2,
+      },
+      outline: null,
+      draft: {
+        project_slug: "demo-project",
+        outline_version: 1,
+        version: 1,
+        title: "draft title",
+        body_markdown: "# draft",
+        word_count: 1000,
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      assets: {
+        project_slug: "demo-project",
+        draft_version: 1,
+        version: 2,
+        title_options: ["title a"],
+        cover_prompt: "prompt",
+        cover_copy: "cover copy",
+        social_teaser: "teaser",
+        cover_image_path: "cover.png",
+        cover_image_url: "/cover.png",
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      publish_package: null,
+      retro: null,
+    },
+    historyEntryCount: 2,
+  });
+
+  assert.equal(plan.primaryAction?.kind, "polish_and_generate_assets");
+  assert.equal(plan.primaryAction?.label, "原创增强后重生成素材包");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_assets"), true);
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "regenerate_cover_image"), true);
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "restore_assets"), true);
+  assert.equal(plan.showInstructionField, true);
+});
+
+test("shouldKeepWorkbenchActionActive only keeps submitted background actions locked", () => {
+  assert.equal(shouldKeepWorkbenchActionActive("build_publish_package", true), true);
+  assert.equal(shouldKeepWorkbenchActionActive("polish_and_build_publish_package", true), true);
+  assert.equal(shouldKeepWorkbenchActionActive("regenerate_from_review", true), true);
+  assert.equal(shouldKeepWorkbenchActionActive("regenerate_cover_image", true), true);
+
+  assert.equal(shouldKeepWorkbenchActionActive("build_publish_package", false), false);
+  assert.equal(shouldKeepWorkbenchActionActive("polish_and_build_publish_package", false), false);
+  assert.equal(shouldKeepWorkbenchActionActive("regenerate_from_review", false), false);
+  assert.equal(shouldKeepWorkbenchActionActive("regenerate_cover_image", false), false);
+  assert.equal(shouldKeepWorkbenchActionActive("generate_assets", true), false);
+});
+
+test("shouldRetryWorkbenchBackgroundTaskPoll keeps polling after transient poll errors", () => {
+  assert.equal(shouldRetryWorkbenchBackgroundTaskPoll("queued"), true);
+  assert.equal(shouldRetryWorkbenchBackgroundTaskPoll("running"), true);
+  assert.equal(shouldRetryWorkbenchBackgroundTaskPoll("done"), false);
+  assert.equal(shouldRetryWorkbenchBackgroundTaskPoll("failed"), false);
+});
+
+test("shouldClearWorkbenchActionAfterPollError keeps background actions locked while task is still active", () => {
+  assert.equal(shouldClearWorkbenchActionAfterPollError(true), false);
+  assert.equal(shouldClearWorkbenchActionAfterPollError(false), true);
+});
+
+test("getWorkbenchBackgroundTaskDisplayError prefers task failure detail then poll error", () => {
+  assert.equal(
+    getWorkbenchBackgroundTaskDisplayError({
+      taskError: "生成失败",
+      pollError: "网络中断",
+    }),
+    "生成失败",
+  );
+  assert.equal(
+    getWorkbenchBackgroundTaskDisplayError({
+      taskError: "",
+      pollError: "网络中断",
+    }),
+    "网络中断",
+  );
+  assert.equal(
+    getWorkbenchBackgroundTaskDisplayError({
+      taskError: null,
+      pollError: null,
+    }),
+    null,
+  );
 });
 
 test("buildWorkbenchActionPlan exposes publish review actions for ready packages", () => {
@@ -259,6 +366,57 @@ test("buildWorkbenchActionPlan exposes regenerate and retro actions in the right
   assert.equal(retroPlan.showRetroForm, true);
   assert.equal(retroPlan.primaryAction?.kind, "record_project_retro");
   assert.equal(retroPlan.secondaryActions.some((action) => action.label === "基于历史版本重建发布包"), true);
+});
+
+test("buildWorkbenchActionPlan exposes polish-before-publish generation when package is not ready yet", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "publish",
+    detail: {
+      project: {
+        ...baseProject,
+        stage: "assets_ready",
+        chain_status: "ready",
+        current_chain_state: "assets_ready",
+        next_required_step: "build_publish_package",
+        current_outline_version: 1,
+        current_draft_version: 2,
+        current_assets_version: 2,
+        current_publish_package_version: null,
+      },
+      outline: null,
+      draft: {
+        project_slug: "demo-project",
+        outline_version: 1,
+        version: 2,
+        title: "第二版正文",
+        body_markdown: "# draft",
+        word_count: 1280,
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      assets: {
+        project_slug: "demo-project",
+        draft_version: 2,
+        version: 2,
+        title_options: ["title a"],
+        cover_prompt: "prompt",
+        cover_copy: "cover copy",
+        social_teaser: "teaser",
+        cover_image_path: "cover.png",
+        cover_image_url: "/cover.png",
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      publish_package: null,
+      retro: null,
+    },
+    historyEntryCount: 2,
+  });
+
+  assert.equal(plan.primaryAction?.kind, "polish_and_build_publish_package");
+  assert.equal(plan.primaryAction?.label, "原创增强后生成发布包");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "build_publish_package"), true);
+  assert.equal(plan.showInstructionField, true);
 });
 
 test("buildWorkbenchActionPlan suppresses publish regeneration while rollback chain is still upstream", () => {

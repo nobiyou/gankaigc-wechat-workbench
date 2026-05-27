@@ -59,11 +59,26 @@ logger = logging.getLogger(__name__)
 DB_PATH = Path(settings.db_path)
 GENERATED_ASSETS_DIR = Path(settings.generated_assets_dir)
 DEFAULT_DB_PATH = Path("C:/tmp/gankaigc-wechat-workbench.db")
+_COVER_PROMPT_LAYOUT_CONFLICT_PATTERN = re.compile(
+    r"(?:9\s*[:：]\s*16|竖版|竖构图|竖幅|手机竖屏|海报竖版|适合竖版|竖屏)",
+    re.IGNORECASE,
+)
+_PROJECT_VERSION_LOCKS: dict[str, threading.Lock] = {}
+_PROJECT_VERSION_LOCKS_GUARD = threading.Lock()
 PIPELINE_BATCH_TASK_TYPES = (
     "batch_continue_projects",
     "batch_create_projects",
     "batch_generate_topics",
     "batch_generate_topics_from_tracked_articles",
+)
+DEFAULT_ASSETS_POLISH_INSTRUCTION = (
+    "请执行原创增强精修，目标是把当前正文改到更像真实公众号作者手写稿，而不是AI顺滑稿。"
+    "保留主题和结构主线，但重写大部分句子，不做同义替换式改写。"
+    "开头继续从具体生活场景切入，减少标准模板式起笔。"
+    "全文加强人的犹疑、停顿、转念和回看感，句子长短不要过于整齐。"
+    "降低概念化总结腔，少用机械排比和高频套话，尤其压低“一”“很多”“真正”“不是……而是……”这类重复结构。"
+    "不要写成鸡汤腔或网文腔，要保持当代中文公众号的自然表达。"
+    "结尾收得安静、含蓄、有人味，不要喊话式总结。"
 )
 TREND_SEEDS = [
     {
@@ -151,6 +166,7 @@ DEFAULT_TONE_PROFILE = {
     "forbidden_phrases": ["你必须", "立刻改变"],
     "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
     "target_word_count": 1400,
+    "default_polish_instruction": "请执行原创增强精修：先拆掉模板化开头和口号式结尾，重写场景入口、中段推进与收束方式，把抽象判断改成可感知的细节与动作，减少“一点、一下、一个、一种”这类重复量词节奏，避免同义替换式改写。",
 }
 
 
@@ -276,6 +292,14 @@ def _ensure_tone_profiles_schema(connection: sqlite3.Connection) -> None:
                 "UPDATE tone_profiles SET sort_order = ? WHERE id = ?",
                 (index, row["id"]),
             )
+    if "default_polish_instruction" not in columns:
+        connection.execute(
+            "ALTER TABLE tone_profiles ADD COLUMN default_polish_instruction TEXT NOT NULL DEFAULT ''"
+        )
+        connection.execute(
+            "UPDATE tone_profiles SET default_polish_instruction = ? WHERE COALESCE(default_polish_instruction, '') = ''",
+            (DEFAULT_TONE_PROFILE["default_polish_instruction"],),
+        )
 
 
 def _ensure_projects_schema(connection: sqlite3.Connection) -> None:
@@ -720,7 +744,8 @@ def initialize_store(reset: bool = False) -> None:
                 closing_style TEXT NOT NULL,
                 forbidden_phrases TEXT NOT NULL,
                 value_constraints TEXT NOT NULL,
-                target_word_count INTEGER NOT NULL
+                target_word_count INTEGER NOT NULL,
+                default_polish_instruction TEXT NOT NULL DEFAULT ''
             )
             """
         )
@@ -802,9 +827,9 @@ def initialize_store(reset: bool = False) -> None:
         connection.execute(
             """
             INSERT INTO tone_profiles (
-                is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count, default_polish_instruction
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 1,
@@ -816,6 +841,7 @@ def initialize_store(reset: bool = False) -> None:
                 json.dumps(DEFAULT_TONE_PROFILE["forbidden_phrases"], ensure_ascii=False),
                 DEFAULT_TONE_PROFILE["value_constraints"],
                 DEFAULT_TONE_PROFILE["target_word_count"],
+                DEFAULT_TONE_PROFILE["default_polish_instruction"],
             ),
         )
         connection.execute(
@@ -849,6 +875,7 @@ def list_tone_profiles() -> list[ToneProfileItem]:
         rows = connection.execute(
             """
             SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                , default_polish_instruction
             FROM tone_profiles
             ORDER BY is_active DESC, sort_order ASC, id ASC
             """
@@ -866,9 +893,9 @@ def create_tone_profile(payload: ToneProfileUpsert) -> ToneProfileItem:
         connection.execute(
             """
             INSERT INTO tone_profiles (
-                is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count, default_polish_instruction
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 0,
@@ -880,6 +907,7 @@ def create_tone_profile(payload: ToneProfileUpsert) -> ToneProfileItem:
                 json.dumps(payload.forbidden_phrases, ensure_ascii=False),
                 payload.value_constraints,
                 payload.target_word_count,
+                payload.default_polish_instruction,
             ),
         )
         profile_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
@@ -887,6 +915,7 @@ def create_tone_profile(payload: ToneProfileUpsert) -> ToneProfileItem:
         row = connection.execute(
             """
             SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
             """,
@@ -907,7 +936,7 @@ def update_tone_profile(profile_id: int, payload: ToneProfileUpsert) -> ToneProf
         connection.execute(
             """
             UPDATE tone_profiles
-            SET name = ?, opening_style = ?, paragraph_rhythm = ?, closing_style = ?, forbidden_phrases = ?, value_constraints = ?, target_word_count = ?
+            SET name = ?, opening_style = ?, paragraph_rhythm = ?, closing_style = ?, forbidden_phrases = ?, value_constraints = ?, target_word_count = ?, default_polish_instruction = ?
             WHERE id = ?
             """,
             (
@@ -918,6 +947,7 @@ def update_tone_profile(profile_id: int, payload: ToneProfileUpsert) -> ToneProf
                 json.dumps(payload.forbidden_phrases, ensure_ascii=False),
                 payload.value_constraints,
                 payload.target_word_count,
+                payload.default_polish_instruction,
                 profile_id,
             ),
         )
@@ -925,6 +955,7 @@ def update_tone_profile(profile_id: int, payload: ToneProfileUpsert) -> ToneProf
         row = connection.execute(
             """
             SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
             """,
@@ -951,6 +982,7 @@ def activate_tone_profile(profile_id: int) -> ToneProfileItem:
         row = connection.execute(
             """
             SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
             """,
@@ -964,6 +996,7 @@ def get_active_tone_profile() -> ToneProfileItem:
         row = connection.execute(
             """
             SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                , default_polish_instruction
             FROM tone_profiles
             WHERE is_active = 1
             ORDER BY sort_order ASC, id ASC
@@ -980,6 +1013,7 @@ def get_tone_profile_by_id(profile_id: int) -> ToneProfileItem | None:
         row = connection.execute(
             """
             SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
             """,
@@ -1015,6 +1049,7 @@ def duplicate_tone_profile(profile_id: int) -> ToneProfileItem:
         source_row = connection.execute(
             """
             SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
             """,
@@ -1031,9 +1066,9 @@ def duplicate_tone_profile(profile_id: int) -> ToneProfileItem:
         connection.execute(
             """
             INSERT INTO tone_profiles (
-                is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count, default_polish_instruction
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 0,
@@ -1045,6 +1080,7 @@ def duplicate_tone_profile(profile_id: int) -> ToneProfileItem:
                 source_row["forbidden_phrases"],
                 source_row["value_constraints"],
                 source_row["target_word_count"],
+                source_row["default_polish_instruction"],
             ),
         )
         duplicated_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
@@ -1052,6 +1088,7 @@ def duplicate_tone_profile(profile_id: int) -> ToneProfileItem:
         row = connection.execute(
             """
             SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+                , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
             """,
@@ -2154,6 +2191,12 @@ def _get_project_context(project_slug: str) -> sqlite3.Row:
                 t.source_ref_slug,
                 t.title AS topic_title,
                 t.angle AS topic_angle,
+                ta.title AS reference_article_title,
+                ta.author AS reference_article_author,
+                COALESCE(NULLIF(TRIM(ta.source_name), ''), '手动录入') AS reference_article_source_name,
+                ta.summary AS reference_article_summary,
+                ta.structure_notes AS reference_article_structure_notes,
+                ta.tags AS reference_article_tags,
                 CASE
                     WHEN t.source_type = 'trend' THEN tr.title
                     WHEN t.source_type = 'tracked_article' THEN '参考文章 / ' || COALESCE(NULLIF(TRIM(ta.source_name), ''), '手动录入')
@@ -2174,6 +2217,36 @@ def _get_project_context(project_slug: str) -> sqlite3.Row:
     return existing
 
 
+def _build_reference_article_payload(project: sqlite3.Row) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "source_type": str(project["source_type"]),
+    }
+    if str(project["source_type"]) != "tracked_article":
+        return payload
+
+    tags: list[str] = []
+    raw_tags = project["reference_article_tags"]
+    if raw_tags not in (None, ""):
+        try:
+            parsed_tags = json.loads(str(raw_tags))
+            if isinstance(parsed_tags, list):
+                tags = [str(tag) for tag in parsed_tags]
+        except json.JSONDecodeError:
+            tags = []
+
+    payload.update(
+        {
+            "reference_article_title": str(project["reference_article_title"] or ""),
+            "reference_article_author": str(project["reference_article_author"] or ""),
+            "reference_article_source_name": str(project["reference_article_source_name"] or "手动录入"),
+            "reference_article_summary": str(project["reference_article_summary"] or ""),
+            "reference_article_structure_notes": str(project["reference_article_structure_notes"] or ""),
+            "reference_article_tags": tags,
+        }
+    )
+    return payload
+
+
 def get_ai_generator():
     return get_default_generator()
 
@@ -2189,7 +2262,7 @@ def _get_project_chain_rows(connection: sqlite3.Connection, project_slug: str) -
         SELECT project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name
         FROM outlines
         WHERE project_slug = ?
-        ORDER BY version DESC
+        ORDER BY version DESC, id DESC
         LIMIT 1
         """,
         (project_slug,),
@@ -2204,7 +2277,7 @@ def _get_project_chain_rows(connection: sqlite3.Connection, project_slug: str) -
             SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
             FROM drafts
             WHERE project_slug = ? AND outline_version = ?
-            ORDER BY version DESC
+            ORDER BY version DESC, id DESC
             LIMIT 1
             """,
             (project_slug, outline_row["version"]),
@@ -2228,7 +2301,7 @@ def _get_project_chain_rows(connection: sqlite3.Connection, project_slug: str) -
                 tone_profile_name
             FROM assets
             WHERE project_slug = ? AND draft_version = ?
-            ORDER BY version DESC
+            ORDER BY version DESC, id DESC
             LIMIT 1
             """,
             (project_slug, draft_row["version"]),
@@ -2259,7 +2332,7 @@ def _get_project_chain_rows(connection: sqlite3.Connection, project_slug: str) -
                 tone_profile_name
             FROM publish_packages
             WHERE project_slug = ? AND draft_version = ? AND assets_version = ?
-            ORDER BY version DESC
+            ORDER BY version DESC, id DESC
             LIMIT 1
             """,
             (project_slug, draft_row["version"], assets_row["version"]),
@@ -2533,7 +2606,7 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
             SELECT project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name
             FROM outlines
             WHERE project_slug = ?
-            ORDER BY version DESC
+            ORDER BY version DESC, id DESC
             """,
             (project_slug,),
         ).fetchall()
@@ -2542,7 +2615,7 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
             SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
             FROM drafts
             WHERE project_slug = ?
-            ORDER BY version DESC
+            ORDER BY version DESC, id DESC
             """,
             (project_slug,),
         ).fetchall()
@@ -2564,7 +2637,7 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
                 tone_profile_name
             FROM assets
             WHERE project_slug = ?
-            ORDER BY version DESC
+            ORDER BY version DESC, id DESC
             """,
             (project_slug,),
         ).fetchall()
@@ -2593,7 +2666,7 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
                 tone_profile_name
             FROM publish_packages
             WHERE project_slug = ?
-            ORDER BY version DESC
+            ORDER BY version DESC, id DESC
             """,
             (project_slug,),
         ).fetchall()
@@ -2611,6 +2684,7 @@ def generate_outline(project_slug: str) -> OutlineItem:
     project = _get_project_context(project_slug)
     tone_profile = get_project_tone_profile(project)
     domain_pack = get_project_domain_pack(project)
+    reference_article_payload = _build_reference_article_payload(project)
     created_at = _utc_now_iso()
     origin = _resolve_version_origin()
     ai_result = get_ai_generator().generate_outline(
@@ -2621,35 +2695,37 @@ def generate_outline(project_slug: str) -> OutlineItem:
             "project_title": project["title"],
             "tone_profile": tone_profile.model_dump(),
             "domain_pack": domain_pack,
+            **reference_article_payload,
         }
     )
-    with _get_connection() as connection:
-        current = connection.execute(
-            "SELECT COALESCE(MAX(version), 0) AS version FROM outlines WHERE project_slug = ?",
-            (project_slug,),
-        ).fetchone()
-        version = int(current["version"]) + 1
-        hook = str(ai_result["hook"])
-        outline_body = str(ai_result["outline_body"])
-        connection.execute(
-            """
-            INSERT INTO outlines (project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (project_slug, version, hook, outline_body, created_at, origin, tone_profile.id, tone_profile.name),
-        )
-        _record_task(
-            connection,
-            task_type="outline_generation",
-            status="done",
-            entity_slug=project_slug,
-            entity_type="project",
-        )
-        connection.execute(
-            "UPDATE projects SET stage = ? WHERE slug = ?",
-            ("outline_ready", project_slug),
-        )
-        connection.commit()
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM outlines WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            version = int(current["version"]) + 1
+            hook = str(ai_result["hook"])
+            outline_body = str(ai_result["outline_body"])
+            connection.execute(
+                """
+                INSERT INTO outlines (project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (project_slug, version, hook, outline_body, created_at, origin, tone_profile.id, tone_profile.name),
+            )
+            _record_task(
+                connection,
+                task_type="outline_generation",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.execute(
+                "UPDATE projects SET stage = ? WHERE slug = ?",
+                ("outline_ready", project_slug),
+            )
+            connection.commit()
 
     return OutlineItem(
         project_slug=project_slug,
@@ -2664,53 +2740,56 @@ def generate_outline(project_slug: str) -> OutlineItem:
 
 
 def restore_outline_version(project_slug: str, version: int) -> OutlineItem:
-    with _get_connection() as connection:
-        outline_row = connection.execute(
-            """
-            SELECT project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name
-            FROM outlines
-            WHERE project_slug = ? AND version = ?
-            """,
-            (project_slug, version),
-        ).fetchone()
-        if not outline_row:
-            raise HTTPException(status_code=404, detail="Outline version not found")
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            outline_row = connection.execute(
+                """
+                SELECT project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name
+                FROM outlines
+                WHERE project_slug = ? AND version = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (project_slug, version),
+            ).fetchone()
+            if not outline_row:
+                raise HTTPException(status_code=404, detail="Outline version not found")
 
-        current = connection.execute(
-            "SELECT COALESCE(MAX(version), 0) AS version FROM outlines WHERE project_slug = ?",
-            (project_slug,),
-        ).fetchone()
-        next_version = int(current["version"]) + 1
-        created_at = _utc_now_iso()
-        origin = _resolve_version_origin(restored=True)
-        connection.execute(
-            """
-            INSERT INTO outlines (project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                project_slug,
-                next_version,
-                outline_row["hook"],
-                outline_row["outline_body"],
-                created_at,
-                origin,
-                outline_row["tone_profile_id"],
-                outline_row["tone_profile_name"],
-            ),
-        )
-        _record_task(
-            connection,
-            task_type="outline_restored",
-            status="done",
-            entity_slug=project_slug,
-            entity_type="project",
-        )
-        connection.execute(
-            "UPDATE projects SET stage = ? WHERE slug = ?",
-            ("outline_ready", project_slug),
-        )
-        connection.commit()
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM outlines WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            next_version = int(current["version"]) + 1
+            created_at = _utc_now_iso()
+            origin = _resolve_version_origin(restored=True)
+            connection.execute(
+                """
+                INSERT INTO outlines (project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_slug,
+                    next_version,
+                    outline_row["hook"],
+                    outline_row["outline_body"],
+                    created_at,
+                    origin,
+                    outline_row["tone_profile_id"],
+                    outline_row["tone_profile_name"],
+                ),
+            )
+            _record_task(
+                connection,
+                task_type="outline_restored",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.execute(
+                "UPDATE projects SET stage = ? WHERE slug = ?",
+                ("outline_ready", project_slug),
+            )
+            connection.commit()
 
     return OutlineItem(
         project_slug=project_slug,
@@ -2729,7 +2808,11 @@ def generate_draft(project_slug: str) -> DraftItem:
 
 
 def polish_draft(project_slug: str, instruction: str) -> DraftItem:
-    return _generate_draft(project_slug, polish_instruction=instruction)
+    project = _get_project_context(project_slug)
+    tone_profile = get_project_tone_profile(project)
+    normalized_instruction = instruction.strip()
+    effective_instruction = normalized_instruction or tone_profile.default_polish_instruction.strip()
+    return _generate_draft(project_slug, polish_instruction=effective_instruction)
 
 
 def _generate_draft(
@@ -2741,113 +2824,116 @@ def _generate_draft(
     project = _get_project_context(project_slug)
     tone_profile = get_project_tone_profile(project)
     domain_pack = get_project_domain_pack(project)
-    with _get_connection() as connection:
-        outline_row = connection.execute(
-            """
-            SELECT project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name
-            FROM outlines
-            WHERE project_slug = ?
-            ORDER BY version DESC
-            LIMIT 1
-            """,
-            (project_slug,),
-        ).fetchone()
-        if not outline_row:
-            raise HTTPException(status_code=409, detail="Outline not generated")
-
-        latest_draft_row = None
-        if polish_instruction:
-            latest_draft_row = connection.execute(
+    reference_article_payload = _build_reference_article_payload(project)
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            outline_row = connection.execute(
                 """
-                SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
-                FROM drafts
+                SELECT project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name
+                FROM outlines
                 WHERE project_slug = ?
-                ORDER BY version DESC
+                ORDER BY version DESC, id DESC
                 LIMIT 1
                 """,
                 (project_slug,),
             ).fetchone()
-            if not latest_draft_row:
-                raise HTTPException(status_code=409, detail="Draft not generated")
+            if not outline_row:
+                raise HTTPException(status_code=409, detail="Outline not generated")
 
-        current = connection.execute(
-            "SELECT COALESCE(MAX(version), 0) AS version FROM drafts WHERE project_slug = ?",
-            (project_slug,),
-        ).fetchone()
-        version = int(current["version"]) + 1
-        created_at = _utc_now_iso()
-        origin = _resolve_version_origin(
-            review_comment=review_comment,
-            polish_instruction=polish_instruction,
-        )
-        ai_result = get_ai_generator().generate_draft(
-            {
-                "trend_title": project["trend_title"],
-                "topic_title": project["topic_title"],
-                "topic_angle": project["topic_angle"],
-                "project_title": project["title"],
-                "outline": {
-                    "hook": outline_row["hook"],
-                    "outline_body": outline_row["outline_body"],
-                },
-                "tone_profile": tone_profile.model_dump(),
-                "domain_pack": domain_pack,
-                "review_comment": review_comment,
-                "polish_instruction": polish_instruction,
-                "draft": {
-                    "title": latest_draft_row["title"],
-                    "body_markdown": latest_draft_row["body_markdown"],
-                }
-                if polish_instruction and latest_draft_row
-                else None,
-            }
-        )
-        title = str(ai_result["title"])
-        body_markdown = str(ai_result["body_markdown"])
-        body_markdown, title = _maybe_compress_draft_output(
-            project_slug=project_slug,
-            tone_profile=tone_profile,
-            title=title,
-            body_markdown=body_markdown,
-            project=project,
-            outline_row=outline_row,
-            review_comment=review_comment,
-            generator=get_ai_generator(),
-        )
-        word_count = len(body_markdown)
-        connection.execute(
-            """
-            INSERT INTO drafts (
-                project_slug, outline_version, version, title, body_markdown, word_count,
-                created_at, origin, tone_profile_id, tone_profile_name
+            latest_draft_row = None
+            if polish_instruction:
+                latest_draft_row = connection.execute(
+                    """
+                    SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
+                    FROM drafts
+                    WHERE project_slug = ?
+                    ORDER BY version DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (project_slug,),
+                ).fetchone()
+                if not latest_draft_row:
+                    raise HTTPException(status_code=409, detail="Draft not generated")
+
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM drafts WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            version = int(current["version"]) + 1
+            created_at = _utc_now_iso()
+            origin = _resolve_version_origin(
+                review_comment=review_comment,
+                polish_instruction=polish_instruction,
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                project_slug,
-                outline_row["version"],
-                version,
-                title,
-                body_markdown,
-                word_count,
-                created_at,
-                origin,
-                tone_profile.id,
-                tone_profile.name,
-            ),
-        )
-        _record_task(
-            connection,
-            task_type="draft_polished" if polish_instruction else "draft_generation",
-            status="done",
-            entity_slug=project_slug,
-            entity_type="project",
-        )
-        connection.execute(
-            "UPDATE projects SET stage = ? WHERE slug = ?",
-            ("draft_ready", project_slug),
-        )
-        connection.commit()
+            ai_result = get_ai_generator().generate_draft(
+                {
+                    "trend_title": project["trend_title"],
+                    "topic_title": project["topic_title"],
+                    "topic_angle": project["topic_angle"],
+                    "project_title": project["title"],
+                    "outline": {
+                        "hook": outline_row["hook"],
+                        "outline_body": outline_row["outline_body"],
+                    },
+                    "tone_profile": tone_profile.model_dump(),
+                    "domain_pack": domain_pack,
+                    "review_comment": review_comment,
+                    "polish_instruction": polish_instruction,
+                    "draft": {
+                        "title": latest_draft_row["title"],
+                        "body_markdown": latest_draft_row["body_markdown"],
+                    }
+                    if polish_instruction and latest_draft_row
+                    else None,
+                    **reference_article_payload,
+                }
+            )
+            title = str(ai_result["title"])
+            body_markdown = str(ai_result["body_markdown"])
+            body_markdown, title = _maybe_compress_draft_output(
+                project_slug=project_slug,
+                tone_profile=tone_profile,
+                title=title,
+                body_markdown=body_markdown,
+                project=project,
+                outline_row=outline_row,
+                review_comment=review_comment,
+                generator=get_ai_generator(),
+            )
+            word_count = len(body_markdown)
+            connection.execute(
+                """
+                INSERT INTO drafts (
+                    project_slug, outline_version, version, title, body_markdown, word_count,
+                    created_at, origin, tone_profile_id, tone_profile_name
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_slug,
+                    outline_row["version"],
+                    version,
+                    title,
+                    body_markdown,
+                    word_count,
+                    created_at,
+                    origin,
+                    tone_profile.id,
+                    tone_profile.name,
+                ),
+            )
+            _record_task(
+                connection,
+                task_type="draft_polished" if polish_instruction else "draft_generation",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.execute(
+                "UPDATE projects SET stage = ? WHERE slug = ?",
+                ("draft_ready", project_slug),
+            )
+            connection.commit()
 
     return DraftItem(
         project_slug=project_slug,
@@ -2900,64 +2986,68 @@ def _maybe_compress_draft_output(
                 "title": title,
                 "body_markdown": body_markdown,
             },
+            **_build_reference_article_payload(project),
         }
     )
     return str(compressed_result["body_markdown"]), str(compressed_result["title"])
 
 
 def restore_draft_version(project_slug: str, version: int) -> DraftItem:
-    with _get_connection() as connection:
-        draft_row = connection.execute(
-            """
-            SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
-            FROM drafts
-            WHERE project_slug = ? AND version = ?
-            """,
-            (project_slug, version),
-        ).fetchone()
-        if not draft_row:
-            raise HTTPException(status_code=404, detail="Draft version not found")
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            draft_row = connection.execute(
+                """
+                SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
+                FROM drafts
+                WHERE project_slug = ? AND version = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (project_slug, version),
+            ).fetchone()
+            if not draft_row:
+                raise HTTPException(status_code=404, detail="Draft version not found")
 
-        current = connection.execute(
-            "SELECT COALESCE(MAX(version), 0) AS version FROM drafts WHERE project_slug = ?",
-            (project_slug,),
-        ).fetchone()
-        next_version = int(current["version"]) + 1
-        created_at = _utc_now_iso()
-        origin = _resolve_version_origin(restored=True)
-        connection.execute(
-            """
-            INSERT INTO drafts (
-                project_slug, outline_version, version, title, body_markdown, word_count,
-                created_at, origin, tone_profile_id, tone_profile_name
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM drafts WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            next_version = int(current["version"]) + 1
+            created_at = _utc_now_iso()
+            origin = _resolve_version_origin(restored=True)
+            connection.execute(
+                """
+                INSERT INTO drafts (
+                    project_slug, outline_version, version, title, body_markdown, word_count,
+                    created_at, origin, tone_profile_id, tone_profile_name
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_slug,
+                    draft_row["outline_version"],
+                    next_version,
+                    draft_row["title"],
+                    draft_row["body_markdown"],
+                    draft_row["word_count"],
+                    created_at,
+                    origin,
+                    draft_row["tone_profile_id"],
+                    draft_row["tone_profile_name"],
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                project_slug,
-                draft_row["outline_version"],
-                next_version,
-                draft_row["title"],
-                draft_row["body_markdown"],
-                draft_row["word_count"],
-                created_at,
-                origin,
-                draft_row["tone_profile_id"],
-                draft_row["tone_profile_name"],
-            ),
-        )
-        _record_task(
-            connection,
-            task_type="draft_restored",
-            status="done",
-            entity_slug=project_slug,
-            entity_type="project",
-        )
-        connection.execute(
-            "UPDATE projects SET stage = ? WHERE slug = ?",
-            ("draft_ready", project_slug),
-        )
-        connection.commit()
+            _record_task(
+                connection,
+                task_type="draft_restored",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.execute(
+                "UPDATE projects SET stage = ? WHERE slug = ?",
+                ("draft_ready", project_slug),
+            )
+            connection.commit()
 
     return DraftItem(
         project_slug=project_slug,
@@ -2990,14 +3080,50 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _get_project_version_lock(project_slug: str) -> threading.Lock:
+    with _PROJECT_VERSION_LOCKS_GUARD:
+        lock = _PROJECT_VERSION_LOCKS.get(project_slug)
+        if lock is None:
+            lock = threading.Lock()
+            _PROJECT_VERSION_LOCKS[project_slug] = lock
+        return lock
+
+
+def _normalize_cover_prompt_layout(prompt: str) -> str:
+    normalized = str(prompt).strip()
+    normalized = _COVER_PROMPT_LAYOUT_CONFLICT_PATTERN.sub("", normalized)
+    normalized = re.sub(r"[，,]\s*[，,]+", "，", normalized)
+    normalized = re.sub(r"\s{2,}", " ", normalized)
+    normalized = normalized.strip(" ，,；;")
+
+    prefix_parts: list[str] = []
+    if "21:9" not in normalized and "21：9" not in normalized:
+        prefix_parts.append("21:9横版公众号封面")
+    elif "横版" not in normalized:
+        prefix_parts.append("横版公众号封面")
+    if "横向" not in normalized and "宽画幅" not in normalized:
+        prefix_parts.append("横向宽画幅构图")
+    if "安全区" not in normalized:
+        prefix_parts.append("主体位于画面中部安全区")
+
+    if prefix_parts and normalized:
+        return f"{'，'.join(prefix_parts)}，{normalized}"
+    if prefix_parts:
+        return "，".join(prefix_parts)
+    return normalized
+
+
 def _resolve_version_origin(
     *,
     review_comment: str | None = None,
     polish_instruction: str | None = None,
     restored: bool = False,
+    cover_regenerated: bool = False,
 ) -> str:
     if restored:
         return "restore"
+    if cover_regenerated:
+        return "cover_regeneration"
     if polish_instruction:
         return "polish"
     if review_comment:
@@ -3005,9 +3131,21 @@ def _resolve_version_origin(
     return "generate"
 
 
+def _background_task_log_entity(job_type: str, payload: dict[str, object], task_id: str) -> tuple[str, str]:
+    if job_type in PIPELINE_BATCH_TASK_TYPES:
+        return "batch", task_id
+
+    project_slug = payload.get("project_slug")
+    if project_slug:
+        return "project", str(project_slug)
+
+    return "background_task", task_id
+
+
 def submit_background_task(job_type: str, payload: dict[str, object]) -> BackgroundTaskSubmission:
     task_id = str(uuid.uuid4())
     created_at = _utc_now_iso()
+    entity_type, entity_slug = _background_task_log_entity(job_type, payload, task_id)
     with _get_connection() as connection:
         connection.execute(
             """
@@ -3020,8 +3158,8 @@ def submit_background_task(job_type: str, payload: dict[str, object]) -> Backgro
             connection,
             task_type=job_type,
             status="queued",
-            entity_slug=task_id,
-            entity_type="batch",
+            entity_slug=entity_slug,
+            entity_type=entity_type,
             background_task_id=task_id,
         )
         connection.commit()
@@ -3099,8 +3237,17 @@ def _run_background_task(task_id: str) -> None:
             result = batch_generate_topics_from_tracked_articles(payload.get("article_slugs"))
         elif job_type == "batch_create_projects":
             result = batch_create_projects(payload.get("topic_slugs"))
+        elif job_type == "build_publish_package":
+            result = build_publish_package(str(payload["project_slug"]))
+        elif job_type == "polish_and_build_publish_package":
+            result = polish_and_build_publish_package(
+                str(payload["project_slug"]),
+                polish_instruction=str(payload.get("polish_instruction") or ""),
+            )
         elif job_type == "regenerate_from_review":
             result = regenerate_from_review(str(payload["project_slug"]))
+        elif job_type == "regenerate_cover_image":
+            result = regenerate_cover_image(str(payload["project_slug"]))
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported background job type: {job_type}")
 
@@ -3161,77 +3308,207 @@ def _build_publish_checklist() -> list[str]:
     ]
 
 
-def generate_assets(project_slug: str) -> AssetItem:
+def generate_assets(
+    project_slug: str,
+    *,
+    polish_before_generate: bool = False,
+    polish_instruction: str | None = None,
+) -> AssetItem:
+    if polish_before_generate:
+        project = _get_project_context(project_slug)
+        tone_profile = get_project_tone_profile(project)
+        normalized_instruction = (polish_instruction or "").strip()
+        effective_instruction = normalized_instruction or tone_profile.default_polish_instruction.strip() or DEFAULT_ASSETS_POLISH_INSTRUCTION
+        _generate_draft(project_slug, polish_instruction=effective_instruction)
     return _generate_assets(project_slug)
 
 
-def restore_assets_version(project_slug: str, version: int) -> AssetItem:
-    with _get_connection() as connection:
-        assets_row = connection.execute(
-            """
-            SELECT
-                project_slug,
-                draft_version,
-                version,
-                title_options,
-                cover_prompt,
-                cover_copy,
-                social_teaser,
-                cover_image_path,
-                cover_image_url,
-                tone_profile_id,
-                tone_profile_name
-            FROM assets
-            WHERE project_slug = ? AND version = ?
-            """,
-            (project_slug, version),
-        ).fetchone()
-        if not assets_row:
-            raise HTTPException(status_code=404, detail="Assets version not found")
+def regenerate_cover_image(project_slug: str) -> AssetItem:
+    project = _get_project_context(project_slug)
+    _ensure_generated_assets_dir()
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            assets_row = connection.execute(
+                """
+                SELECT
+                    project_slug,
+                    draft_version,
+                    version,
+                    title_options,
+                    cover_prompt,
+                    cover_copy,
+                    social_teaser,
+                    cover_image_path,
+                    cover_image_url,
+                    tone_profile_id,
+                    tone_profile_name
+                FROM assets
+                WHERE project_slug = ?
+                ORDER BY version DESC, id DESC
+                LIMIT 1
+                """,
+                (project_slug,),
+            ).fetchone()
+            if not assets_row:
+                raise HTTPException(status_code=409, detail="Assets not generated")
 
-        current = connection.execute(
-            "SELECT COALESCE(MAX(version), 0) AS version FROM assets WHERE project_slug = ?",
-            (project_slug,),
-        ).fetchone()
-        next_version = int(current["version"]) + 1
-        created_at = _utc_now_iso()
-        origin = _resolve_version_origin(restored=True)
-        connection.execute(
-            """
-            INSERT INTO assets (
-                project_slug, draft_version, version, title_options, cover_prompt, cover_copy, social_teaser,
-                cover_image_path, cover_image_url, created_at, origin, tone_profile_id, tone_profile_name
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM assets WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            next_version = int(current["version"]) + 1
+            created_at = _utc_now_iso()
+            origin = _resolve_version_origin(cover_regenerated=True)
+            normalized_cover_prompt = _normalize_cover_prompt_layout(str(assets_row["cover_prompt"]))
+            cover_filename = f"{project_slug}-assets-v{next_version}.png"
+            cover_file_path = GENERATED_ASSETS_DIR / cover_filename
+            cover_image_path = ""
+            cover_image_url = ""
+            try:
+                cover_image_bytes = get_ai_generator().generate_cover_image(
+                    {
+                        "project_slug": project_slug,
+                        "project_title": project["title"],
+                        "cover_prompt": normalized_cover_prompt,
+                        "cover_copy": assets_row["cover_copy"],
+                    }
+                )
+                cover_file_path.write_bytes(cover_image_bytes)
+                cover_image_path = str(cover_file_path)
+                cover_image_url = f"/generated-assets/{cover_filename}"
+            except Exception as exc:
+                logger.warning(
+                    "Cover image regeneration failed for project %s: %s",
+                    project_slug,
+                    exc,
+                )
+                cover_image_path = ""
+                cover_image_url = ""
+
+            connection.execute(
+                """
+                INSERT INTO assets (
+                    project_slug, draft_version, version, title_options, cover_prompt, cover_copy, social_teaser,
+                    cover_image_path, cover_image_url, created_at, origin, tone_profile_id, tone_profile_name
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_slug,
+                    assets_row["draft_version"],
+                    next_version,
+                    assets_row["title_options"],
+                    normalized_cover_prompt,
+                    assets_row["cover_copy"],
+                    assets_row["social_teaser"],
+                    cover_image_path,
+                    cover_image_url,
+                    created_at,
+                    origin,
+                    assets_row["tone_profile_id"],
+                    assets_row["tone_profile_name"],
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                project_slug,
-                assets_row["draft_version"],
-                next_version,
-                assets_row["title_options"],
-                assets_row["cover_prompt"],
-                assets_row["cover_copy"],
-                assets_row["social_teaser"],
-                assets_row["cover_image_path"],
-                assets_row["cover_image_url"],
-                created_at,
-                origin,
-                assets_row["tone_profile_id"],
-                assets_row["tone_profile_name"],
-            ),
-        )
-        _record_task(
-            connection,
-            task_type="assets_restored",
-            status="done",
-            entity_slug=project_slug,
-            entity_type="project",
-        )
-        connection.execute(
-            "UPDATE projects SET stage = ? WHERE slug = ?",
-            ("assets_ready", project_slug),
-        )
-        connection.commit()
+            _record_task(
+                connection,
+                task_type="cover_image_regenerated",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.execute(
+                "UPDATE projects SET stage = ? WHERE slug = ?",
+                ("assets_ready", project_slug),
+            )
+            connection.commit()
+
+    return AssetItem(
+        project_slug=project_slug,
+        draft_version=int(assets_row["draft_version"]),
+        version=next_version,
+        title_options=json.loads(str(assets_row["title_options"])),
+        cover_prompt=normalized_cover_prompt,
+        cover_copy=str(assets_row["cover_copy"]),
+        social_teaser=str(assets_row["social_teaser"]),
+        cover_image_path=cover_image_path,
+        cover_image_url=cover_image_url,
+        created_at=created_at,
+        origin=origin,
+        tone_profile_id=int(assets_row["tone_profile_id"]) if assets_row["tone_profile_id"] is not None else None,
+        tone_profile_name=str(assets_row["tone_profile_name"]) if assets_row["tone_profile_name"] is not None else None,
+    )
+
+
+def restore_assets_version(project_slug: str, version: int) -> AssetItem:
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            assets_row = connection.execute(
+                """
+                SELECT
+                    project_slug,
+                    draft_version,
+                    version,
+                    title_options,
+                    cover_prompt,
+                    cover_copy,
+                    social_teaser,
+                    cover_image_path,
+                    cover_image_url,
+                    tone_profile_id,
+                    tone_profile_name
+                FROM assets
+                WHERE project_slug = ? AND version = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (project_slug, version),
+            ).fetchone()
+            if not assets_row:
+                raise HTTPException(status_code=404, detail="Assets version not found")
+
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM assets WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            next_version = int(current["version"]) + 1
+            created_at = _utc_now_iso()
+            origin = _resolve_version_origin(restored=True)
+            connection.execute(
+                """
+                INSERT INTO assets (
+                    project_slug, draft_version, version, title_options, cover_prompt, cover_copy, social_teaser,
+                    cover_image_path, cover_image_url, created_at, origin, tone_profile_id, tone_profile_name
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_slug,
+                    assets_row["draft_version"],
+                    next_version,
+                    assets_row["title_options"],
+                    assets_row["cover_prompt"],
+                    assets_row["cover_copy"],
+                    assets_row["social_teaser"],
+                    assets_row["cover_image_path"],
+                    assets_row["cover_image_url"],
+                    created_at,
+                    origin,
+                    assets_row["tone_profile_id"],
+                    assets_row["tone_profile_name"],
+                ),
+            )
+            _record_task(
+                connection,
+                task_type="assets_restored",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.execute(
+                "UPDATE projects SET stage = ? WHERE slug = ?",
+                ("assets_ready", project_slug),
+            )
+            connection.commit()
 
     return AssetItem(
         project_slug=project_slug,
@@ -3255,109 +3532,111 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
     tone_profile = get_project_tone_profile(project)
     domain_pack = get_project_domain_pack(project)
     _ensure_generated_assets_dir()
-    with _get_connection() as connection:
-        draft_row = connection.execute(
-            """
-            SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
-            FROM drafts
-            WHERE project_slug = ?
-            ORDER BY version DESC
-            LIMIT 1
-            """,
-            (project_slug,),
-        ).fetchone()
-        if not draft_row:
-            raise HTTPException(status_code=409, detail="Draft not generated")
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            draft_row = connection.execute(
+                """
+                SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
+                FROM drafts
+                WHERE project_slug = ?
+                ORDER BY version DESC, id DESC
+                LIMIT 1
+                """,
+                (project_slug,),
+            ).fetchone()
+            if not draft_row:
+                raise HTTPException(status_code=409, detail="Draft not generated")
 
-        current = connection.execute(
-            "SELECT COALESCE(MAX(version), 0) AS version FROM assets WHERE project_slug = ?",
-            (project_slug,),
-        ).fetchone()
-        version = int(current["version"]) + 1
-        created_at = _utc_now_iso()
-        origin = _resolve_version_origin(review_comment=review_comment)
-        ai_result = get_ai_generator().generate_assets(
-            {
-                "trend_title": project["trend_title"],
-                "topic_title": project["topic_title"],
-                "topic_angle": project["topic_angle"],
-                "project_title": project["title"],
-                "draft": {
-                    "title": draft_row["title"],
-                    "body_markdown": draft_row["body_markdown"],
-                },
-                "tone_profile": tone_profile.model_dump(),
-                "domain_pack": domain_pack,
-                "review_comment": review_comment,
-            }
-        )
-        cover_filename = f"{project_slug}-assets-v{version}.png"
-        cover_file_path = GENERATED_ASSETS_DIR / cover_filename
-        cover_image_path = ""
-        cover_image_url = ""
-        try:
-            cover_image_bytes = get_ai_generator().generate_cover_image(
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM assets WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            version = int(current["version"]) + 1
+            created_at = _utc_now_iso()
+            origin = _resolve_version_origin(review_comment=review_comment)
+            ai_result = get_ai_generator().generate_assets(
                 {
-                    "project_slug": project_slug,
+                    "trend_title": project["trend_title"],
+                    "topic_title": project["topic_title"],
+                    "topic_angle": project["topic_angle"],
                     "project_title": project["title"],
-                    "cover_prompt": ai_result["cover_prompt"],
-                    "cover_copy": ai_result["cover_copy"],
+                    "draft": {
+                        "title": draft_row["title"],
+                        "body_markdown": draft_row["body_markdown"],
+                    },
+                    "tone_profile": tone_profile.model_dump(),
+                    "domain_pack": domain_pack,
+                    "review_comment": review_comment,
                 }
             )
-            cover_file_path.write_bytes(cover_image_bytes)
-            cover_image_path = str(cover_file_path)
-            cover_image_url = f"/generated-assets/{cover_filename}"
-        except Exception as exc:
-            logger.warning(
-                "Cover image generation failed for project %s: %s",
-                project_slug,
-                exc,
-            )
+            normalized_cover_prompt = _normalize_cover_prompt_layout(str(ai_result["cover_prompt"]))
+            cover_filename = f"{project_slug}-assets-v{version}.png"
+            cover_file_path = GENERATED_ASSETS_DIR / cover_filename
             cover_image_path = ""
             cover_image_url = ""
-        connection.execute(
-            """
-            INSERT INTO assets (
-                project_slug, draft_version, version, title_options, cover_prompt, cover_copy, social_teaser,
-                cover_image_path, cover_image_url, created_at, origin, tone_profile_id, tone_profile_name
+            try:
+                cover_image_bytes = get_ai_generator().generate_cover_image(
+                    {
+                        "project_slug": project_slug,
+                        "project_title": project["title"],
+                        "cover_prompt": normalized_cover_prompt,
+                        "cover_copy": ai_result["cover_copy"],
+                    }
+                )
+                cover_file_path.write_bytes(cover_image_bytes)
+                cover_image_path = str(cover_file_path)
+                cover_image_url = f"/generated-assets/{cover_filename}"
+            except Exception as exc:
+                logger.warning(
+                    "Cover image generation failed for project %s: %s",
+                    project_slug,
+                    exc,
+                )
+                cover_image_path = ""
+                cover_image_url = ""
+            connection.execute(
+                """
+                INSERT INTO assets (
+                    project_slug, draft_version, version, title_options, cover_prompt, cover_copy, social_teaser,
+                    cover_image_path, cover_image_url, created_at, origin, tone_profile_id, tone_profile_name
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_slug,
+                    draft_row["version"],
+                    version,
+                    json.dumps(ai_result["title_options"], ensure_ascii=False),
+                    normalized_cover_prompt,
+                    ai_result["cover_copy"],
+                    ai_result["social_teaser"],
+                    cover_image_path,
+                    cover_image_url,
+                    created_at,
+                    origin,
+                    tone_profile.id,
+                    tone_profile.name,
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                project_slug,
-                draft_row["version"],
-                version,
-                json.dumps(ai_result["title_options"], ensure_ascii=False),
-                ai_result["cover_prompt"],
-                ai_result["cover_copy"],
-                ai_result["social_teaser"],
-                cover_image_path,
-                cover_image_url,
-                created_at,
-                origin,
-                tone_profile.id,
-                tone_profile.name,
-            ),
-        )
-        _record_task(
-            connection,
-            task_type="assets_generation",
-            status="done",
-            entity_slug=project_slug,
-            entity_type="project",
-        )
-        connection.execute(
-            "UPDATE projects SET stage = ? WHERE slug = ?",
-            ("assets_ready", project_slug),
-        )
-        connection.commit()
+            _record_task(
+                connection,
+                task_type="assets_generation",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.execute(
+                "UPDATE projects SET stage = ? WHERE slug = ?",
+                ("assets_ready", project_slug),
+            )
+            connection.commit()
 
     return AssetItem(
         project_slug=project_slug,
         draft_version=int(draft_row["version"]),
         version=version,
         title_options=list(ai_result["title_options"]),
-        cover_prompt=str(ai_result["cover_prompt"]),
+        cover_prompt=normalized_cover_prompt,
         cover_copy=str(ai_result["cover_copy"]),
         social_teaser=str(ai_result["social_teaser"]),
         cover_image_path=cover_image_path,
@@ -3399,7 +3678,7 @@ def _create_publish_package(
             SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
             FROM drafts
             WHERE project_slug = ?
-            ORDER BY version DESC
+            ORDER BY version DESC, id DESC
             LIMIT 1
             """,
             (project_slug,),
@@ -3423,7 +3702,7 @@ def _create_publish_package(
                 tone_profile_name
             FROM assets
             WHERE project_slug = ?
-            ORDER BY version DESC
+            ORDER BY version DESC, id DESC
             LIMIT 1
             """,
             (project_slug,),
@@ -3451,81 +3730,82 @@ def _create_publish_package(
     )
     publish_checklist = list(package_override["publish_checklist"]) if package_override and "publish_checklist" in package_override else _build_publish_checklist()
 
-    with _get_connection() as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        current = connection.execute(
-            "SELECT COALESCE(MAX(version), 0) AS version FROM publish_packages WHERE project_slug = ?",
-            (project_slug,),
-        ).fetchone()
-        version = int(current["version"]) + 1
-        created_at = _utc_now_iso()
-        origin = _resolve_version_origin(
-            review_comment=review_comment,
-            restored=restored,
-        )
-        markdown_filename = f"{project_slug}-publish-v{version}.md"
-        manifest_filename = f"{project_slug}-publish-v{version}.json"
-        markdown_path = GENERATED_ASSETS_DIR / markdown_filename
-        manifest_path = GENERATED_ASSETS_DIR / manifest_filename
-        markdown_url = f"/generated-assets/{markdown_filename}"
-        manifest_url = f"/generated-assets/{manifest_filename}"
-        markdown_body = _build_publish_markdown(
-            project_title=project["title"],
-            draft_title=draft_title,
-            draft_body=draft_body_markdown,
-            assets=assets,
-            abstract=str(ai_result["abstract"]),
-            tags=list(ai_result["tags"]),
-            publish_checklist=publish_checklist,
-            editor_note=str(ai_result["editor_note"]),
-            tone_profile_name=effective_tone_profile_name,
-        )
-        manifest_body = {
-            "project_slug": project_slug,
-            "project_title": project["title"],
-            "draft_version": draft_version,
-            "assets_version": assets.version,
-            "abstract": ai_result["abstract"],
-            "tags": ai_result["tags"],
-            "publish_checklist": publish_checklist,
-            "editor_note": ai_result["editor_note"],
-            "tone_profile_id": effective_tone_profile_id,
-            "tone_profile_name": effective_tone_profile_name,
-            "cover_image_url": assets.cover_image_url,
-            "markdown_url": markdown_url,
-        }
-        markdown_path.write_text(markdown_body, encoding="utf-8")
-        manifest_path.write_text(json.dumps(manifest_body, ensure_ascii=False, indent=2), encoding="utf-8")
-        payload: dict[str, object] = {
-            "project_slug": project_slug,
-            "draft_version": draft_version,
-            "assets_version": assets.version,
-            "version": version,
-            "abstract": ai_result["abstract"],
-            "tags": json.dumps(ai_result["tags"], ensure_ascii=False),
-            "publish_checklist": json.dumps(publish_checklist, ensure_ascii=False),
-            "editor_note": ai_result["editor_note"],
-            "markdown_path": str(markdown_path),
-            "markdown_url": markdown_url,
-            "manifest_path": str(manifest_path),
-            "manifest_url": manifest_url,
-            "status": "ready",
-            "review_comment": None,
-            "reviewed_by": None,
-            "reviewed_at": None,
-            "created_at": created_at,
-            "origin": origin,
-            "tone_profile_id": effective_tone_profile_id,
-            "tone_profile_name": effective_tone_profile_name,
-        }
-        if "wechat_body" in publish_columns:
-            payload["wechat_body"] = draft_body_markdown
-        if "cover_title" in publish_columns:
-            payload["cover_title"] = assets.title_options[0]
-        if "checklist_markdown" in publish_columns:
-            payload["checklist_markdown"] = "\n".join(f"- {item}" for item in publish_checklist)
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM publish_packages WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            version = int(current["version"]) + 1
+            created_at = _utc_now_iso()
+            origin = _resolve_version_origin(
+                review_comment=review_comment,
+                restored=restored,
+            )
+            markdown_filename = f"{project_slug}-publish-v{version}.md"
+            manifest_filename = f"{project_slug}-publish-v{version}.json"
+            markdown_path = GENERATED_ASSETS_DIR / markdown_filename
+            manifest_path = GENERATED_ASSETS_DIR / manifest_filename
+            markdown_url = f"/generated-assets/{markdown_filename}"
+            manifest_url = f"/generated-assets/{manifest_filename}"
+            markdown_body = _build_publish_markdown(
+                project_title=project["title"],
+                draft_title=draft_title,
+                draft_body=draft_body_markdown,
+                assets=assets,
+                abstract=str(ai_result["abstract"]),
+                tags=list(ai_result["tags"]),
+                publish_checklist=publish_checklist,
+                editor_note=str(ai_result["editor_note"]),
+                tone_profile_name=effective_tone_profile_name,
+            )
+            manifest_body = {
+                "project_slug": project_slug,
+                "project_title": project["title"],
+                "draft_version": draft_version,
+                "assets_version": assets.version,
+                "abstract": ai_result["abstract"],
+                "tags": ai_result["tags"],
+                "publish_checklist": publish_checklist,
+                "editor_note": ai_result["editor_note"],
+                "tone_profile_id": effective_tone_profile_id,
+                "tone_profile_name": effective_tone_profile_name,
+                "cover_image_url": assets.cover_image_url,
+                "markdown_url": markdown_url,
+            }
+            markdown_path.write_text(markdown_body, encoding="utf-8")
+            manifest_path.write_text(json.dumps(manifest_body, ensure_ascii=False, indent=2), encoding="utf-8")
+            payload: dict[str, object] = {
+                "project_slug": project_slug,
+                "draft_version": draft_version,
+                "assets_version": assets.version,
+                "version": version,
+                "abstract": ai_result["abstract"],
+                "tags": json.dumps(ai_result["tags"], ensure_ascii=False),
+                "publish_checklist": json.dumps(publish_checklist, ensure_ascii=False),
+                "editor_note": ai_result["editor_note"],
+                "markdown_path": str(markdown_path),
+                "markdown_url": markdown_url,
+                "manifest_path": str(manifest_path),
+                "manifest_url": manifest_url,
+                "status": "ready",
+                "review_comment": None,
+                "reviewed_by": None,
+                "reviewed_at": None,
+                "created_at": created_at,
+                "origin": origin,
+                "tone_profile_id": effective_tone_profile_id,
+                "tone_profile_name": effective_tone_profile_name,
+            }
+            if "wechat_body" in publish_columns:
+                payload["wechat_body"] = draft_body_markdown
+            if "cover_title" in publish_columns:
+                payload["cover_title"] = assets.title_options[0]
+            if "checklist_markdown" in publish_columns:
+                payload["checklist_markdown"] = "\n".join(f"- {item}" for item in publish_checklist)
 
-        active_columns = [column for column in payload if column in publish_columns]
+            active_columns = [column for column in payload if column in publish_columns]
         placeholders = ", ".join("?" for _ in active_columns)
         column_sql = ", ".join(active_columns)
         values = tuple(payload[column] for column in active_columns)
@@ -3577,6 +3857,8 @@ def restore_publish_package_version(project_slug: str, version: int) -> PublishP
             SELECT abstract, tags, publish_checklist, editor_note, tone_profile_id, tone_profile_name
             FROM publish_packages
             WHERE project_slug = ? AND version = ?
+            ORDER BY id DESC
+            LIMIT 1
             """,
             (project_slug, version),
         ).fetchone()
@@ -3692,6 +3974,20 @@ def regenerate_from_review(project_slug: str) -> PublishPackageItem:
     _generate_draft(project_slug, review_comment=review_comment)
     _generate_assets(project_slug, review_comment=review_comment)
     return _build_publish_package(project_slug, review_comment=review_comment)
+
+
+def polish_and_build_publish_package(
+    project_slug: str,
+    *,
+    polish_instruction: str | None = None,
+) -> PublishPackageItem:
+    project = _get_project_context(project_slug)
+    tone_profile = get_project_tone_profile(project)
+    normalized_instruction = (polish_instruction or "").strip()
+    effective_instruction = normalized_instruction or tone_profile.default_polish_instruction.strip() or DEFAULT_ASSETS_POLISH_INSTRUCTION
+    _generate_draft(project_slug, polish_instruction=effective_instruction)
+    _generate_assets(project_slug)
+    return _build_publish_package(project_slug)
 
 
 def _review_publish_package(

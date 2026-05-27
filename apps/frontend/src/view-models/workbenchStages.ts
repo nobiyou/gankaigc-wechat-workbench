@@ -14,7 +14,7 @@ export type WorkbenchStageView = {
 const STAGE_META: Array<{ key: WorkbenchStage; label: string; description: string }> = [
   { key: "topic", label: "Topic", description: "选题定位与来源上下文。" },
   { key: "outline", label: "Outline", description: "结构骨架与章节安排。" },
-  { key: "draft", label: "Draft", description: "正文写作与精修。" },
+  { key: "draft", label: "Draft", description: "正文写作与原创增强精修。" },
   { key: "assets", label: "Assets", description: "标题、封面与分发素材。" },
   { key: "publish", label: "Publish", description: "发布包、审核与回退。" },
 ];

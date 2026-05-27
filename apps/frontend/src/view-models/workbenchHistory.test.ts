@@ -90,7 +90,43 @@ test("buildWorkbenchHistoryEntries attaches readable meta lines for timestamps a
 
   assert.deepEqual(entries[0]?.meta, [
     "时间：5/24 16:30",
-    "来源：精修生成",
+    "来源：原创增强精修",
+    "风格：女性成长克制陪伴风",
+  ]);
+});
+
+test("buildWorkbenchHistoryEntries renders readable origin for cover-only regeneration", () => {
+  const entries = buildWorkbenchHistoryEntries({
+    stage: "assets",
+    currentVersionNumber: 2,
+    versions: {
+      project_slug: "demo-project",
+      outlines: [],
+      drafts: [],
+      assets: [
+        {
+          project_slug: "demo-project",
+          draft_version: 1,
+          version: 2,
+          title_options: ["title a"],
+          cover_prompt: "prompt",
+          cover_copy: "cover copy",
+          social_teaser: "teaser",
+          cover_image_path: "cover.png",
+          cover_image_url: "/cover.png",
+          created_at: "2026-05-24T08:30:00Z",
+          origin: "cover_regeneration",
+          tone_profile_id: null,
+          tone_profile_name: "女性成长克制陪伴风",
+        },
+      ],
+      publish_packages: [],
+    },
+  });
+
+  assert.deepEqual(entries[0]?.meta, [
+    "时间：5/24 16:30",
+    "来源：仅重生成封面图",
     "风格：女性成长克制陪伴风",
   ]);
 });

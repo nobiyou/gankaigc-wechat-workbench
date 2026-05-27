@@ -2,7 +2,9 @@ from fastapi import APIRouter, status
 
 from app.schemas.projects import (
     BatchContinueProjectsRequest,
+    BuildPublishPackageAction,
     DraftPolishAction,
+    GenerateAssetsAction,
     ProjectRetroCreate,
     ProjectStageUpdate,
     PublishReviewAction,
@@ -75,13 +77,44 @@ def post_polish_draft(project_slug: str, payload: DraftPolishAction) -> dict[str
 
 
 @router.post("/{project_slug}/generate-assets", status_code=201)
-def post_generate_assets(project_slug: str) -> dict[str, object]:
-    return generate_assets(project_slug).model_dump()
+def post_generate_assets(project_slug: str, payload: GenerateAssetsAction | None = None) -> dict[str, object]:
+    return generate_assets(
+        project_slug,
+        polish_before_generate=payload.polish_before_generate if payload else False,
+        polish_instruction=payload.polish_instruction if payload else None,
+    ).model_dump()
+
+
+@router.post("/{project_slug}/regenerate-cover-image", status_code=status.HTTP_202_ACCEPTED)
+def post_regenerate_cover_image(project_slug: str) -> dict[str, object]:
+    return submit_background_task(
+        "regenerate_cover_image",
+        {"project_slug": project_slug},
+    ).model_dump()
 
 
 @router.post("/{project_slug}/build-publish-package", status_code=201)
 def post_build_publish_package(project_slug: str) -> dict[str, object]:
     return build_publish_package(project_slug).model_dump()
+
+
+@router.post("/{project_slug}/build-publish-package/background", status_code=status.HTTP_202_ACCEPTED)
+def post_build_publish_package_background(
+    project_slug: str,
+    payload: BuildPublishPackageAction | None = None,
+) -> dict[str, object]:
+    if payload and payload.polish_before_generate:
+        return submit_background_task(
+            "polish_and_build_publish_package",
+            {
+                "project_slug": project_slug,
+                "polish_instruction": payload.polish_instruction,
+            },
+        ).model_dump()
+    return submit_background_task(
+        "build_publish_package",
+        {"project_slug": project_slug},
+    ).model_dump()
 
 
 @router.post("/{project_slug}/approve-publish-package")

@@ -26,5 +26,18 @@ test("getTaskTypeLabel reuses dashboard-related batch and publish labels", () =>
 });
 
 test("getTaskTypeLabel covers draft polished events recorded by backend", () => {
-  assert.equal(getTaskTypeLabel("draft_polished"), "精修初稿");
+  assert.equal(getTaskTypeLabel("draft_polished"), "原创增强精修");
+});
+
+test("getTaskTypeLabel covers polish and generate assets task", () => {
+  assert.equal(getTaskTypeLabel("polish_and_generate_assets"), "原创增强后生成素材包");
+});
+
+test("getTaskTypeLabel covers polish and build publish package task", () => {
+  assert.equal(getTaskTypeLabel("polish_and_build_publish_package"), "原创增强后生成发布包");
+});
+
+test("getTaskTypeLabel covers cover-only asset refresh events", () => {
+  assert.equal(getTaskTypeLabel("cover_image_regenerated"), "重生成封面图");
+  assert.equal(getTaskTypeLabel("regenerate_cover_image"), "重生成封面图");
 });

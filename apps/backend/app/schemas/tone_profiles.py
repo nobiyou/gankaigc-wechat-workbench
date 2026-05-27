@@ -12,6 +12,7 @@ class ToneProfileItem(BaseModel):
     forbidden_phrases: list[str]
     value_constraints: str
     target_word_count: int
+    default_polish_instruction: str = ""
 
 
 class ToneProfileUpsert(BaseModel):
@@ -22,6 +23,7 @@ class ToneProfileUpsert(BaseModel):
     forbidden_phrases: list[str]
     value_constraints: str
     target_word_count: int
+    default_polish_instruction: str = ""
 
 
 class ToneProfileReorder(BaseModel):

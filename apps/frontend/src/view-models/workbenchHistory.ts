@@ -42,10 +42,13 @@ function formatHistoryOrigin(origin: string | null): string | null {
     return "来源：AI 生成";
   }
   if (origin === "polish") {
-    return "来源：精修生成";
+    return "来源：原创增强精修";
   }
   if (origin === "review_regeneration") {
     return "来源：按审核意见重生成";
+  }
+  if (origin === "cover_regeneration") {
+    return "来源：仅重生成封面图";
   }
   if (origin === "restore") {
     return "来源：历史恢复";

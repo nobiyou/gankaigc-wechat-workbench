@@ -167,6 +167,16 @@ class DraftPolishAction(BaseModel):
     instruction: str
 
 
+class GenerateAssetsAction(BaseModel):
+    polish_before_generate: bool = False
+    polish_instruction: str | None = None
+
+
+class BuildPublishPackageAction(BaseModel):
+    polish_before_generate: bool = False
+    polish_instruction: str | None = None
+
+
 class ProjectRetroItem(BaseModel):
     project_slug: str
     performance_rating: int

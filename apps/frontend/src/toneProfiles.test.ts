@@ -11,6 +11,7 @@ import {
   hasProjectToneProfileSelectionChanged,
   pickToneProfileSelectionAfterRemoval,
   pickEditableToneProfile,
+  resolveDraftPolishInstruction,
   sortToneProfiles,
 } from "./toneProfiles.ts";
 
@@ -34,6 +35,7 @@ test("buildToneProfileFormState maps API tone profile into editable form values"
     forbidden_phrases: ["你必须", "立刻改变"],
     value_constraints: "不说教，不制造羞耻感",
     target_word_count: 1400,
+    default_polish_instruction: "重写开头和结尾，调整段落连接。",
   });
 
   assert.deepEqual(form, {
@@ -45,6 +47,7 @@ test("buildToneProfileFormState maps API tone profile into editable form values"
     forbidden_phrases_text: "你必须, 立刻改变",
     value_constraints: "不说教，不制造羞耻感",
     target_word_count: "1400",
+    default_polish_instruction: "重写开头和结尾，调整段落连接。",
   });
 });
 
@@ -58,6 +61,7 @@ test("createToneProfileFormState prepares an empty draft with default target wor
     forbidden_phrases_text: "",
     value_constraints: "",
     target_word_count: "1400",
+    default_polish_instruction: "",
   });
 });
 
@@ -71,6 +75,7 @@ test("buildToneProfileUpdatePayload trims fields and splits forbidden phrases fr
     forbidden_phrases_text: " 你必须，立刻改变,  空话  , ",
     value_constraints: " 不说教，不制造羞耻感 ",
     target_word_count: " 1600 ",
+    default_polish_instruction: " 重写开头，压缩重复表达 ",
   });
 
   assert.deepEqual(payload, {
@@ -81,6 +86,7 @@ test("buildToneProfileUpdatePayload trims fields and splits forbidden phrases fr
     forbidden_phrases: ["你必须", "立刻改变", "空话"],
     value_constraints: "不说教，不制造羞耻感",
     target_word_count: 1600,
+    default_polish_instruction: "重写开头，压缩重复表达",
   });
 });
 
@@ -96,6 +102,7 @@ test("buildToneProfileUpdatePayload rejects non-positive target word counts", ()
         forbidden_phrases_text: "你必须",
         value_constraints: "不说教",
         target_word_count: "0",
+        default_polish_instruction: "",
       }),
     /目标字数必须是正整数/u,
   );
@@ -301,4 +308,16 @@ test("sortToneProfiles follows backend sort_order instead of local insertion ord
     sortToneProfiles(profiles).map((profile) => profile.id),
     [7, 8, 9],
   );
+});
+
+test("resolveDraftPolishInstruction prefers explicit input and otherwise falls back to tone profile default", () => {
+  assert.equal(
+    resolveDraftPolishInstruction("  重写开头  ", { default_polish_instruction: "默认策略" }),
+    "重写开头",
+  );
+  assert.equal(
+    resolveDraftPolishInstruction("   ", { default_polish_instruction: "  默认策略  " }),
+    "默认策略",
+  );
+  assert.equal(resolveDraftPolishInstruction("", null), "");
 });

@@ -598,6 +598,7 @@ export function SettingsPage({ section }: SettingsPageProps) {
                     <p>{profile.opening_style}</p>
                     <div className="workspace-item__meta">
                       <span>目标字数 {profile.target_word_count}</span>
+                      <span>{profile.default_polish_instruction ? "带默认精修策略" : "无默认精修策略"}</span>
                       <span>排序 #{profile.sort_order}</span>
                     </div>
                   </button>
@@ -717,6 +718,16 @@ export function SettingsPage({ section }: SettingsPageProps) {
                 inputMode="numeric"
                 value={formState.target_word_count}
                 onChange={(event) => handleFieldChange("target_word_count", event.target.value)}
+              />
+            </label>
+
+            <label className="settings-field">
+              <span>默认原创增强精修策略</span>
+              <textarea
+                rows={4}
+                value={formState.default_polish_instruction}
+                onChange={(event) => handleFieldChange("default_polish_instruction", event.target.value)}
+                placeholder="未手填精修指令时，Workbench 会默认使用这条策略。"
               />
             </label>
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 import time
 
 from fastapi.testclient import TestClient
@@ -503,6 +504,13 @@ def test_project_generation_works_for_topics_created_from_tracked_articles(monke
             self.calls.append(("outline", payload))
             return {"hook": "从一次沉默后的回头动作切入", "outline_body": "1. 冲突现场\n2. 错位感受\n3. 修复动作"}
 
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            return {
+                "title": "别急着解释，先把那一下失望接住",
+                "body_markdown": "# 别急着解释，先把那一下失望接住\n\n先写失望现场。",
+            }
+
     client.post(
         "/api/tracked-articles",
         json={
@@ -545,12 +553,32 @@ def test_project_generation_works_for_topics_created_from_tracked_articles(monke
     outline = outline_response.json()
     assert outline["hook"] == "从一次沉默后的回头动作切入"
 
-    assert len(fake_generator.calls) == 1
-    call_type, payload = fake_generator.calls[0]
-    assert call_type == "outline"
-    assert payload["trend_title"] == "参考文章 / 夜读关系实验室"
-    assert payload["topic_title"] == "先接住失望，再谈道理"
-    assert payload["topic_angle"] == "关系修复"
+    draft_response = client.post("/api/projects/slow-repair-project/generate-draft")
+    assert draft_response.status_code == 201
+    draft = draft_response.json()
+    assert draft["title"] == "别急着解释，先把那一下失望接住"
+
+    assert len(fake_generator.calls) == 2
+    outline_call_type, outline_payload = fake_generator.calls[0]
+    assert outline_call_type == "outline"
+    assert outline_payload["trend_title"] == "参考文章 / 夜读关系实验室"
+    assert outline_payload["topic_title"] == "先接住失望，再谈道理"
+    assert outline_payload["topic_angle"] == "关系修复"
+    assert outline_payload["source_type"] == "tracked_article"
+    assert outline_payload["reference_article_title"] == "真正让关系缓回来，不是解释，是先接住那一下失望"
+    assert outline_payload["reference_article_author"] == "北岛"
+    assert outline_payload["reference_article_source_name"] == "夜读关系实验室"
+    assert outline_payload["reference_article_summary"] == "从关系修复案例提炼表达顺序。"
+    assert outline_payload["reference_article_structure_notes"] == "案例开头 + 情绪拆解 + 动作建议。"
+    assert outline_payload["reference_article_tags"] == ["表达修复"]
+
+    draft_call_type, draft_payload = fake_generator.calls[1]
+    assert draft_call_type == "draft"
+    assert draft_payload["source_type"] == "tracked_article"
+    assert draft_payload["reference_article_title"] == "真正让关系缓回来，不是解释，是先接住那一下失望"
+    assert draft_payload["reference_article_summary"] == "从关系修复案例提炼表达顺序。"
+    assert draft_payload["reference_article_structure_notes"] == "案例开头 + 情绪拆解 + 动作建议。"
+    assert draft_payload["reference_article_tags"] == ["表达修复"]
 
 
 def test_create_project_from_topic_and_advance_stage() -> None:
@@ -1339,7 +1367,10 @@ def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypat
     assert fake_generator.calls[0][1]["topic_title"] == "把办公室倦怠写成自救路径"
     assert fake_generator.calls[1][1]["outline"]["hook"] == "先写一个加班后情绪崩掉的瞬间"
     assert fake_generator.calls[2][1]["draft"]["title"] == "办公室倦怠后，先把自己的电量接回来"
-    assert fake_generator.calls[3][1]["cover_prompt"] == "夜晚办公室，一个女生独自坐在工位前，暖黄灯光，情绪克制写实风"
+    assert "21:9" in fake_generator.calls[3][1]["cover_prompt"]
+    assert "横版" in fake_generator.calls[3][1]["cover_prompt"]
+    assert "夜晚办公室，一个女生独自坐在工位前，暖黄灯光，情绪克制写实风" in fake_generator.calls[3][1]["cover_prompt"]
+    assert "竖版" not in fake_generator.calls[3][1]["cover_prompt"]
     assert fake_generator.calls[4][1]["assets"]["cover_image_url"] == "/generated-assets/office-burnout-recovery-weekly-assets-v1.png"
 
 
@@ -1393,6 +1424,362 @@ def test_generate_assets_falls_back_when_cover_image_generation_is_unavailable(m
     manifest = Path(publish_payload["manifest_path"]).read_text(encoding="utf-8")
     assert "封面图：未生成（图片服务暂时不可用）" in markdown
     assert '"cover_image_url": ""' in manifest
+
+
+def test_generate_assets_normalizes_vertical_cover_prompt_before_image_generation(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, _: dict[str, object]) -> dict[str, str]:
+            return {"title": "draft title", "body_markdown": "# draft\n\nbody"}
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("assets", payload))
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "办公室午后工位场景，人物疲惫但克制，适合公众号封面，竖版，9:16",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, payload: dict[str, object]) -> bytes:
+            self.calls.append(("cover_image", payload))
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-outline").status_code == 201
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-draft").status_code == 201
+
+    assets_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-assets")
+    assert assets_response.status_code == 201
+    assets = assets_response.json()
+    assert "21:9" in assets["cover_prompt"]
+    assert "横版" in assets["cover_prompt"]
+    assert "竖版" not in assets["cover_prompt"]
+    assert "9:16" not in assets["cover_prompt"]
+
+    cover_image_call = next(call for call in fake_generator.calls if call[0] == "cover_image")
+    assert "21:9" in cover_image_call[1]["cover_prompt"]
+    assert "横版" in cover_image_call[1]["cover_prompt"]
+    assert "竖版" not in cover_image_call[1]["cover_prompt"]
+    assert "9:16" not in cover_image_call[1]["cover_prompt"]
+
+    detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
+    assert "21:9" in detail["assets"]["cover_prompt"]
+    assert "竖版" not in detail["assets"]["cover_prompt"]
+
+
+def test_generate_assets_serializes_versions_for_same_project(monkeypatch) -> None:
+    class FakeGenerator:
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, _: dict[str, object]) -> dict[str, str]:
+            return {"title": "draft title", "body_markdown": "# draft\n\nbody"}
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            time.sleep(0.1)
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "办公室午后工位场景，人物疲惫但克制",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: FakeGenerator(), raising=False)
+
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-outline").status_code == 201
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-draft").status_code == 201
+
+    responses: list[dict[str, object]] = []
+
+    def run_generate_assets() -> None:
+        response = client.post("/api/projects/office-burnout-recovery-weekly/generate-assets")
+        assert response.status_code == 201
+        responses.append(response.json())
+
+    first = threading.Thread(target=run_generate_assets)
+    second = threading.Thread(target=run_generate_assets)
+    first.start()
+    second.start()
+    first.join()
+    second.join()
+
+    versions = sorted(item["version"] for item in responses)
+    assert versions == [1, 2]
+
+    payload = client.get("/api/projects/office-burnout-recovery-weekly/versions").json()
+    assert [item["version"] for item in payload["assets"][:2]] == [2, 1]
+
+
+def test_build_publish_package_serializes_versions_for_same_project(monkeypatch) -> None:
+    class FakeGenerator:
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, _: dict[str, object]) -> dict[str, str]:
+            return {"title": "draft title", "body_markdown": "# draft\n\nbody"}
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "办公室午后工位场景，人物疲惫但克制",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            time.sleep(0.1)
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: FakeGenerator(), raising=False)
+
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-outline").status_code == 201
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-draft").status_code == 201
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-assets").status_code == 201
+
+    responses: list[dict[str, object]] = []
+
+    def run_build_publish_package() -> None:
+        response = client.post("/api/projects/office-burnout-recovery-weekly/build-publish-package")
+        assert response.status_code == 201
+        responses.append(response.json())
+
+    first = threading.Thread(target=run_build_publish_package)
+    second = threading.Thread(target=run_build_publish_package)
+    first.start()
+    second.start()
+    first.join()
+    second.join()
+
+    versions = sorted(item["version"] for item in responses)
+    assert versions == [1, 2]
+
+    payload = client.get("/api/projects/office-burnout-recovery-weekly/versions").json()
+    assert [item["version"] for item in payload["publish_packages"][:2]] == [2, 1]
+
+
+def test_build_publish_package_background_submits_task_and_refreshes_project(monkeypatch) -> None:
+    class FakeGenerator:
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, _: dict[str, object]) -> dict[str, str]:
+            return {"title": "draft title", "body_markdown": "# draft\n\nbody"}
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "办公室午后工位场景，人物疲惫但克制",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            time.sleep(0.05)
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: FakeGenerator(), raising=False)
+
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-outline").status_code == 201
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-draft").status_code == 201
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-assets").status_code == 201
+
+    response = client.post("/api/projects/office-burnout-recovery-weekly/build-publish-package/background")
+    assert response.status_code == 202
+    submit_payload = response.json()
+    assert submit_payload["job_type"] == "build_publish_package"
+
+    task_payload = wait_for_background_task(submit_payload["task_id"])
+    assert task_payload["status"] == "done"
+    assert task_payload["result"] is not None
+    assert task_payload["result"]["version"] == 1
+    assert task_payload["result"]["status"] == "ready"
+
+    detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
+    assert detail["project"]["stage"] == "publish_ready"
+    assert detail["project"]["current_publish_package_version"] == 1
+    assert detail["publish_package"]["status"] == "ready"
+
+
+def test_build_publish_package_background_logs_as_project_task_not_pipeline_batch(monkeypatch) -> None:
+    class FakeGenerator:
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, _: dict[str, object]) -> dict[str, str]:
+            return {"title": "draft title", "body_markdown": "# draft\n\nbody"}
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "办公室午后工位场景，人物疲惫但克制",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: FakeGenerator(), raising=False)
+
+    project_slug = "office-burnout-recovery-weekly"
+    assert client.post(f"/api/projects/{project_slug}/generate-outline").status_code == 201
+    assert client.post(f"/api/projects/{project_slug}/generate-draft").status_code == 201
+    assert client.post(f"/api/projects/{project_slug}/generate-assets").status_code == 201
+
+    response = client.post(f"/api/projects/{project_slug}/build-publish-package/background")
+    assert response.status_code == 202
+    submit_payload = response.json()
+
+    task_payload = wait_for_background_task(submit_payload["task_id"])
+    assert task_payload["status"] == "done"
+
+    summary_response = client.get("/api/dashboard/summary")
+    assert summary_response.status_code == 200
+    recent_tasks = summary_response.json()["recent_tasks"]
+
+    workbench_task = next(
+        (task for task in recent_tasks if task["background_task_id"] == submit_payload["task_id"]),
+        None,
+    )
+    assert workbench_task is not None
+    assert workbench_task["task_type"] == "build_publish_package"
+    assert workbench_task["entity_type"] == "project"
+    assert workbench_task["entity_slug"] == project_slug
+
+    all_log_response = client.get("/api/background-tasks/logs?scope=all")
+    assert all_log_response.status_code == 200
+    all_task_logs = all_log_response.json()
+    assert any(task["background_task_id"] == submit_payload["task_id"] for task in all_task_logs)
+
+    pipeline_log_response = client.get("/api/background-tasks/logs?scope=pipeline")
+    assert pipeline_log_response.status_code == 200
+    pipeline_task_logs = pipeline_log_response.json()
+    assert all(task["background_task_id"] != submit_payload["task_id"] for task in pipeline_task_logs)
+
+
+def test_build_publish_package_background_can_polish_before_generating_publish_package(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if payload.get("polish_instruction"):
+                return {"title": "draft title polished", "body_markdown": "# polished\n\nbody polished"}
+            return {"title": "draft title", "body_markdown": "# draft\n\nbody"}
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("assets", payload))
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "办公室午后工位场景，人物疲惫但克制",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("publish_package", payload))
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-outline").status_code == 201
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-draft").status_code == 201
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-assets").status_code == 201
+
+    response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/build-publish-package/background",
+        json={
+            "polish_before_generate": True,
+            "polish_instruction": "重写开头和结尾，减少模板感，更像真实公众号作者在写。",
+        },
+    )
+    assert response.status_code == 202
+    submit_payload = response.json()
+    assert submit_payload["job_type"] == "polish_and_build_publish_package"
+
+    task_payload = wait_for_background_task(submit_payload["task_id"])
+    assert task_payload["status"] == "done"
+    assert task_payload["result"] is not None
+    assert task_payload["result"]["version"] == 1
+    assert task_payload["result"]["draft_version"] == 2
+    assert task_payload["result"]["assets_version"] == 2
+
+    detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
+    assert detail["draft"]["version"] == 2
+    assert detail["draft"]["title"] == "draft title polished"
+    assert detail["assets"]["version"] == 2
+    assert detail["assets"]["draft_version"] == 2
+    assert detail["publish_package"]["status"] == "ready"
+    assert detail["project"]["stage"] == "publish_ready"
+    assert detail["project"]["current_publish_package_version"] == 1
+
+    polished_call = next(call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction"))
+    assert polished_call[1]["polish_instruction"] == "重写开头和结尾，减少模板感，更像真实公众号作者在写。"
+
+    assets_call = next(call for call in fake_generator.calls if call[0] == "assets" and call[1]["draft"]["title"] == "draft title polished")
+    assert assets_call[1]["draft"]["title"] == "draft title polished"
+
+    publish_call = next(call for call in fake_generator.calls if call[0] == "publish_package")
+    assert publish_call[1]["draft"]["title"] == "draft title polished"
+    assert publish_call[1]["assets"]["version"] == 2
 
 
 def test_publish_package_review_flow_supports_revision_and_approval(monkeypatch) -> None:
@@ -1902,6 +2289,203 @@ def test_polish_draft_creates_new_draft_version_and_invalidates_downstream(monke
     polished_call = next(call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction"))
     assert polished_call[1]["polish_instruction"] == "统一语气，提炼观点，结尾更克制。"
     assert polished_call[1]["draft"]["title"] == "draft title"
+
+
+def test_polish_draft_falls_back_to_tone_profile_default_instruction(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            return {"title": "draft title polished", "body_markdown": "# polished\n\nbody"}
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    profiles = client.get("/api/tone-profiles").json()
+    profile_id = profiles[0]["id"]
+    update_response = client.patch(
+        f"/api/tone-profiles/{profile_id}",
+        json={
+            "name": "克制陪伴风",
+            "opening_style": "冷启动场景切入",
+            "paragraph_rhythm": "短段落，慢推进",
+            "closing_style": "留白式收束",
+            "forbidden_phrases": ["必须", "立刻"],
+            "value_constraints": "不说教，不制造羞耻感",
+            "target_word_count": 1400,
+            "default_polish_instruction": "重写开头和结尾，调整段落连接。",
+        },
+    )
+    assert update_response.status_code == 200
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "   "},
+    )
+    assert polish_response.status_code == 201
+
+    polished_call = next(call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction"))
+    assert polished_call[1]["polish_instruction"] == "重写开头和结尾，调整段落连接。"
+
+
+def test_generate_assets_can_polish_draft_before_generating_assets(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if payload.get("polish_instruction"):
+                return {"title": "draft title polished", "body_markdown": "# polished\n\nbody polished"}
+            return {"title": "draft title", "body_markdown": "# draft\n\nbody"}
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("assets", payload))
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+
+    assets_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/generate-assets",
+        json={
+            "polish_before_generate": True,
+            "polish_instruction": "重写开头和结尾，减少重复解释感，更像真实公众号作者。",
+        },
+    )
+    assert assets_response.status_code == 201
+    assets = assets_response.json()
+    assert assets["draft_version"] == 2
+
+    detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
+    assert detail["draft"]["version"] == 2
+    assert detail["draft"]["title"] == "draft title polished"
+    assert detail["assets"]["draft_version"] == 2
+    assert detail["project"]["stage"] == "assets_ready"
+    assert detail["project"]["next_required_step"] == "build_publish_package"
+
+    draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
+    assert len(draft_calls) == 2
+    assert draft_calls[1][1]["polish_instruction"] == "重写开头和结尾，减少重复解释感，更像真实公众号作者。"
+
+    assets_call = next(call for call in fake_generator.calls if call[0] == "assets")
+    assert assets_call[1]["draft"]["title"] == "draft title polished"
+
+
+def test_generate_assets_can_fall_back_to_default_polish_instruction_before_generating_assets(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if payload.get("polish_instruction"):
+                return {"title": "draft title polished", "body_markdown": "# polished\n\nbody polished"}
+            return {"title": "draft title", "body_markdown": "# draft\n\nbody"}
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("assets", payload))
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    profiles = client.get("/api/tone-profiles").json()
+    profile_id = profiles[0]["id"]
+    update_response = client.patch(
+        f"/api/tone-profiles/{profile_id}",
+        json={
+            "name": "克制陪伴风",
+            "opening_style": "冷启动场景切入",
+            "paragraph_rhythm": "短段落，慢推进",
+            "closing_style": "留白式收束",
+            "forbidden_phrases": ["必须", "立刻"],
+            "value_constraints": "不说教，不制造羞耻感",
+            "target_word_count": 1400,
+            "default_polish_instruction": "重写开头和结尾，压掉模板感，更像真实公众号作者在写。",
+        },
+    )
+    assert update_response.status_code == 200
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+
+    assets_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/generate-assets",
+        json={
+            "polish_before_generate": True,
+            "polish_instruction": "   ",
+        },
+    )
+    assert assets_response.status_code == 201
+
+    polished_call = next(call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction"))
+    assert polished_call[1]["polish_instruction"] == "重写开头和结尾，压掉模板感，更像真实公众号作者在写。"
 
 
 def test_generate_draft_auto_compresses_when_far_above_target_word_count(monkeypatch) -> None:
@@ -3086,6 +3670,79 @@ def test_restore_assets_version_creates_new_current_assets_and_invalidates_publi
     versions = client.get("/api/projects/office-burnout-recovery-weekly/versions").json()
     assert [item["version"] for item in versions["assets"]] == [3, 2, 1]
     assert [item["version"] for item in versions["publish_packages"]] == [2, 1]
+
+
+def test_regenerate_cover_image_creates_new_assets_version_without_regenerating_asset_text(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.assets_calls = 0
+            self.cover_calls = 0
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, _: dict[str, object]) -> dict[str, str]:
+            return {"title": "draft title", "body_markdown": "# draft\n\nbody"}
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            self.assets_calls += 1
+            return {
+                "title_options": ["title v1", "title v1 alt"],
+                "cover_prompt": "prompt v1",
+                "cover_copy": "cover copy v1",
+                "social_teaser": "teaser v1",
+            }
+
+        def generate_cover_image(self, payload: dict[str, object]) -> bytes:
+            self.cover_calls += 1
+            assert "21:9" in str(payload["cover_prompt"])
+            return f"img-{self.cover_calls}".encode("utf-8")
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {"abstract": "abstract v1", "tags": ["tag-v1"], "editor_note": "note v1"}
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+    first_assets_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-assets")
+    assert first_assets_response.status_code == 201
+    first_assets = first_assets_response.json()
+    client.post("/api/projects/office-burnout-recovery-weekly/build-publish-package")
+
+    regenerate_response = client.post("/api/projects/office-burnout-recovery-weekly/regenerate-cover-image")
+    assert regenerate_response.status_code == 202
+    regenerate_submit = regenerate_response.json()
+    assert regenerate_submit["job_type"] == "regenerate_cover_image"
+    regenerate_task = wait_for_background_task(regenerate_submit["task_id"])
+    assert regenerate_task["status"] == "done"
+    regenerated_assets = regenerate_task["result"]
+
+    assert regenerated_assets["version"] == 2
+    assert regenerated_assets["draft_version"] == first_assets["draft_version"]
+    assert regenerated_assets["title_options"] == ["title v1", "title v1 alt"]
+    assert regenerated_assets["cover_prompt"] == first_assets["cover_prompt"]
+    assert regenerated_assets["cover_copy"] == "cover copy v1"
+    assert regenerated_assets["social_teaser"] == "teaser v1"
+    assert regenerated_assets["cover_image_url"] == "/generated-assets/office-burnout-recovery-weekly-assets-v2.png"
+    assert Path(regenerated_assets["cover_image_path"]).read_bytes() == b"img-2"
+
+    detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
+    assert detail["project"]["stage"] == "assets_ready"
+    assert detail["project"]["current_assets_version"] == 2
+    assert detail["project"]["next_required_step"] == "build_publish_package"
+    assert detail["assets"]["version"] == 2
+    assert detail["assets"]["origin"] == "cover_regeneration"
+    assert detail["publish_package"] is None
+
+    versions = client.get("/api/projects/office-burnout-recovery-weekly/versions").json()
+    assert [item["version"] for item in versions["assets"]] == [2, 1]
+    assert versions["assets"][0]["origin"] == "cover_regeneration"
+    assert [item["version"] for item in versions["publish_packages"]] == [1]
+
+    assert fake_generator.assets_calls == 1
+    assert fake_generator.cover_calls == 2
 
 
 def test_restore_publish_package_version_reapplies_historical_package_to_current_chain(monkeypatch) -> None:

@@ -5,7 +5,7 @@ import { Link, NavLink, useParams } from "react-router-dom";
 import {
   approvePublishPackage,
   fetchBackgroundTask,
-  buildPublishPackage,
+  buildPublishPackageInBackground,
   fetchDomainPacks,
   fetchProjectDetail,
   fetchProjectVersions,
@@ -14,6 +14,7 @@ import {
   generateDraft,
   generateOutline,
   polishDraft,
+  regenerateCoverImage,
   recordProjectRetro,
   regenerateFromReview,
   requestPublishRevision,
@@ -35,8 +36,16 @@ import { formatProjectDomainPackLabel } from "../domainPacks";
 import { buildProjectConfigPreviewLines } from "../projectConfigPreview";
 import { formatProjectChainStateLabel, formatProjectNextStepLabel } from "../projectStatus";
 import { buildRetroDraft } from "../retroDraft";
-import { formatProjectToneProfileLabel, hasProjectToneProfileSelectionChanged } from "../toneProfiles";
-import { buildWorkbenchActionPlan, type WorkbenchActionKind } from "../view-models/workbenchActions";
+import { getTaskTypeLabel } from "../taskLabels";
+import { formatProjectToneProfileLabel, hasProjectToneProfileSelectionChanged, resolveDraftPolishInstruction } from "../toneProfiles";
+import {
+  buildWorkbenchActionPlan,
+  getWorkbenchBackgroundTaskDisplayError,
+  shouldClearWorkbenchActionAfterPollError,
+  shouldKeepWorkbenchActionActive,
+  shouldRetryWorkbenchBackgroundTaskPoll,
+  type WorkbenchActionKind,
+} from "../view-models/workbenchActions";
 import { buildWorkbenchHistoryEntries, buildWorkbenchHistoryGroups, formatPublishStatusLabel } from "../view-models/workbenchHistory";
 import { buildWorkbenchPreview } from "../view-models/workbenchPreview";
 import { buildWorkbenchStageViews, resolveRecommendedWorkbenchStage } from "../view-models/workbenchStages";
@@ -134,6 +143,77 @@ function formatBackgroundTaskStatusLabel(status?: string | null): string {
   }
   return "未知";
 }
+
+function formatBackgroundTaskTimestamp(value?: string | null): string {
+  if (!value) {
+    return "时间未知";
+  }
+
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return "时间未知";
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function describeBackgroundTask(jobType?: string | null): {
+  submittedMessage: string;
+  completedMessage: string;
+  failedMessage: string;
+  progressMessage: string;
+} {
+  if (jobType === "build_publish_package") {
+    return {
+      submittedMessage: "已提交生成发布包任务，正在后台构建正文成品与发布清单。",
+      completedMessage: "发布包生成已完成，Workbench 已刷新到最新发布状态。",
+      failedMessage: "生成发布包失败。",
+      progressMessage: "当前正在后台生成发布包，并刷新发布阶段数据。",
+    };
+  }
+
+  if (jobType === "regenerate_cover_image") {
+    return {
+      submittedMessage: "已提交重生成封面图任务，正在后台刷新素材版本。",
+      completedMessage: "封面图重生成已完成，Workbench 已刷新到最新素材版本。",
+      failedMessage: "重生成封面图失败。",
+      progressMessage: "当前正在后台重生成封面图，并写入新的素材版本。",
+    };
+  }
+
+  if (jobType === "polish_and_generate_assets") {
+    return {
+      submittedMessage: "已提交原创增强后生成素材任务，正在基于新正文刷新素材版本。",
+      completedMessage: "原创增强与素材重生成已完成，Workbench 已刷新到最新素材版本。",
+      failedMessage: "原创增强后生成素材失败。",
+      progressMessage: "当前正在先做原创增强精修，再基于新正文生成素材包。",
+    };
+  }
+
+  if (jobType === "polish_and_build_publish_package") {
+    return {
+      submittedMessage: "已提交原创增强后生成发布包任务，正在后台刷新正文、素材和发布成品。",
+      completedMessage: "原创增强与发布包重生成已完成，Workbench 已刷新到最新发布状态。",
+      failedMessage: "原创增强后生成发布包失败。",
+      progressMessage: "当前正在先做原创增强精修，再生成新的素材和发布包。",
+    };
+  }
+
+  return {
+    submittedMessage: "已提交按审核意见重生成任务，正在后台刷新初稿、素材和发布包。",
+    completedMessage: "按审核意见重生成已完成，Workbench 已刷新到最新链路状态。",
+    failedMessage: "按审核意见重生成失败。",
+    progressMessage: "当前正在按审核意见重生成初稿、素材和发布包。",
+  };
+}
+
+const DEFAULT_POLISH_HELP =
+  "请执行原创增强精修，目标是把当前正文改到更像真实公众号作者手写稿，而不是AI顺滑稿；重写大部分句子，减少模板感、重复句式和总结腔，结尾收得更安静。";
 
 function renderSimpleMarkdown(markdown: string): ReactNode {
   const lines = markdown.split("\n");
@@ -306,7 +386,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
             : current,
         );
 
-        if (detail.status === "queued" || detail.status === "running") {
+        if (shouldRetryWorkbenchBackgroundTaskPoll(detail.status)) {
           timerId = window.setTimeout(() => {
             void pollTask();
           }, 2000);
@@ -315,10 +395,10 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
 
         if (detail.status === "done") {
           await reloadWorkbench(currentProjectSlug);
-          setActionMessage("按审核意见重生成已完成，Workbench 已刷新到最新链路状态。");
+          setActionMessage(describeBackgroundTask(detail.job_type).completedMessage);
           setActionError(null);
         } else {
-          setActionError(detail.error || "按审核意见重生成失败。");
+          setActionError(detail.error || describeBackgroundTask(detail.job_type).failedMessage);
         }
         setActiveBackgroundTask(null);
         setActiveAction(null);
@@ -333,7 +413,12 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
               : current,
           );
           setActionError(error instanceof Error ? error.message : "拉取后台任务状态失败。");
-          setActiveAction(null);
+          if (shouldClearWorkbenchActionAfterPollError(Boolean(activeBackgroundTask))) {
+            setActiveAction(null);
+          }
+          timerId = window.setTimeout(() => {
+            void pollTask();
+          }, 2000);
         }
       }
     }
@@ -405,11 +490,33 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     detail: loadState.detail,
     historyEntryCount: historyEntries.length,
   });
-  const preview = buildWorkbenchPreview(stage, loadState.detail);
+  const preview = buildWorkbenchPreview(stage, loadState.detail, loadState.versions);
+  const activeBackgroundTaskError = activeBackgroundTask
+    ? getWorkbenchBackgroundTaskDisplayError({
+        taskError: activeBackgroundTask.detail?.error,
+        pollError: activeBackgroundTask.error,
+      })
+    : null;
+
+  async function handleCopyPreviewBlock(label: string, copyText: string) {
+    try {
+      await navigator.clipboard.writeText(copyText);
+      setActionError(null);
+      setActionMessage(`已复制${label}，可直接粘贴去做原创检测。`);
+    } catch (error: unknown) {
+      setActionMessage(null);
+      setActionError(error instanceof Error ? error.message : `复制${label}失败。`);
+    }
+  }
   const nextToneProfileId = toneProfileDraft ? Number.parseInt(toneProfileDraft, 10) : null;
   const hasConfigChanged =
     (loadState.detail.project.domain_pack_key ?? "") !== domainPackDraft ||
     hasProjectToneProfileSelectionChanged(loadState.detail.project, nextToneProfileId);
+  const activeProjectToneProfile =
+    loadState.toneProfiles.find((profile) => profile.id === nextToneProfileId) ??
+    loadState.toneProfiles.find((profile) => profile.is_active) ??
+    null;
+  const effectiveDraftPolishInstruction = resolveDraftPolishInstruction(draftInstruction, activeProjectToneProfile);
 
   async function reloadWorkbench(projectSlugValue: string) {
     const [detail, versions, domainPacks, toneProfiles] = await Promise.all([
@@ -469,6 +576,8 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
       return;
     }
 
+    let backgroundTaskSubmitted = false;
+
     try {
       setActiveAction(versionNumber ? `${actionKind}-${versionNumber}` : actionKind);
       setActionError(null);
@@ -481,15 +590,54 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
       } else if (actionKind === "generate_draft") {
         await generateDraft(projectSlug);
       } else if (actionKind === "polish_draft") {
-        await polishDraft(projectSlug, draftInstruction || "请在不改变核心观点的前提下提升表达质量与节奏。");
+        await polishDraft(
+          projectSlug,
+          effectiveDraftPolishInstruction,
+        );
+      } else if (actionKind === "polish_and_generate_assets") {
+        await generateAssets(projectSlug, {
+          polish_before_generate: true,
+          polish_instruction: effectiveDraftPolishInstruction,
+        });
       } else if (actionKind === "restore_draft" && versionNumber) {
         await restoreDraftVersion(projectSlug, versionNumber);
       } else if (actionKind === "generate_assets") {
         await generateAssets(projectSlug);
+      } else if (actionKind === "regenerate_cover_image") {
+        const submission = await regenerateCoverImage(projectSlug);
+        setActiveBackgroundTask({
+          submission,
+          detail: null,
+          error: null,
+        });
+        backgroundTaskSubmitted = true;
+        setActionMessage(describeBackgroundTask(submission.job_type).submittedMessage);
+        return;
       } else if (actionKind === "restore_assets" && versionNumber) {
         await restoreAssetsVersion(projectSlug, versionNumber);
       } else if (actionKind === "build_publish_package") {
-        await buildPublishPackage(projectSlug);
+        const submission = await buildPublishPackageInBackground(projectSlug);
+        setActiveBackgroundTask({
+          submission,
+          detail: null,
+          error: null,
+        });
+        backgroundTaskSubmitted = true;
+        setActionMessage(describeBackgroundTask(submission.job_type).submittedMessage);
+        return;
+      } else if (actionKind === "polish_and_build_publish_package") {
+        const submission = await buildPublishPackageInBackground(projectSlug, {
+          polish_before_generate: true,
+          polish_instruction: effectiveDraftPolishInstruction,
+        });
+        setActiveBackgroundTask({
+          submission,
+          detail: null,
+          error: null,
+        });
+        backgroundTaskSubmitted = true;
+        setActionMessage(describeBackgroundTask(submission.job_type).submittedMessage);
+        return;
       } else if (actionKind === "restore_publish_package" && versionNumber) {
         await restorePublishPackageVersion(projectSlug, versionNumber);
       } else if (actionKind === "approve_publish_package") {
@@ -509,7 +657,8 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
           detail: null,
           error: null,
         });
-        setActionMessage("已提交按审核意见重生成任务，正在后台刷新初稿、素材和发布包。");
+        backgroundTaskSubmitted = true;
+        setActionMessage(describeBackgroundTask(submission.job_type).submittedMessage);
         return;
       } else if (actionKind === "record_project_retro") {
         const payload: ProjectRetroCreatePayload = {
@@ -531,7 +680,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     } catch (error: unknown) {
       setActionError(error instanceof Error ? error.message : "执行阶段动作失败。");
     } finally {
-      if (actionKind !== "regenerate_from_review") {
+      if (!shouldKeepWorkbenchActionActive(actionKind, backgroundTaskSubmitted)) {
         setActiveAction(null);
       }
     }
@@ -634,15 +783,31 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
       ) : null}
 
       {activeBackgroundTask ? (
-        <div className="workspace-note workspace-note--info">
-          <p>
-            后台任务状态：{formatBackgroundTaskStatusLabel(activeBackgroundTask.detail?.status ?? activeBackgroundTask.submission.status)}
-            {activeBackgroundTask.submission.task_id ? ` · ${activeBackgroundTask.submission.task_id}` : ""}
-          </p>
-          <p>
-            当前正在按审核意见重生成初稿、素材和发布包。
-            {activeBackgroundTask.detail?.error ? ` 错误：${activeBackgroundTask.detail.error}` : ""}
-          </p>
+        <div className="workspace-note workspace-note--info workbench-task-note">
+          <div className="workspace-section__header">
+            <div>
+              <p className="workspace-section__eyebrow">Background Task</p>
+              <h4>{getTaskTypeLabel(activeBackgroundTask.submission.job_type)}</h4>
+              <p>{describeBackgroundTask(activeBackgroundTask.submission.job_type).progressMessage}</p>
+            </div>
+            <span className="workspace-run-card__count">
+              {formatBackgroundTaskStatusLabel(activeBackgroundTask.detail?.status ?? activeBackgroundTask.submission.status)}
+            </span>
+          </div>
+          <div className="workspace-item__meta">
+            <span>{`任务 ID：${activeBackgroundTask.submission.task_id}`}</span>
+            <span>{`提交时间：${formatBackgroundTaskTimestamp(activeBackgroundTask.submission.created_at)}`}</span>
+            {activeBackgroundTask.detail?.started_at ? (
+              <span>{`开始执行：${formatBackgroundTaskTimestamp(activeBackgroundTask.detail.started_at)}`}</span>
+            ) : null}
+          </div>
+          <div className="workspace-tag-list">
+            <span className="workspace-tag">可先切换到其他阶段继续查看</span>
+            <span className="workspace-tag">任务完成后会自动刷新当前 Workbench</span>
+          </div>
+          {activeBackgroundTaskError ? (
+            <p className="workbench-task-note__error">{`错误：${activeBackgroundTaskError}`}</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -684,14 +849,48 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
             </div>
 
             {actionPlan.showInstructionField ? (
-              <label className="workspace-search">
-                <span>精修指令</span>
-                <input
-                  value={draftInstruction}
-                  onChange={(event) => setDraftInstruction(event.target.value)}
-                  placeholder="例如：加强开头钩子，压缩重复表达，保留情绪递进。"
-                />
-              </label>
+              <>
+                <label className="workspace-search">
+                  <span>
+                    {stage === "assets"
+                      ? "素材重生前精修指令"
+                      : stage === "publish"
+                        ? "发布包生成前精修指令"
+                        : "精修指令"}
+                  </span>
+                  <input
+                    value={draftInstruction}
+                    onChange={(event) => setDraftInstruction(event.target.value)}
+                    placeholder={
+                      stage === "assets"
+                        ? "例如：更像人写的公众号稿，重写开头和结尾，减少重复句式，压低模板感。"
+                        : stage === "publish"
+                          ? "例如：生成发布包前先把正文压一版，减少模板感和对称句，更像真实公众号作者在写。"
+                        : "例如：重写开头和结尾，调整段落连接，减少重复句式，保留情绪递进。"
+                    }
+                  />
+                </label>
+                {activeProjectToneProfile?.default_polish_instruction ? (
+                  <div className="workspace-note workspace-note--info">
+                    <p>
+                      {draftInstruction.trim()
+                        ? "当前将优先使用你手填的精修指令。"
+                        : `当前未手填指令，将自动使用风格「${activeProjectToneProfile.name}」的默认原创增强精修策略。`}
+                    </p>
+                    <p>{`默认策略：${effectiveDraftPolishInstruction || DEFAULT_POLISH_HELP}`}</p>
+                  </div>
+                ) : null}
+                {!activeProjectToneProfile?.default_polish_instruction && (stage === "assets" || stage === "publish") ? (
+                  <div className="workspace-note workspace-note--info">
+                    <p>
+                      {stage === "assets"
+                        ? "当前风格未配置默认精修策略，素材阶段会自动回退到系统内置的“更像人写的公众号稿”原创增强策略。"
+                        : "当前风格未配置默认精修策略，发布阶段会自动回退到系统内置的“更像人写的公众号稿”原创增强策略。"}
+                    </p>
+                    <p>{`系统策略：${DEFAULT_POLISH_HELP}`}</p>
+                  </div>
+                ) : null}
+              </>
             ) : null}
 
             {actionPlan.showPublishReviewForm ? (
@@ -787,9 +986,15 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
                   disabled={activeAction === actionPlan.primaryAction.kind}
                 >
                   {activeAction === actionPlan.primaryAction.kind
-                    ? actionPlan.primaryAction.kind === "regenerate_from_review"
+                    ? actionPlan.primaryAction.kind === "regenerate_from_review" ||
+                      actionPlan.primaryAction.kind === "build_publish_package" ||
+                      actionPlan.primaryAction.kind === "polish_and_build_publish_package"
                       ? activeBackgroundTask?.detail?.status === "running"
-                        ? "后台重生成中..."
+                        ? actionPlan.primaryAction.kind === "build_publish_package"
+                          ? "后台生成中..."
+                          : actionPlan.primaryAction.kind === "polish_and_build_publish_package"
+                            ? "后台处理中..."
+                          : "后台重生成中..."
                         : "提交后台任务..."
                       : "执行中..."
                     : actionPlan.primaryAction.label}
@@ -988,7 +1193,18 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
               <div className={`workbench-preview workbench-preview--${preview.tone}`}>
                 {preview.blocks.map((block) => (
                   <section key={block.key} className="workbench-preview__section">
-                    <h3>{block.label}</h3>
+                    <div className="workbench-preview__section-header">
+                      <h3>{block.label}</h3>
+                      {block.copyText ? (
+                        <button
+                          className="workspace-inline-toggle"
+                          type="button"
+                          onClick={() => void handleCopyPreviewBlock(block.label, block.copyText ?? block.content)}
+                        >
+                          复制
+                        </button>
+                      ) : null}
+                    </div>
                     {renderPreviewBlockBody(block)}
                   </section>
                 ))}

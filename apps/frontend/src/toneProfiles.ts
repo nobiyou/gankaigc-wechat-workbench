@@ -9,6 +9,7 @@ export type ToneProfileFormState = {
   forbidden_phrases_text: string;
   value_constraints: string;
   target_word_count: string;
+  default_polish_instruction: string;
 };
 
 export type ToneProfileMoveDirection = "up" | "down";
@@ -31,6 +32,7 @@ export function buildToneProfileFormState(profile: ToneProfileItem): ToneProfile
     forbidden_phrases_text: profile.forbidden_phrases.join(", "),
     value_constraints: profile.value_constraints,
     target_word_count: String(profile.target_word_count),
+    default_polish_instruction: profile.default_polish_instruction ?? "",
   };
 }
 
@@ -44,6 +46,7 @@ export function createToneProfileFormState(): ToneProfileFormState {
     forbidden_phrases_text: "",
     value_constraints: "",
     target_word_count: "1400",
+    default_polish_instruction: "",
   };
 }
 
@@ -145,5 +148,18 @@ export function buildToneProfileUpdatePayload(form: ToneProfileFormState): ToneP
       .filter(Boolean),
     value_constraints: requireTrimmedValue(form.value_constraints, "价值约束"),
     target_word_count: targetWordCount,
+    default_polish_instruction: form.default_polish_instruction.trim(),
   };
+}
+
+export function resolveDraftPolishInstruction(
+  draftInstruction: string,
+  toneProfile: { default_polish_instruction?: string } | null,
+): string {
+  const normalizedDraftInstruction = draftInstruction.trim();
+  if (normalizedDraftInstruction) {
+    return normalizedDraftInstruction;
+  }
+
+  return toneProfile?.default_polish_instruction?.trim() ?? "";
 }

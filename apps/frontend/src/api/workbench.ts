@@ -236,6 +236,7 @@ export type ToneProfileItem = {
   forbidden_phrases: string[];
   value_constraints: string;
   target_word_count: number;
+  default_polish_instruction?: string;
 };
 
 export type ToneProfileUpsert = Omit<ToneProfileItem, "id" | "is_active" | "sort_order">;
@@ -302,6 +303,16 @@ export type ProjectRetroCreatePayload = {
   wins: string[];
   gaps: string[];
   next_focus: string;
+};
+
+export type GenerateAssetsPayload = {
+  polish_before_generate?: boolean;
+  polish_instruction?: string | null;
+};
+
+export type BuildPublishPackagePayload = {
+  polish_before_generate?: boolean;
+  polish_instruction?: string | null;
 };
 
 export type ProjectDetail = {
@@ -651,8 +662,12 @@ export function restoreDraftVersion(projectSlug: string, version: number): Promi
   return sendJson<DraftItem>(`/projects/${projectSlug}/restore-draft/${version}`, "POST", {});
 }
 
-export function generateAssets(projectSlug: string): Promise<AssetItem> {
-  return sendJson<AssetItem>(`/projects/${projectSlug}/generate-assets`, "POST", {});
+export function generateAssets(projectSlug: string, payload?: GenerateAssetsPayload): Promise<AssetItem> {
+  return sendJson<AssetItem>(`/projects/${projectSlug}/generate-assets`, "POST", payload ?? {});
+}
+
+export function regenerateCoverImage(projectSlug: string): Promise<BackgroundTaskSubmission> {
+  return sendJson<BackgroundTaskSubmission>(`/projects/${projectSlug}/regenerate-cover-image`, "POST", {});
 }
 
 export function restoreAssetsVersion(projectSlug: string, version: number): Promise<AssetItem> {
@@ -661,6 +676,13 @@ export function restoreAssetsVersion(projectSlug: string, version: number): Prom
 
 export function buildPublishPackage(projectSlug: string): Promise<PublishPackageItem> {
   return sendJson<PublishPackageItem>(`/projects/${projectSlug}/build-publish-package`, "POST", {});
+}
+
+export function buildPublishPackageInBackground(
+  projectSlug: string,
+  payload?: BuildPublishPackagePayload,
+): Promise<BackgroundTaskSubmission> {
+  return sendJson<BackgroundTaskSubmission>(`/projects/${projectSlug}/build-publish-package/background`, "POST", payload ?? {});
 }
 
 export function restorePublishPackageVersion(projectSlug: string, version: number): Promise<PublishPackageItem> {
