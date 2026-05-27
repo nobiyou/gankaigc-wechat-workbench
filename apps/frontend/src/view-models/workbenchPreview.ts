@@ -116,6 +116,7 @@ type AiFlavorRiskSummary = {
   score: number;
   level: "低" | "中" | "高";
   hits: string[];
+  suggestions: string[];
 };
 
 function pickPreviousDraft(
@@ -249,29 +250,34 @@ function countPatternMatches(markdown: string, pattern: RegExp): number {
 function buildAiFlavorRiskSummary(draft: DraftItem): AiFlavorRiskSummary {
   const body = draft.body_markdown;
   const hits: string[] = [];
+  const suggestions = new Set<string>();
   let score = 0;
 
   const notABCount = countPatternMatches(body, /不是[^，。；\n]{1,20}[，,、]?\s*而?是[^，。；\n]{1,20}/gu);
   if (notABCount > 0) {
     hits.push(`命中：不是A，是B x${notABCount}`);
+    suggestions.add("建议：把整齐反转句拆成一个具体场景和一个延迟出现的判断。");
     score += Math.min(30, notABCount * 12);
   }
 
   const stepCount = countPatternMatches(body, /第[一二三四五六七八九十]+步/gu);
   if (stepCount > 0) {
     hits.push(`命中：教程分步 x${stepCount}`);
+    suggestions.add("建议：把分步教程改成自然叙事推进，让观察和情绪先发生。");
     score += Math.min(24, stepCount * 8);
   }
 
   const connectorCount = countPatternMatches(body, /(?:比如|例如|其实|所以|因此|也就是说|换句话说|接下来|然后|首先|其次|最后)/gu);
   if (connectorCount >= 4) {
     hits.push(`命中：解释连接词偏多 x${connectorCount}`);
+    suggestions.add("建议：删掉部分解释连接词，让动作和细节承担转场。");
     score += Math.min(22, Math.max(8, connectorCount));
   }
 
   const yiCadenceCount = countPatternMatches(body, /(?:一点|一下|一些|一个|一种|一件|一句|一段|一整天|一会儿|一遍)/gu);
   if (yiCadenceCount >= 5) {
     hits.push(`命中：“一”字节奏偏密 x${yiCadenceCount}`);
+    suggestions.add("建议：替换一半以上的一字量词起手，改用具体动作、物件或时间推进。");
     score += Math.min(18, yiCadenceCount * 2);
   }
 
@@ -279,11 +285,27 @@ function buildAiFlavorRiskSummary(draft: DraftItem): AiFlavorRiskSummary {
   const shortParagraphs = paragraphs.filter((item) => item.length <= 38).length;
   if (paragraphs.length >= 4 && shortParagraphs / paragraphs.length >= 0.55) {
     hits.push(`命中：短促判断段偏多 ${shortParagraphs}/${paragraphs.length}`);
+    suggestions.add("建议：把连续短判断段合并为带场景推进的长短句组合。");
     score += 12;
   }
 
   if (draft.title.includes("不是") && draft.title.includes("，")) {
     hits.push("命中：标题判断句模板");
+    suggestions.add("建议：标题少用对称判断，优先写具体处境或情绪入口。");
+    score += 16;
+  }
+
+  const clicheCount = countPatternMatches(body, /(?:真正的成长|好好爱自己|成为更好的自己|重新选择自己|从今天开始|愿你|治愈自己)/gu);
+  if (clicheCount > 0) {
+    hits.push(`命中：万能成长套话 x${clicheCount}`);
+    suggestions.add("建议：把万能成长句改成本文人物当下能看见的动作、物件或停顿。");
+    score += Math.min(24, clicheCount * 10);
+  }
+
+  const ending = pickTrailingExcerpt(body);
+  if (/(?:愿你|从今天开始|好好爱自己|成为更好的自己|你要相信|终会)/u.test(ending)) {
+    hits.push("命中：结尾口号感");
+    suggestions.add("建议：结尾回到人物处境或心绪余波，避免喊话式总结。");
     score += 16;
   }
 
@@ -294,6 +316,7 @@ function buildAiFlavorRiskSummary(draft: DraftItem): AiFlavorRiskSummary {
     score: boundedScore,
     level,
     hits,
+    suggestions: [...suggestions],
   };
 }
 
@@ -302,6 +325,7 @@ function buildAiFlavorRiskSummaryLines(summary: AiFlavorRiskSummary): string[] {
     `AI味风险（启发式）：${summary.level}`,
     `风险分：${summary.score} / 100`,
     ...(summary.hits.length > 0 ? summary.hits : ["未命中明显模板风险"]),
+    ...(summary.suggestions.length > 0 ? summary.suggestions : ["建议：保持具体场景、自然句式和克制收束。"]),
     "说明：基于模板句式、教程骨架、解释连接词和段落形态估算，不等同第三方检测。",
   ];
 }

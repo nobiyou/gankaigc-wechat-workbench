@@ -188,6 +188,9 @@ test("buildWorkbenchPreview adds high ai-flavor risk summary for templated draft
   assert.equal(preview?.blocks[3]?.content.includes("命中：不是A，是B"), true);
   assert.equal(preview?.blocks[3]?.content.includes("命中：教程分步"), true);
   assert.equal(preview?.blocks[3]?.content.includes("命中：解释连接词偏多"), true);
+  assert.equal(preview?.blocks[3]?.content.includes("建议：把整齐反转句拆成一个具体场景和一个延迟出现的判断"), true);
+  assert.equal(preview?.blocks[3]?.content.includes("建议：把分步教程改成自然叙事推进"), true);
+  assert.equal(preview?.blocks[3]?.content.includes("建议：删掉部分解释连接词，让动作和细节承担转场"), true);
 });
 
 test("buildWorkbenchPreview flags overused '一' cadence in ai-flavor risk summary", () => {
@@ -226,6 +229,48 @@ test("buildWorkbenchPreview flags overused '一' cadence in ai-flavor risk summa
 
   assert.equal(preview?.blocks[3]?.label, "AI味风险提示");
   assert.equal(preview?.blocks[3]?.content.includes("命中：“一”字节奏偏密"), true);
+  assert.equal(preview?.blocks[3]?.content.includes("建议：替换一半以上的一字量词起手"), true);
+});
+
+test("buildWorkbenchPreview flags cliche slogan endings with concrete rewrite advice", () => {
+  const preview = buildWorkbenchPreview("draft", {
+    ...baseDetail,
+    draft: {
+      ...baseDetail.draft,
+      title: "把自己放回生活里",
+      body_markdown:
+        "# 标题\n\n她把电脑合上，手还停在桌沿。\n\n真正的成长，从来不是一夜之间变强，而是在每一个疲惫的瞬间重新选择自己。\n\n愿你从今天开始，好好爱自己，成为更好的自己。",
+      word_count: 108,
+    },
+  }, {
+    project_slug: "project-a",
+    outlines: [],
+    drafts: [
+      {
+        ...baseDetail.draft,
+        title: "把自己放回生活里",
+        body_markdown:
+          "# 标题\n\n她把电脑合上，手还停在桌沿。\n\n真正的成长，从来不是一夜之间变强，而是在每一个疲惫的瞬间重新选择自己。\n\n愿你从今天开始，好好爱自己，成为更好的自己。",
+        word_count: 108,
+        version: 2,
+      },
+      {
+        ...baseDetail.draft,
+        version: 1,
+        title: "旧版标题",
+        body_markdown: "# 旧版标题\n\n旧开头\n\n旧中段\n\n旧结尾",
+        word_count: 90,
+      },
+    ],
+    assets: [],
+    publish_packages: [],
+  });
+
+  assert.equal(preview?.blocks[3]?.label, "AI味风险提示");
+  assert.equal(preview?.blocks[3]?.content.includes("命中：万能成长套话"), true);
+  assert.equal(preview?.blocks[3]?.content.includes("命中：结尾口号感"), true);
+  assert.equal(preview?.blocks[3]?.content.includes("建议：把万能成长句改成本文人物当下能看见的动作、物件或停顿"), true);
+  assert.equal(preview?.blocks[3]?.content.includes("建议：结尾回到人物处境或心绪余波"), true);
 });
 
 test("buildWorkbenchPreview returns outline preview with hook and outline body", () => {

@@ -184,6 +184,37 @@ def test_draft_prompt_includes_anti_ai_flavor_guardrails() -> None:
     assert "少用“不是A，是B”这类过于整齐的判断句" in template.instructions
     assert "减少“第一步、第二步、第三步”式教程骨架" in template.instructions
     assert "不要为了显得完整而过度解释每一个判断" in template.instructions
+    assert "套话风险" in template.instructions
+    assert "结构模板风险" in template.instructions
+    assert "句式节奏风险" in template.instructions
+    assert "抽象空话风险" in template.instructions
+    assert "过度解释风险" in template.instructions
+    assert "结尾口号风险" in template.instructions
+
+
+def test_polish_prompt_includes_localized_stop_slop_rewrite_checklist() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "工位上的那种累，先别急着怪自己",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "tone_profile": TONE_PROFILE,
+            "outline": {
+                "hook": "午休刚过，屏幕又亮了。",
+                "outline_body": "1. 提示音\n2. 累从哪里来\n3. 怎么慢慢往回收",
+            },
+            "polish_instruction": "重写开头和结尾，降低模板感。",
+            "draft": {
+                "title": "旧标题",
+                "body_markdown": "# 旧标题\n\n不是你太累，而是你一直没有停下来。",
+            },
+        }
+    )
+
+    assert "按 6 类中文公众号 AI 味风险逐项检查原稿" in template.instructions
+    assert "先删掉万能抒情、整齐反转、教程分步和口号式结尾" in template.instructions
+    assert "输出前自查：场景具体度、句式重复度、模板风险、情绪自然度、改写幅度" in template.instructions
 
 
 def test_draft_prompt_includes_wechat_public_account_naturalness_rules() -> None:

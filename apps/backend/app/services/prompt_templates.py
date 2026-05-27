@@ -318,6 +318,18 @@ def _build_original_expression_instructions(*, stage: str) -> str:
     return ""
 
 
+def _build_localized_ai_flavor_risk_instructions() -> str:
+    return (
+        "按 6 类中文公众号 AI 味风险检查表达："
+        "套话风险，避免万能成长句、万能抒情和空泛金句；"
+        "结构模板风险，避免整齐反转、教程分步和标准答案式段落；"
+        "句式节奏风险，避免同一种量词、连接词和判断句反复起手；"
+        "抽象空话风险，把感受落到动作、物件、空间、声音和身体反应上；"
+        "过度解释风险，不要把每个判断都解释透，允许场景和停顿承载意思；"
+        "结尾口号风险，结尾回到人物处境或心绪余波，不要喊话式收束。"
+    )
+
+
 def _build_wechat_public_account_draft_instructions() -> str:
     return (
         "正文要更贴近真实公众号作者写作，而不是模型一次性生成的标准成品。"
@@ -335,6 +347,8 @@ def _build_wechat_public_account_draft_instructions() -> str:
 def _build_polish_protocol() -> str:
     return (
         "这不是局部润色任务，而是原创增强精修任务。"
+        "按 6 类中文公众号 AI 味风险逐项检查原稿。"
+        "先删掉万能抒情、整齐反转、教程分步和口号式结尾。"
         "必须重写开头段和结尾段，优先调整段落连接、场景组织和观点推进顺序。"
         "必须改写场景入口段、中段关键推进段和收束段。"
         "先判断原稿哪些段落最像模板话，再优先拆掉这些段落的原顺序重写。"
@@ -344,6 +358,7 @@ def _build_polish_protocol() -> str:
         "必要时可以删除过熟的总结句和万能结论，不必把原稿每个判断都保留下来。"
         "不要只做同义词替换、语序微调或局部句子抛光，输出结果要像基于原稿重新写出的一版新正文。"
         "优先更换观察角度、细节选择、段落重心和句子节奏，而不是只修饰原句表面。"
+        "输出前自查：场景具体度、句式重复度、模板风险、情绪自然度、改写幅度。"
     )
 
 
@@ -437,6 +452,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     reference_article_section = _render_reference_article_section(payload)
     reference_article_instructions = _build_reference_article_instructions(stage="draft")
     original_expression_instructions = _build_original_expression_instructions(stage="draft")
+    ai_flavor_risk_instructions = _build_localized_ai_flavor_risk_instructions()
     wechat_public_account_instructions = _build_wechat_public_account_draft_instructions()
     review_comment = _as_clean_text(payload.get("review_comment"))
     polish_instruction = _as_clean_text(payload.get("polish_instruction"))
@@ -464,6 +480,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             domain_pack=payload.get("domain_pack"),
         )
         + original_expression_instructions
+        + ai_flavor_risk_instructions
         + wechat_public_account_instructions
         + polish_protocol
         + reference_article_instructions,
