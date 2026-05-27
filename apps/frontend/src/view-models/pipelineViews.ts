@@ -106,9 +106,18 @@ function isPipelineOwnedTask(task: RecentTaskItem): boolean {
   return taskType ? PIPELINE_BATCH_TASK_TYPES.has(taskType) : false;
 }
 
+function getCreatedAtTime(createdAt?: string): number {
+  if (!createdAt) {
+    return 0;
+  }
+
+  const timestamp = Date.parse(createdAt);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 function compareCreatedAtDesc(left: RecentTaskItem, right: RecentTaskItem): number {
-  const leftTime = left.created_at ? Date.parse(left.created_at) : 0;
-  const rightTime = right.created_at ? Date.parse(right.created_at) : 0;
+  const leftTime = getCreatedAtTime(left.created_at);
+  const rightTime = getCreatedAtTime(right.created_at);
   return rightTime - leftTime;
 }
 

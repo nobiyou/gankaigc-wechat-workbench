@@ -104,3 +104,18 @@ test("buildDashboardRecentTaskViews caps the list, preserves newest-first order,
   assert.equal(recentTasks[0]?.statusLabel, "失败");
   assert.equal(recentTasks[3]?.statusLabel, "已跳过");
 });
+
+test("buildDashboardRecentTaskViews treats invalid timestamps as oldest before capping", () => {
+  const recentTasks = buildDashboardRecentTaskViews([
+    { id: "invalid", task_type: "custom_invalid", status: "done", entity_type: "batch", created_at: "not-a-date" },
+    { id: "old", task_type: "custom_old", status: "done", entity_type: "batch", created_at: "2026-05-19T09:00:00Z" },
+    { id: "middle", task_type: "custom_middle", status: "done", entity_type: "batch", created_at: "2026-05-19T10:00:00Z" },
+    { id: "new", task_type: "custom_new", status: "done", entity_type: "batch", created_at: "2026-05-19T11:00:00Z" },
+    { id: "newest", task_type: "custom_newest", status: "done", entity_type: "batch", created_at: "2026-05-19T12:00:00Z" },
+  ]);
+
+  assert.deepEqual(
+    recentTasks.map((task) => task.id),
+    ["newest", "new", "middle", "old"],
+  );
+});

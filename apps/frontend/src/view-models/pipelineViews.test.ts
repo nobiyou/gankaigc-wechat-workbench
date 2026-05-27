@@ -96,6 +96,44 @@ test("buildPipelineViewsState exposes topic queue, batch runs, and pipeline-owne
   assert.deepEqual(state.topicQueue.sourceSummary, { all: 1, trend: 0, tracked_article: 1, manual: 0 });
 });
 
+test("buildPipelineViewsState treats invalid task timestamps as oldest before task log capping", () => {
+  const state = buildPipelineViewsState({
+    topics: [],
+    projects: [],
+    recentTasks: [
+      {
+        id: "invalid",
+        task_type: "batch_continue_projects",
+        status: "done",
+        entity_slug: "batch-invalid",
+        entity_type: "batch",
+        created_at: "not-a-date",
+      },
+      {
+        id: "old",
+        task_type: "batch_continue_projects",
+        status: "done",
+        entity_slug: "batch-old",
+        entity_type: "batch",
+        created_at: "2026-05-19T09:00:00Z",
+      },
+      {
+        id: "new",
+        task_type: "batch_continue_projects",
+        status: "done",
+        entity_slug: "batch-new",
+        entity_type: "batch",
+        created_at: "2026-05-19T10:00:00Z",
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    state.taskLog.items.map((item) => item.id),
+    ["new", "old", "invalid"],
+  );
+});
+
 test("buildPipelineViewsState filters topic queue by source type while preserving global source counts", () => {
   const state = buildPipelineViewsState({
     topics: [
