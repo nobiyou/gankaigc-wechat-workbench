@@ -57,6 +57,28 @@
 - Frontend build proves type compatibility after adding API types and panel wiring.
 - Manual verification uses a real local run only after tests pass, with a non-production personal subscription account.
 
+## Current Implementation Status (2026-05-24)
+
+The original task breakdown below was written before the routed UI restructure and before the adapter landed in code. The current repository status is:
+
+- Implemented in code:
+  - Safe WeChat MP response schemas in `apps/backend/app/schemas/wechat_mp.py`
+  - Local session storage and protocol adapter in `apps/backend/app/services/wechat_mp_client.py`
+  - Backend API routes in `apps/backend/app/api/wechat_mp.py`
+  - Frontend API wiring in `apps/frontend/src/api/workbench.ts`
+  - Routed import UI in `apps/frontend/src/components/WechatMpImportPanel.tsx` and the `Sources` workspace, rather than the older `App.tsx` owner assumed by this plan
+  - Backend coverage in `apps/backend/tests/test_wechat_mp_import.py`
+- Verified in automated tests:
+  - public session payload excludes `cookie` and `token`
+  - `searchbiz` and `appmsgpublish` request construction
+  - article preview normalization and duplicate-safe import into `tracked_articles`
+  - imported articles can continue into the existing topic-generation flow
+- Still pending final closure:
+  - real-account local smoke against `mp.weixin.qq.com`
+  - explicit runtime log inspection to confirm no Cookie/Token leakage during live login and import
+
+Use the checklist sections below as the original implementation plan, but treat this status block as the current source of truth for what has already landed.
+
 ## Plan Basis
 
 **Facts**

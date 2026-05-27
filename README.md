@@ -1,22 +1,28 @@
 # gankaigc-wechat-workbench
 
-公众号内容工作台。当前目标是把“热点发现 -> 选题沉淀 -> 项目推进 -> 发布准备”这条最小内容生产链先打通，服务于女性情感成长方向的日更账号。
+公众号内容工作台。当前目标是把“热点发现 -> 选题沉淀 -> 项目推进 -> 发布准备”这条最小内容生产链打通，服务于女性情感成长方向的单账号日更生产场景。
 
 ## 当前阶段
 
-项目处于 MVP 骨架期，已经有前后端基础框架，正在补第一批核心业务模块：
+项目已从“只读样例骨架”推进到“可运行 MVP”阶段，当前已经具备：
 
-- `trends`：热点线索池，记录来源、摘要、热度和跟进状态
-- `topics`：选题池，从热点沉淀成可写选题
-- `projects`：内容生产项目，承载从提纲、写作到发布前的推进状态
+- 路由化工作台界面：`Dashboard / Sources / Pipeline / Projects / Settings / Workbench`
+- SQLite 持久化存储，默认写入 `DB_PATH`
+- 热点来源抓取与导入汇总
+- 参考文章池与公众号文章导入
+- 选题池、批量转选题、单条/批量建项目
+- 项目生产链：`outline -> draft -> assets -> publish package`
+- 发布审核、退回重生成、版本恢复与任务日志
+- Settings 中的 AI 配置检测、风格配置、赛道包与 prompt 模板可见性
 
-当前版本先提供只读样例数据和总览能力，目标是先让业务模型、接口结构和前端工作台界面稳定下来，再接入持久化和写入流程。
+当前实现仍然是本地优先、单账号优先，不包含自动发布、多账号协作和复杂运营分析。
 
 ## 技术栈
 
 - 前端：React 19 + TypeScript + Vite
-- 后端：FastAPI + Pydantic Settings
-- 测试：pytest + FastAPI TestClient
+- 后端：FastAPI + Pydantic Settings + SQLite
+- AI 接入：OpenAI-compatible text + image generation
+- 测试：pytest + FastAPI TestClient + 前端轻量 TypeScript harness
 
 ## 目录结构
 
@@ -26,20 +32,19 @@ apps/
     app/
       api/        # HTTP 路由
       core/       # 配置
-      models/     # 预留：持久化模型
       schemas/    # Pydantic 数据结构
-      services/   # 业务聚合与样例数据
-      tasks/      # 预留：异步任务
+      services/   # 业务聚合、持久化与 AI/微信适配
     tests/        # 后端测试
   frontend/
     src/
       api/        # 前端接口请求
-      components/ # 预留：通用组件
-      pages/      # 预留：页面拆分
-      router/     # 预留：路由配置
-      store/      # 预留：状态管理
-infra/            # 预留：部署与环境脚本
-scripts/          # 预留：自动化脚本
+      app/        # 路由壳与导航
+      components/ # 通用组件（含公众号导入面板）
+      pages/      # Dashboard / Sources / Pipeline / Projects / Settings / Workbench
+      view-models/# 纯派生逻辑与测试
+scripts/          # 自动化验证脚本
+specs/            # feature-level spec / plan / tasks
+docs/aegis/       # 基线、方案与实施记录
 ```
 
 ## 本地启动
@@ -56,6 +61,14 @@ uvicorn app.main:app --app-dir apps/backend --reload --host 0.0.0.0 --port 8000
 ```
 
 如果当前机器使用 Windows Store 版 Python，`python -m venv .venv` 可能会遇到 `ensurepip` 异常；此时可以先跳过虚拟环境，直接执行 `python -m pip install -e .[dev]`。
+
+关键环境变量见 `.env.example`：
+
+- `DB_PATH`：SQLite 数据库路径
+- `GENERATED_ASSETS_DIR`：生成的封面图和素材文件目录
+- `WECHAT_MP_SESSION_PATH`：公众号本地登录态存储路径
+- `TREND_FEED_URLS`：RSS 热点源列表
+- `OPENAI_*`：文本/图片模型与超时配置
 
 ### 2. 前端
 
@@ -75,31 +88,74 @@ npm run dev
 ## 测试与构建
 
 ```powershell
-python -m pytest
+python -m pytest apps/backend/tests -q
 Set-Location apps/frontend
+npm test
 npm run build
 ```
 
-## 第一批业务模块范围
+## 当前页面结构
+
+- `Dashboard`
+  - 首页待办队列、来源新鲜度、最近任务摘要
+- `Sources`
+  - 热点来源、参考文章、公众号文章导入
+- `Pipeline`
+  - Topic Queue、Batch Runs、Task Log、失败重跑入口
+- `Projects`
+  - 分组项目列表与检索筛选
+- `Workbench`
+  - 单项目生产工作台，支持生成、审核、回退与版本恢复
+- `Settings`
+  - Tone Profiles、AI 配置检测、Domain Packs、Prompt Templates
+
+## 当前业务能力
 
 ### `trends`
 
-- 目标：沉淀每日热点线索，区分“已抓取、待评估、已采纳”等状态
-- 当前：只读列表接口 + 首页展示
+- 手动录入热点
+- 从配置的 RSS 源执行 `POST /trends/fetch`
+- 批量将合格热点转成选题
+- 记录来源抓取批次与重复跳过结果
+
+### `tracked_articles`
+
+- 手动录入参考文章
+- 通过公众号后台会话搜索公众号并导入文章
+- 对已导入文章批量生成选题
+- 记录来源导入批次与新鲜度
 
 ### `topics`
 
-- 目标：把热点转换成可执行选题，记录内容角度、预期读者收益和状态
-- 当前：只读列表接口 + 首页展示
+- 手动创建原创选题
+- 编辑标题、角度、状态
+- 单条建项目与批量建项目
+- 建项后自动把选题状态推进到 `drafting`
 
 ### `projects`
 
-- 目标：承接选题后的生产过程，管理“待提纲、可成稿、待发布”等阶段
-- 当前：只读列表接口 + 首页展示
+- 查看项目分组、阶段与下一步动作
+- 进入单项目 Workbench
+- 执行 `generate-outline / generate-draft / polish-draft / generate-assets / build-publish-package`
+- 发布审核通过、退回修改、按审核意见后台重生成
+- 恢复历史版本并查看任务来源
 
-## 下一步
+### `assets / publish`
 
-- 接入数据库，替换内存样例数据
-- 为 `trends / topics / projects` 增加创建、编辑、状态流转接口
-- 引入任务中心，打通近期待办与首页统计
-- 拆分前端页面和筛选视图，进入可运营的工作台形态
+- 生成标题备选、摘要、封面文案、分发导语
+- 调用图片模型生成横版封面图文件
+- 生成发布包与审核状态
+
+## 已知边界
+
+- 不自动发布到公众号
+- 不支持多账号协作与权限系统
+- 公众号导入依赖 `mp.weixin.qq.com` 登录态，属于本地使用型适配能力
+- 热点抓取目前以 RSS 源为主，还不是多平台统一采集框架
+
+## 下一步建议
+
+- 抽出内容账号配置中心，而不只是在风格配置里承载账号语义
+- 扩展更多真实趋势源适配器，而不只依赖 RSS
+- 对公众号导入流程补一轮真实账号 smoke 与日志脱敏复核
+- 继续收紧 README、内部方案文档与代码状态的一致性
