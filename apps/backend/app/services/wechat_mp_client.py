@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import html
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from hashlib import md5
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -11,6 +14,176 @@ import httpx
 
 from app.core.settings import settings
 from app.schemas.wechat_mp import WechatMpArticleImportRequest
+
+
+class _WechatArticleBodyParser(HTMLParser):
+    _BLOCK_TAGS = {
+        "address",
+        "article",
+        "aside",
+        "blockquote",
+        "br",
+        "dd",
+        "div",
+        "dl",
+        "dt",
+        "figcaption",
+        "figure",
+        "footer",
+        "form",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "header",
+        "hr",
+        "li",
+        "main",
+        "nav",
+        "ol",
+        "p",
+        "pre",
+        "section",
+        "table",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "tr",
+        "ul",
+    }
+    _SKIP_TAGS = {"script", "style", "noscript"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self._capturing = False
+        self._capture_depth = 0
+        self._skip_depth = 0
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_map = {name: value or "" for name, value in attrs}
+        if not self._capturing and attrs_map.get("id") == "js_content":
+            self._capturing = True
+            self._capture_depth = 1
+            return
+        if not self._capturing:
+            return
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+            return
+        if self._skip_depth > 0:
+            return
+        if tag == "br":
+            self._parts.append("\n")
+            return
+        if tag in self._BLOCK_TAGS:
+            self._parts.append("\n\n")
+        self._capture_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self._capturing:
+            return
+        if self._skip_depth > 0 and tag in self._SKIP_TAGS:
+            self._skip_depth -= 1
+            return
+        if self._skip_depth > 0:
+            return
+        if tag in self._BLOCK_TAGS and tag != "br":
+            self._parts.append("\n\n")
+        self._capture_depth -= 1
+        if self._capture_depth <= 0:
+            self._capturing = False
+            self._capture_depth = 0
+
+    def handle_data(self, data: str) -> None:
+        if not self._capturing or self._skip_depth > 0:
+            return
+        if data:
+            self._parts.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        if not self._capturing or self._skip_depth > 0:
+            return
+        self._parts.append(html.unescape(f"&{name};"))
+
+    def handle_charref(self, name: str) -> None:
+        if not self._capturing or self._skip_depth > 0:
+            return
+        self._parts.append(html.unescape(f"&#{name};"))
+
+    def get_text(self) -> str:
+        raw_text = "".join(self._parts)
+        return _normalize_wechat_text(raw_text, preserve_paragraphs=True)
+
+
+def _strip_wechat_topic_link_markup(text: str) -> str:
+    stripped = text
+    patterns = [
+        re.compile(
+            r'<a\b[^>]*class\s*=\s*["\'][^"\']*wx_topic_link[^"\']*["\'][^>]*>(.*?)</a>',
+            re.IGNORECASE | re.DOTALL,
+        ),
+        re.compile(
+            r"&lt;a\b[^&]*class\s*=\s*[\"']?[^\"'>]*wx_topic_link[^\"'>]*[\"']?[^&]*&gt;(.*?)&lt;/a&gt;",
+            re.IGNORECASE | re.DOTALL,
+        ),
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for pattern in patterns:
+            next_value = pattern.sub(lambda match: match.group(1).strip(), stripped)
+            if next_value != stripped:
+                stripped = next_value
+                changed = True
+    return stripped
+
+
+def _normalize_wechat_text(text: str, *, preserve_paragraphs: bool) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = html.unescape(normalized)
+    normalized = _strip_wechat_topic_link_markup(normalized)
+    normalized = html.unescape(normalized)
+    normalized = normalized.replace("\xa0", " ")
+    normalized = re.sub(r"[ \t\f\v]+", " ", normalized)
+    normalized = re.sub(r" *\n *", "\n", normalized)
+    if preserve_paragraphs:
+        paragraphs = [segment.strip() for segment in re.split(r"\n{2,}", normalized) if segment.strip()]
+        return "\n\n".join(paragraphs)
+    normalized = re.sub(r"\n{2,}", "\n", normalized)
+    normalized = re.sub(r"\n", " ", normalized)
+    normalized = re.sub(r" {2,}", " ", normalized)
+    return normalized.strip()
+
+
+def _decode_wechat_script_escaped_text(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    previous = None
+    while previous != normalized:
+        previous = normalized
+        normalized = normalized.replace("\\\\x", "\\x").replace("\\\\u", "\\u")
+
+    def replace_unicode_escape(match: re.Match[str]) -> str:
+        return chr(int(match.group(1), 16))
+
+    def replace_hex_escape(match: re.Match[str]) -> str:
+        return bytes.fromhex(match.group(1)).decode("latin1")
+
+    normalized = re.sub(r"\\u([0-9a-fA-F]{4})", replace_unicode_escape, normalized)
+    normalized = re.sub(r"\\x([0-9a-fA-F]{2})", replace_hex_escape, normalized)
+    normalized = normalized.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t")
+    normalized = normalized.replace("\\'", "'").replace('\\"', '"').replace("\\\\", "\\")
+    return normalized
+
+
+WECHAT_MP_SESSION_REQUIRED_MESSAGE = "请先扫码登录公众号后台"
+WECHAT_MP_SESSION_EXPIRED_MESSAGE = "公众号登录已过期，请重新扫码登录"
 
 
 class WechatMpSessionStore:
@@ -46,7 +219,7 @@ class WechatMpClient:
         self._session_store = session_store
 
     def get_session_status(self) -> dict[str, object]:
-        return self._session_store.status()
+        return self._refresh_logged_in_session_status_if_needed()
 
     def start_login_qrcode(self) -> dict[str, object]:
         pre_login_cookie = self._start_login_session()
@@ -67,7 +240,7 @@ class WechatMpClient:
     def poll_login_status(self) -> dict[str, object]:
         session = self._session_store.load() or {}
         if session.get("logged_in"):
-            return self._session_store.status()
+            return self.get_session_status()
 
         pre_login_cookie = str(session.get("pre_login_cookie") or "").strip()
         if not pre_login_cookie:
@@ -237,7 +410,7 @@ class WechatMpClient:
                         "title": str(article.get("title") or ""),
                         "link": str(article.get("link") or ""),
                         "author": str(article.get("author_name") or ""),
-                        "digest": str(article.get("digest") or ""),
+                        "digest": _normalize_wechat_text(str(article.get("digest") or ""), preserve_paragraphs=False),
                         "update_time": int(article.get("update_time") or 0),
                     }
                 )
@@ -248,6 +421,7 @@ class WechatMpClient:
         fallback_account_nickname = (payload.fallback_account_nickname or "").strip()
         for article in payload.articles:
             effective_account_nickname = (article.account_nickname or "").strip() or fallback_account_nickname
+            body_markdown, body_source = self.fetch_article_body(article.link, article.digest)
             created.append(
                 {
                     "slug": self._build_article_slug(
@@ -259,6 +433,8 @@ class WechatMpClient:
                     "url": article.link,
                     "author": article.author or effective_account_nickname,
                     "summary": article.digest,
+                    "body_markdown": body_markdown,
+                    "body_source": body_source,
                     "structure_notes": "Imported from WeChat MP article list; structure notes pending review.",
                     "tags": ["wechat-mp", effective_account_nickname] if effective_account_nickname else ["wechat-mp"],
                 }
@@ -268,6 +444,48 @@ class WechatMpClient:
             "imported_count": len(created),
             "created": created,
         }
+
+    def fetch_article_body(self, article_link: str, fallback_digest: str) -> tuple[str, str]:
+        normalized_digest = (fallback_digest or "").strip()
+        normalized_link = (article_link or "").strip()
+        if not normalized_link:
+            return normalized_digest, "digest_fallback"
+        try:
+            response = self._request_response(
+                method="GET",
+                endpoint=normalized_link,
+                query={},
+                cookie=None,
+            )
+        except httpx.HTTPError:
+            return normalized_digest, "digest_fallback"
+        body_markdown, body_source = self._extract_article_body_markdown(response.text)
+        if body_markdown:
+            return body_markdown, body_source
+        return normalized_digest, "digest_fallback"
+
+    def _fetch_article_body_markdown(self, article_link: str, fallback_digest: str) -> str:
+        body_markdown, _ = self.fetch_article_body(article_link, fallback_digest)
+        return body_markdown
+
+    def _extract_article_body_markdown(self, html_text: str) -> tuple[str, str]:
+        parser = _WechatArticleBodyParser()
+        parser.feed(html_text)
+        parser.close()
+        body_from_dom = parser.get_text()
+        if body_from_dom:
+            return body_from_dom, "dom"
+        body_from_script = self._extract_article_body_from_embedded_script(html_text)
+        if body_from_script:
+            return body_from_script, "content_noencode"
+        return "", "missing"
+
+    def _extract_article_body_from_embedded_script(self, html_text: str) -> str:
+        match = re.search(r"content_noencode:\s*'((?:\\.|[^'])*)'", html_text, re.DOTALL)
+        if not match:
+            return ""
+        decoded = _decode_wechat_script_escaped_text(match.group(1))
+        return _normalize_wechat_text(decoded, preserve_paragraphs=True)
 
     def _start_login_session(self) -> str:
         response = self._request_response(
@@ -319,7 +537,64 @@ class WechatMpClient:
         self._session_store.save(payload)
         return self._session_store.status()
 
+    def _refresh_logged_in_session_status_if_needed(self) -> dict[str, object]:
+        session = self._session_store.load() or {}
+        if not session.get("logged_in"):
+            return self._session_store.status()
+
+        if self._is_local_session_expired(str(session.get("expires_at") or "").strip()):
+            return self._expire_logged_in_session()
+
+        cookie = str(session.get("cookie") or "").strip()
+        token = str(session.get("token") or "").strip()
+        if not cookie or not token:
+            return self._expire_logged_in_session()
+
+        try:
+            response, profile = self._fetch_account_profile_response(cookie=cookie, token=token)
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code in {401, 403}:
+                return self._expire_logged_in_session()
+            return self._session_store.status()
+        except httpx.HTTPError:
+            return self._session_store.status()
+
+        if self._is_login_redirect_response(response) or not profile.get("nickname"):
+            return self._expire_logged_in_session()
+
+        return self._session_store.status()
+
+    def _expire_logged_in_session(self) -> dict[str, object]:
+        self._session_store.save(
+            {
+                "logged_in": False,
+                "cookie": None,
+                "token": None,
+                "nickname": None,
+                "avatar": None,
+                "expires_at": None,
+                "pre_login_cookie": None,
+                "login_stage": "expired",
+                "status_message": WECHAT_MP_SESSION_EXPIRED_MESSAGE,
+            }
+        )
+        return self._session_store.status()
+
+    def _is_local_session_expired(self, expires_at: str) -> bool:
+        if not expires_at:
+            return False
+        try:
+            expires_at_value = datetime.fromisoformat(expires_at)
+        except ValueError:
+            return False
+        return datetime.now(timezone.utc) >= expires_at_value.astimezone(timezone.utc)
+
     def _fetch_account_profile(self, *, cookie: str, token: str) -> dict[str, str]:
+        _, profile = self._fetch_account_profile_response(cookie=cookie, token=token)
+        return profile
+
+    def _fetch_account_profile_response(self, *, cookie: str, token: str) -> tuple[httpx.Response, dict[str, str]]:
         response = self._request_response(
             method="GET",
             endpoint="https://mp.weixin.qq.com/cgi-bin/home",
@@ -339,10 +614,16 @@ class WechatMpClient:
         avatar_match = self._match_script_value(html, "head_img")
         if avatar_match:
             avatar = avatar_match
-        return {
+        return response, {
             "nickname": nickname,
             "avatar": avatar,
         }
+
+    def _is_login_redirect_response(self, response: httpx.Response) -> bool:
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            return False
+        location = response.headers.get("location", "")
+        return "loginpage" in location or "wxm2-login" in location
 
     def _match_script_value(self, html: str, field_name: str) -> str:
         marker = f'wx.cgiData.{field_name} = "'
@@ -356,11 +637,26 @@ class WechatMpClient:
         return html[value_start:value_end]
 
     def _require_token(self) -> str:
-        payload = self._session_store.load() or {}
+        payload = self._require_logged_in_session()
         token = str(payload.get("token") or "").strip()
         if not token:
-            raise RuntimeError("WeChat MP session is not logged in")
+            raise RuntimeError(self._build_login_required_message(payload))
         return token
+
+    def _require_logged_in_session(self) -> dict[str, Any]:
+        self._refresh_logged_in_session_status_if_needed()
+        payload = self._session_store.load() or {}
+        if not payload.get("logged_in"):
+            raise RuntimeError(self._build_login_required_message(payload))
+        return payload
+
+    def _build_login_required_message(self, payload: dict[str, Any]) -> str:
+        status_message = str(payload.get("status_message") or "").strip()
+        if status_message:
+            return status_message
+        if str(payload.get("login_stage") or "").strip() == "expired":
+            return WECHAT_MP_SESSION_EXPIRED_MESSAGE
+        return WECHAT_MP_SESSION_REQUIRED_MESSAGE
 
     def _request_json(
         self,

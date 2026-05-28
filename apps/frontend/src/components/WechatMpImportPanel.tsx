@@ -12,6 +12,7 @@ import {
   type WechatMpArticlePreviewItem,
   type WechatMpSessionStatus,
 } from "../api/workbench";
+import { getWechatMpSessionRefreshDelay } from "../wechatMpSession";
 import { prepareWechatMpArticlesForImport } from "../wechatMpImport";
 
 type WechatMpImportPanelProps = {
@@ -20,8 +21,6 @@ type WechatMpImportPanelProps = {
   onImportComplete: (result: WechatMpArticleImportResponse) => Promise<void> | void;
   disabled?: boolean;
 };
-
-const POLLING_STAGES = new Set(["waiting_scan", "waiting_confirmation"]);
 
 function getLoginStageLabel(session: WechatMpSessionStatus | null): string {
   if (!session) {
@@ -68,7 +67,8 @@ export function WechatMpImportPanel({
   }, [qrcodeUrl]);
 
   useEffect(() => {
-    if (!session || session.logged_in || !POLLING_STAGES.has(session.login_stage ?? "")) {
+    const refreshDelay = getWechatMpSessionRefreshDelay(session);
+    if (refreshDelay === null) {
       if (pollingTimerRef.current !== null) {
         window.clearTimeout(pollingTimerRef.current);
         pollingTimerRef.current = null;
@@ -78,7 +78,7 @@ export function WechatMpImportPanel({
 
     pollingTimerRef.current = window.setTimeout(() => {
       void refreshSessionStatus();
-    }, 2000);
+    }, refreshDelay);
 
     return () => {
       if (pollingTimerRef.current !== null) {
@@ -99,6 +99,12 @@ export function WechatMpImportPanel({
           }
           return null;
         });
+      }
+      if (!latestSession.logged_in) {
+        setAccounts([]);
+        setSelectedAccount(null);
+        setArticles([]);
+        setSelectedArticleIds([]);
       }
       if (latestSession.login_stage === "expired") {
         setQrcodeUrl((current) => {
