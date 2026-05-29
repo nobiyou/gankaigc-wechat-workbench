@@ -19,6 +19,7 @@ from fastapi import HTTPException
 from app.core.settings import settings
 from app.schemas.background_tasks import BackgroundTaskDetail, BackgroundTaskSubmission, TaskLogEntry
 from app.services.ai_generator import get_default_generator
+from app.services.ai_flavor import build_ai_flavor_polish_instruction, evaluate_ai_flavor_risk
 from app.schemas.projects import (
     AssetItem,
     BatchCreateProjectResult,
@@ -3237,6 +3238,27 @@ def _generate_draft(
                 review_comment=review_comment,
                 generator=get_ai_generator(),
             )
+            body_markdown, title = _maybe_auto_polish_ai_flavor_draft_output(
+                title=title,
+                body_markdown=body_markdown,
+                project=project,
+                outline_row=outline_row,
+                tone_profile=tone_profile,
+                review_comment=review_comment,
+                polish_instruction=polish_instruction,
+                reference_article_payload=reference_article_payload,
+                generator=get_ai_generator(),
+            )
+            body_markdown, title = _maybe_compress_draft_output(
+                project_slug=project_slug,
+                tone_profile=tone_profile,
+                title=title,
+                body_markdown=body_markdown,
+                project=project,
+                outline_row=outline_row,
+                review_comment=review_comment,
+                generator=get_ai_generator(),
+            )
             word_count = len(body_markdown)
             connection.execute(
                 """
@@ -3327,6 +3349,48 @@ def _maybe_compress_draft_output(
         }
     )
     return str(compressed_result["body_markdown"]), str(compressed_result["title"])
+
+
+def _maybe_auto_polish_ai_flavor_draft_output(
+    *,
+    title: str,
+    body_markdown: str,
+    project: sqlite3.Row,
+    outline_row: sqlite3.Row,
+    tone_profile: ToneProfileItem,
+    review_comment: str | None,
+    polish_instruction: str | None,
+    reference_article_payload: dict[str, object],
+    generator,
+) -> tuple[str, str]:
+    if review_comment or polish_instruction:
+        return body_markdown, title
+
+    summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    if summary.level == "低":
+        return body_markdown, title
+
+    polished_result = generator.generate_draft(
+        {
+            "trend_title": project["trend_title"],
+            "topic_title": project["topic_title"],
+            "topic_angle": project["topic_angle"],
+            "project_title": project["title"],
+            "outline": {
+                "hook": outline_row["hook"],
+                "outline_body": outline_row["outline_body"],
+            },
+            "tone_profile": tone_profile.model_dump(),
+            "domain_pack": get_project_domain_pack(project),
+            "polish_instruction": build_ai_flavor_polish_instruction(summary),
+            "draft": {
+                "title": title,
+                "body_markdown": body_markdown,
+            },
+            **reference_article_payload,
+        }
+    )
+    return str(polished_result["body_markdown"]), str(polished_result["title"])
 
 
 def restore_draft_version(project_slug: str, version: int) -> DraftItem:

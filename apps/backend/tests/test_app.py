@@ -1639,6 +1639,70 @@ def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypat
     assert fake_generator.calls[4][1]["assets"]["cover_image_url"] == "/generated-assets/office-burnout-recovery-weekly-assets-v1.png"
 
 
+def test_generate_draft_auto_polishes_high_ai_flavor_first_pass(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "她把那句我没事说出口的时候，其实已经在往后退了。",
+                "outline_body": "1. 对话卡住的瞬间\n2. 赌气背后的误解\n3. 关系怎么慢慢冷下来\n4. 重新开口的动作",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if payload.get("polish_instruction"):
+                return {
+                    "title": "她说完“我没事”之后，关系是怎么慢慢冷下去的",
+                    "body_markdown": (
+                        "# 她说完“我没事”之后，关系是怎么慢慢冷下去的\n\n"
+                        "那天晚上，她把手机扣在桌面上，只说了一句我没事。灯没关，水也还热着，可屋子里已经没有人继续把话往下接了。\n\n"
+                        "更常见的情况是，两个人都以为对方会懂，于是把真正的委屈留在了停顿里。\n\n"
+                        "后来他们都想过靠近，只是每一次都慢了半拍。有人等解释，有人等台阶，最后只剩下一张谁也没碰的餐桌。\n\n"
+                        "如果还舍不得，不如从把那句当时没说出口的话补回来开始。"
+                    ),
+                }
+
+            return {
+                "title": "你赌我不敢走，我赌你再也遇不到真诚的人",
+                "body_markdown": (
+                    "# 标题\n\n"
+                    "不是不爱，而是太久没有被看见。其实很多时候，关系崩塌不是从争吵开始，而是从一次赌气开始。\n\n"
+                    "你以为他懂，他以为你不在乎，所以两个人都在等对方先低头。换句话说，真正受伤的不是面子，而是那颗还想靠近的心。\n\n"
+                    "很多人会这样，一点委屈、一个沉默、一些误会，最后都变成一种谁也不肯先开口的僵持。\n\n"
+                    "从今天开始，别再赌气，愿你有话直说，成为不靠试探也能被懂的人。"
+                ),
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    outline_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+    assert draft_response.status_code == 201
+    draft = draft_response.json()
+
+    assert draft["version"] == 1
+    assert draft["title"] == "她说完“我没事”之后，关系是怎么慢慢冷下去的"
+    assert "那天晚上" in draft["body_markdown"]
+
+    draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
+    assert len(draft_calls) == 2
+    initial_payload = draft_calls[0][1]
+    polished_payload = draft_calls[1][1]
+    assert initial_payload.get("polish_instruction") in {None, ""}
+    assert polished_payload["draft"]["title"] == "你赌我不敢走，我赌你再也遇不到真诚的人"
+    assert "去模板化重写" in str(polished_payload["polish_instruction"])
+    assert "不是……而是" in str(polished_payload["polish_instruction"])
+
+    detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
+    assert detail["draft"]["version"] == 1
+    assert detail["draft"]["title"] == "她说完“我没事”之后，关系是怎么慢慢冷下去的"
+
+
 def test_generate_assets_falls_back_when_cover_image_generation_is_unavailable(monkeypatch) -> None:
     class FakeGenerator:
         def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
