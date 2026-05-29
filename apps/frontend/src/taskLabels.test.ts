@@ -23,6 +23,7 @@ test("getTaskTypeLabel falls back to original task type when unknown", () => {
 test("getTaskTypeLabel reuses dashboard-related batch and publish labels", () => {
   assert.equal(getTaskTypeLabel("batch_generate_topics"), "批量生成选题");
   assert.equal(getTaskTypeLabel("build_publish_package"), "生成发布包");
+  assert.equal(getTaskTypeLabel("enrich_tracked_articles_metadata"), "批量补全参考文章字段");
 });
 
 test("getTaskTypeLabel covers draft polished events recorded by backend", () => {

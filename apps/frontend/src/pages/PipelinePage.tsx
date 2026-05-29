@@ -840,15 +840,15 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
                 选题队列是来源到项目之间的集中管理区，不混入来源页的单条素材浏览。
               </p>
             </div>
-            <div className="workspace-actions">
+            <div className="workspace-actions workspace-actions--row pipeline-header__actions">
               <button
-                className="dashboard-button dashboard-button--ghost"
+                className="dashboard-button dashboard-button--ghost dashboard-button--compact"
                 type="button"
                 onClick={() => setIsCreateTopicExpanded((current) => !current)}
               >
                 {isCreateTopicExpanded ? "收起原创选题" : "新建原创选题"}
               </button>
-              <Link className="dashboard-inline-link" to="/pipeline/runs">
+              <Link className="dashboard-inline-link dashboard-inline-link--compact" to="/pipeline/runs">
                 去批量建项目
               </Link>
             </div>
@@ -966,16 +966,16 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
                     </p>
                   </div>
                 </div>
-                <div className="workspace-actions workspace-actions--row">
+                <div className="workspace-actions workspace-actions--row pipeline-bulk-actions">
                   <button
-                    className="dashboard-button dashboard-button--ghost"
+                    className="dashboard-button dashboard-button--ghost dashboard-button--compact"
                     type="button"
                     onClick={() => setSelectedTopicSlugs(allVisibleTopicsSelected ? [] : visibleTopicSlugs)}
                   >
                     {allVisibleTopicsSelected ? "清空当前筛选选择" : "全选当前筛选"}
                   </button>
                   <button
-                    className="dashboard-button"
+                    className="dashboard-button dashboard-button--compact"
                     type="button"
                     disabled={topicSelectionSummary.projectCreatableCount === 0 || isSubmittingBatchRun}
                     onClick={() =>
@@ -987,7 +987,7 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
                     {isSubmittingBatchRun ? "提交中..." : "批量建项目"}
                   </button>
                   <button
-                    className="dashboard-button dashboard-button--ghost"
+                    className="dashboard-button dashboard-button--ghost dashboard-button--compact"
                     type="button"
                     disabled={topicSelectionSummary.droppableCount === 0 || isBulkDroppingTopics}
                     onClick={() => void handleDropSelectedTopics()}
@@ -1055,9 +1055,9 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
                         <p>最近一次批量建项反馈</p>
                         <p>{latestBatchCreateResult.line}</p>
                         {latestBatchCreateResult.canRetry ? (
-                          <div className="workspace-actions workspace-actions--row">
+                          <div className="workspace-actions workspace-actions--row pipeline-bulk-actions">
                             <button
-                              className="dashboard-button dashboard-button--ghost"
+                              className="dashboard-button dashboard-button--ghost dashboard-button--compact"
                               type="button"
                               disabled={creatingTopicSlug === item.topic.slug}
                               onClick={() => void handleCreateProject(item.topic)}
@@ -1068,9 +1068,9 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
                         ) : null}
                       </div>
                     ) : null}
-                    <div className="workspace-actions">
+                    <div className="workspace-actions workspace-actions--row pipeline-topic-card__actions">
                       <button
-                        className="dashboard-button dashboard-button--ghost"
+                        className="dashboard-button dashboard-button--ghost dashboard-button--compact"
                         type="button"
                         onClick={() => setExpandedTopicSlug((current) => (current === item.topic.slug ? null : item.topic.slug))}
                       >
@@ -1080,7 +1080,7 @@ export function PipelinePage({ section }: { section: PipelineSection }) {
                             ? "重试建项目"
                             : "直接建项目"}
                       </button>
-                      <Link className="dashboard-inline-link" to="/pipeline/runs">
+                      <Link className="dashboard-inline-link dashboard-inline-link--compact" to="/pipeline/runs">
                         去批量建项目
                       </Link>
                     </div>

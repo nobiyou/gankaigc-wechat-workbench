@@ -12,6 +12,7 @@ export const taskTypeLabelMap: Record<string, string> = {
   topic_updated: "更新选题",
   wechat_mp_import: "导入公众号文章",
   tracked_article_created: "录入参考文章",
+  enrich_tracked_articles_metadata: "批量补全参考文章字段",
   project_created: "创建项目",
   outline_generation: "生成大纲",
   generate_outline: "生成大纲",

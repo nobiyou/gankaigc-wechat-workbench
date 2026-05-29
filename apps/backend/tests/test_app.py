@@ -7,6 +7,7 @@ import time
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.schemas.tracked_articles import TrackedArticleCreate
 from app.services import workbench
 
 
@@ -69,6 +70,47 @@ def test_trends_list_returns_seed_data() -> None:
     assert payload[0]["source"] == "xiaohongshu"
 
 
+def test_trends_list_prefers_latest_timestamp_first() -> None:
+    older_slug = "trend-order-older"
+    newer_slug = "trend-order-newer"
+
+    older_response = client.post(
+        "/api/trends",
+        json={
+            "slug": older_slug,
+            "title": "更早的一条热点",
+            "source": "manual",
+            "heat_score": 50,
+            "status": "screening",
+            "summary": "旧热点摘要",
+            "published_at": "2026-05-28T08:00:00+00:00",
+            "fetched_at": "2026-05-28T08:05:00+00:00",
+        },
+    )
+    assert older_response.status_code == 201
+
+    newer_response = client.post(
+        "/api/trends",
+        json={
+            "slug": newer_slug,
+            "title": "更新的一条热点",
+            "source": "manual",
+            "heat_score": 50,
+            "status": "screening",
+            "summary": "新热点摘要",
+            "published_at": "2026-05-28T09:00:00+00:00",
+            "fetched_at": "2026-05-28T09:05:00+00:00",
+        },
+    )
+    assert newer_response.status_code == 201
+
+    list_response = client.get("/api/trends")
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    slug_positions = {item["slug"]: index for index, item in enumerate(payload)}
+    assert slug_positions[newer_slug] < slug_positions[older_slug]
+
+
 def test_create_trend_persists_and_updates_dashboard() -> None:
     create_response = client.post(
         "/api/trends",
@@ -78,17 +120,32 @@ def test_create_trend_persists_and_updates_dashboard() -> None:
             "source": "manual",
             "heat_score": 77,
             "status": "screening",
+            "link": "https://example.com/midlife-reset-notes",
+            "summary": "从一次关系停顿切入，讨论中年关系如何重新启动。",
+            "published_at": "2026-05-28T08:30:00+08:00",
+            "fetched_at": "2026-05-28T08:45:00+08:00",
         },
     )
     assert create_response.status_code == 201
     created = create_response.json()
     assert created["slug"] == "midlife-reset-notes"
+    assert created["link"] == "https://example.com/midlife-reset-notes"
+    assert created["summary"] == "从一次关系停顿切入，讨论中年关系如何重新启动。"
+    assert created["published_at"] == "2026-05-28T08:30:00+08:00"
+    assert created["fetched_at"] == "2026-05-28T08:45:00+08:00"
 
     list_response = client.get("/api/trends")
     assert list_response.status_code == 200
     payload = list_response.json()
     assert len(payload) == 4
-    assert any(item["slug"] == "midlife-reset-notes" for item in payload)
+    assert any(
+        item["slug"] == "midlife-reset-notes"
+        and item["link"] == "https://example.com/midlife-reset-notes"
+        and item["summary"] == "从一次关系停顿切入，讨论中年关系如何重新启动。"
+        and item["published_at"] == "2026-05-28T08:30:00+08:00"
+        and item["fetched_at"] == "2026-05-28T08:45:00+08:00"
+        for item in payload
+    )
 
     dashboard_response = client.get("/api/dashboard/summary")
     assert dashboard_response.status_code == 200
@@ -156,7 +213,12 @@ def test_fetch_trends_imports_new_feed_items_and_skips_existing_titles(monkeypat
           <channel>
             <title>示例热榜</title>
             <item><title>办公室倦怠修复</title><link>https://example.com/1</link></item>
-            <item><title>情绪恢复不是拖延</title><link>https://example.com/2</link></item>
+            <item>
+              <title>情绪恢复不是拖延</title>
+              <link>https://example.com/2</link>
+              <description>别急着把自己归类成懒散，很多时候只是情绪电量先见底了。</description>
+              <pubDate>Wed, 28 May 2026 08:00:00 +0800</pubDate>
+            </item>
           </channel>
         </rss>
         """.encode("utf-8"),
@@ -179,7 +241,12 @@ def test_fetch_trends_imports_new_feed_items_and_skips_existing_titles(monkeypat
     trends_response = client.get("/api/trends")
     assert trends_response.status_code == 200
     trends = trends_response.json()
-    assert any(item["title"] == "情绪恢复不是拖延" and item["source"] == "示例热榜" for item in trends)
+    imported = next(item for item in trends if item["title"] == "情绪恢复不是拖延")
+    assert imported["source"] == "示例热榜"
+    assert imported["link"] == "https://example.com/2"
+    assert imported["summary"] == "别急着把自己归类成懒散，很多时候只是情绪电量先见底了。"
+    assert imported["published_at"] == "2026-05-28T08:00:00+08:00"
+    assert imported["fetched_at"] is not None
 
     dashboard_response = client.get("/api/dashboard/summary")
     assert dashboard_response.status_code == 200
@@ -434,6 +501,7 @@ def test_tracked_articles_can_be_created_listed_and_turned_into_topics() -> None
             "url": "https://example.com/accountability-repair-notes",
             "author": "阿沉",
             "summary": "拆解冲突后的修复动作和表达顺序。",
+            "body_markdown": "第一段：先回到现场。\n\n第二段：再说修复动作。",
             "structure_notes": "先回到现场，再拆动作，最后落到可执行表达。",
             "tags": ["关系修复", "冲突沟通"],
         },
@@ -441,13 +509,19 @@ def test_tracked_articles_can_be_created_listed_and_turned_into_topics() -> None
     assert create_response.status_code == 201
     created = create_response.json()
     assert created["slug"] == "accountability-repair-notes"
+    assert created["source_kind"] == "manual"
     assert created["source_name"] == "关系练习手册"
+    assert created["created_at"]
+    assert created["body_markdown"] == "第一段：先回到现场。\n\n第二段：再说修复动作。"
     assert created["tags"] == ["关系修复", "冲突沟通"]
 
     list_response = client.get("/api/tracked-articles")
     assert list_response.status_code == 200
     tracked_articles = list_response.json()
     assert tracked_articles[0]["slug"] == "accountability-repair-notes"
+    assert tracked_articles[0]["source_kind"] == "manual"
+    assert tracked_articles[0]["created_at"]
+    assert tracked_articles[0]["body_markdown"] == "第一段：先回到现场。\n\n第二段：再说修复动作。"
 
     topic_response = client.post(
         "/api/tracked-articles/accountability-repair-notes/to-topic",
@@ -480,12 +554,14 @@ def test_tracked_article_blank_source_name_falls_back_to_manual_label() -> None:
             "url": "https://example.com/blank-source-article",
             "author": "编辑部",
             "summary": "验证空来源名的兜底展示。",
+            "body_markdown": "",
             "structure_notes": "场景切入 + 兜底校验。",
             "tags": ["兜底"],
         },
     )
     assert create_response.status_code == 201
     created = create_response.json()
+    assert created["source_kind"] == "manual"
     assert created["source_name"] == "手动录入"
 
     list_response = client.get("/api/tracked-articles")
@@ -493,6 +569,195 @@ def test_tracked_article_blank_source_name_falls_back_to_manual_label() -> None:
     tracked_articles = list_response.json()
     assert tracked_articles[0]["slug"] == "blank-source-article"
     assert tracked_articles[0]["source_name"] == "手动录入"
+
+
+def test_tracked_articles_list_sanitizes_existing_wechat_markup_in_summary_and_body() -> None:
+    create_response = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "dirty-wechat-body",
+            "source_name": "冷爱",
+            "title": "离婚不离家最大的代价，到底在惩罚谁",
+            "url": "https://mp.weixin.qq.com/s/dirty-example",
+            "author": "冷爱",
+            "summary": (
+                "很多人离婚后，因为孩子、房子、经济压力，选择继续住在一起。&nbsp;"
+                '&lt;a class="wx_topic_link" topic-id="abc"&gt;#离婚不离家&lt;/a&gt;'
+            ),
+            "body_markdown": (
+                "很多人离婚后，因为孩子、房子、经济压力，选择继续住在一起。&nbsp;"
+                '&lt;a class="wx_topic_link" topic-id="abc"&gt;#离婚不离家&lt;/a&gt;\n\n'
+                '&lt;a class="wx_topic_link" topic-id="def"&gt;#情感内耗&lt;/a&gt;'
+            ),
+            "structure_notes": "Imported from WeChat MP article list; structure notes pending review.",
+            "tags": ["wechat-mp", "冷爱"],
+        },
+    )
+    assert create_response.status_code == 201
+
+    list_response = client.get("/api/tracked-articles")
+    assert list_response.status_code == 200
+    tracked_article = next(article for article in list_response.json() if article["slug"] == "dirty-wechat-body")
+    assert tracked_article["summary"] == "很多人离婚后，因为孩子、房子、经济压力，选择继续住在一起。 #离婚不离家"
+    assert tracked_article["body_markdown"] == (
+        "很多人离婚后，因为孩子、房子、经济压力，选择继续住在一起。 #离婚不离家\n\n"
+        "#情感内耗"
+    )
+
+
+def test_tracked_article_refresh_body_updates_body_and_source(monkeypatch) -> None:
+    create_response = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "wechat-refresh-target",
+            "source_name": "冷爱",
+            "title": "需要补抓正文的公众号文章",
+            "url": "https://mp.weixin.qq.com/s/refresh-example",
+            "author": "冷爱",
+            "summary": "当前只有摘要。",
+            "body_markdown": "",
+            "structure_notes": "Imported from WeChat MP article list; structure notes pending review.",
+            "tags": ["wechat-mp", "冷爱"],
+        },
+    )
+    assert create_response.status_code == 201
+
+    class FakeWechatClient:
+        def fetch_article_body(self, article_link: str, fallback_digest: str) -> tuple[str, str]:
+            assert article_link == "https://mp.weixin.qq.com/s/refresh-example"
+            assert fallback_digest == "当前只有摘要。"
+            return ("第一段：这是补抓到的正文。\n\n第二段：正文已经回填。", "content_noencode")
+
+    monkeypatch.setattr("app.api.tracked_articles.get_wechat_mp_client", lambda: FakeWechatClient())
+
+    refresh_response = client.post("/api/tracked-articles/wechat-refresh-target/refresh-body")
+    assert refresh_response.status_code == 200
+    payload = refresh_response.json()
+    assert payload["slug"] == "wechat-refresh-target"
+    assert payload["body_markdown"] == "第一段：这是补抓到的正文。\n\n第二段：正文已经回填。"
+    assert payload["body_source"] == "content_noencode"
+
+    list_response = client.get("/api/tracked-articles")
+    assert list_response.status_code == 200
+    tracked_article = next(article for article in list_response.json() if article["slug"] == "wechat-refresh-target")
+    assert tracked_article["body_markdown"] == "第一段：这是补抓到的正文。\n\n第二段：正文已经回填。"
+    assert tracked_article["body_source"] == "content_noencode"
+
+
+def test_tracked_article_metadata_enrichment_uses_ai_and_persists(monkeypatch) -> None:
+    create_response = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "repair-over-dinner",
+            "source_name": "关系练习手册",
+            "title": "真正让关系缓回来，常常不是解释，而是先把饭吃完",
+            "url": "https://example.com/repair-over-dinner",
+            "author": "",
+            "summary": "",
+            "body_markdown": "那天谁都没有再争，只是安安静静把饭吃完。\n\n后来我才明白，很多关系不是输在道理，而是输在当下那口气里。",
+            "structure_notes": "",
+            "tags": [],
+        },
+    )
+    assert create_response.status_code == 201
+
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("tracked_article_metadata", payload))
+            return {
+                "author": "晚舟",
+                "summary": "从一顿没说破的晚饭切入，拆开关系缓和时真正起作用的顺序。",
+                "structure_notes": "生活场景起笔，接着回看情绪卡点，最后落到能执行的表达动作。",
+                "tags": ["关系修复", "沟通节奏", "饭桌场景"],
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    enrich_response = client.post("/api/tracked-articles/repair-over-dinner/enrich-metadata")
+    assert enrich_response.status_code == 200
+    payload = enrich_response.json()
+    assert payload["slug"] == "repair-over-dinner"
+    assert payload["author"] == "晚舟"
+    assert payload["summary"] == "从一顿没说破的晚饭切入，拆开关系缓和时真正起作用的顺序。"
+    assert payload["structure_notes"] == "生活场景起笔，接着回看情绪卡点，最后落到能执行的表达动作。"
+    assert payload["tags"] == ["关系修复", "沟通节奏", "饭桌场景"]
+
+    list_response = client.get("/api/tracked-articles")
+    assert list_response.status_code == 200
+    tracked_article = next(article for article in list_response.json() if article["slug"] == "repair-over-dinner")
+    assert tracked_article["author"] == "晚舟"
+    assert tracked_article["summary"] == "从一顿没说破的晚饭切入，拆开关系缓和时真正起作用的顺序。"
+    assert tracked_article["structure_notes"] == "生活场景起笔，接着回看情绪卡点，最后落到能执行的表达动作。"
+    assert tracked_article["tags"] == ["关系修复", "沟通节奏", "饭桌场景"]
+
+    assert len(fake_generator.calls) == 1
+    call_type, call_payload = fake_generator.calls[0]
+    assert call_type == "tracked_article_metadata"
+    assert call_payload["source_kind"] == "manual"
+    assert call_payload["source_name"] == "关系练习手册"
+    assert call_payload["article_title"] == "真正让关系缓回来，常常不是解释，而是先把饭吃完"
+    assert call_payload["body_source"] == "manual"
+    assert call_payload["body_markdown"] == (
+        "那天谁都没有再争，只是安安静静把饭吃完。\n\n后来我才明白，很多关系不是输在道理，而是输在当下那口气里。"
+    )
+
+
+def test_tracked_article_metadata_enrichment_reuses_same_flow_for_wechat_import(monkeypatch) -> None:
+    workbench.import_tracked_articles(
+        [
+            TrackedArticleCreate(
+                slug="wechat-import-enrich-target",
+                source_kind="wechat_mp_import",
+                source_name="冷爱",
+                title="关系卡住的时候，很多人不是不想改，而是没电了",
+                url="https://mp.weixin.qq.com/s/enrich-target",
+                author="冷爱",
+                summary="原始摘要还比较粗。",
+                body_markdown="先写无力感，再回到能量耗尽这件事本身。\n\n最后才谈能做的那一步。",
+                body_source="content_noencode",
+                structure_notes="",
+                tags=["wechat-mp"],
+            )
+        ],
+        source_kind="wechat_mp_import",
+    )
+
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("tracked_article_metadata", payload))
+            return {
+                "author": "不该覆盖的作者名",
+                "summary": "从关系里的无力感切入，把问题落到精力透支而非方法缺失。",
+                "structure_notes": "先写卡住感，再拆能量缺口，最后回到现实动作。",
+                "tags": ["关系修复", "能量耗尽", "公众号参考"],
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    enrich_response = client.post("/api/tracked-articles/wechat-import-enrich-target/enrich-metadata")
+    assert enrich_response.status_code == 200
+    payload = enrich_response.json()
+    assert payload["source_kind"] == "wechat_mp_import"
+    assert payload["author"] == "冷爱"
+    assert payload["summary"] == "从关系里的无力感切入，把问题落到精力透支而非方法缺失。"
+    assert payload["structure_notes"] == "先写卡住感，再拆能量缺口，最后回到现实动作。"
+    assert payload["tags"] == ["关系修复", "能量耗尽", "公众号参考"]
+    assert payload["body_source"] == "content_noencode"
+
+    assert len(fake_generator.calls) == 1
+    _, call_payload = fake_generator.calls[0]
+    assert call_payload["source_kind"] == "wechat_mp_import"
+    assert call_payload["author"] == "冷爱"
+    assert call_payload["summary"] == "原始摘要还比较粗。"
+    assert call_payload["body_source"] == "content_noencode"
 
 
 def test_project_generation_works_for_topics_created_from_tracked_articles(monkeypatch) -> None:

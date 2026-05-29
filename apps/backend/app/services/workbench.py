@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 import logging
 import re
@@ -8,6 +9,7 @@ import threading
 import uuid
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -42,7 +44,12 @@ from app.schemas.projects import (
 )
 from app.schemas.tone_profiles import ToneProfileItem, ToneProfileReorder, ToneProfileUpsert
 from app.services.prompt_templates import DEFAULT_DOMAIN_PROMPT_PACK, get_domain_prompt_pack
-from app.schemas.tracked_articles import TrackedArticleCreate, TrackedArticleItem
+from app.schemas.tracked_articles import (
+    TrackedArticleBatchEnrichResponse,
+    TrackedArticleBatchEnrichResult,
+    TrackedArticleCreate,
+    TrackedArticleItem,
+)
 from app.schemas.topics import TopicCreate, TopicCreateFromTrend, TopicItem, TopicUpdate
 from app.schemas.trends import (
     TrendCreate,
@@ -53,6 +60,7 @@ from app.schemas.trends import (
     TrendItem,
     TrendUpdate,
 )
+from app.services.wechat_mp_client import _normalize_wechat_text
 
 
 logger = logging.getLogger(__name__)
@@ -68,6 +76,7 @@ _PROJECT_VERSION_LOCKS_GUARD = threading.Lock()
 PIPELINE_BATCH_TASK_TYPES = (
     "batch_continue_projects",
     "batch_create_projects",
+    "enrich_tracked_articles_metadata",
     "batch_generate_topics",
     "batch_generate_topics_from_tracked_articles",
 )
@@ -314,6 +323,18 @@ def _ensure_projects_schema(connection: sqlite3.Connection) -> None:
         )
 
 
+def _ensure_trends_schema(connection: sqlite3.Connection) -> None:
+    columns = _get_table_columns(connection, "trends")
+    if "link" not in columns:
+        connection.execute("ALTER TABLE trends ADD COLUMN link TEXT NOT NULL DEFAULT ''")
+    if "summary" not in columns:
+        connection.execute("ALTER TABLE trends ADD COLUMN summary TEXT NOT NULL DEFAULT ''")
+    if "published_at" not in columns:
+        connection.execute("ALTER TABLE trends ADD COLUMN published_at TEXT DEFAULT NULL")
+    if "fetched_at" not in columns:
+        connection.execute("ALTER TABLE trends ADD COLUMN fetched_at TEXT DEFAULT NULL")
+
+
 def _ensure_publish_packages_schema(connection: sqlite3.Connection) -> None:
     columns = _get_table_columns(connection, "publish_packages")
     if "assets_version" not in columns:
@@ -419,16 +440,37 @@ def _ensure_tracked_articles_schema(connection: sqlite3.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS tracked_articles (
             slug TEXT PRIMARY KEY,
+            source_kind TEXT NOT NULL DEFAULT 'manual',
             source_name TEXT NOT NULL,
             title TEXT NOT NULL,
             url TEXT NOT NULL,
             author TEXT NOT NULL,
             summary TEXT NOT NULL,
+            body_markdown TEXT NOT NULL DEFAULT '',
+            body_source TEXT NOT NULL DEFAULT 'missing',
             structure_notes TEXT NOT NULL,
+            created_at TEXT DEFAULT NULL,
             tags TEXT NOT NULL
         )
         """
     )
+    columns = _get_table_columns(connection, "tracked_articles")
+    if "source_kind" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'manual'"
+        )
+    if "body_markdown" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN body_markdown TEXT NOT NULL DEFAULT ''"
+        )
+    if "body_source" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN body_source TEXT NOT NULL DEFAULT 'missing'"
+        )
+    if "created_at" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN created_at TEXT DEFAULT NULL"
+        )
 
 
 def _ensure_source_ingestion_runs_schema(connection: sqlite3.Connection) -> None:
@@ -610,7 +652,11 @@ def initialize_store(reset: bool = False) -> None:
                 title TEXT NOT NULL,
                 source TEXT NOT NULL,
                 heat_score INTEGER NOT NULL,
-                status TEXT NOT NULL
+                status TEXT NOT NULL,
+                link TEXT NOT NULL DEFAULT '',
+                summary TEXT NOT NULL DEFAULT '',
+                published_at TEXT DEFAULT NULL,
+                fetched_at TEXT DEFAULT NULL
             )
             """
         )
@@ -750,6 +796,7 @@ def initialize_store(reset: bool = False) -> None:
             """
         )
         _ensure_projects_schema(connection)
+        _ensure_trends_schema(connection)
         _ensure_topics_schema(connection)
         _ensure_outlines_schema(connection)
         _ensure_drafts_schema(connection)
@@ -791,10 +838,19 @@ def initialize_store(reset: bool = False) -> None:
 
         connection.executemany(
             """
-            INSERT INTO trends (slug, title, source, heat_score, status)
-            VALUES (:slug, :title, :source, :heat_score, :status)
+            INSERT INTO trends (slug, title, source, heat_score, status, link, summary, published_at, fetched_at)
+            VALUES (:slug, :title, :source, :heat_score, :status, :link, :summary, :published_at, :fetched_at)
             """,
-            TREND_SEEDS,
+            [
+                {
+                    **trend,
+                    "link": "",
+                    "summary": "",
+                    "published_at": None,
+                    "fetched_at": None,
+                }
+                for trend in TREND_SEEDS
+            ],
         )
         connection.executemany(
             """
@@ -855,9 +911,9 @@ def list_trends() -> list[TrendItem]:
     with _get_connection() as connection:
         rows = connection.execute(
             """
-            SELECT slug, title, source, heat_score, status
+            SELECT slug, title, source, heat_score, status, link, summary, published_at, fetched_at
             FROM trends
-            ORDER BY heat_score DESC, rowid ASC
+            ORDER BY COALESCE(datetime(published_at), datetime(fetched_at)) DESC, heat_score DESC, rowid DESC
             """
         ).fetchall()
     return [TrendItem(**dict(row)) for row in rows]
@@ -1188,16 +1244,34 @@ def _update_background_task_log_status(
 
 
 def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
+    summary = str(row["summary"])
+    body_markdown = str(row["body_markdown"]) if "body_markdown" in row.keys() else ""
+    body_source = str(row["body_source"]) if "body_source" in row.keys() else ("dom" if body_markdown else "missing")
     return TrackedArticleItem(
         slug=str(row["slug"]),
+        source_kind=str(row["source_kind"]) if "source_kind" in row.keys() else "manual",
         source_name=_normalize_tracked_article_source_name(str(row["source_name"])),
         title=str(row["title"]),
         url=str(row["url"]),
         author=str(row["author"]),
-        summary=str(row["summary"]),
+        summary=_normalize_wechat_text(summary, preserve_paragraphs=False),
+        body_markdown=_normalize_wechat_text(body_markdown, preserve_paragraphs=True) if body_markdown else "",
+        body_source=body_source,
         structure_notes=str(row["structure_notes"]),
+        created_at=str(row["created_at"]) if "created_at" in row.keys() and row["created_at"] is not None else None,
         tags=json.loads(str(row["tags"])),
     )
+
+
+def _get_tracked_article_row_by_slug(connection: sqlite3.Connection, article_slug: str) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes, created_at, tags
+        FROM tracked_articles
+        WHERE slug = ?
+        """,
+        (article_slug,),
+    ).fetchone()
 
 
 def _find_tracked_article_by_url(connection: sqlite3.Connection, url: str) -> TrackedArticleItem | None:
@@ -1206,7 +1280,7 @@ def _find_tracked_article_by_url(connection: sqlite3.Connection, url: str) -> Tr
         return None
     row = connection.execute(
         """
-        SELECT slug, source_name, title, url, author, summary, structure_notes, tags
+        SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes, created_at, tags
         FROM tracked_articles
         WHERE url = ?
         """,
@@ -1220,21 +1294,33 @@ def _find_tracked_article_by_url(connection: sqlite3.Connection, url: str) -> Tr
 def _create_tracked_article_in_connection(
     connection: sqlite3.Connection,
     payload: TrackedArticleCreate,
+    *,
+    source_kind: str = "manual",
 ) -> TrackedArticleItem:
     source_name = _normalize_tracked_article_source_name(payload.source_name)
+    created_at = _utc_now_iso()
+    body_source = (
+        payload.body_source
+        if payload.body_source and payload.body_source != "missing"
+        else ("manual" if payload.body_markdown else "missing")
+    )
     connection.execute(
         """
-        INSERT INTO tracked_articles (slug, source_name, title, url, author, summary, structure_notes, tags)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO tracked_articles (slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes, created_at, tags)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload.slug,
+            source_kind,
             source_name,
             payload.title,
             payload.url.strip(),
             payload.author,
             payload.summary,
+            payload.body_markdown,
+            body_source,
             payload.structure_notes,
+            created_at,
             json.dumps(payload.tags, ensure_ascii=False),
         ),
     )
@@ -1245,7 +1331,16 @@ def _create_tracked_article_in_connection(
         entity_slug=payload.slug,
         entity_type="tracked_article",
     )
-    return TrackedArticleItem(**{**payload.model_dump(), "source_name": source_name, "url": payload.url.strip()})
+    return TrackedArticleItem(
+        **{
+            **payload.model_dump(),
+            "source_kind": source_kind,
+            "source_name": source_name,
+            "url": payload.url.strip(),
+            "body_source": body_source,
+            "created_at": created_at,
+        }
+    )
 
 
 def _summarize_source_ingestion(source_kind: str, created_count: int, skipped_count: int, failed_count: int) -> str:
@@ -1322,8 +1417,8 @@ def create_trend(payload: TrendCreate) -> TrendItem:
         try:
             connection.execute(
                 """
-                INSERT INTO trends (slug, title, source, heat_score, status)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO trends (slug, title, source, heat_score, status, link, summary, published_at, fetched_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload.slug,
@@ -1331,6 +1426,10 @@ def create_trend(payload: TrendCreate) -> TrendItem:
                     payload.source,
                     payload.heat_score,
                     payload.status,
+                    payload.link,
+                    payload.summary,
+                    payload.published_at,
+                    payload.fetched_at,
                 ),
             )
             _record_task(
@@ -1351,6 +1450,47 @@ def _slugify_text(value: str) -> str:
     return normalized or "trend"
 
 
+def _normalize_feed_text(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    without_tags = re.sub(r"<[^>]+>", " ", html.unescape(raw))
+    normalized = re.sub(r"\s+", " ", without_tags)
+    return normalized.strip()
+
+
+def _normalize_feed_datetime(value: str | None) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = parsedate_to_datetime(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.isoformat()
+    except (TypeError, ValueError, IndexError, OverflowError):
+        pass
+
+    iso_candidate = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(iso_candidate)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.isoformat()
+
+
+def _find_child_text_by_local_names(node: ET.Element, local_names: set[str]) -> str:
+    for child in list(node):
+        tag_name = str(child.tag).split("}")[-1]
+        if tag_name in local_names:
+            text = "".join(child.itertext())
+            if text.strip():
+                return text.strip()
+    return ""
+
+
 def _fetch_trend_feed_xml(source_url: str) -> bytes:
     with httpx.Client(timeout=settings.trend_fetch_request_timeout_seconds) as client:
         response = client.get(source_url)
@@ -1368,15 +1508,31 @@ def _get_trend_source_label(source_url: str, root: ET.Element) -> str:
     return urlparse(source_url).netloc or source_url
 
 
-def _extract_trend_feed_items(root: ET.Element) -> list[tuple[str, str]]:
-    items: list[tuple[str, str]] = []
+def _extract_trend_feed_items(root: ET.Element) -> list[dict[str, str | None]]:
+    items: list[dict[str, str | None]] = []
 
     for item in root.findall(".//item"):
         title = (item.findtext("title") or "").strip()
         if not title:
             continue
         link = (item.findtext("link") or "").strip()
-        items.append((title, link))
+        summary = _normalize_feed_text(
+            item.findtext("description")
+            or _find_child_text_by_local_names(item, {"encoded", "summary", "content"})
+        )
+        published_at = _normalize_feed_datetime(
+            item.findtext("pubDate")
+            or item.findtext("published")
+            or item.findtext("updated")
+        )
+        items.append(
+            {
+                "title": title,
+                "link": link,
+                "summary": summary,
+                "published_at": published_at,
+            }
+        )
 
     if items:
         return items
@@ -1389,7 +1545,22 @@ def _extract_trend_feed_items(root: ET.Element) -> list[tuple[str, str]]:
         link_node = entry.find("{*}link")
         if link_node is not None:
             link = str(link_node.attrib.get("href") or "").strip()
-        items.append((title, link))
+        summary = _normalize_feed_text(
+            entry.findtext("{*}summary")
+            or entry.findtext("{*}content")
+            or _find_child_text_by_local_names(entry, {"summary", "content"})
+        )
+        published_at = _normalize_feed_datetime(
+            entry.findtext("{*}published") or entry.findtext("{*}updated")
+        )
+        items.append(
+            {
+                "title": title,
+                "link": link,
+                "summary": summary,
+                "published_at": published_at,
+            }
+        )
 
     return items
 
@@ -1448,7 +1619,9 @@ def fetch_trends_from_live_sources() -> dict[str, object]:
         source_skipped_count = 0
         source_failed_count = 0
 
-        for title, _link in feed_items:
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        for item in feed_items:
+            title = str(item["title"])
             if title in existing_titles:
                 source_skipped_count += 1
                 skipped_count += 1
@@ -1466,6 +1639,10 @@ def fetch_trends_from_live_sources() -> dict[str, object]:
                         source=source_label,
                         heat_score=50,
                         status="screening",
+                        link=str(item.get("link") or ""),
+                        summary=str(item.get("summary") or ""),
+                        published_at=str(item.get("published_at")) if item.get("published_at") else None,
+                        fetched_at=fetched_at,
                     )
                 )
                 source_created_count += 1
@@ -1601,7 +1778,7 @@ def update_trend(trend_slug: str, payload: TrendUpdate) -> TrendItem:
     with _get_connection() as connection:
         existing = connection.execute(
             """
-            SELECT slug, source
+            SELECT slug, source, link, summary, published_at, fetched_at
             FROM trends
             WHERE slug = ?
             """,
@@ -1632,6 +1809,10 @@ def update_trend(trend_slug: str, payload: TrendUpdate) -> TrendItem:
         source=str(existing["source"]),
         heat_score=payload.heat_score,
         status=payload.status,
+        link=str(existing["link"] or ""),
+        summary=str(existing["summary"] or ""),
+        published_at=str(existing["published_at"]) if existing["published_at"] else None,
+        fetched_at=str(existing["fetched_at"]) if existing["fetched_at"] else None,
     )
 
 
@@ -1639,7 +1820,7 @@ def list_tracked_articles() -> list[TrackedArticleItem]:
     with _get_connection() as connection:
         rows = connection.execute(
             """
-            SELECT slug, source_name, title, url, author, summary, structure_notes, tags
+            SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes, created_at, tags
             FROM tracked_articles
             ORDER BY rowid DESC
             """
@@ -1653,7 +1834,7 @@ def create_tracked_article(payload: TrackedArticleCreate) -> TrackedArticleItem:
         if existing_by_url:
             raise HTTPException(status_code=409, detail="Tracked article already exists for this URL")
         try:
-            created = _create_tracked_article_in_connection(connection, payload)
+            created = _create_tracked_article_in_connection(connection, payload, source_kind="manual")
             connection.commit()
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=409, detail="Tracked article slug already exists") from exc
@@ -1685,7 +1866,7 @@ def import_tracked_articles(
                 continue
 
             try:
-                created = _create_tracked_article_in_connection(connection, payload)
+                created = _create_tracked_article_in_connection(connection, payload, source_kind=source_kind)
             except sqlite3.IntegrityError:
                 failed_count += 1
                 results.append(
@@ -1725,6 +1906,158 @@ def import_tracked_articles(
         "created": [item.model_dump() for item in created_items],
         "results": results,
     }
+
+
+def refresh_tracked_article_body(
+    article_slug: str,
+    *,
+    body_markdown: str,
+    body_source: str,
+) -> TrackedArticleItem:
+    with _get_connection() as connection:
+        row = _get_tracked_article_row_by_slug(connection, article_slug)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Tracked article not found")
+
+        connection.execute(
+            """
+            UPDATE tracked_articles
+            SET body_markdown = ?, body_source = ?
+            WHERE slug = ?
+            """,
+            (body_markdown, body_source, article_slug),
+        )
+        connection.commit()
+
+        refreshed_row = _get_tracked_article_row_by_slug(connection, article_slug)
+        if refreshed_row is None:
+            raise HTTPException(status_code=404, detail="Tracked article not found")
+    return _hydrate_tracked_article_row(refreshed_row)
+
+
+def _normalize_tracked_article_tags(tags: object) -> list[str]:
+    if not isinstance(tags, list):
+        return []
+
+    normalized: list[str] = []
+    for tag in tags:
+        value = str(tag).strip()
+        if not value or value in normalized:
+            continue
+        normalized.append(value)
+    return normalized
+
+
+def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
+    with _get_connection() as connection:
+        row = _get_tracked_article_row_by_slug(connection, article_slug)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Tracked article not found")
+
+        article = _hydrate_tracked_article_row(row)
+        ai_result = get_ai_generator().generate_tracked_article_metadata(
+            {
+                "source_kind": article.source_kind,
+                "source_name": article.source_name,
+                "article_title": article.title,
+                "article_url": article.url,
+                "author": article.author,
+                "summary": article.summary,
+                "body_markdown": article.body_markdown,
+                "body_source": article.body_source,
+                "structure_notes": article.structure_notes,
+                "tags": article.tags,
+            }
+        )
+
+        updated_author = article.author.strip() or str(ai_result.get("author") or "").strip()
+        updated_summary = str(ai_result.get("summary") or "").strip() or article.summary
+        updated_structure_notes = str(ai_result.get("structure_notes") or "").strip() or article.structure_notes
+        updated_tags = _normalize_tracked_article_tags(ai_result.get("tags")) or article.tags
+
+        connection.execute(
+            """
+            UPDATE tracked_articles
+            SET author = ?, summary = ?, structure_notes = ?, tags = ?
+            WHERE slug = ?
+            """,
+            (
+                updated_author,
+                updated_summary,
+                updated_structure_notes,
+                json.dumps(updated_tags, ensure_ascii=False),
+                article_slug,
+            ),
+        )
+        _record_task(
+            connection,
+            task_type="tracked_article_metadata_enriched",
+            status="done",
+            entity_slug=article_slug,
+            entity_type="tracked_article",
+        )
+        connection.commit()
+
+        refreshed_row = _get_tracked_article_row_by_slug(connection, article_slug)
+        if refreshed_row is None:
+            raise HTTPException(status_code=404, detail="Tracked article not found")
+    return _hydrate_tracked_article_row(refreshed_row)
+
+
+def batch_enrich_tracked_articles_metadata(article_slugs: list[str] | None = None) -> TrackedArticleBatchEnrichResponse:
+    requested_slugs = [str(slug).strip() for slug in (article_slugs or []) if str(slug).strip()]
+    processed_count = 0
+    skipped_count = 0
+    failed_count = 0
+    results: list[TrackedArticleBatchEnrichResult] = []
+
+    for article_slug in requested_slugs:
+        try:
+            article = enrich_tracked_article_metadata(article_slug)
+            processed_count += 1
+            results.append(
+                TrackedArticleBatchEnrichResult(
+                    article_slug=article_slug,
+                    status="done",
+                    article=article,
+                )
+            )
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                skipped_count += 1
+                results.append(
+                    TrackedArticleBatchEnrichResult(
+                        article_slug=article_slug,
+                        status="skipped",
+                        error=str(exc.detail),
+                    )
+                )
+                continue
+            failed_count += 1
+            results.append(
+                TrackedArticleBatchEnrichResult(
+                    article_slug=article_slug,
+                    status="failed",
+                    error=str(exc.detail),
+                )
+            )
+        except Exception as exc:
+            failed_count += 1
+            results.append(
+                TrackedArticleBatchEnrichResult(
+                    article_slug=article_slug,
+                    status="failed",
+                    error=str(exc),
+                )
+            )
+
+    return TrackedArticleBatchEnrichResponse(
+        requested_count=len(requested_slugs),
+        processed_count=processed_count,
+        skipped_count=skipped_count,
+        failed_count=failed_count,
+        results=results,
+    )
 
 
 def list_topics() -> list[TopicItem]:
@@ -1913,7 +2246,7 @@ def generate_topic_from_trend(trend_slug: str) -> TopicItem:
     with _get_connection() as connection:
         trend = connection.execute(
             """
-            SELECT slug, title, source, heat_score, status
+            SELECT slug, title, source, heat_score, status, link, summary, published_at, fetched_at
             FROM trends
             WHERE slug = ?
             """,
@@ -1938,6 +2271,10 @@ def generate_topic_from_trend(trend_slug: str) -> TopicItem:
                 "source": trend["source"],
                 "heat_score": trend["heat_score"],
                 "status": trend["status"],
+                "link": trend["link"],
+                "summary": trend["summary"],
+                "published_at": trend["published_at"],
+                "fetched_at": trend["fetched_at"],
                 "tone_profile": tone_profile.model_dump(),
             }
         )
@@ -1975,7 +2312,7 @@ def generate_topic_from_tracked_article(article_slug: str) -> TopicItem:
     with _get_connection() as connection:
         article = connection.execute(
             """
-            SELECT slug, source_name, title, author, summary, structure_notes, tags
+            SELECT slug, source_kind, source_name, title, author, summary, body_markdown, structure_notes, created_at, tags
             FROM tracked_articles
             WHERE slug = ?
             """,
@@ -3235,6 +3572,8 @@ def _run_background_task(task_id: str) -> None:
             result = batch_generate_topics(payload.get("trend_slugs"))
         elif job_type == "batch_generate_topics_from_tracked_articles":
             result = batch_generate_topics_from_tracked_articles(payload.get("article_slugs"))
+        elif job_type == "enrich_tracked_articles_metadata":
+            result = batch_enrich_tracked_articles_metadata(payload.get("article_slugs"))
         elif job_type == "batch_create_projects":
             result = batch_create_projects(payload.get("topic_slugs"))
         elif job_type == "build_publish_package":

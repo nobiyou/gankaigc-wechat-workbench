@@ -19,6 +19,7 @@ from app.services.prompt_templates import (
     build_draft_prompt,
     build_outline_prompt,
     build_publish_package_prompt,
+    build_tracked_article_metadata_prompt,
     build_topic_prompt,
 )
 
@@ -49,6 +50,13 @@ class PublishPackageGenerationResult(BaseModel):
     abstract: str
     tags: list[str]
     editor_note: str
+
+
+class TrackedArticleMetadataGenerationResult(BaseModel):
+    author: str
+    summary: str
+    structure_notes: str
+    tags: list[str]
 
 
 ResponseModelT = TypeVar("ResponseModelT", bound=BaseModel)
@@ -152,6 +160,15 @@ class OpenAIWorkbenchGenerator:
             instructions=prompt_template.instructions,
             prompt=prompt_template.prompt,
             response_format=PublishPackageGenerationResult,
+        )
+        return result.model_dump()
+
+    def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+        prompt_template = build_tracked_article_metadata_prompt(payload)
+        result = self._parse_response(
+            instructions=prompt_template.instructions,
+            prompt=prompt_template.prompt,
+            response_format=TrackedArticleMetadataGenerationResult,
         )
         return result.model_dump()
 

@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 
 import {
+  enrichTrackedArticlesMetadataInBackground,
+  createTrackedArticle,
+  enrichTrackedArticleMetadata,
   fetchLiveTrends,
+  refreshTrackedArticleBody,
   fetchTrackedArticles,
   fetchTrends,
   fetchWechatMpSession,
@@ -14,7 +18,18 @@ import {
   type WechatMpSessionStatus,
 } from "../api/workbench";
 import { WechatMpImportPanel } from "../components/WechatMpImportPanel";
-import { filterTrackedArticlesByQuery, filterTrendsByQuery } from "../contentSources";
+import {
+  buildTrendSummaryPreview,
+  filterTrackedArticlesByQuery,
+  filterTrendsByQuery,
+  shouldCollapseTrendSummary,
+} from "../contentSources";
+import { hasTrackedArticleMetadataGaps } from "../trackedArticleEnrichment";
+import {
+  buildTrackedArticleCreatePayload,
+  createTrackedArticleCreateDraft,
+  syncTrackedArticleDraftTitle,
+} from "../trackedArticleCreation";
 
 type SourcesSection = "trends" | "articles" | "wechat-import";
 
@@ -37,6 +52,12 @@ type SourcesLoadState =
       data: SourcesData;
     };
 
+type SourceActionKey =
+  | "trend-generate-topic"
+  | "tracked-article-enrich-metadata"
+  | "tracked-article-generate-topic"
+  | "tracked-article-refresh-body";
+
 const SECTION_COPY: Record<SourcesSection, { title: string; description: string }> = {
   trends: {
     title: "热点池与单条转选题",
@@ -58,6 +79,63 @@ function buildTopicCreatedMessage(topic: TopicItem): string {
 
 function formatTrackedArticleMeta(article: TrackedArticleItem): string {
   return [article.source_name, article.author].filter(Boolean).join(" / ");
+}
+
+function formatTrackedArticleSourceKind(article: TrackedArticleItem): string {
+  return article.source_kind === "wechat_mp_import" ? "公众号导入" : "手动录入";
+}
+
+function formatTrackedArticleCreatedAt(article: TrackedArticleItem): string {
+  if (!article.created_at) {
+    return "入池时间未记录";
+  }
+
+  const parsed = Date.parse(article.created_at);
+  if (Number.isNaN(parsed)) {
+    return `入池时间：${article.created_at}`;
+  }
+
+  return `入池时间：${new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(parsed))}`;
+}
+
+function formatDateTimeLabel(label: string, value: string | null | undefined, fallback: string): string {
+  if (!value) {
+    return `${label}：${fallback}`;
+  }
+
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return `${label}：${value}`;
+  }
+
+  return `${label}：${new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(parsed))}`;
+}
+
+function formatTrackedArticleBodySource(article: TrackedArticleItem): string {
+  switch (article.body_source) {
+    case "dom":
+      return "正文来源：静态 DOM";
+    case "content_noencode":
+      return "正文来源：脚本正文数据";
+    case "digest_fallback":
+      return "正文来源：摘要回退";
+    case "manual":
+      return "正文来源：手动录入";
+    default:
+      return "正文来源：未识别";
+  }
 }
 
 function loadSourcesData(section: SourcesSection): Promise<SourcesData> {
@@ -88,10 +166,14 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
   const [loadState, setLoadState] = useState<SourcesLoadState>({ status: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
-  const [actionSlug, setActionSlug] = useState<string | null>(null);
+  const [trackedArticleDraft, setTrackedArticleDraft] = useState(createTrackedArticleCreateDraft);
+  const [activeAction, setActiveAction] = useState<{ key: SourceActionKey; slug: string } | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [fetchingTrends, setFetchingTrends] = useState(false);
+  const [creatingTrackedArticle, setCreatingTrackedArticle] = useState(false);
+  const [expandedTrendSlugs, setExpandedTrendSlugs] = useState<string[]>([]);
+  const [expandedArticleSlugs, setExpandedArticleSlugs] = useState<string[]>([]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -125,27 +207,84 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
 
   async function handleGenerateTopicFromTrend(trendSlug: string) {
     try {
-      setActionSlug(trendSlug);
+      setActiveAction({ key: "trend-generate-topic", slug: trendSlug });
       setActionError(null);
       const topic = await generateTopicFromTrend(trendSlug);
       setActionMessage(buildTopicCreatedMessage(topic));
     } catch (error: unknown) {
       setActionError(error instanceof Error ? error.message : "从热点生成选题失败。");
     } finally {
-      setActionSlug(null);
+      setActiveAction(null);
     }
   }
 
   async function handleGenerateTopicFromTrackedArticle(articleSlug: string) {
     try {
-      setActionSlug(articleSlug);
+      setActiveAction({ key: "tracked-article-generate-topic", slug: articleSlug });
       setActionError(null);
       const topic = await generateTopicFromTrackedArticle(articleSlug);
       setActionMessage(buildTopicCreatedMessage(topic));
     } catch (error: unknown) {
       setActionError(error instanceof Error ? error.message : "从参考文章生成选题失败。");
     } finally {
-      setActionSlug(null);
+      setActiveAction(null);
+    }
+  }
+
+  async function handleRefreshTrackedArticleBody(articleSlug: string) {
+    try {
+      setActiveAction({ key: "tracked-article-refresh-body", slug: articleSlug });
+      setActionError(null);
+      const refreshed = await refreshTrackedArticleBody(articleSlug);
+      setActionMessage(`已重新抓取正文：${refreshed.title}`);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "重新抓正文失败");
+    } finally {
+      setActiveAction(null);
+    }
+  }
+
+  async function handleEnrichTrackedArticleMetadata(articleSlug: string) {
+    try {
+      setActiveAction({ key: "tracked-article-enrich-metadata", slug: articleSlug });
+      setActionError(null);
+      const enriched = await enrichTrackedArticleMetadata(articleSlug);
+      setActionMessage(`已智能补全字段：${enriched.title}`);
+      setReloadToken((current) => current + 1);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "智能补全字段失败");
+    } finally {
+      setActiveAction(null);
+    }
+  }
+
+  async function handleCreateTrackedArticle() {
+    try {
+      setCreatingTrackedArticle(true);
+      setActionError(null);
+      const payload = buildTrackedArticleCreatePayload(trackedArticleDraft);
+      const created = await createTrackedArticle(payload);
+      await enrichTrackedArticleMetadata(created.slug);
+      const trackedArticles = await fetchTrackedArticles();
+      setLoadState((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              data: {
+                ...current.data,
+                trackedArticles,
+              },
+            }
+          : current,
+      );
+      setTrackedArticleDraft(createTrackedArticleCreateDraft());
+      setSearchQuery("");
+      setActionMessage(`已录入参考文章并自动补全字段：${created.title}`);
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "手动录入参考文章失败。");
+    } finally {
+      setCreatingTrackedArticle(false);
     }
   }
 
@@ -192,6 +331,8 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
 
   async function handleWechatImportComplete(_result: WechatMpArticleImportResponse) {
     const trackedArticles = await fetchTrackedArticles();
+    const latestImportedArticles = trackedArticles.filter((article) => article.source_kind === "wechat_mp_import").slice(0, 5);
+    const articleSlugsToEnrich = latestImportedArticles.filter(hasTrackedArticleMetadataGaps).map((article) => article.slug);
     setLoadState((current) =>
       current.status === "ready"
         ? {
@@ -203,7 +344,14 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
           }
         : current,
     );
-    setActionMessage("参考文章池已刷新，可继续在 Sources / 参考文章 中审核新导入内容。");
+    if (articleSlugsToEnrich.length === 0) {
+      setActionMessage("参考文章池已刷新，最近导入文章的字段已经完整。");
+    } else {
+      const submission = await enrichTrackedArticlesMetadataInBackground(articleSlugsToEnrich);
+      setActionMessage(
+        `参考文章池已刷新，已提交 ${articleSlugsToEnrich.length} 篇最近导入文章的智能补全任务，可去 Pipeline 查看进度。任务 ID：${submission.task_id}`,
+      );
+    }
     setActionError(null);
   }
 
@@ -283,7 +431,7 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
               <input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="按标题、来源或 slug 筛选"
+                placeholder="按标题、摘要、来源、链接或 slug 筛选"
               />
             </label>
             <div className="workspace-toolbar__meta">
@@ -319,15 +467,62 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
                   <div className="workspace-item__meta">
                     <span>来源：{trend.source}</span>
                     <span>热度：{trend.heat_score}</span>
+                    <span>{formatDateTimeLabel("发布时间", trend.published_at, "未记录")}</span>
+                    <span>{formatDateTimeLabel("抓取时间", trend.fetched_at, "未记录")}</span>
                   </div>
-                  <div className="workspace-actions">
+                  {(() => {
+                    const summary = trend.summary?.trim() || "当前热点仅收录了标题，尚未带出摘要。";
+                    const canCollapse = shouldCollapseTrendSummary(summary);
+                    const isExpanded = expandedTrendSlugs.includes(trend.slug);
+                    const displayedSummary = canCollapse && !isExpanded ? buildTrendSummaryPreview(summary) : summary;
+
+                    return (
+                      <p className="trend-card__summary">{displayedSummary}</p>
+                    );
+                  })()}
+                  <div className="workspace-actions workspace-actions--row trend-card__actions">
+                    {(() => {
+                      const summary = trend.summary?.trim() || "";
+                      const canCollapse = shouldCollapseTrendSummary(summary);
+                      const isExpanded = expandedTrendSlugs.includes(trend.slug);
+                      if (!canCollapse) {
+                        return null;
+                      }
+                      return (
+                        <button
+                          className="dashboard-button dashboard-button--ghost dashboard-button--compact"
+                          type="button"
+                          onClick={() =>
+                            setExpandedTrendSlugs((current) =>
+                              current.includes(trend.slug)
+                                ? current.filter((slug) => slug !== trend.slug)
+                                : [...current, trend.slug],
+                            )
+                          }
+                        >
+                          {isExpanded ? "收起内容" : "展开内容"}
+                        </button>
+                      );
+                    })()}
+                    {trend.link ? (
+                      <a
+                        className="dashboard-inline-link dashboard-inline-link--compact"
+                        href={trend.link}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        查看来源
+                      </a>
+                    ) : null}
                     <button
-                      className="dashboard-button"
+                      className="dashboard-button dashboard-button--compact"
                       type="button"
                       onClick={() => handleGenerateTopicFromTrend(trend.slug)}
-                      disabled={actionSlug === trend.slug}
+                      disabled={activeAction?.slug === trend.slug}
                     >
-                      {actionSlug === trend.slug ? "生成中..." : "AI 转选题"}
+                      {activeAction?.slug === trend.slug && activeAction.key === "trend-generate-topic"
+                        ? "生成中..."
+                        : "AI 转选题"}
                     </button>
                   </div>
                 </article>
@@ -339,6 +534,153 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
 
       {section === "articles" ? (
         <section className="workspace-section">
+          <div className="workspace-subsection workspace-project-config-panel">
+            <div className="workspace-section__header">
+              <div>
+                <p className="workspace-section__eyebrow">Manual Tracked Article</p>
+                <h4>手动录入参考文章</h4>
+                <p className="workspace-section__description">适合把外部参考稿、手头样稿或单篇链接直接录入来源池，再继续转选题。</p>
+              </div>
+            </div>
+            <div className="quick-form workspace-actions--row">
+              <label className="workspace-search workspace-search--compact">
+                <span>文章标题</span>
+                <input
+                  value={trackedArticleDraft.title}
+                  onChange={(event) =>
+                    setTrackedArticleDraft((current) => syncTrackedArticleDraftTitle(current, event.target.value))
+                  }
+                  placeholder="例如：成年后最养人的关系，常常只是一起吃饭散步"
+                />
+              </label>
+              <label className="workspace-search workspace-search--compact">
+                <span>文章 slug</span>
+                <input
+                  value={trackedArticleDraft.slug}
+                  onChange={(event) =>
+                    setTrackedArticleDraft((current) => ({
+                      ...current,
+                      slug: event.target.value,
+                    }))
+                  }
+                  placeholder="默认随标题生成"
+                />
+              </label>
+              <label className="workspace-search">
+                <span>原文链接</span>
+                <input
+                  value={trackedArticleDraft.url}
+                  onChange={(event) =>
+                    setTrackedArticleDraft((current) => ({
+                      ...current,
+                      url: event.target.value,
+                    }))
+                  }
+                  placeholder="粘贴完整文章链接，例如 https://mp.weixin.qq.com/..."
+                />
+              </label>
+            </div>
+            <div className="quick-form workspace-actions--row">
+              <label className="workspace-search workspace-search--compact">
+                <span>来源账号</span>
+                <input
+                  value={trackedArticleDraft.source_name}
+                  onChange={(event) =>
+                    setTrackedArticleDraft((current) => ({
+                      ...current,
+                      source_name: event.target.value,
+                    }))
+                  }
+                  placeholder="默认手动录入"
+                />
+              </label>
+              <label className="workspace-search workspace-search--compact">
+                <span>作者</span>
+                <input
+                  value={trackedArticleDraft.author}
+                  onChange={(event) =>
+                    setTrackedArticleDraft((current) => ({
+                      ...current,
+                      author: event.target.value,
+                    }))
+                  }
+                  placeholder="可留空"
+                />
+              </label>
+              <label className="workspace-search">
+                <span>标签</span>
+                <input
+                  value={trackedArticleDraft.tags_text}
+                  onChange={(event) =>
+                    setTrackedArticleDraft((current) => ({
+                      ...current,
+                      tags_text: event.target.value,
+                    }))
+                  }
+                  placeholder="用逗号、顿号或换行分隔，例如 陪伴，安全感，女性成长"
+                />
+              </label>
+            </div>
+            <div className="quick-form workspace-actions--row">
+              <label className="workspace-search">
+                <span>摘要</span>
+                <textarea
+                  value={trackedArticleDraft.summary}
+                  onChange={(event) =>
+                    setTrackedArticleDraft((current) => ({
+                      ...current,
+                      summary: event.target.value,
+                    }))
+                  }
+                  placeholder="提炼这篇参考文章的主题、情绪和核心判断"
+                />
+              </label>
+              <label className="workspace-search">
+                <span>全文</span>
+                <textarea
+                  value={trackedArticleDraft.body_markdown}
+                  onChange={(event) =>
+                    setTrackedArticleDraft((current) => ({
+                      ...current,
+                      body_markdown: event.target.value,
+                    }))
+                  }
+                  placeholder="手动录入时可直接粘贴全文；公众号导入文章会尽量自动带入正文。"
+                />
+              </label>
+              <label className="workspace-search">
+                <span>结构备注</span>
+                <textarea
+                  value={trackedArticleDraft.structure_notes}
+                  onChange={(event) =>
+                    setTrackedArticleDraft((current) => ({
+                      ...current,
+                      structure_notes: event.target.value,
+                    }))
+                  }
+                  placeholder="可记录开头切入、段落推进、收束方式等结构观察"
+                />
+              </label>
+            </div>
+            <div className="workspace-actions workspace-actions--row workspace-actions--project-config">
+              <button className="dashboard-button" type="button" disabled={creatingTrackedArticle} onClick={() => void handleCreateTrackedArticle()}>
+                {creatingTrackedArticle ? "录入中..." : "录入参考文章"}
+              </button>
+              <button
+                className="dashboard-button dashboard-button--ghost"
+                type="button"
+                disabled={creatingTrackedArticle}
+                onClick={() => setTrackedArticleDraft(createTrackedArticleCreateDraft())}
+              >
+                清空草稿
+              </button>
+            </div>
+            <div className="workspace-note workspace-note--info">
+              <p>标题会自动联动 slug，手动改过 slug 后会保留自定义值。</p>
+              <p>录入后会先留在参考文章池审核，再决定是否转成选题。</p>
+            </div>
+          </div>
+
           <div className="workspace-toolbar">
             <label className="workspace-search">
               <span>搜索参考文章</span>
@@ -358,7 +700,7 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
             <div className="dashboard-state dashboard-state--empty">
               <p className="dashboard-state__eyebrow">暂无数据</p>
               <h3>当前没有可展示参考文章</h3>
-              <p>可以去 WeChat Import 导入新内容，或切回其他 Sources 子区继续处理输入。</p>
+              <p>可以先在上方手动录入，或去 WeChat Import 导入新内容，再回到这里审核。</p>
             </div>
           ) : (
             <div className="workspace-list">
@@ -369,31 +711,88 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
                       <h4>{article.title}</h4>
                       <p>{article.slug}</p>
                     </div>
-                    <span className="workspace-pill">tracked article</span>
+                    <span className="workspace-pill">{formatTrackedArticleSourceKind(article)}</span>
                   </div>
                   <div className="workspace-item__meta">
                     <span>{formatTrackedArticleMeta(article)}</span>
+                    <span>{formatTrackedArticleCreatedAt(article)}</span>
                     <span>{article.tags.length > 0 ? `${article.tags.length} 个标签` : "无标签"}</span>
                   </div>
                   <p>{article.summary || "暂无摘要"}</p>
-                  {article.tags.length > 0 ? (
-                    <div className="workspace-tag-list">
-                      {article.tags.map((tag) => (
-                        <span key={tag} className="workspace-tag">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
+                  <div className="workspace-note workspace-note--info">
+                    <p>{article.body_markdown ? "已收录正文，可展开全文预览。" : "当前只收录了摘要，尚未拿到全文内容。"}</p>
+                    <p>{formatTrackedArticleBodySource(article)}</p>
+                    <p>{article.structure_notes || "暂无结构备注"}</p>
+                  </div>
+                  {expandedArticleSlugs.includes(article.slug) && article.body_markdown ? (
+                    <pre className="workbench-preview__body">{article.body_markdown}</pre>
                   ) : null}
-                  <div className="workspace-actions">
-                    <button
-                      className="dashboard-button"
-                      type="button"
-                      onClick={() => handleGenerateTopicFromTrackedArticle(article.slug)}
-                      disabled={actionSlug === article.slug}
-                    >
-                      {actionSlug === article.slug ? "生成中..." : "AI 转选题"}
-                    </button>
+                  <div className="tracked-article-card__footer">
+                    {article.tags.length > 0 ? (
+                      <div className="workspace-tag-list">
+                        {article.tags.map((tag) => (
+                          <span key={tag} className="workspace-tag">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="tracked-article-card__actions">
+                      {article.url ? (
+                        <a
+                          className="dashboard-inline-link dashboard-inline-link--compact"
+                          href={article.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          查看原文
+                        </a>
+                      ) : null}
+                      <button
+                        className="dashboard-button dashboard-button--ghost dashboard-button--compact"
+                        type="button"
+                        onClick={() =>
+                          setExpandedArticleSlugs((current) =>
+                            current.includes(article.slug)
+                              ? current.filter((slug) => slug !== article.slug)
+                              : [...current, article.slug],
+                          )
+                        }
+                        disabled={!article.body_markdown}
+                      >
+                        {expandedArticleSlugs.includes(article.slug) ? "收起全文" : "预览全文"}
+                      </button>
+                      <button
+                        className="dashboard-button dashboard-button--ghost dashboard-button--compact"
+                        type="button"
+                        onClick={() => handleEnrichTrackedArticleMetadata(article.slug)}
+                        disabled={activeAction?.slug === article.slug}
+                      >
+                        {activeAction?.slug === article.slug && activeAction.key === "tracked-article-enrich-metadata"
+                          ? "补全中..."
+                          : "智能补全字段"}
+                      </button>
+                      <button
+                        className="dashboard-button dashboard-button--ghost dashboard-button--compact"
+                        type="button"
+                        onClick={() => handleRefreshTrackedArticleBody(article.slug)}
+                        disabled={activeAction?.slug === article.slug || !article.url}
+                      >
+                        {activeAction?.slug === article.slug && activeAction.key === "tracked-article-refresh-body"
+                          ? "抓取中..."
+                          : "重新抓正文"}
+                      </button>
+                      <button
+                        className="dashboard-button dashboard-button--compact"
+                        type="button"
+                        onClick={() => handleGenerateTopicFromTrackedArticle(article.slug)}
+                        disabled={activeAction?.slug === article.slug}
+                      >
+                        {activeAction?.slug === article.slug && activeAction.key === "tracked-article-generate-topic"
+                          ? "生成中..."
+                          : "AI 转选题"}
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))}
@@ -448,6 +847,28 @@ export function SourcesPage({ section }: { section: SourcesSection }) {
                     <div className="workspace-item__meta">
                       <span>{formatTrackedArticleMeta(article)}</span>
                       <span>{article.url}</span>
+                    </div>
+                    <div className="tracked-article-card__actions">
+                      <button
+                        className="dashboard-button dashboard-button--ghost dashboard-button--compact"
+                        type="button"
+                        onClick={() => handleEnrichTrackedArticleMetadata(article.slug)}
+                        disabled={activeAction?.slug === article.slug}
+                      >
+                        {activeAction?.slug === article.slug && activeAction.key === "tracked-article-enrich-metadata"
+                          ? "补全中..."
+                          : "智能补全字段"}
+                      </button>
+                      <button
+                        className="dashboard-button dashboard-button--ghost dashboard-button--compact"
+                        type="button"
+                        onClick={() => handleRefreshTrackedArticleBody(article.slug)}
+                        disabled={activeAction?.slug === article.slug || !article.url}
+                      >
+                        {activeAction?.slug === article.slug && activeAction.key === "tracked-article-refresh-body"
+                          ? "抓取中..."
+                          : "重新抓正文"}
+                      </button>
                     </div>
                   </article>
                 ))}

@@ -32,6 +32,10 @@ export type TrendItem = {
   source: string;
   heat_score: number;
   status: string;
+  link?: string;
+  summary?: string;
+  published_at?: string | null;
+  fetched_at?: string | null;
 };
 
 export type TrendImportResult = {
@@ -82,12 +86,16 @@ export type TopicItem = {
 
 export type TrackedArticleItem = {
   slug: string;
+  source_kind: string;
   source_name: string;
   title: string;
   url: string;
   author: string;
   summary: string;
+  body_markdown: string;
+  body_source: string;
   structure_notes: string;
+  created_at: string | null;
   tags: string[];
 };
 
@@ -129,6 +137,19 @@ export type WechatMpArticleImportResponse = {
   results: Array<{
     status: string;
     reason: string | null;
+    article: TrackedArticleItem | null;
+  }>;
+};
+
+export type TrackedArticleBatchEnrichResponse = {
+  requested_count: number;
+  processed_count: number;
+  skipped_count: number;
+  failed_count: number;
+  results: Array<{
+    article_slug: string;
+    status: string;
+    error: string | null;
     article: TrackedArticleItem | null;
   }>;
 };
@@ -284,7 +305,10 @@ export type PromptTemplateSummary = {
 export type TrendUpdatePayload = Pick<TrendItem, "title" | "heat_score" | "status">;
 export type TopicCreatePayload = Pick<TopicItem, "slug" | "title" | "angle">;
 export type TopicUpdatePayload = Pick<TopicItem, "title" | "angle" | "status">;
-export type TrackedArticleCreatePayload = TrackedArticleItem;
+export type TrackedArticleCreatePayload = Pick<
+  TrackedArticleItem,
+  "slug" | "source_name" | "title" | "url" | "author" | "summary" | "body_markdown" | "structure_notes" | "tags"
+>;
 
 export type ProjectCreatePayload = Pick<ProjectItem, "slug" | "title" | "owner"> & {
   preferred_tone_profile_id?: number | null;
@@ -591,6 +615,20 @@ export function generateTopicFromTrackedArticle(articleSlug: string): Promise<To
 
 export function createTrackedArticle(payload: TrackedArticleCreatePayload): Promise<TrackedArticleItem> {
   return sendJson<TrackedArticleItem>("/tracked-articles", "POST", payload);
+}
+
+export function refreshTrackedArticleBody(articleSlug: string): Promise<TrackedArticleItem> {
+  return sendJson<TrackedArticleItem>(`/tracked-articles/${articleSlug}/refresh-body`, "POST", {});
+}
+
+export function enrichTrackedArticleMetadata(articleSlug: string): Promise<TrackedArticleItem> {
+  return sendJson<TrackedArticleItem>(`/tracked-articles/${articleSlug}/enrich-metadata`, "POST", {});
+}
+
+export function enrichTrackedArticlesMetadataInBackground(articleSlugs: string[]): Promise<BackgroundTaskSubmission> {
+  return sendJson<BackgroundTaskSubmission>("/tracked-articles/enrich-metadata/background", "POST", {
+    article_slugs: articleSlugs,
+  });
 }
 
 export function updateTopic(topicSlug: string, payload: TopicUpdatePayload): Promise<TopicItem> {

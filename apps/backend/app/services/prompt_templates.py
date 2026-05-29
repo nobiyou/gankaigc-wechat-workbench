@@ -545,6 +545,49 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
 
 
+def build_tracked_article_metadata_prompt(payload: Mapping[str, object]) -> PromptTemplate:
+    summary = _as_clean_text(payload.get("summary"))
+    body_markdown = _as_clean_text(payload.get("body_markdown"))
+    structure_notes = _as_clean_text(payload.get("structure_notes"))
+    author = _as_clean_text(payload.get("author"))
+    tags_value = payload.get("tags")
+    tags: list[str] = []
+    if isinstance(tags_value, list):
+        tags = [_as_clean_text(tag) for tag in tags_value if _as_clean_text(tag)]
+
+    return PromptTemplate(
+        instructions=build_stage_instructions(
+            role="内容分析编辑",
+            task_brief="请基于参考文章现有信息，补全适合来源池审核的摘要、结构备注和标签。",
+            domain_pack=payload.get("domain_pack"),
+        )
+        + "这是来源池字段补全，不是正文改写。"
+        + "不要照搬原标题、摘要或正文原句。"
+        + "摘要要像人工写的来源备注，1 到 2 句话，写清核心冲突、观察角度或主要判断。"
+        + "结构备注要说明开头如何切入、中段如何推进、结尾如何收束，保持简洁具体。"
+        + "标签输出 3 到 6 个短标签，优先主题、情绪线、关系场景和写法特征。"
+        + "如果作者名已经明确，就按文中已有作者输出；如果无法判断作者，author 留空字符串。"
+        + "禁止编造链接、平台、数据或原文没有出现的具体事实。",
+        prompt=(
+            f"来源类型：{_as_clean_text(payload.get('source_kind')) or 'manual'}\n"
+            f"来源账号：{_as_clean_text(payload.get('source_name')) or '手动录入'}\n"
+            f"文章标题：{_as_clean_text(payload.get('article_title'))}\n"
+            f"文章链接：{_as_clean_text(payload.get('article_url'))}\n"
+            f"当前作者：{author or '空'}\n"
+            f"当前摘要：{summary or '空'}\n"
+            f"当前结构备注：{structure_notes or '空'}\n"
+            f"当前标签：{' / '.join(tags) or '空'}\n"
+            f"正文来源：{_as_clean_text(payload.get('body_source')) or 'missing'}\n"
+            f"正文内容：\n{body_markdown or '空'}\n\n"
+            "返回：\n"
+            "1. 作者 author\n"
+            "2. 摘要 summary\n"
+            "3. 结构备注 structure_notes\n"
+            "4. 标签 tags"
+        ),
+    )
+
+
 def build_cover_image_prompt(payload: Mapping[str, object]) -> str:
     return (
         "请生成适合公众号头图的横版封面图，目标视觉比例为 21:9。"

@@ -404,6 +404,12 @@ a {
   cursor: pointer;
 }
 
+.dashboard-inline-link--compact,
+.dashboard-button--compact {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
 .dashboard-button--ghost {
   background: rgba(255, 247, 237, 0.72);
 }
@@ -599,8 +605,10 @@ a {
 }
 
 .workspace-search input,
+.workspace-search textarea,
 .workspace-select,
-.quick-form input {
+.quick-form input,
+.quick-form textarea {
   width: 100%;
   padding: 12px 14px;
   border: 1px solid rgba(146, 64, 14, 0.16);
@@ -608,6 +616,12 @@ a {
   background: rgba(255, 255, 255, 0.92);
   color: #1f2937;
   font: inherit;
+}
+
+.workspace-search textarea,
+.quick-form textarea {
+  min-height: 120px;
+  resize: vertical;
 }
 
 .workspace-list,
@@ -647,6 +661,8 @@ a {
 .workspace-actions--row,
 .workbench-form-grid {
   display: flex;
+  flex-direction: row;
+  align-items: center;
   flex-wrap: wrap;
   gap: 12px;
 }
@@ -717,6 +733,64 @@ a {
 .workspace-tag-list {
   flex-direction: row;
   flex-wrap: wrap;
+}
+
+.tracked-article-card__footer,
+.tracked-article-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tracked-article-card__footer {
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(146, 64, 14, 0.12);
+}
+
+.tracked-article-card__footer .workspace-tag-list {
+  flex: 1 1 180px;
+}
+
+.tracked-article-card__actions {
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.pipeline-header__actions {
+  justify-content: flex-end;
+}
+
+.pipeline-bulk-actions,
+.pipeline-topic-card__actions {
+  justify-content: flex-start;
+}
+
+.project-group-switcher {
+  align-items: center;
+}
+
+.project-card__actions {
+  justify-content: flex-start;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(146, 64, 14, 0.12);
+}
+
+.trend-card__summary {
+  color: #4b5563;
+  line-height: 1.7;
+}
+
+.trend-card__actions {
+  justify-content: flex-start;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(146, 64, 14, 0.12);
+}
+
+.pipeline-topic-card__actions {
+  padding-top: 4px;
+  border-top: 1px dashed rgba(146, 64, 14, 0.12);
 }
 
 .workspace-note {
@@ -1286,6 +1360,25 @@ a {
   .workspace-item__header,
   .workspace-item__meta {
     flex-direction: column;
+  }
+
+  .tracked-article-card__footer {
+    align-items: flex-start;
+  }
+
+  .tracked-article-card__actions {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .pipeline-header__actions,
+  .pipeline-bulk-actions,
+  .pipeline-topic-card__actions,
+  .project-card__actions,
+  .trend-card__actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .app-shell__header-copy {
