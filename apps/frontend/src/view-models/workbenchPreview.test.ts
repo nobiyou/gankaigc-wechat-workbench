@@ -95,6 +95,24 @@ test("buildWorkbenchPreview returns draft preview with正文内容", () => {
   assert.equal(preview?.blocks[0]?.copyText, "# 标题\n\n第一段\n\n第二段");
 });
 
+test("buildWorkbenchPreview shows ai-flavor risk on first draft without previous version", () => {
+  const preview = buildWorkbenchPreview("draft", {
+    ...baseDetail,
+    draft: {
+      ...baseDetail.draft,
+      title: "你赌我不敢走，我赌你再也遇不到真诚的人",
+      body_markdown:
+        "# 标题\n\n不是不爱，而是太久没有被看见。其实很多时候，关系崩塌不是从争吵开始，而是从一次赌气开始。\n\n你以为他懂，他以为你不在乎，所以两个人都在等对方先低头。最后，真正受伤的不是面子，而是那颗还想靠近的心。\n\n从今天开始，别再赌气，愿你有话直说，成为不靠试探也能被懂的人。",
+      word_count: 188,
+    },
+  });
+
+  assert.equal(preview?.blocks[1]?.label, "AI味风险提示");
+  assert.equal(preview?.blocks[1]?.content.includes("AI味风险（启发式）：高"), true);
+  assert.equal(preview?.blocks[1]?.content.includes("命中：不是A，是B"), true);
+  assert.equal(preview?.blocks[1]?.content.includes("命中：结尾口号感"), true);
+});
+
 test("buildWorkbenchPreview adds previous draft comparison blocks when prior version exists", () => {
   const comparisonDetail = {
     ...baseDetail,

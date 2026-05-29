@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from functools import lru_cache
+import json
 import time
 from typing import TypeVar
 
@@ -196,6 +197,14 @@ class OpenAIWorkbenchGenerator:
                 if parsed is None:
                     raise RuntimeError("OpenAI returned no structured output")
                 return parsed
+            except TypeError as exc:
+                if "'NoneType' object is not iterable" not in str(exc):
+                    raise
+                return self._parse_response_with_chat_json_fallback(
+                    instructions=instructions,
+                    prompt=prompt,
+                    response_format=response_format,
+                )
             except (openai.InternalServerError, openai.RateLimitError, openai.APIConnectionError) as exc:
                 last_error = exc
                 if attempt == 2:
@@ -205,6 +214,33 @@ class OpenAIWorkbenchGenerator:
         if last_error is not None:
             raise last_error
         raise RuntimeError("OpenAI response parsing failed without a captured exception")
+
+    def _parse_response_with_chat_json_fallback(
+        self,
+        *,
+        instructions: str,
+        prompt: str,
+        response_format: type[ResponseModelT],
+    ) -> ResponseModelT:
+        response = self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        f"{instructions}\n"
+                        "只返回一个 JSON 对象，不要 Markdown，不要解释；字段必须严格匹配任务要求。"
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            timeout=self._request_timeout_seconds,
+        )
+        output_text = response.choices[0].message.content
+        if not output_text:
+            raise RuntimeError("OpenAI chat fallback returned no output")
+        return response_format.model_validate(json.loads(output_text))
 
     def check_connection(self) -> None:
         request_kwargs: dict[str, object] = {

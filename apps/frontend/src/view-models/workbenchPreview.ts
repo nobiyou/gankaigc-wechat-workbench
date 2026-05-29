@@ -442,6 +442,14 @@ export function buildWorkbenchPreview(
           kind: "markdown",
         },
       );
+    } else {
+      const aiFlavorRisk = buildAiFlavorRiskSummary(detail.draft);
+      blocks.push({
+        key: "ai-flavor-risk-summary",
+        label: "AI味风险提示",
+        content: buildAiFlavorRiskSummaryLines(aiFlavorRisk).join("\n"),
+        kind: "markdown",
+      });
     }
 
     return {

@@ -51,6 +51,8 @@ def test_build_topic_prompt_includes_source_specific_context_and_style_section()
     )
 
     assert "基于参考文章提炼出一个可直接立项的女性情感成长类原创选题" in template.instructions
+    assert "不要使用“不是A，而是B”" in template.instructions
+    assert "不要把参考文章里的高频词直接放进标题主干" in template.instructions
     assert "参考文章标题：听到伴侣说话就烦，不是你脾气差" in template.prompt
     assert "标签：wechat-mp / relationship" in template.prompt
     assert "风格档案：女性成长克制陪伴风" in template.prompt
@@ -160,6 +162,8 @@ def test_stage_templates_share_domain_pack_but_keep_stage_specific_roles() -> No
     assert "正文作者" in draft_template.instructions
     assert "发布编辑" in publish_template.instructions
     assert "先设计一个具体、可感知的开篇瞬间或动作入口" in outline_template.instructions
+    assert "开篇钩子不要写成“很多关系不是……”" in outline_template.instructions
+    assert "大纲标题和段落小标题不要使用“不是A，而是B”" in outline_template.instructions
     assert "原创不是把现成观点换一批近义词，而是重新建立观察路径、场景重心和句子节奏" in draft_template.instructions
     assert "不要先复述题眼或给观点下定义" in draft_template.instructions
     assert "避免每段都写成“观点句 + 解释句”的模板结构" in draft_template.instructions
@@ -182,8 +186,15 @@ def test_draft_prompt_includes_anti_ai_flavor_guardrails() -> None:
     )
 
     assert "少用“不是A，是B”这类过于整齐的判断句" in template.instructions
+    assert "标题禁止使用“不是A，而是B”或“不是A，只是B”这类对称判断句" in template.instructions
+    assert "如果选题标题或参考文章标题已经含有这类句式，正文标题必须改成具体处境入口" in template.instructions
+    assert "全篇最多保留 1 处“不是……”判断" in template.instructions
     assert "减少“第一步、第二步、第三步”式教程骨架" in template.instructions
     assert "不要为了显得完整而过度解释每一个判断" in template.instructions
+    assert "这类一字量词全篇尽量控制在 5 处以内" in template.instructions
+    assert "输出前必须做一次静默自检" in template.instructions
+    assert "如果超过上述限制，先重写超标段落" in template.instructions
+    assert "不要在最终正文里写出自检过程" in template.instructions
     assert "套话风险" in template.instructions
     assert "结构模板风险" in template.instructions
     assert "句式节奏风险" in template.instructions

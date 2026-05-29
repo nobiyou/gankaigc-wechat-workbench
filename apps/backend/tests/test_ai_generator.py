@@ -252,6 +252,55 @@ def test_parse_response_retries_transient_openai_failures(monkeypatch) -> None:
     assert attempts["count"] == 2
 
 
+def test_parse_response_falls_back_to_chat_json_when_responses_parse_shape_is_invalid(monkeypatch) -> None:
+    generator = build_generator()
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            raise TypeError("'NoneType' object is not iterable")
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"title": "先把话说清楚", "angle": "关系修复里的表达入口"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_topic(
+        {
+            "trend_slug": "relationship-bet",
+            "trend_title": "关系里的赌气",
+            "source": "manual",
+            "heat_score": 80,
+            "status": "screening",
+        }
+    )
+
+    assert result == {
+        "title": "先把话说清楚",
+        "angle": "关系修复里的表达入口",
+    }
+    assert captured["model"] == "test-model"
+    assert captured["response_format"] == {"type": "json_object"}
+    assert "只返回一个 JSON 对象" in captured["messages"][0]["content"]
+    assert captured["messages"][1]["content"]
+
+
 def test_generate_topic_supports_tracked_article_payload(monkeypatch) -> None:
     generator = build_generator()
     captured: dict[str, str] = {}
