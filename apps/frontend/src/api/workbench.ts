@@ -339,6 +339,59 @@ export type BuildPublishPackagePayload = {
   polish_instruction?: string | null;
 };
 
+export type ProblemBriefItem = {
+  project_slug: string;
+  version: number;
+  source_mode: string;
+  raw_goal: string;
+  clarified_problem: string;
+  target_reader_situation: string;
+  core_conflict: string;
+  unknowns: string[];
+  status: string;
+  created_at?: string | null;
+};
+
+export type BenchmarkReferenceItem = {
+  project_slug: string;
+  strategy_version: number;
+  reference_kind: string;
+  reference_label: string;
+  reference_pointer: string;
+  borrow_focus: string;
+  avoid_focus: string;
+  rationale: string;
+  sort_order: number;
+};
+
+export type StrategyCardItem = {
+  project_slug: string;
+  version: number;
+  problem_brief_version: number;
+  reader_situation: string;
+  point_of_view: string;
+  conflict_frame: string;
+  emotional_path: string;
+  expression_constraints: string[];
+  benchmark_summary: string;
+  status: string;
+  created_at?: string | null;
+  adopted_at?: string | null;
+};
+
+export type StrategyPackageResult = {
+  project_slug: string;
+  problem_brief: ProblemBriefItem;
+  benchmarks: BenchmarkReferenceItem[];
+  strategy_card: StrategyCardItem;
+};
+
+export type AdoptStrategyCardResponse = {
+  project_slug: string;
+  strategy_card: StrategyCardItem;
+  project: ProjectItem;
+};
+
 export type ProjectDetail = {
   project: ProjectItem;
   outline: OutlineItem | null;
@@ -346,6 +399,9 @@ export type ProjectDetail = {
   assets: AssetItem | null;
   publish_package: PublishPackageItem | null;
   retro: ProjectRetroItem | null;
+  problem_brief?: ProblemBriefItem | null;
+  benchmarks?: BenchmarkReferenceItem[];
+  strategy_card?: StrategyCardItem | null;
 };
 
 export type ProjectVersions = {
@@ -354,6 +410,7 @@ export type ProjectVersions = {
   drafts: DraftItem[];
   assets: AssetItem[];
   publish_packages: PublishPackageItem[];
+  strategy_cards?: StrategyCardItem[];
 };
 
 export type BatchContinueProjectResult = {
@@ -571,6 +628,14 @@ export function fetchProjectDetail(projectSlug: string): Promise<ProjectDetail> 
 
 export function fetchProjectVersions(projectSlug: string): Promise<ProjectVersions> {
   return fetchJson<ProjectVersions>(`/projects/${projectSlug}/versions`);
+}
+
+export function generateStrategyPackage(projectSlug: string): Promise<StrategyPackageResult> {
+  return sendJson<StrategyPackageResult>(`/projects/${projectSlug}/generate-strategy-package`, "POST", {});
+}
+
+export function adoptStrategyCard(projectSlug: string, version: number): Promise<AdoptStrategyCardResponse> {
+  return sendJson<AdoptStrategyCardResponse>(`/projects/${projectSlug}/adopt-strategy-card/${version}`, "POST", {});
 }
 
 export function createTrend(payload: TrendItem): Promise<TrendItem> {

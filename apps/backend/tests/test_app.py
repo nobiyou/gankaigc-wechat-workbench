@@ -1498,6 +1498,96 @@ def test_project_detail_includes_outline_draft_assets_and_publish_slots() -> Non
     assert payload["draft"] is None
     assert payload["assets"] is None
     assert payload["publish_package"] is None
+    assert payload["problem_brief"] is None
+    assert payload["benchmarks"] == []
+    assert payload["strategy_card"] is None
+
+
+def test_generate_strategy_package_and_adopt_strategy_card_for_project() -> None:
+    generate_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-strategy-package")
+    assert generate_response.status_code == 201
+    generated = generate_response.json()
+
+    assert generated["project_slug"] == "office-burnout-recovery-weekly"
+    assert generated["problem_brief"]["project_slug"] == "office-burnout-recovery-weekly"
+    assert generated["problem_brief"]["version"] == 1
+    assert generated["problem_brief"]["status"] == "ready"
+    assert "办公室倦怠" in generated["problem_brief"]["clarified_problem"]
+    assert generated["benchmarks"][0]["strategy_version"] == 1
+    assert generated["benchmarks"][0]["reference_kind"] == "trend"
+    assert generated["benchmarks"][0]["reference_label"] == "办公室倦怠修复"
+    assert generated["strategy_card"]["project_slug"] == "office-burnout-recovery-weekly"
+    assert generated["strategy_card"]["version"] == 1
+    assert generated["strategy_card"]["problem_brief_version"] == 1
+    assert generated["strategy_card"]["status"] == "ready"
+    assert generated["strategy_card"]["adopted_at"] is None
+
+    detail_response = client.get("/api/projects/office-burnout-recovery-weekly")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["problem_brief"]["version"] == 1
+    assert detail["strategy_card"]["version"] == 1
+    assert detail["strategy_card"]["adopted_at"] is None
+    assert detail["benchmarks"][0]["reference_label"] == "办公室倦怠修复"
+
+    versions_response = client.get("/api/projects/office-burnout-recovery-weekly/versions")
+    assert versions_response.status_code == 200
+    versions = versions_response.json()
+    assert versions["strategy_cards"][0]["version"] == 1
+    assert versions["strategy_cards"][0]["status"] == "ready"
+
+    adopt_response = client.post("/api/projects/office-burnout-recovery-weekly/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+    adopted = adopt_response.json()
+
+    assert adopted["project_slug"] == "office-burnout-recovery-weekly"
+    assert adopted["strategy_card"]["version"] == 1
+    assert adopted["strategy_card"]["adopted_at"] is not None
+    assert adopted["project"]["slug"] == "office-burnout-recovery-weekly"
+    assert adopted["project"]["current_chain_state"] == "missing_outline"
+    assert adopted["project"]["next_required_step"] == "generate_outline"
+
+    adopted_detail_response = client.get("/api/projects/office-burnout-recovery-weekly")
+    assert adopted_detail_response.status_code == 200
+    adopted_detail = adopted_detail_response.json()
+    assert adopted_detail["strategy_card"]["version"] == 1
+    assert adopted_detail["strategy_card"]["adopted_at"] is not None
+
+
+def test_generate_outline_uses_strategy_only_after_card_is_adopted(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(payload)
+            return {
+                "hook": f"{payload['project_title']} hook",
+                "outline_body": "1. a\n2. b",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    generate_response = client.post("/api/projects/high-sensitivity-restoration-notes/generate-strategy-package")
+    assert generate_response.status_code == 201
+
+    first_outline_response = client.post("/api/projects/high-sensitivity-restoration-notes/generate-outline")
+    assert first_outline_response.status_code == 201
+    first_payload = fake_generator.calls[0]
+    assert "strategy_card" not in first_payload
+    assert "problem_brief" not in first_payload
+    assert "benchmarks" not in first_payload
+
+    adopt_response = client.post("/api/projects/high-sensitivity-restoration-notes/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+
+    second_outline_response = client.post("/api/projects/high-sensitivity-restoration-notes/generate-outline")
+    assert second_outline_response.status_code == 201
+    second_payload = fake_generator.calls[1]
+    assert second_payload["strategy_card"]["version"] == 1
+    assert second_payload["problem_brief"]["version"] == 1
+    assert second_payload["benchmarks"][0]["reference_label"] == "关系边界重设"
 
 
 def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypatch) -> None:

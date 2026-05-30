@@ -335,6 +335,89 @@ export function buildWorkbenchPreview(
   detail: ProjectDetail,
   versions?: ProjectVersions | null,
 ): WorkbenchPreviewModel | null {
+  if (stage === "topic") {
+    const strategyCard = detail.strategy_card ?? null;
+    const problemBrief = detail.problem_brief ?? null;
+    const benchmarks = detail.benchmarks ?? [];
+    const strategyStatus = !strategyCard
+      ? "还没有生成策略包，先明确问题、读者处境和表达边界。"
+      : strategyCard.adopted_at
+        ? `当前已采纳策略卡 v${strategyCard.version}，后续生成大纲会带入这套前写作策略。`
+        : `当前已有策略卡 v${strategyCard.version}，建议先采纳后再继续生成大纲。`;
+
+    const blocks: WorkbenchPreviewBlock[] = [
+      {
+        key: "strategy-status",
+        label: "策略状态",
+        content: strategyStatus,
+      },
+    ];
+
+    if (problemBrief) {
+      const problemBriefLines = [
+        `澄清问题：${problemBrief.clarified_problem}`,
+        `读者处境：${problemBrief.target_reader_situation}`,
+        `核心冲突：${problemBrief.core_conflict}`,
+        problemBrief.raw_goal ? `原始目标：${problemBrief.raw_goal}` : null,
+        problemBrief.unknowns.length > 0 ? `待补未知项：${problemBrief.unknowns.join(" / ")}` : null,
+      ];
+
+      blocks.push({
+        key: "problem-brief",
+        label: "问题澄清",
+        content: joinLines(problemBriefLines),
+        kind: "markdown",
+        copyText: joinLines(problemBriefLines),
+      });
+    }
+
+    if (strategyCard) {
+      const strategyCardLines = [
+        `读者处境：${strategyCard.reader_situation}`,
+        `切入视角：${strategyCard.point_of_view}`,
+        `冲突框架：${strategyCard.conflict_frame}`,
+        `情绪路径：${strategyCard.emotional_path}`,
+        strategyCard.expression_constraints.length > 0 ? `表达约束：${strategyCard.expression_constraints.join(" / ")}` : null,
+        strategyCard.benchmark_summary ? `参考提要：${strategyCard.benchmark_summary}` : null,
+      ];
+
+      blocks.push({
+        key: "strategy-card",
+        label: "策略卡",
+        content: joinLines(strategyCardLines),
+        kind: "markdown",
+        copyText: joinLines(strategyCardLines),
+      });
+    }
+
+    if (benchmarks.length > 0) {
+      const benchmarkLines = benchmarks.map(
+        (item, index) =>
+          `${index + 1}. ${item.reference_label}（${item.reference_kind}）\n借鉴：${item.borrow_focus}\n避免：${item.avoid_focus}\n原因：${item.rationale}`,
+      );
+
+      blocks.push({
+        key: "benchmarks",
+        label: "参考基准",
+        content: benchmarkLines.join("\n\n"),
+        kind: "markdown",
+        copyText: benchmarkLines.join("\n\n"),
+      });
+    }
+
+    return {
+      title: problemBrief?.clarified_problem ?? detail.project.title,
+      eyebrow: "Topic Preview",
+      summary: !strategyCard
+        ? "先生成策略包，再确认是否采纳当前策略。"
+        : strategyCard.adopted_at
+          ? `前写作策略已锁定 · 已采纳 v${strategyCard.version}`
+          : `前写作策略待确认 · 待采纳 v${strategyCard.version}`,
+      tone: "default",
+      blocks,
+    };
+  }
+
   if (stage === "outline") {
     if (!detail.outline) {
       return null;

@@ -18,6 +18,13 @@ from fastapi import HTTPException
 
 from app.core.settings import settings
 from app.schemas.background_tasks import BackgroundTaskDetail, BackgroundTaskSubmission, TaskLogEntry
+from app.schemas.creative_workflow import (
+    AdoptStrategyCardResponse,
+    BenchmarkReferenceItem,
+    ProblemBriefItem,
+    StrategyCardItem,
+    StrategyPackageResult,
+)
 from app.services.ai_generator import get_default_generator
 from app.services.ai_flavor import build_ai_flavor_polish_instruction, evaluate_ai_flavor_risk
 from app.schemas.projects import (
@@ -43,6 +50,7 @@ from app.schemas.projects import (
     ProjectVersions,
     ProjectStageUpdate,
 )
+from app.services.creative_strategy import build_strategy_package
 from app.schemas.tone_profiles import ToneProfileItem, ToneProfileReorder, ToneProfileUpsert
 from app.services.prompt_templates import DEFAULT_DOMAIN_PROMPT_PACK, get_domain_prompt_pack
 from app.schemas.tracked_articles import (
@@ -436,6 +444,61 @@ def _ensure_topics_schema(connection: sqlite3.Connection) -> None:
         connection.execute("UPDATE topics SET source_ref_slug = trend_slug WHERE source_ref_slug = ''")
 
 
+def _ensure_creative_workflow_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS problem_briefs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_slug TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            source_mode TEXT NOT NULL,
+            raw_goal TEXT NOT NULL,
+            clarified_problem TEXT NOT NULL,
+            target_reader_situation TEXT NOT NULL,
+            core_conflict TEXT NOT NULL,
+            unknowns TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL,
+            created_at TEXT DEFAULT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS strategy_cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_slug TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            problem_brief_version INTEGER NOT NULL,
+            reader_situation TEXT NOT NULL,
+            point_of_view TEXT NOT NULL,
+            conflict_frame TEXT NOT NULL,
+            emotional_path TEXT NOT NULL,
+            expression_constraints TEXT NOT NULL DEFAULT '[]',
+            benchmark_summary TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT DEFAULT NULL,
+            adopted_at TEXT DEFAULT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS benchmark_references (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_slug TEXT NOT NULL,
+            strategy_version INTEGER NOT NULL,
+            reference_kind TEXT NOT NULL,
+            reference_label TEXT NOT NULL,
+            reference_pointer TEXT NOT NULL,
+            borrow_focus TEXT NOT NULL,
+            avoid_focus TEXT NOT NULL,
+            rationale TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+
+
 def _ensure_tracked_articles_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -799,6 +862,7 @@ def initialize_store(reset: bool = False) -> None:
         _ensure_projects_schema(connection)
         _ensure_trends_schema(connection)
         _ensure_topics_schema(connection)
+        _ensure_creative_workflow_schema(connection)
         _ensure_outlines_schema(connection)
         _ensure_drafts_schema(connection)
         _ensure_assets_schema(connection)
@@ -814,6 +878,9 @@ def initialize_store(reset: bool = False) -> None:
             connection.execute("DELETE FROM trends")
             connection.execute("DELETE FROM topics")
             connection.execute("DELETE FROM projects")
+            connection.execute("DELETE FROM problem_briefs")
+            connection.execute("DELETE FROM strategy_cards")
+            connection.execute("DELETE FROM benchmark_references")
             connection.execute("DELETE FROM outlines")
             connection.execute("DELETE FROM drafts")
             connection.execute("DELETE FROM assets")
@@ -2585,6 +2652,216 @@ def _build_reference_article_payload(project: sqlite3.Row) -> dict[str, object]:
     return payload
 
 
+def _hydrate_problem_brief_row(row: sqlite3.Row) -> ProblemBriefItem:
+    payload = dict(row)
+    payload["unknowns"] = json.loads(str(payload["unknowns"]))
+    return ProblemBriefItem(**payload)
+
+
+def _hydrate_benchmark_reference_row(row: sqlite3.Row) -> BenchmarkReferenceItem:
+    return BenchmarkReferenceItem(**dict(row))
+
+
+def _hydrate_strategy_card_row(row: sqlite3.Row) -> StrategyCardItem:
+    payload = dict(row)
+    payload["expression_constraints"] = json.loads(str(payload["expression_constraints"]))
+    return StrategyCardItem(**payload)
+
+
+def _get_latest_problem_brief_row(connection: sqlite3.Connection, project_slug: str) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT
+            project_slug,
+            version,
+            source_mode,
+            raw_goal,
+            clarified_problem,
+            target_reader_situation,
+            core_conflict,
+            unknowns,
+            status,
+            created_at
+        FROM problem_briefs
+        WHERE project_slug = ?
+        ORDER BY version DESC, id DESC
+        LIMIT 1
+        """,
+        (project_slug,),
+    ).fetchone()
+
+
+def _get_problem_brief_row_for_version(
+    connection: sqlite3.Connection,
+    project_slug: str,
+    version: int,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT
+            project_slug,
+            version,
+            source_mode,
+            raw_goal,
+            clarified_problem,
+            target_reader_situation,
+            core_conflict,
+            unknowns,
+            status,
+            created_at
+        FROM problem_briefs
+        WHERE project_slug = ? AND version = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (project_slug, version),
+    ).fetchone()
+
+
+def _get_latest_strategy_card_row(connection: sqlite3.Connection, project_slug: str) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT
+            project_slug,
+            version,
+            problem_brief_version,
+            reader_situation,
+            point_of_view,
+            conflict_frame,
+            emotional_path,
+            expression_constraints,
+            benchmark_summary,
+            status,
+            created_at,
+            adopted_at
+        FROM strategy_cards
+        WHERE project_slug = ?
+        ORDER BY version DESC, id DESC
+        LIMIT 1
+        """,
+        (project_slug,),
+    ).fetchone()
+
+
+def _get_adopted_strategy_card_row(connection: sqlite3.Connection, project_slug: str) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT
+            project_slug,
+            version,
+            problem_brief_version,
+            reader_situation,
+            point_of_view,
+            conflict_frame,
+            emotional_path,
+            expression_constraints,
+            benchmark_summary,
+            status,
+            created_at,
+            adopted_at
+        FROM strategy_cards
+        WHERE project_slug = ? AND adopted_at IS NOT NULL
+        ORDER BY datetime(adopted_at) DESC, version DESC, id DESC
+        LIMIT 1
+        """,
+        (project_slug,),
+    ).fetchone()
+
+
+def _get_strategy_card_row_by_version(
+    connection: sqlite3.Connection,
+    project_slug: str,
+    version: int,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT
+            project_slug,
+            version,
+            problem_brief_version,
+            reader_situation,
+            point_of_view,
+            conflict_frame,
+            emotional_path,
+            expression_constraints,
+            benchmark_summary,
+            status,
+            created_at,
+            adopted_at
+        FROM strategy_cards
+        WHERE project_slug = ? AND version = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (project_slug, version),
+    ).fetchone()
+
+
+def _get_current_strategy_card_row(connection: sqlite3.Connection, project_slug: str) -> sqlite3.Row | None:
+    return _get_adopted_strategy_card_row(connection, project_slug) or _get_latest_strategy_card_row(connection, project_slug)
+
+
+def _get_benchmark_reference_rows(
+    connection: sqlite3.Connection,
+    project_slug: str,
+    strategy_version: int,
+) -> list[sqlite3.Row]:
+    return connection.execute(
+        """
+        SELECT
+            project_slug,
+            strategy_version,
+            reference_kind,
+            reference_label,
+            reference_pointer,
+            borrow_focus,
+            avoid_focus,
+            rationale,
+            sort_order
+        FROM benchmark_references
+        WHERE project_slug = ? AND strategy_version = ?
+        ORDER BY sort_order ASC, id ASC
+        """,
+        (project_slug, strategy_version),
+    ).fetchall()
+
+
+def _load_project_strategy_bundle(
+    connection: sqlite3.Connection,
+    project_slug: str,
+    *,
+    adopted_only: bool = False,
+) -> tuple[ProblemBriefItem | None, list[BenchmarkReferenceItem], StrategyCardItem | None]:
+    strategy_card_row = (
+        _get_adopted_strategy_card_row(connection, project_slug)
+        if adopted_only
+        else _get_current_strategy_card_row(connection, project_slug)
+    )
+    if not strategy_card_row:
+        problem_brief_row = _get_latest_problem_brief_row(connection, project_slug)
+        return (
+            _hydrate_problem_brief_row(problem_brief_row) if problem_brief_row else None,
+            [],
+            None,
+        )
+
+    problem_brief_row = _get_problem_brief_row_for_version(
+        connection,
+        project_slug,
+        int(strategy_card_row["problem_brief_version"]),
+    )
+    benchmark_rows = _get_benchmark_reference_rows(
+        connection,
+        project_slug,
+        int(strategy_card_row["version"]),
+    )
+    return (
+        _hydrate_problem_brief_row(problem_brief_row) if problem_brief_row else None,
+        [_hydrate_benchmark_reference_row(row) for row in benchmark_rows],
+        _hydrate_strategy_card_row(strategy_card_row),
+    )
+
+
 def get_ai_generator():
     return get_default_generator()
 
@@ -2907,6 +3184,170 @@ def _hydrate_project_retro_row(row: sqlite3.Row) -> ProjectRetroItem:
     )
 
 
+def generate_strategy_package(project_slug: str) -> StrategyPackageResult:
+    project = _get_project_context(project_slug)
+    created_at = _utc_now_iso()
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            problem_brief_current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM problem_briefs WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            strategy_card_current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM strategy_cards WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            problem_brief_version = int(problem_brief_current["version"]) + 1
+            strategy_version = int(strategy_card_current["version"]) + 1
+
+            package = build_strategy_package(
+                project=project,
+                problem_brief_version=problem_brief_version,
+                strategy_version=strategy_version,
+                created_at=created_at,
+            )
+
+            connection.execute(
+                """
+                INSERT INTO problem_briefs (
+                    project_slug,
+                    version,
+                    source_mode,
+                    raw_goal,
+                    clarified_problem,
+                    target_reader_situation,
+                    core_conflict,
+                    unknowns,
+                    status,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    package.problem_brief.project_slug,
+                    package.problem_brief.version,
+                    package.problem_brief.source_mode,
+                    package.problem_brief.raw_goal,
+                    package.problem_brief.clarified_problem,
+                    package.problem_brief.target_reader_situation,
+                    package.problem_brief.core_conflict,
+                    json.dumps(package.problem_brief.unknowns, ensure_ascii=False),
+                    package.problem_brief.status,
+                    package.problem_brief.created_at,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO strategy_cards (
+                    project_slug,
+                    version,
+                    problem_brief_version,
+                    reader_situation,
+                    point_of_view,
+                    conflict_frame,
+                    emotional_path,
+                    expression_constraints,
+                    benchmark_summary,
+                    status,
+                    created_at,
+                    adopted_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    package.strategy_card.project_slug,
+                    package.strategy_card.version,
+                    package.strategy_card.problem_brief_version,
+                    package.strategy_card.reader_situation,
+                    package.strategy_card.point_of_view,
+                    package.strategy_card.conflict_frame,
+                    package.strategy_card.emotional_path,
+                    json.dumps(package.strategy_card.expression_constraints, ensure_ascii=False),
+                    package.strategy_card.benchmark_summary,
+                    package.strategy_card.status,
+                    package.strategy_card.created_at,
+                    package.strategy_card.adopted_at,
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO benchmark_references (
+                    project_slug,
+                    strategy_version,
+                    reference_kind,
+                    reference_label,
+                    reference_pointer,
+                    borrow_focus,
+                    avoid_focus,
+                    rationale,
+                    sort_order
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        benchmark.project_slug,
+                        benchmark.strategy_version,
+                        benchmark.reference_kind,
+                        benchmark.reference_label,
+                        benchmark.reference_pointer,
+                        benchmark.borrow_focus,
+                        benchmark.avoid_focus,
+                        benchmark.rationale,
+                        benchmark.sort_order,
+                    )
+                    for benchmark in package.benchmarks
+                ],
+            )
+            _record_task(
+                connection,
+                task_type="strategy_package_generated",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.commit()
+
+    return package
+
+
+def adopt_strategy_card(project_slug: str, version: int) -> AdoptStrategyCardResponse:
+    _get_project_row(project_slug)
+    adopted_at = _utc_now_iso()
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            strategy_card_row = _get_strategy_card_row_by_version(connection, project_slug, version)
+            if not strategy_card_row:
+                raise HTTPException(status_code=404, detail="Strategy card version not found")
+
+            connection.execute(
+                "UPDATE strategy_cards SET adopted_at = NULL WHERE project_slug = ?",
+                (project_slug,),
+            )
+            connection.execute(
+                "UPDATE strategy_cards SET adopted_at = ? WHERE project_slug = ? AND version = ?",
+                (adopted_at, project_slug, version),
+            )
+            _record_task(
+                connection,
+                task_type="strategy_card_adopted",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.commit()
+
+            adopted_row = _get_strategy_card_row_by_version(connection, project_slug, version)
+
+    if not adopted_row:
+        raise HTTPException(status_code=404, detail="Strategy card version not found")
+    return AdoptStrategyCardResponse(
+        project_slug=project_slug,
+        strategy_card=_hydrate_strategy_card_row(adopted_row),
+        project=get_project_detail(project_slug).project.model_dump(),
+    )
+
+
 def get_project_detail(project_slug: str) -> ProjectDetail:
     project_row = _get_project_row(project_slug)
     with _get_connection() as connection:
@@ -2918,6 +3359,7 @@ def get_project_detail(project_slug: str) -> ProjectDetail:
             project_slug,
             publish_package_row=publish_package_row,
         )
+        problem_brief, benchmarks, strategy_card = _load_project_strategy_bundle(connection, project_slug)
 
     return ProjectDetail(
         project=_build_project_item_from_rows(
@@ -2933,6 +3375,9 @@ def get_project_detail(project_slug: str) -> ProjectDetail:
         assets=_hydrate_asset_row(assets_row) if assets_row else None,
         publish_package=_hydrate_publish_package_row(publish_package_row) if publish_package_row else None,
         retro=_hydrate_project_retro_row(retro_row) if retro_row else None,
+        problem_brief=problem_brief,
+        benchmarks=benchmarks,
+        strategy_card=strategy_card,
     )
 
 
@@ -3008,6 +3453,27 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
             """,
             (project_slug,),
         ).fetchall()
+        strategy_card_rows = connection.execute(
+            """
+            SELECT
+                project_slug,
+                version,
+                problem_brief_version,
+                reader_situation,
+                point_of_view,
+                conflict_frame,
+                emotional_path,
+                expression_constraints,
+                benchmark_summary,
+                status,
+                created_at,
+                adopted_at
+            FROM strategy_cards
+            WHERE project_slug = ?
+            ORDER BY version DESC, id DESC
+            """,
+            (project_slug,),
+        ).fetchall()
 
     return ProjectVersions(
         project_slug=project_slug,
@@ -3015,6 +3481,7 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
         drafts=[DraftItem(**dict(row)) for row in draft_rows],
         assets=[_hydrate_asset_row(row) for row in assets_rows],
         publish_packages=[_hydrate_publish_package_row(row) for row in publish_package_rows],
+        strategy_cards=[_hydrate_strategy_card_row(row) for row in strategy_card_rows],
     )
 
 
@@ -3025,16 +3492,27 @@ def generate_outline(project_slug: str) -> OutlineItem:
     reference_article_payload = _build_reference_article_payload(project)
     created_at = _utc_now_iso()
     origin = _resolve_version_origin()
+    with _get_connection() as connection:
+        problem_brief, benchmarks, strategy_card = _load_project_strategy_bundle(
+            connection,
+            project_slug,
+            adopted_only=True,
+        )
+    ai_payload: dict[str, object] = {
+        "trend_title": project["trend_title"],
+        "topic_title": project["topic_title"],
+        "topic_angle": project["topic_angle"],
+        "project_title": project["title"],
+        "tone_profile": tone_profile.model_dump(),
+        "domain_pack": domain_pack,
+        **reference_article_payload,
+    }
+    if strategy_card and problem_brief:
+        ai_payload["problem_brief"] = problem_brief.model_dump()
+        ai_payload["strategy_card"] = strategy_card.model_dump()
+        ai_payload["benchmarks"] = [benchmark.model_dump() for benchmark in benchmarks]
     ai_result = get_ai_generator().generate_outline(
-        {
-            "trend_title": project["trend_title"],
-            "topic_title": project["topic_title"],
-            "topic_angle": project["topic_angle"],
-            "project_title": project["title"],
-            "tone_profile": tone_profile.model_dump(),
-            "domain_pack": domain_pack,
-            **reference_article_payload,
-        }
+        ai_payload
     )
     with _get_project_version_lock(project_slug):
         with _get_connection() as connection:

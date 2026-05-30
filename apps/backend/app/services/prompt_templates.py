@@ -372,11 +372,71 @@ def _build_polish_protocol() -> str:
     )
 
 
+def _render_strategy_package_section(payload: Mapping[str, object]) -> str:
+    problem_brief = payload.get("problem_brief")
+    strategy_card = payload.get("strategy_card")
+    benchmarks = payload.get("benchmarks")
+
+    if not isinstance(problem_brief, Mapping) or not isinstance(strategy_card, Mapping):
+        return ""
+
+    lines = ["创作策略包："]
+
+    clarified_problem = _as_clean_text(problem_brief.get("clarified_problem"))
+    target_reader_situation = _as_clean_text(problem_brief.get("target_reader_situation"))
+    core_conflict = _as_clean_text(problem_brief.get("core_conflict"))
+    if clarified_problem:
+        lines.append(f"问题澄清：{clarified_problem}")
+    if target_reader_situation:
+        lines.append(f"读者处境：{target_reader_situation}")
+    if core_conflict:
+        lines.append(f"核心冲突：{core_conflict}")
+
+    reader_situation = _as_clean_text(strategy_card.get("reader_situation"))
+    point_of_view = _as_clean_text(strategy_card.get("point_of_view"))
+    conflict_frame = _as_clean_text(strategy_card.get("conflict_frame"))
+    emotional_path = _as_clean_text(strategy_card.get("emotional_path"))
+    benchmark_summary = _as_clean_text(strategy_card.get("benchmark_summary"))
+    expression_constraints_value = strategy_card.get("expression_constraints")
+    expression_constraints: list[str] = []
+    if isinstance(expression_constraints_value, list):
+        expression_constraints = [_as_clean_text(item) for item in expression_constraints_value if _as_clean_text(item)]
+
+    if reader_situation:
+        lines.append(f"读者定位：{reader_situation}")
+    if point_of_view:
+        lines.append(f"叙述视角：{point_of_view}")
+    if conflict_frame:
+        lines.append(f"冲突框架：{conflict_frame}")
+    if emotional_path:
+        lines.append(f"情绪路径：{emotional_path}")
+    if expression_constraints:
+        lines.append(f"表达约束：{' / '.join(expression_constraints)}")
+    if benchmark_summary:
+        lines.append(f"参考基准：{benchmark_summary}")
+
+    if isinstance(benchmarks, list):
+        for index, benchmark in enumerate(benchmarks, start=1):
+            if not isinstance(benchmark, Mapping):
+                continue
+            label = _as_clean_text(benchmark.get("reference_label")) or f"参考 {index}"
+            borrow_focus = _as_clean_text(benchmark.get("borrow_focus"))
+            avoid_focus = _as_clean_text(benchmark.get("avoid_focus"))
+            lines.append(f"基准参考 {index}：{label}")
+            if borrow_focus:
+                lines.append(f"可借用：{borrow_focus}")
+            if avoid_focus:
+                lines.append(f"避免：{avoid_focus}")
+
+    return "\n".join(lines) + "\n\n"
+
+
 def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     tone_profile = payload.get("tone_profile")
     style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
     target_wording = _render_outline_target_wording(tone_profile if isinstance(tone_profile, Mapping) else None)
     reference_article_section = _render_reference_article_section(payload)
+    strategy_package_section = _render_strategy_package_section(payload)
     reference_article_instructions = _build_reference_article_instructions(stage="outline")
     original_expression_instructions = _build_original_expression_instructions(stage="outline")
     return PromptTemplate(
@@ -393,6 +453,7 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             f"切入角度：{payload['topic_angle']}\n"
             f"项目标题：{payload['project_title']}\n\n"
             f"{reference_article_section}"
+            f"{strategy_package_section}"
             f"{style_section}"
             f"{target_wording}"
             "返回：\n"

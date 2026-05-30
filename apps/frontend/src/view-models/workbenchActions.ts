@@ -2,6 +2,8 @@ import type { ProjectDetail } from "../api/workbench";
 import type { WorkbenchStage } from "../app/navigation";
 
 export type WorkbenchActionKind =
+  | "generate_strategy_package"
+  | "adopt_strategy_card"
   | "generate_outline"
   | "restore_outline"
   | "generate_draft"
@@ -77,6 +79,42 @@ export function buildWorkbenchActionPlan({
   detail: ProjectDetail;
   historyEntryCount: number;
 }): WorkbenchActionPlan {
+  if (stage === "topic") {
+    if (!detail.strategy_card) {
+      return {
+        primaryAction: { kind: "generate_strategy_package", label: "生成策略包" },
+        secondaryActions: [{ kind: "generate_outline", label: "直接生成大纲" }],
+        canRestoreHistory: false,
+        showInstructionField: false,
+        showPublishReviewForm: false,
+        showRetroForm: false,
+      };
+    }
+
+    if (!detail.strategy_card.adopted_at) {
+      return {
+        primaryAction: { kind: "adopt_strategy_card", label: "采纳当前策略卡" },
+        secondaryActions: [
+          { kind: "generate_strategy_package", label: "重新生成策略包" },
+          { kind: "generate_outline", label: "直接生成大纲" },
+        ],
+        canRestoreHistory: false,
+        showInstructionField: false,
+        showPublishReviewForm: false,
+        showRetroForm: false,
+      };
+    }
+
+    return {
+      primaryAction: detail.outline ? { kind: "generate_outline", label: "重新生成大纲" } : { kind: "generate_outline", label: "生成大纲" },
+      secondaryActions: [{ kind: "generate_strategy_package", label: "重新生成策略包" }],
+      canRestoreHistory: false,
+      showInstructionField: false,
+      showPublishReviewForm: false,
+      showRetroForm: false,
+    };
+  }
+
   if (stage === "outline") {
     return {
       primaryAction: detail.outline ? { kind: "generate_outline", label: "重新生成大纲" } : { kind: "generate_outline", label: "生成大纲" },

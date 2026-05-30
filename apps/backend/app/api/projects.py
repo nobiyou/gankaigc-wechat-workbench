@@ -11,10 +11,12 @@ from app.schemas.projects import (
 )
 from app.services.workbench import (
     approve_publish_package,
+    adopt_strategy_card,
     build_publish_package,
     generate_draft,
     generate_assets,
     generate_outline,
+    generate_strategy_package,
     get_project_detail,
     get_project_versions,
     list_projects,
@@ -64,6 +66,16 @@ def post_batch_continue_projects(payload: BatchContinueProjectsRequest) -> dict[
 @router.post("/{project_slug}/generate-outline", status_code=201)
 def post_generate_outline(project_slug: str) -> dict[str, object]:
     return generate_outline(project_slug).model_dump()
+
+
+@router.post("/{project_slug}/generate-strategy-package", status_code=201)
+def post_generate_strategy_package(project_slug: str) -> dict[str, object]:
+    return generate_strategy_package(project_slug).model_dump()
+
+
+@router.post("/{project_slug}/adopt-strategy-card/{version}")
+def post_adopt_strategy_card(project_slug: str, version: int) -> dict[str, object]:
+    return adopt_strategy_card(project_slug, version).model_dump()
 
 
 @router.post("/{project_slug}/generate-draft", status_code=201)

@@ -55,6 +55,9 @@ function mapCurrentChainStateToStage(currentChainState?: string | null): Workben
 }
 
 function getVersionCount(stage: WorkbenchStage, versions: ProjectVersions): number {
+  if (stage === "topic") {
+    return versions.strategy_cards?.length ?? 0;
+  }
   if (stage === "outline") {
     return versions.outlines.length;
   }
@@ -67,7 +70,7 @@ function getVersionCount(stage: WorkbenchStage, versions: ProjectVersions): numb
   if (stage === "publish") {
     return versions.publish_packages.length;
   }
-  return 1;
+  return 0;
 }
 
 export function resolveRecommendedWorkbenchStage(project: ProjectItem): WorkbenchStage {

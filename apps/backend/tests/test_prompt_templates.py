@@ -170,6 +170,53 @@ def test_stage_templates_share_domain_pack_but_keep_stage_specific_roles() -> No
     assert "句子节奏要有长短变化和呼吸感" in draft_template.instructions
 
 
+def test_build_outline_prompt_includes_adopted_strategy_context_when_present() -> None:
+    template = build_outline_prompt(
+        {
+            "trend_title": "关系边界重设",
+            "topic_title": "总想解释的人，为什么最后越来越不想开口",
+            "topic_angle": "边界表达",
+            "project_title": "关系边界重设系列",
+            "tone_profile": TONE_PROFILE,
+            "problem_brief": {
+                "clarified_problem": "这篇文章要解释，为什么很多关系不是毁在大冲突，而是毁在一次次没被接住的小失望。",
+                "target_reader_situation": "在关系里想解释，却越来越不想开口的人",
+                "core_conflict": "越想被理解，越容易把话咽回去。",
+            },
+            "strategy_card": {
+                "reader_situation": "在关系里想解释，却越来越不想开口的人",
+                "point_of_view": "不教训，不站高位，只把失望是怎么累出来的讲清楚",
+                "conflict_frame": "不是大吵一架，而是一次次想开口又收回去",
+                "emotional_path": "从委屈和停顿进入，慢慢走到能重新开口",
+                "expression_constraints": [
+                    "不要用口号式收尾",
+                    "不要复用不是A而是B的对称判断句",
+                ],
+                "benchmark_summary": "开头先落动作和停顿，中段再进入判断。",
+            },
+            "benchmarks": [
+                {
+                    "reference_label": "深夜关系观察",
+                    "borrow_focus": "开头的处境进入和中段停顿节奏",
+                    "avoid_focus": "不要复用对方的判断句和结尾收束",
+                }
+            ],
+        }
+    )
+
+    assert "创作策略包：" in template.prompt
+    assert "问题澄清：这篇文章要解释，为什么很多关系不是毁在大冲突，而是毁在一次次没被接住的小失望。" in template.prompt
+    assert "读者处境：在关系里想解释，却越来越不想开口的人" in template.prompt
+    assert "叙述视角：不教训，不站高位，只把失望是怎么累出来的讲清楚" in template.prompt
+    assert "冲突框架：不是大吵一架，而是一次次想开口又收回去" in template.prompt
+    assert "情绪路径：从委屈和停顿进入，慢慢走到能重新开口" in template.prompt
+    assert "表达约束：不要用口号式收尾 / 不要复用不是A而是B的对称判断句" in template.prompt
+    assert "参考基准：开头先落动作和停顿，中段再进入判断。" in template.prompt
+    assert "基准参考 1：深夜关系观察" in template.prompt
+    assert "可借用：开头的处境进入和中段停顿节奏" in template.prompt
+    assert "避免：不要复用对方的判断句和结尾收束" in template.prompt
+
+
 def test_draft_prompt_includes_anti_ai_flavor_guardrails() -> None:
     template = build_draft_prompt(
         {

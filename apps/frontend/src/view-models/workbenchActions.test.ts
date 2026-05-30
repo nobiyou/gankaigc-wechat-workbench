@@ -36,6 +36,18 @@ const baseProject = {
   retro: null,
 };
 
+const baseCreativeDetail = {
+  project: baseProject,
+  outline: null,
+  draft: null,
+  assets: null,
+  publish_package: null,
+  retro: null,
+  problem_brief: null,
+  benchmarks: [],
+  strategy_card: null,
+};
+
 test("buildWorkbenchActionPlan exposes outline generation when outline is missing", () => {
   const plan = buildWorkbenchActionPlan({
     stage: "outline",
@@ -511,4 +523,73 @@ test("buildWorkbenchActionPlan keeps published-and-retro-complete workbench in r
   assert.equal(plan.primaryAction, null);
   assert.equal(plan.showRetroForm, false);
   assert.equal(plan.secondaryActions.some((action) => action.kind === "restore_publish_package"), true);
+});
+
+test("buildWorkbenchActionPlan exposes strategy generation on topic stage before any strategy exists", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "topic",
+    detail: {
+      ...baseCreativeDetail,
+    },
+    historyEntryCount: 0,
+  });
+
+  assert.equal(plan.primaryAction?.kind, "generate_strategy_package");
+  assert.equal(plan.primaryAction?.label, "生成策略包");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_outline"), true);
+  assert.equal(plan.showInstructionField, false);
+});
+
+test("buildWorkbenchActionPlan exposes strategy adoption on topic stage when a card exists but is not adopted", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "topic",
+    detail: {
+      ...baseCreativeDetail,
+      problem_brief: {
+        project_slug: "demo-project",
+        version: 2,
+        source_mode: "topic",
+        raw_goal: "写一篇关系文",
+        clarified_problem: "读者总在反复确认关系稳定性。",
+        target_reader_situation: "她总在等回复。",
+        core_conflict: "越想确认越不敢直接开口。",
+        unknowns: [],
+        status: "ready",
+        created_at: "2026-05-30T10:00:00Z",
+      },
+      benchmarks: [
+        {
+          project_slug: "demo-project",
+          strategy_version: 2,
+          reference_kind: "trend",
+          reference_label: "关系边界重设",
+          reference_pointer: "trend://relationship-boundary-reset",
+          borrow_focus: "情绪入口",
+          avoid_focus: "空泛喊话",
+          rationale: "能借鉴开头的具体处境。",
+          sort_order: 1,
+        },
+      ],
+      strategy_card: {
+        project_slug: "demo-project",
+        version: 2,
+        problem_brief_version: 2,
+        reader_situation: "深夜反复看对话框，却不知道怎么开口。",
+        point_of_view: "先承认不安，再拆开误会和期待。",
+        conflict_frame: "想被重视，却总用沉默逼对方证明。",
+        emotional_path: "嘴硬 -> 拉扯 -> 看见自己真正想要什么",
+        expression_constraints: ["不要鸡汤总结", "避免对称句"],
+        benchmark_summary: "借鉴情绪起手，避免模板化劝解。",
+        status: "ready",
+        created_at: "2026-05-30T10:02:00Z",
+        adopted_at: null,
+      },
+    },
+    historyEntryCount: 2,
+  });
+
+  assert.equal(plan.primaryAction?.kind, "adopt_strategy_card");
+  assert.equal(plan.primaryAction?.label, "采纳当前策略卡");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_strategy_package"), true);
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_outline"), true);
 });

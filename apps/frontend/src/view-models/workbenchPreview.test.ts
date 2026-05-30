@@ -82,6 +82,9 @@ const baseDetail = {
     tone_profile_name: null,
   },
   retro: null,
+  problem_brief: null,
+  benchmarks: [],
+  strategy_card: null,
 };
 
 test("buildWorkbenchPreview returns draft preview with正文内容", () => {
@@ -423,6 +426,60 @@ test("buildWorkbenchPreview returns publish fallback preview when publish packag
   assert.equal(preview?.blocks[3]?.content.includes("发布包尚未生成"), true);
 });
 
+test("buildWorkbenchPreview renders topic preview with strategy package context", () => {
+  const preview = buildWorkbenchPreview("topic", {
+    ...baseDetail,
+    problem_brief: {
+      project_slug: "project-a",
+      version: 1,
+      source_mode: "topic",
+      raw_goal: "写一篇关于关系里反复确认的文章",
+      clarified_problem: "她明明很在乎，却总在关系里用试探替代开口。",
+      target_reader_situation: "深夜反复点开对话框，却不知道这句话该不该发。",
+      core_conflict: "想被重视，但又不敢直接说出自己的期待。",
+      unknowns: ["对方近期冷淡的具体触发点"],
+      status: "ready",
+      created_at: "2026-05-30T11:00:00Z",
+    },
+    strategy_card: {
+      project_slug: "project-a",
+      version: 1,
+      problem_brief_version: 1,
+      reader_situation: "在沉默里反复确认对方是否还在乎自己。",
+      point_of_view: "先承认这种不安，再拆开她为什么总是用赌气代替表达。",
+      conflict_frame: "越想确认越不敢说，最后把关系推远。",
+      emotional_path: "嘴硬 -> 失望 -> 看见真正的渴望",
+      expression_constraints: ["不要空泛劝和", "不要对称句"],
+      benchmark_summary: "借鉴具体处境开头，避免模板化喊话。",
+      status: "ready",
+      created_at: "2026-05-30T11:02:00Z",
+      adopted_at: null,
+    },
+    benchmarks: [
+      {
+        project_slug: "project-a",
+        strategy_version: 1,
+        reference_kind: "trend",
+        reference_label: "关系边界重设",
+        reference_pointer: "trend://relationship-boundary-reset",
+        borrow_focus: "开头具体处境",
+        avoid_focus: "一上来就说教",
+        rationale: "先落到动作细节，读者更容易代入。",
+        sort_order: 1,
+      },
+    ],
+  });
+
+  assert.equal(preview?.eyebrow, "Topic Preview");
+  assert.equal(preview?.summary, "前写作策略待确认 · 待采纳 v1");
+  assert.equal(preview?.blocks[0]?.label, "策略状态");
+  assert.equal(preview?.blocks[1]?.label, "问题澄清");
+  assert.equal(preview?.blocks[1]?.content.includes("澄清问题：她明明很在乎"), true);
+  assert.equal(preview?.blocks[2]?.label, "策略卡");
+  assert.equal(preview?.blocks[2]?.content.includes("切入视角：先承认这种不安"), true);
+  assert.equal(preview?.blocks[3]?.label, "参考基准");
+});
+
 test("buildWorkbenchPreview returns null when current stage has no previewable content", () => {
   assert.equal(
     buildWorkbenchPreview("draft", {
@@ -438,5 +495,4 @@ test("buildWorkbenchPreview returns null when current stage has no previewable c
     }),
     null,
   );
-  assert.equal(buildWorkbenchPreview("topic", baseDetail), null);
 });

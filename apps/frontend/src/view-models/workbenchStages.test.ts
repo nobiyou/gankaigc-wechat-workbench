@@ -159,3 +159,64 @@ test("buildWorkbenchStageViews marks active and recommended stages while exposin
   assert.equal(stages.find((stage) => stage.key === "outline")?.versionCount, 1);
   assert.equal(stages.find((stage) => stage.key === "publish")?.targetPath, "/projects/draft-project/workbench/publish");
 });
+
+test("buildWorkbenchStageViews exposes strategy card count on topic stage", () => {
+  const stages = buildWorkbenchStageViews({
+    project: {
+      slug: "topic-project",
+      topic_slug: "topic-topic",
+      title: "待确认策略",
+      stage: "outline",
+      owner: "editorial",
+      preferred_tone_profile_id: null,
+      preferred_tone_profile_name: null,
+      chain_status: "missing",
+      current_chain_state: "missing_outline",
+      next_required_step: "generate_outline",
+      current_outline_version: null,
+      current_draft_version: null,
+      current_assets_version: null,
+      current_publish_package_version: null,
+      retro: null,
+    },
+    activeStage: "topic",
+    versions: {
+      project_slug: "topic-project",
+      outlines: [],
+      drafts: [],
+      assets: [],
+      publish_packages: [],
+      strategy_cards: [
+        {
+          project_slug: "topic-project",
+          version: 1,
+          problem_brief_version: 1,
+          reader_situation: "深夜反复看对话框。",
+          point_of_view: "先承认不安，再拆开误会。",
+          conflict_frame: "越想确认越不敢说。",
+          emotional_path: "嘴硬 -> 失望 -> 看见渴望",
+          expression_constraints: [],
+          benchmark_summary: "借鉴具体处境开头。",
+          status: "ready",
+          adopted_at: null,
+        },
+        {
+          project_slug: "topic-project",
+          version: 2,
+          problem_brief_version: 2,
+          reader_situation: "总在等回复。",
+          point_of_view: "把沉默看成求证方式。",
+          conflict_frame: "想被看见，却先把门关上。",
+          emotional_path: "拉扯 -> 冷掉 -> 回看自己",
+          expression_constraints: ["不要鸡汤"],
+          benchmark_summary: "减少模板化劝解。",
+          status: "ready",
+          adopted_at: "2026-05-30T10:00:00Z",
+        },
+      ],
+    },
+  });
+
+  assert.equal(stages.find((stage) => stage.key === "topic")?.versionCount, 2);
+  assert.equal(stages.find((stage) => stage.key === "topic")?.isActive, true);
+});

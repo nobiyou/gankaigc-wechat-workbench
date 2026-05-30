@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useParams } from "react-router-dom";
 
 import {
+  adoptStrategyCard,
   approvePublishPackage,
   fetchBackgroundTask,
   buildPublishPackageInBackground,
@@ -13,6 +14,7 @@ import {
   generateAssets,
   generateDraft,
   generateOutline,
+  generateStrategyPackage,
   polishDraft,
   regenerateCoverImage,
   recordProjectRetro,
@@ -57,12 +59,21 @@ type WorkbenchLoadState =
 
 function buildStageContent(stage: WorkbenchStage, detail: ProjectDetail): { title: string; body: string; meta: string[] } {
   if (stage === "topic") {
+    const strategyCard = detail.strategy_card ?? null;
+    const problemBrief = detail.problem_brief ?? null;
+
     return {
-      title: detail.project.title,
-      body: `选题 slug：${detail.project.topic_slug}`,
+      title: problemBrief?.clarified_problem ?? detail.project.title,
+      body: !strategyCard
+        ? "当前还没有前写作策略，先生成策略包，把问题、读者处境和表达边界明确下来。"
+        : strategyCard.adopted_at
+          ? `策略卡 v${strategyCard.version} 已采纳，后续生成大纲会自动带入这套前写作策略。`
+          : `策略卡 v${strategyCard.version} 已生成但尚未采纳，建议先确认这套策略，再进入大纲生成。`,
       meta: [
+        `选题 slug：${detail.project.topic_slug}`,
         `链路状态：${formatProjectChainStateLabel(detail.project.current_chain_state)}`,
         detail.project.preferred_tone_profile_name ? `风格：${detail.project.preferred_tone_profile_name}` : "风格：默认",
+        ...(problemBrief ? [`问题简述：${problemBrief.target_reader_situation}`] : []),
       ],
     };
   }
@@ -472,7 +483,9 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     stage,
     versions: loadState.versions,
     currentVersionNumber:
-      stage === "outline"
+      stage === "topic"
+        ? loadState.detail.strategy_card?.version
+        : stage === "outline"
         ? loadState.detail.project.current_outline_version
         : stage === "draft"
           ? loadState.detail.project.current_draft_version
@@ -583,7 +596,15 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
       setActionError(null);
       setActionMessage(null);
 
-      if (actionKind === "generate_outline") {
+      if (actionKind === "generate_strategy_package") {
+        await generateStrategyPackage(projectSlug);
+      } else if (actionKind === "adopt_strategy_card") {
+        const currentStrategyVersion = loadState.status === "ready" ? loadState.detail.strategy_card?.version ?? null : null;
+        if (currentStrategyVersion == null) {
+          throw new Error("当前没有可采纳的策略卡。");
+        }
+        await adoptStrategyCard(projectSlug, currentStrategyVersion);
+      } else if (actionKind === "generate_outline") {
         await generateOutline(projectSlug);
       } else if (actionKind === "restore_outline" && versionNumber) {
         await restoreOutlineVersion(projectSlug, versionNumber);
@@ -673,7 +694,9 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
 
       await reloadWorkbench(projectSlug);
       setActionMessage(
-        actionKind === "restore_publish_package"
+        actionKind === "adopt_strategy_card"
+          ? "已采纳当前策略卡，后续生成大纲会自动带入这套前写作策略。"
+          : actionKind === "restore_publish_package"
           ? "已基于所选历史版本重建新的发布包，当前阶段数据已刷新。"
           : "Workbench 已刷新，当前阶段数据已更新。",
       );
@@ -1065,7 +1088,17 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
                                   </div>
                                 ) : null}
                               </div>
-                              <span className="workspace-pill">{entry.restorable ? "可恢复" : "当前版本"}</span>
+                              <span className="workspace-pill">
+                                {stage === "topic"
+                                  ? entry.reviewState === "adopted"
+                                    ? "已采纳"
+                                    : entry.restorable
+                                      ? "历史候选"
+                                      : "当前策略"
+                                  : entry.restorable
+                                    ? "可恢复"
+                                    : "当前版本"}
+                              </span>
                             </div>
                             {entry.restorable && actionPlan.canRestoreHistory ? (
                               <div className="workspace-actions">

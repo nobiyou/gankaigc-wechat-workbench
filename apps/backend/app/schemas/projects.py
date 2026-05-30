@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.creative_workflow import BenchmarkReferenceItem, ProblemBriefItem, StrategyCardItem
+
 
 class ProjectItem(BaseModel):
     slug: str
@@ -202,6 +204,9 @@ class ProjectDetail(BaseModel):
     assets: AssetItem | None
     publish_package: PublishPackageItem | None
     retro: ProjectRetroItem | None
+    problem_brief: ProblemBriefItem | None = None
+    benchmarks: list[BenchmarkReferenceItem] = Field(default_factory=list)
+    strategy_card: StrategyCardItem | None = None
 
 
 class ProjectVersions(BaseModel):
@@ -210,6 +215,7 @@ class ProjectVersions(BaseModel):
     drafts: list[DraftItem]
     assets: list[AssetItem]
     publish_packages: list[PublishPackageItem]
+    strategy_cards: list[StrategyCardItem] = Field(default_factory=list)
 
 
 class BatchContinueProjectResult(BaseModel):
