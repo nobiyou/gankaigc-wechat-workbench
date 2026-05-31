@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import html
 import json
 import logging
@@ -26,7 +27,13 @@ from app.schemas.creative_workflow import (
     StrategyPackageResult,
 )
 from app.services.ai_generator import get_default_generator
-from app.services.ai_flavor import build_ai_flavor_polish_instruction, evaluate_ai_flavor_risk
+from app.services.ai_flavor import (
+    build_ai_flavor_polish_instruction,
+    evaluate_ai_flavor_risk,
+    extract_growth_cliches,
+    extract_generic_reflective_openers,
+    extract_not_ab_skeletons,
+)
 from app.schemas.projects import (
     AssetItem,
     BatchCreateProjectResult,
@@ -3706,6 +3713,59 @@ def _generate_draft(
             )
             title = str(ai_result["title"])
             body_markdown = str(ai_result["body_markdown"])
+            if polish_instruction and latest_draft_row:
+                body_markdown, title = _maybe_retry_polish_for_structure_drift(
+                    project=project,
+                    outline_row=outline_row,
+                    tone_profile=tone_profile,
+                    review_comment=review_comment,
+                    polish_instruction=polish_instruction,
+                    reference_article_payload=reference_article_payload,
+                    generator=get_ai_generator(),
+                    source_draft_title=str(latest_draft_row["title"]),
+                    source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
+                    candidate_title=title,
+                    candidate_body_markdown=body_markdown,
+                )
+                body_markdown, title = _maybe_retry_polish_for_over_smoothing(
+                    project=project,
+                    outline_row=outline_row,
+                    tone_profile=tone_profile,
+                    review_comment=review_comment,
+                    polish_instruction=polish_instruction,
+                    reference_article_payload=reference_article_payload,
+                    generator=get_ai_generator(),
+                    source_draft_title=str(latest_draft_row["title"]),
+                    source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
+                    candidate_title=title,
+                    candidate_body_markdown=body_markdown,
+                )
+                body_markdown, title = _maybe_retry_polish_for_remaining_ai_flavor(
+                    project=project,
+                    outline_row=outline_row,
+                    tone_profile=tone_profile,
+                    review_comment=review_comment,
+                    polish_instruction=polish_instruction,
+                    reference_article_payload=reference_article_payload,
+                    generator=get_ai_generator(),
+                    source_draft_title=str(latest_draft_row["title"]),
+                    source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
+                    candidate_title=title,
+                    candidate_body_markdown=body_markdown,
+                )
+                body_markdown, title = _maybe_retry_polish_for_final_ai_flavor_cleanup(
+                    project=project,
+                    outline_row=outline_row,
+                    tone_profile=tone_profile,
+                    review_comment=review_comment,
+                    polish_instruction=polish_instruction,
+                    reference_article_payload=reference_article_payload,
+                    generator=get_ai_generator(),
+                    source_draft_title=str(latest_draft_row["title"]),
+                    source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
+                    candidate_title=title,
+                    candidate_body_markdown=body_markdown,
+                )
             body_markdown, title = _maybe_compress_draft_output(
                 project_slug=project_slug,
                 tone_profile=tone_profile,
@@ -3829,6 +3889,595 @@ def _maybe_compress_draft_output(
     return str(compressed_result["body_markdown"]), str(compressed_result["title"])
 
 
+def _split_markdown_blocks(markdown: str) -> list[str]:
+    return [block.strip() for block in re.split(r"\n\s*\n", markdown) if block.strip()]
+
+
+def _strip_markdown_heading_prefix(block: str) -> str:
+    return re.sub(r"^\s{0,3}#{1,6}\s*", "", block.strip())
+
+
+def _normalize_structure_heading_label(block: str) -> str:
+    return _strip_markdown_heading_prefix(block).strip().rstrip("。！？!?；;：:").strip()
+
+
+def _looks_like_structure_heading(block: str) -> bool:
+    raw = _strip_markdown_heading_prefix(block).replace("\n", " ").strip()
+    normalized = _normalize_structure_heading_label(block)
+    if not normalized:
+        return False
+    if len(normalized) > 24:
+        return False
+    if re.search(r"[，,]", normalized):
+        return False
+    if re.search(r"[。！？!?；;：:]", normalized):
+        return False
+    if re.match(r"^\d+[.)、]\s*", normalized):
+        return False
+    if raw.endswith(("。", "！", "？", "!", "?", "；", ";", "：", ":")):
+        return normalized.startswith(("别", "不要", "先", "学会", "记得", "关于", "停止", "少", "多", "把"))
+    return True
+
+
+def _extract_first_sentence_fragment(block: str, *, max_length: int = 36) -> str:
+    normalized = _strip_markdown_heading_prefix(block).replace("\n", " ").strip()
+    if not normalized:
+        return ""
+    sentence = re.split(r"[。！？!?；;\n]", normalized, maxsplit=1)[0].strip()
+    if len(sentence) > max_length:
+        return sentence[:max_length].rstrip() + "..."
+    return sentence
+
+
+def _extract_structure_headings(markdown: str) -> list[str]:
+    blocks = _split_markdown_blocks(markdown)
+    if blocks and blocks[0].lstrip().startswith("#"):
+        blocks = blocks[1:]
+
+    headings: list[str] = []
+    for block in blocks:
+        if _looks_like_structure_heading(block):
+            label = _normalize_structure_heading_label(block)
+            if label and label not in headings:
+                headings.append(label)
+    return headings
+
+
+def _extract_structure_heading_anchors(markdown: str) -> list[tuple[str, str]]:
+    blocks = _split_markdown_blocks(markdown)
+    if blocks and blocks[0].lstrip().startswith("#"):
+        blocks = blocks[1:]
+
+    anchors: list[tuple[str, str]] = []
+    pending_heading: str | None = None
+    for block in blocks:
+        if _looks_like_structure_heading(block):
+            pending_heading = _normalize_structure_heading_label(block)
+            continue
+
+        if pending_heading:
+            sentence = _extract_first_sentence_fragment(block)
+            if sentence:
+                anchors.append((pending_heading, sentence))
+            pending_heading = None
+
+        if len(anchors) >= 4:
+            break
+
+    return anchors
+
+
+def _find_missing_structure_headings(
+    *,
+    source_markdown: str,
+    candidate_markdown: str,
+) -> list[str]:
+    source_headings = _extract_structure_headings(source_markdown)
+    if len(source_headings) < 2:
+        return []
+
+    candidate_headings = {
+        _normalize_structure_heading_label(heading)
+        for heading in _extract_structure_headings(candidate_markdown)
+    }
+    return [heading for heading in source_headings if _normalize_structure_heading_label(heading) not in candidate_headings]
+
+
+def _build_structure_retry_instruction(
+    *,
+    base_instruction: str,
+    source_markdown: str,
+    missing_headings: list[str],
+) -> str:
+    retry_notes = [
+        "上一次改写发生了结构漂移，丢失了原稿中的小节标题。",
+        f"这次必须原样保留以下小节标题：{' / '.join(missing_headings[:6])}。",
+    ]
+
+    heading_anchors = _extract_structure_heading_anchors(source_markdown)
+    if heading_anchors:
+        retry_notes.append(
+            "并继续围绕这些原稿锚点推进："
+            + "；".join(f"{heading} -> {anchor}" for heading, anchor in heading_anchors[:4])
+            + "。"
+        )
+
+    retry_notes.append("不要把这篇原稿改写成新的总分总结构，不要另起新的标题组或新的陌生案例。")
+    return base_instruction.strip() + " " + "".join(retry_notes)
+
+
+def _find_excessive_generic_reflective_openers(
+    *,
+    source_markdown: str,
+    candidate_markdown: str,
+) -> list[str]:
+    source_openers = extract_generic_reflective_openers(source_markdown)
+    candidate_openers = extract_generic_reflective_openers(candidate_markdown)
+    if len(candidate_openers) < 2 or len(candidate_openers) <= len(source_openers):
+        return []
+
+    source_counts = Counter(source_openers)
+    candidate_counts = Counter(candidate_openers)
+    excess: list[str] = []
+    for opener, count in candidate_counts.items():
+        overflow = count - source_counts.get(opener, 0)
+        if overflow > 0:
+            excess.extend([opener] * overflow)
+
+    return excess[:4]
+
+
+def _build_over_smoothing_retry_instruction(
+    *,
+    base_instruction: str,
+    source_markdown: str,
+    excessive_openers: list[str],
+) -> str:
+    retry_notes = [
+        "上一次改写虽然保住了结构，但把原稿磨得太顺，出现了偏统一的公众号成稿腔。",
+        f"这次不要再补这些泛感慨过渡句：{' / '.join(excessive_openers[:4])}。",
+    ]
+
+    heading_anchors = _extract_structure_heading_anchors(source_markdown)
+    if heading_anchors:
+        retry_notes.append(
+            "继续围绕这些原稿锚点推进："
+            + "；".join(f"{heading} -> {anchor}" for heading, anchor in heading_anchors[:4])
+            + "。"
+        )
+
+    retry_notes.append("不要用“很多时候”“说到底”“人总是这样”“我们总以为”先做总括再解释。")
+    retry_notes.append("宁可保留原稿里更直一点的判断，也不要把每段都磨成成熟顺滑的总结句。")
+    return base_instruction.strip() + " " + "".join(retry_notes)
+
+
+def _should_retry_for_remaining_ai_flavor(
+    *,
+    source_title: str,
+    source_markdown: str,
+    candidate_title: str,
+    candidate_markdown: str,
+) -> bool:
+    source_summary = evaluate_ai_flavor_risk(title=source_title, body_markdown=source_markdown)
+    candidate_summary = evaluate_ai_flavor_risk(title=candidate_title, body_markdown=candidate_markdown)
+    residual_not_ab = extract_not_ab_skeletons(candidate_markdown)
+    residual_openers = extract_generic_reflective_openers(candidate_markdown)
+    residual_cliches = extract_growth_cliches(candidate_markdown)
+    if candidate_summary.score < 20:
+        return False
+    if len(candidate_summary.hits) < 2:
+        if not residual_not_ab and len(residual_openers) < 2 and not residual_cliches:
+            return False
+    if len(residual_not_ab) >= 4:
+        return True
+    if source_summary.score >= 45:
+        return True
+    if (residual_not_ab or len(residual_openers) >= 2 or residual_cliches) and (
+        candidate_summary.score >= 20 and candidate_summary.score >= source_summary.score + 8
+    ):
+        return True
+    if candidate_summary.score >= 35 and candidate_summary.score >= source_summary.score + 10:
+        return True
+    return False
+
+
+def _should_retry_for_final_ai_flavor_cleanup(
+    *,
+    candidate_title: str,
+    candidate_markdown: str,
+) -> bool:
+    candidate_summary = evaluate_ai_flavor_risk(title=candidate_title, body_markdown=candidate_markdown)
+    residual_not_ab = extract_not_ab_skeletons(candidate_markdown)
+    residual_openers = extract_generic_reflective_openers(candidate_markdown)
+    residual_cliches = extract_growth_cliches(candidate_markdown)
+    residual_total = len(residual_not_ab) + len(residual_openers) + len(residual_cliches)
+    allow_four_not_ab_only = (
+        residual_total == 4
+        and len(residual_not_ab) == 4
+        and not residual_openers
+        and not residual_cliches
+        and candidate_summary.score <= 42
+    )
+
+    if candidate_summary.score > 50:
+        return False
+    if residual_total == 0:
+        return False
+    if residual_total > 3 and not allow_four_not_ab_only:
+        return False
+    if len(residual_not_ab) > 3 and not allow_four_not_ab_only:
+        return False
+    if len(residual_openers) > 2 or len(residual_cliches) > 2:
+        return False
+    return True
+
+
+def _format_retry_examples(examples: list[str], *, max_items: int = 3, max_length: int = 36) -> list[str]:
+    formatted: list[str] = []
+    for item in examples:
+        normalized = item.strip()
+        if not normalized:
+            continue
+        if len(normalized) > max_length:
+            normalized = normalized[:max_length].rstrip() + "..."
+        if normalized not in formatted:
+            formatted.append(normalized)
+        if len(formatted) >= max_items:
+            break
+    return formatted
+
+
+def _build_remaining_ai_flavor_retry_instruction(
+    *,
+    base_instruction: str,
+    source_markdown: str,
+    candidate_title: str,
+    candidate_markdown: str,
+) -> str:
+    candidate_summary = evaluate_ai_flavor_risk(title=candidate_title, body_markdown=candidate_markdown)
+    retry_notes = [
+        "上一次精修后，模板风险还没压够。",
+        f"当前仍命中：{' / '.join(candidate_summary.hits[:4])}。",
+    ]
+
+    suggestion_summary = "；".join(candidate_summary.suggestions[:3])
+    if suggestion_summary:
+        retry_notes.append(f"{suggestion_summary}。")
+
+    residual_not_ab = _format_retry_examples(extract_not_ab_skeletons(candidate_markdown))
+    if residual_not_ab:
+        retry_notes.append(f"这次必须直接拆掉这些“不是……而是……”骨架：{' / '.join(residual_not_ab)}。")
+
+    residual_openers = _format_retry_examples(extract_generic_reflective_openers(candidate_markdown), max_length=16)
+    if residual_openers:
+        retry_notes.append(f"这些泛感慨起手不要再保留：{' / '.join(residual_openers)}。")
+
+    residual_cliches = _format_retry_examples(extract_growth_cliches(candidate_markdown), max_length=16)
+    if residual_cliches:
+        retry_notes.append(f"这些套话不要再保留：{' / '.join(residual_cliches)}。")
+
+    heading_anchors = _extract_structure_heading_anchors(source_markdown)
+    if heading_anchors:
+        retry_notes.append(
+            "继续围绕这些原稿锚点推进："
+            + "；".join(f"{heading} -> {anchor}" for heading, anchor in heading_anchors[:4])
+            + "。"
+        )
+
+    retry_notes.append("保留原稿结构、案例和人物关系，但把仍然偏模板的判断段继续往具体动作和处境上压。")
+    retry_notes.append("不要把开头第一屏和各小节首段统一扩成新的氛围场景或散文式环境描写，优先沿用原稿已有的人物、案例、判断或并列例子起笔。")
+    retry_notes.append("如果原稿本来是议论推进或并列展开，就继续保留这种推进方式，不要每一节都先铺场景再总结。")
+    retry_notes.append("分析型或并列展开的段落，宁可直接写状态、动作后果、身体反应和关系变化，也不要再用新的“不是……而是……”对照句补解释。")
+    retry_notes.append("这轮改完以后，全文不要新增任何新的“不是……而是/是……”骨架；上面点名的残留句要逐句拆掉，而不是换个近义词继续保留结构。")
+    retry_notes.append("不要只把句子改顺，要把还带统一解释腔的段落真正重写。")
+    return base_instruction.strip() + " " + "".join(retry_notes)
+
+
+def _build_final_ai_flavor_cleanup_instruction(
+    *,
+    base_instruction: str,
+    source_markdown: str,
+    candidate_title: str,
+    candidate_markdown: str,
+) -> str:
+    candidate_summary = evaluate_ai_flavor_risk(title=candidate_title, body_markdown=candidate_markdown)
+    retry_notes = [
+        "最后只剩少量模板残留，这次不是整篇重写，而是最后一轮局部清理。",
+        "只改仍然露出模板感的 1 到 4 句，其余段落结构、顺序、案例和信息尽量不动。",
+    ]
+
+    residual_not_ab = _format_retry_examples(extract_not_ab_skeletons(candidate_markdown))
+    if residual_not_ab:
+        retry_notes.append(f"把这些残留的“不是……而是/是……”骨架直接拆掉：{' / '.join(residual_not_ab)}。")
+
+    residual_openers = _format_retry_examples(extract_generic_reflective_openers(candidate_markdown), max_length=16)
+    if residual_openers:
+        retry_notes.append(f"把这些残留的泛感慨起手改掉：{' / '.join(residual_openers)}。")
+
+    residual_cliches = _format_retry_examples(extract_growth_cliches(candidate_markdown), max_length=16)
+    if residual_cliches:
+        retry_notes.append(f"把这些残留套话改掉：{' / '.join(residual_cliches)}。")
+
+    if any("解释连接词偏多" in hit for hit in candidate_summary.hits):
+        retry_notes.append("如果这几句里还在靠“比如 / 其实 / 所以 / 然后 / 也就是说”这类词硬接，就删掉部分解释连接词，让动作、停顿和前后句直接接上。")
+
+    if any("“一”字节奏偏密" in hit for hit in candidate_summary.hits):
+        retry_notes.append("如果这几句里还反复出现“一下 / 一遍 / 一个 / 一种”这类写法，替换一半以上的一字量词起手，改成更具体的动作、物件或时间推进。")
+
+    heading_anchors = _extract_structure_heading_anchors(source_markdown)
+    if heading_anchors:
+        retry_notes.append(
+            "原稿锚点仍然以这些为准："
+            + "；".join(f"{heading} -> {anchor}" for heading, anchor in heading_anchors[:4])
+            + "。"
+        )
+
+    retry_notes.append("不要新增新的环境描写、人物、病症、道具、支线或总结段。")
+    retry_notes.append("如果需要改句，优先把判断改成当前段落里已经存在的动作、处境、顺序或关系，不要补新的总括句。")
+    retry_notes.append("清理完之后，不要再保留新的“不是……而是/是……”骨架，也不要补新的“我们总以为”“很多时候”“说到底”起手。")
+    return base_instruction.strip() + " " + "".join(retry_notes)
+
+
+def _pick_better_ai_flavor_candidate(
+    *,
+    current_title: str,
+    current_markdown: str,
+    retried_title: str,
+    retried_markdown: str,
+) -> tuple[str, str]:
+    def _residual_burden(markdown: str) -> tuple[int, int, int, int]:
+        not_ab = len(extract_not_ab_skeletons(markdown))
+        openers = len(extract_generic_reflective_openers(markdown))
+        cliches = len(extract_growth_cliches(markdown))
+        return (not_ab + openers + cliches, not_ab, openers, cliches)
+
+    current_summary = evaluate_ai_flavor_risk(title=current_title, body_markdown=current_markdown)
+    retried_summary = evaluate_ai_flavor_risk(title=retried_title, body_markdown=retried_markdown)
+    if retried_summary.score < current_summary.score:
+        return retried_markdown, retried_title
+    if retried_summary.score == current_summary.score and len(retried_summary.hits) < len(current_summary.hits):
+        return retried_markdown, retried_title
+    if retried_summary.score == current_summary.score and len(retried_summary.hits) == len(current_summary.hits):
+        if _residual_burden(retried_markdown) < _residual_burden(current_markdown):
+            return retried_markdown, retried_title
+    return current_markdown, current_title
+
+
+def _maybe_retry_polish_for_structure_drift(
+    *,
+    project: sqlite3.Row,
+    outline_row: sqlite3.Row,
+    tone_profile: ToneProfileItem,
+    review_comment: str | None,
+    polish_instruction: str | None,
+    reference_article_payload: dict[str, object],
+    generator,
+    source_draft_title: str,
+    source_draft_body_markdown: str,
+    candidate_title: str,
+    candidate_body_markdown: str,
+) -> tuple[str, str]:
+    if not polish_instruction:
+        return candidate_body_markdown, candidate_title
+
+    missing_headings = _find_missing_structure_headings(
+        source_markdown=source_draft_body_markdown,
+        candidate_markdown=candidate_body_markdown,
+    )
+    if not missing_headings:
+        return candidate_body_markdown, candidate_title
+
+    retry_result = generator.generate_draft(
+        {
+            "trend_title": project["trend_title"],
+            "topic_title": project["topic_title"],
+            "topic_angle": project["topic_angle"],
+            "project_title": project["title"],
+            "outline": {
+                "hook": outline_row["hook"],
+                "outline_body": outline_row["outline_body"],
+            },
+            "tone_profile": tone_profile.model_dump(),
+            "domain_pack": get_project_domain_pack(project),
+            "review_comment": review_comment,
+            "polish_instruction": _build_structure_retry_instruction(
+                base_instruction=polish_instruction,
+                source_markdown=source_draft_body_markdown,
+                missing_headings=missing_headings,
+            ),
+            "draft": {
+                "title": source_draft_title,
+                "body_markdown": source_draft_body_markdown,
+            },
+            **reference_article_payload,
+        }
+    )
+    return str(retry_result["body_markdown"]), str(retry_result["title"])
+
+
+def _maybe_retry_polish_for_over_smoothing(
+    *,
+    project: sqlite3.Row,
+    outline_row: sqlite3.Row,
+    tone_profile: ToneProfileItem,
+    review_comment: str | None,
+    polish_instruction: str | None,
+    reference_article_payload: dict[str, object],
+    generator,
+    source_draft_title: str,
+    source_draft_body_markdown: str,
+    candidate_title: str,
+    candidate_body_markdown: str,
+) -> tuple[str, str]:
+    if not polish_instruction:
+        return candidate_body_markdown, candidate_title
+
+    excessive_openers = _find_excessive_generic_reflective_openers(
+        source_markdown=source_draft_body_markdown,
+        candidate_markdown=candidate_body_markdown,
+    )
+    if not excessive_openers:
+        return candidate_body_markdown, candidate_title
+
+    retry_result = generator.generate_draft(
+        {
+            "trend_title": project["trend_title"],
+            "topic_title": project["topic_title"],
+            "topic_angle": project["topic_angle"],
+            "project_title": project["title"],
+            "outline": {
+                "hook": outline_row["hook"],
+                "outline_body": outline_row["outline_body"],
+            },
+            "tone_profile": tone_profile.model_dump(),
+            "domain_pack": get_project_domain_pack(project),
+            "review_comment": review_comment,
+            "polish_instruction": _build_over_smoothing_retry_instruction(
+                base_instruction=polish_instruction,
+                source_markdown=source_draft_body_markdown,
+                excessive_openers=excessive_openers,
+            ),
+            "draft": {
+                "title": source_draft_title,
+                "body_markdown": source_draft_body_markdown,
+            },
+            **reference_article_payload,
+        }
+    )
+    return _pick_better_ai_flavor_candidate(
+        current_title=candidate_title,
+        current_markdown=candidate_body_markdown,
+        retried_title=str(retry_result["title"]),
+        retried_markdown=str(retry_result["body_markdown"]),
+    )
+
+
+def _maybe_retry_polish_for_remaining_ai_flavor(
+    *,
+    project: sqlite3.Row,
+    outline_row: sqlite3.Row,
+    tone_profile: ToneProfileItem,
+    review_comment: str | None,
+    polish_instruction: str | None,
+    reference_article_payload: dict[str, object],
+    generator,
+    source_draft_title: str,
+    source_draft_body_markdown: str,
+    candidate_title: str,
+    candidate_body_markdown: str,
+) -> tuple[str, str]:
+    if not polish_instruction:
+        return candidate_body_markdown, candidate_title
+
+    if not _should_retry_for_remaining_ai_flavor(
+        source_title=source_draft_title,
+        source_markdown=source_draft_body_markdown,
+        candidate_title=candidate_title,
+        candidate_markdown=candidate_body_markdown,
+    ):
+        return candidate_body_markdown, candidate_title
+
+    retry_result = generator.generate_draft(
+        {
+            "trend_title": project["trend_title"],
+            "topic_title": project["topic_title"],
+            "topic_angle": project["topic_angle"],
+            "project_title": project["title"],
+            "outline": {
+                "hook": outline_row["hook"],
+                "outline_body": outline_row["outline_body"],
+            },
+            "tone_profile": tone_profile.model_dump(),
+            "domain_pack": get_project_domain_pack(project),
+            "review_comment": review_comment,
+            "polish_instruction": _build_remaining_ai_flavor_retry_instruction(
+                base_instruction=polish_instruction,
+                source_markdown=source_draft_body_markdown,
+                candidate_title=candidate_title,
+                candidate_markdown=candidate_body_markdown,
+            ),
+            "draft": {
+                "title": source_draft_title,
+                "body_markdown": source_draft_body_markdown,
+            },
+            **reference_article_payload,
+        }
+    )
+    return _pick_better_ai_flavor_candidate(
+        current_title=candidate_title,
+        current_markdown=candidate_body_markdown,
+        retried_title=str(retry_result["title"]),
+        retried_markdown=str(retry_result["body_markdown"]),
+    )
+
+
+def _maybe_retry_polish_for_final_ai_flavor_cleanup(
+    *,
+    project: sqlite3.Row,
+    outline_row: sqlite3.Row,
+    tone_profile: ToneProfileItem,
+    review_comment: str | None,
+    polish_instruction: str | None,
+    reference_article_payload: dict[str, object],
+    generator,
+    source_draft_title: str,
+    source_draft_body_markdown: str,
+    candidate_title: str,
+    candidate_body_markdown: str,
+) -> tuple[str, str]:
+    if not polish_instruction:
+        return candidate_body_markdown, candidate_title
+
+    current_title = candidate_title
+    current_markdown = candidate_body_markdown
+
+    for _ in range(2):
+        if not _should_retry_for_final_ai_flavor_cleanup(
+            candidate_title=current_title,
+            candidate_markdown=current_markdown,
+        ):
+            break
+
+        retry_result = generator.generate_draft(
+            {
+                "trend_title": project["trend_title"],
+                "topic_title": project["topic_title"],
+                "topic_angle": project["topic_angle"],
+                "project_title": project["title"],
+                "outline": {
+                    "hook": outline_row["hook"],
+                    "outline_body": outline_row["outline_body"],
+                },
+                "tone_profile": tone_profile.model_dump(),
+                "domain_pack": get_project_domain_pack(project),
+                "review_comment": review_comment,
+                "polish_instruction": _build_final_ai_flavor_cleanup_instruction(
+                    base_instruction=polish_instruction,
+                    source_markdown=source_draft_body_markdown,
+                    candidate_title=current_title,
+                    candidate_markdown=current_markdown,
+                ),
+                "draft": {
+                    "title": current_title,
+                    "body_markdown": current_markdown,
+                },
+                **reference_article_payload,
+            }
+        )
+        next_markdown, next_title = _pick_better_ai_flavor_candidate(
+            current_title=current_title,
+            current_markdown=current_markdown,
+            retried_title=str(retry_result["title"]),
+            retried_markdown=str(retry_result["body_markdown"]),
+        )
+        if next_markdown == current_markdown and next_title == current_title:
+            break
+        current_markdown = next_markdown
+        current_title = next_title
+
+    return current_markdown, current_title
+
+
 def _maybe_auto_polish_ai_flavor_draft_output(
     *,
     title: str,
@@ -3868,7 +4517,59 @@ def _maybe_auto_polish_ai_flavor_draft_output(
             **reference_article_payload,
         }
     )
-    return str(polished_result["body_markdown"]), str(polished_result["title"])
+    retried_body_markdown, retried_title = _maybe_retry_polish_for_structure_drift(
+        project=project,
+        outline_row=outline_row,
+        tone_profile=tone_profile,
+        review_comment=review_comment,
+        polish_instruction=build_ai_flavor_polish_instruction(summary),
+        reference_article_payload=reference_article_payload,
+        generator=generator,
+        source_draft_title=title,
+        source_draft_body_markdown=body_markdown,
+        candidate_title=str(polished_result["title"]),
+        candidate_body_markdown=str(polished_result["body_markdown"]),
+    )
+    retried_body_markdown, retried_title = _maybe_retry_polish_for_over_smoothing(
+        project=project,
+        outline_row=outline_row,
+        tone_profile=tone_profile,
+        review_comment=review_comment,
+        polish_instruction=build_ai_flavor_polish_instruction(summary),
+        reference_article_payload=reference_article_payload,
+        generator=generator,
+        source_draft_title=title,
+        source_draft_body_markdown=body_markdown,
+        candidate_title=retried_title,
+        candidate_body_markdown=retried_body_markdown,
+    )
+    retried_body_markdown, retried_title = _maybe_retry_polish_for_remaining_ai_flavor(
+        project=project,
+        outline_row=outline_row,
+        tone_profile=tone_profile,
+        review_comment=review_comment,
+        polish_instruction=build_ai_flavor_polish_instruction(summary),
+        reference_article_payload=reference_article_payload,
+        generator=generator,
+        source_draft_title=title,
+        source_draft_body_markdown=body_markdown,
+        candidate_title=retried_title,
+        candidate_body_markdown=retried_body_markdown,
+    )
+    retried_body_markdown, retried_title = _maybe_retry_polish_for_final_ai_flavor_cleanup(
+        project=project,
+        outline_row=outline_row,
+        tone_profile=tone_profile,
+        review_comment=review_comment,
+        polish_instruction=build_ai_flavor_polish_instruction(summary),
+        reference_article_payload=reference_article_payload,
+        generator=generator,
+        source_draft_title=title,
+        source_draft_body_markdown=body_markdown,
+        candidate_title=retried_title,
+        candidate_body_markdown=retried_body_markdown,
+    )
+    return retried_body_markdown, retried_title
 
 
 def restore_draft_version(project_slug: str, version: int) -> DraftItem:

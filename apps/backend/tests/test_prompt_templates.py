@@ -272,7 +272,64 @@ def test_polish_prompt_includes_localized_stop_slop_rewrite_checklist() -> None:
 
     assert "按 6 类中文公众号 AI 味风险逐项检查原稿" in template.instructions
     assert "先删掉万能抒情、整齐反转、教程分步和口号式结尾" in template.instructions
+    assert "开头第一屏和每个保留小节的首段，优先沿用原稿已经出现的人物、案例、问题或判断进入" in template.instructions
+    assert "如果原稿某一节本来直接进入人物案例、直接判断或一组并列例子，就保留这种直入方式" in template.instructions
+    assert "不要为了显得自然而额外虚构新人物、新职业、新病症、新城市、新道具或完整新剧情" in template.instructions
+    assert "如果原稿本质上是一篇议论文或感悟文，允许增强画面感，但不要整体改写成小说化叙事" in template.instructions
+    assert "不要把每个小节都扩成篇幅整齐、节奏相似的场景散文段" in template.instructions
+    assert "保留原稿的核心论点结构" in template.instructions
+    assert "原稿里已经出现的人物、亲属称谓、关系对象和案例应优先保留并重写表达" in template.instructions
+    assert "不要为了把段落接顺，额外补“很多时候”“说到底”“人总是这样”“我们总以为”这类泛感慨过渡句" in template.instructions
+    assert "如果原稿本来更朴素、更直给，就保留这股劲，不要统一磨成成熟公众号标准成稿" in template.instructions
+    assert "当前任务是基于现有正文精修，不是根据大纲重新生成一篇新稿" in template.instructions
+    assert "现有正文是本次改写的唯一正文输入" in template.instructions
+    assert "如果原稿标题本身成立，优先保留原标题" in template.instructions
+    assert "开头第一屏和各小节首段，要优先保住原稿原本的切入对象" in template.instructions
+    assert "如果原稿主体是并列展开的三到四个主题段，精修后仍然保持并列展开" in template.instructions
+    assert "如果原稿某节原本一上来就是人物案例、直接判断或一组并列例子，精修后也优先从那里进入" in template.instructions
+    assert "不要因为想显得更完整，就把原稿统一改成总括判断句加解释句的成熟公众号腔" in template.instructions
+    assert "如果原稿里有更直、更硬、更不圆滑的句子重心，精修后也要尽量保住" in template.instructions
+    assert "如果现有正文和大纲存在轻微不一致，以现有正文为准" in template.instructions
+    assert "原稿结构锚点（精修后应尽量保留这些顺序与案例，不要求逐字复用）：" in template.prompt
+    assert "原标题锚点：旧标题" in template.prompt
+    assert "必须保留的原稿关键句：不是你太累，而是你一直没有停下来" in template.prompt
     assert "输出前自查：场景具体度、句式重复度、模板风险、情绪自然度、改写幅度" in template.instructions
+
+
+def test_polish_prompt_surfaces_existing_section_headings_as_structure_anchors() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "用户原文改写测试",
+            "topic_title": "别把日子过反了",
+            "topic_angle": "人生反向消耗",
+            "project_title": "原文精修测试",
+            "tone_profile": TONE_PROFILE,
+            "outline": {
+                "hook": "hook",
+                "outline_body": "1. a\n2. b",
+            },
+            "polish_instruction": "降低模板感。",
+            "draft": {
+                "title": "别把日子过反了",
+                "body_markdown": (
+                    "# 别把日子过反了\n\n"
+                    "开头总述。\n\n"
+                    "别用健康换明天\n\n"
+                    "朋友阿杰曾是个工作狂。\n\n"
+                    "别等失去才懂珍惜\n\n"
+                    "外婆突然离世后，我翻遍手机。\n\n"
+                    "别把幸福寄托在“等以后”\n\n"
+                    "有人攒了半辈子钱。"
+                ),
+            },
+        }
+    )
+
+    assert "必须保留小节标题：别用健康换明天" in template.prompt
+    assert "别用健康换明天下必须继续围绕这个原稿锚点推进：朋友阿杰曾是个工作狂" in template.prompt
+    assert "必须保留小节标题：别等失去才懂珍惜" in template.prompt
+    assert "别等失去才懂珍惜下必须继续围绕这个原稿锚点推进：外婆突然离世后，我翻遍手机" in template.prompt
+    assert "必须保留小节标题：别把幸福寄托在“等以后”" in template.prompt
 
 
 def test_draft_prompt_includes_wechat_public_account_naturalness_rules() -> None:
@@ -292,9 +349,11 @@ def test_draft_prompt_includes_wechat_public_account_naturalness_rules() -> None
 
     assert "正文要更贴近真实公众号作者写作" in template.instructions
     assert "不要把每个判断都解释透，留一点空白给读者自己接上" in template.instructions
+    assert "不要系统性在开头第一屏、各小节首段或段落转场前补新的氛围场景" in template.instructions
     assert "避免机械扩写、刻意增肥和整篇统一修辞" in template.instructions
     assert "避免系统性把“和”改成“以及”、“并”改成“并且”" in template.instructions
     assert "不要把句子润成网文腔、鸡汤腔或文学仿写腔" in template.instructions
+    assert "如果原稿主体是议论、感悟或并列展开，不要统一扩写成每段都先铺场景再抒情的散文稿" in template.instructions
 
 
 def test_stage_templates_allow_domain_pack_override_without_touching_tone_profile() -> None:

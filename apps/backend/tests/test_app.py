@@ -1793,6 +1793,75 @@ def test_generate_draft_auto_polishes_high_ai_flavor_first_pass(monkeypatch) -> 
     assert detail["draft"]["title"] == "她说完“我没事”之后，关系是怎么慢慢冷下去的"
 
 
+def test_generate_draft_auto_polish_retries_when_ai_flavor_still_remains(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "夜里安静下来，人才会想起那些一直往后拖的事。",
+                "outline_body": "1. 夜里回想\n2. 身体的账\n3. 失去后的空\n4. 别把日子往后押",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction:
+                if "上一次精修后，模板风险还没压够" in instruction:
+                    return {
+                        "title": "别把日子过反了",
+                        "body_markdown": (
+                            "# 别把日子过反了\n\n"
+                            "夜深了，人才会慢慢看见，自己把哪些真正重要的东西一再往后放。\n\n"
+                            "阿杰总说项目结束再休息，可身体不会一直等人腾空。\n\n"
+                            "外婆走后，我翻手机时才知道，有些平常时刻当时没留住，后来就真的没有了。\n\n"
+                            "想做的事别全押给以后，把今天该顾到的先顾住。"
+                        ),
+                    }
+                return {
+                    "title": "别把日子过反了",
+                    "body_markdown": (
+                        "# 别把日子过反了\n\n"
+                        "日子真正难的，不是忙，而是总把重要的东西放到最后面。\n\n"
+                        "不是你不想停下来，而是你总觉得还能再撑一阵。阿杰就是这样，把休息一拖再拖。\n\n"
+                        "外婆走后，我才发现很多想留下来的瞬间，当时都没有好好接住。\n\n"
+                        "从今天开始，别再把最重要的东西往后放。"
+                    ),
+                }
+
+            return {
+                "title": "别把日子过反了",
+                "body_markdown": (
+                    "# 别把日子过反了\n\n"
+                    "不是失去了才知道痛，而是很多东西在拥有的时候，就已经被我们慢慢忽略。\n\n"
+                    "朋友阿杰总说等忙完这阵就休息，外婆离世后我才发现有些话再也来不及说。\n\n"
+                    "从今天开始，别再把重要的东西推到以后。"
+                ),
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    outline_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+    assert draft_response.status_code == 201
+    draft = draft_response.json()
+
+    assert draft["title"] == "别把日子过反了"
+    assert "从今天开始" not in draft["body_markdown"]
+    assert "夜深了" in draft["body_markdown"]
+
+    draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
+    assert len(draft_calls) == 3
+    assert draft_calls[0][1].get("polish_instruction") in {None, ""}
+    assert "去模板化重写" in str(draft_calls[1][1]["polish_instruction"])
+    assert "上一次精修后，模板风险还没压够" in str(draft_calls[2][1]["polish_instruction"])
+    assert "当前仍命中" in str(draft_calls[2][1]["polish_instruction"])
+
+
 def test_generate_assets_falls_back_when_cover_image_generation_is_unavailable(monkeypatch) -> None:
     class FakeGenerator:
         def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
@@ -2771,6 +2840,1335 @@ def test_polish_draft_falls_back_to_tone_profile_default_instruction(monkeypatch
 
     polished_call = next(call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction"))
     assert polished_call[1]["polish_instruction"] == "重写开头和结尾，调整段落连接。"
+
+
+def test_polish_draft_retries_when_structure_headings_are_lost(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if payload.get("polish_instruction"):
+                instruction = str(payload["polish_instruction"])
+                if "上一次改写发生了结构漂移" in instruction:
+                    return {
+                        "title": "别把日子过反了",
+                        "body_markdown": (
+                            "# 别把日子过反了\n\n"
+                            "很多事情，都是后来才知道代价。\n\n"
+                            "别用健康换明天\n\n"
+                            "朋友阿杰曾是个工作狂，后来才知道身体停下来，别的安排也会一起停。\n\n"
+                            "别等失去才懂珍惜\n\n"
+                            "外婆突然离世后，我翻遍手机，才发现很多平常时刻都没留下来。\n\n"
+                            "别把幸福寄托在“等以后”\n\n"
+                            "有人攒了半辈子钱，等到退休却已经没有力气按原计划生活。"
+                        ),
+                    }
+                return {
+                    "title": "很多代价，都是后来才知道的",
+                    "body_markdown": (
+                        "# 很多代价，都是后来才知道的\n\n"
+                        "先写一段泛感慨。\n\n"
+                        "再写一段泛感慨。\n\n"
+                        "最后写一段泛感慨。"
+                    ),
+                }
+            return {
+                "title": "别把日子过反了",
+                "body_markdown": (
+                    "# 别把日子过反了\n\n"
+                    "开头总述。\n\n"
+                    "别用健康换明天\n\n"
+                    "朋友阿杰曾是个工作狂。\n\n"
+                    "别等失去才懂珍惜\n\n"
+                    "外婆突然离世后，我翻遍手机。\n\n"
+                    "别把幸福寄托在“等以后”\n\n"
+                    "有人攒了半辈子钱。"
+                ),
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "降低模板感，但保留原稿结构。"},
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+
+    assert polished["title"] == "别把日子过反了"
+    assert "别用健康换明天" in polished["body_markdown"]
+    assert "别等失去才懂珍惜" in polished["body_markdown"]
+    assert "别把幸福寄托在“等以后”" in polished["body_markdown"]
+
+    polish_calls = [call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")]
+    assert len(polish_calls) == 2
+    assert polish_calls[0][1]["polish_instruction"] == "降低模板感，但保留原稿结构。"
+    assert "上一次改写发生了结构漂移" in str(polish_calls[1][1]["polish_instruction"])
+    assert "这次必须原样保留以下小节标题" in str(polish_calls[1][1]["polish_instruction"])
+
+
+def test_polish_draft_retries_when_result_is_over_smoothed(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if payload.get("polish_instruction"):
+                instruction = str(payload["polish_instruction"])
+                if "上一次改写虽然保住了结构，但把原稿磨得太顺" in instruction:
+                    return {
+                        "title": "别把日子过反了",
+                        "body_markdown": (
+                            "# 别把日子过反了\n\n"
+                            "有些代价，是后来才慢慢认出来的。\n\n"
+                            "别用健康换明天\n\n"
+                            "朋友阿杰曾是个工作狂，总觉得这阵子先熬过去，身体的账以后再补。\n\n"
+                            "别等失去才懂珍惜\n\n"
+                            "外婆突然离世后，我翻遍手机，才发现连一张像样的合照都没有。\n\n"
+                            "别把幸福寄托在“等以后”\n\n"
+                            "有人攒了半辈子钱，等到退休却已经没有力气按原计划生活。"
+                        ),
+                    }
+                return {
+                    "title": "别把日子过反了",
+                    "body_markdown": (
+                        "# 别把日子过反了\n\n"
+                        "有些代价，往往都是后来才看清。\n\n"
+                        "别用健康换明天\n\n"
+                        "很多时候，我们总以为先扛过这一阵，身体会自己原谅我们。阿杰也是这么想的。\n\n"
+                        "别等失去才懂珍惜\n\n"
+                        "说到底，人最容易高估的，就是来日方长。外婆走后，我翻遍手机，才发现很多时刻没留下来。\n\n"
+                        "别把幸福寄托在“等以后”\n\n"
+                        "很多时候，我们把想做的事一直往后放，最后连原本的心气也一起放没了。"
+                    ),
+                }
+            return {
+                "title": "别把日子过反了",
+                "body_markdown": (
+                    "# 别把日子过反了\n\n"
+                    "开头总述。\n\n"
+                    "别用健康换明天\n\n"
+                    "朋友阿杰曾是个工作狂，总说等这个项目结束就休息。\n\n"
+                    "别等失去才懂珍惜\n\n"
+                    "外婆突然离世后，我翻遍手机，才发现连一张像样的合照都没有。\n\n"
+                    "别把幸福寄托在“等以后”\n\n"
+                    "有人攒了半辈子钱，等到退休却已经没有力气按原计划生活。"
+                ),
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    tone_profile = workbench.get_active_tone_profile()
+    seeded_body = (
+        "# 别把日子过反了\n\n"
+        "夜里静下来时，人会知道什么该先顾住。\n\n"
+        "阿杰在医院醒来后，第一次把手机扣在了床头柜上。\n\n"
+        "外婆走后，我才明白有些日常一旦错过去，就补不回来了。\n\n"
+        "想做的事，别全留给以后。"
+    )
+    with workbench._get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO drafts (
+                project_slug, outline_version, version, title, body_markdown, word_count,
+                created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "office-burnout-recovery-weekly",
+                1,
+                1,
+                "别把日子过反了",
+                seeded_body,
+                len(seeded_body),
+                workbench._utc_now_iso(),
+                "manual_seed",
+                tone_profile.id,
+                tone_profile.name,
+            ),
+        )
+        connection.commit()
+
+    calls_before_manual_polish = len(fake_generator.calls)
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "降低模板感，但保留原稿结构和案例。"},
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+
+    assert polished["title"] == "别把日子过反了"
+    assert "很多时候，我们总以为先扛过这一阵" not in polished["body_markdown"]
+    assert "说到底" not in polished["body_markdown"]
+    assert "阿杰" in polished["body_markdown"]
+    assert "外婆" in polished["body_markdown"]
+
+    polish_calls = [call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")]
+    assert len(polish_calls) == 2
+    assert polish_calls[0][1]["polish_instruction"] == "降低模板感，但保留原稿结构和案例。"
+    assert "上一次改写虽然保住了结构，但把原稿磨得太顺" in str(polish_calls[1][1]["polish_instruction"])
+    assert "很多时候 / 说到底" in str(polish_calls[1][1]["polish_instruction"])
+
+
+def test_polish_draft_retries_when_ai_flavor_still_remains(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction:
+                if "去模板化重写" in instruction:
+                    return {
+                        "title": "别把日子过反了",
+                        "body_markdown": (
+                            "# 别把日子过反了\n\n"
+                            "夜里静下来时，人会知道什么该先顾住。\n\n"
+                            "阿杰在医院醒来后，第一次把手机扣在了床头柜上。\n\n"
+                            "外婆走后，我才明白有些日常一旦错过去，就补不回来了。\n\n"
+                            "想做的事，别全留给以后。"
+                        ),
+                    }
+                if "上一次精修后，模板风险还没压够" in instruction:
+                    return {
+                        "title": "别把日子过反了",
+                        "body_markdown": (
+                            "# 别把日子过反了\n\n"
+                            "夜里静下来时，人最容易看见自己把哪些东西一直往后拖。\n\n"
+                            "阿杰总说忙完这阵再休息，可身体不会替人无限期垫账。\n\n"
+                            "外婆走后，我翻手机才知道，有些当时没留住的时刻，后来就再也补不上了。\n\n"
+                            "想做的事，能今天做一点，就别全放到以后。"
+                        ),
+                    }
+                return {
+                    "title": "别把日子过反了",
+                    "body_markdown": (
+                        "# 别把日子过反了\n\n"
+                        "日子真正难的，不是忙，而是总把重要的东西放到最后面。\n\n"
+                        "不是你不想停下来，而是你总觉得还能再撑一阵。阿杰也是这样。\n\n"
+                        "外婆走后，我才知道那些平常时刻一旦过去，就不会重新回来。\n\n"
+                        "从今天开始，别再把重要的东西推到以后。"
+                    ),
+                }
+            return {
+                "title": "别把日子过反了",
+                "body_markdown": (
+                    "# 别把日子过反了\n\n"
+                    "不是等失去才懂痛，而是很多重要的东西，早就在日常里被慢慢放后了。\n\n"
+                    "阿杰总说等这个项目结束就休息。\n\n"
+                    "外婆突然离世后，我翻遍手机，才发现连一张像样的合照都没有。\n\n"
+                    "从今天开始，别把最重要的东西押给以后。"
+                ),
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+    calls_before_manual_polish = len(fake_generator.calls)
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "降低模板感，但保留原稿结构和案例。"},
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+
+    assert polished["title"] == "别把日子过反了"
+    assert "从今天开始" not in polished["body_markdown"]
+    assert "不是你不想停下来" not in polished["body_markdown"]
+    assert "阿杰" in polished["body_markdown"]
+    assert "外婆" in polished["body_markdown"]
+
+    manual_polish_calls = fake_generator.calls[calls_before_manual_polish:]
+    polish_calls = [
+        call for call in manual_polish_calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) == 2
+    assert polish_calls[0][1]["polish_instruction"] == "降低模板感，但保留原稿结构和案例。"
+    assert "上一次精修后，模板风险还没压够" in str(polish_calls[1][1]["polish_instruction"])
+    assert "当前仍命中" in str(polish_calls[1][1]["polish_instruction"])
+    assert "不要把开头第一屏和各小节首段统一扩成新的氛围场景" in str(polish_calls[1][1]["polish_instruction"])
+
+
+def test_remaining_ai_flavor_retry_triggers_for_low_score_not_ab_residue() -> None:
+    source_body = (
+        "# 别把日子过反了\n\n"
+        "阿杰晕倒之后，才肯承认自己已经很久没有认真休息。\n\n"
+        "外婆走后，我翻手机时才知道，很多平常时刻原来并不会重来。\n\n"
+        "想做的事，别一直往后拖。"
+    )
+    candidate_body = (
+        "# 别把日子过反了\n\n"
+        "朋友阿杰总说等这个项目结束就休息。后来他躺在病床上才意识到，不是不累，是一直没给自己停下来的机会。\n\n"
+        "外婆走后，我翻手机才知道，有些想留下来的时刻，当时并没有认真接住。不是不在意，是总把以后想得太宽。\n\n"
+        "很多事看着都能往后放，可真正先被拖走的，往往是身体和关系。"
+    )
+
+    assert workbench._should_retry_for_remaining_ai_flavor(
+        source_title="别把日子过反了",
+        source_markdown=source_body,
+        candidate_title="别把日子过反了",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_remaining_ai_flavor_retry_triggers_for_moderate_score_heavy_not_ab_residue() -> None:
+    source_body = (
+        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+        "你以为自己缺的是技巧，后来才发现，不是不懂，而是根本没有能量。\n\n"
+        "很多关系迟迟没有转机，不是因为谁完全不在乎，也不是因为道理讲不明白，而是两个人都太累了。\n\n"
+        "所以，关系里最麻烦的，往往不是没有爱，而是没有余力。\n\n"
+        "不是不想靠近，而是连自己都快顾不上。\n\n"
+        "不是不愿意改变，而是身体和情绪已经长期处在透支里。\n\n"
+        "这时候最先要补的，常常不是沟通术，而是能量。"
+    )
+    candidate_body = (
+        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+        "看到这里，很多人会先把问题归到“不会沟通”上。可真落到自己身上，卡住的往往不是方法有没有学过，而是那口气提不上来。\n\n"
+        "关系推不动的时候，最常见的不是完全不在乎，而是人已经累得没有多余的心力。\n\n"
+        "你会发现，关系卡住时，常常是三件事叠在一起：\n\n"
+        "✔ 意愿有\n\n"
+        "✔ 方法也知道\n\n"
+        "✔ 但没有能量\n\n"
+        "意愿有，意味着你不是不想好。\n\n"
+        "方法也知道，意味着你不是没学过。\n\n"
+        "所以，关系里最麻烦的，往往不是没有爱，而是没有余力。不是不想靠近，而是连自己都快顾不上。不是不愿意改变，而是身体和情绪已经长期处在透支里。\n\n"
+        "这时候最先要补的，常常不是沟通术，而是能量。"
+    )
+
+    assert workbench._should_retry_for_remaining_ai_flavor(
+        source_title="关系卡住的本质：意愿有、懂方法、但无能量",
+        source_markdown=source_body,
+        candidate_title="关系卡住的本质：意愿有、懂方法、但无能量",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_pick_better_ai_flavor_candidate_prefers_lower_residual_burden_on_tied_score() -> None:
+    current_body = (
+        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+        "你以为自己缺的是技巧，后来才发现，不是不懂，而是根本没有能量。\n\n"
+        "很多关系真正难的，不是突然变了心，是之前压下去的委屈、疲惫、防备，慢慢把人拖住了。\n\n"
+        "关系卡住时，最常见的样子往往是三件事同时存在：\n\n"
+        "意愿有。\n\n"
+        "方法也知道。\n\n"
+        "但人已经空了。\n\n"
+        "你会发现，很多时候不是判断失灵，而是整个人都在防守；不是你突然变得尖锐，而是神经已经很薄。\n\n"
+        "这时候最先该补的，常常不是沟通术，而是余力。"
+    )
+    retried_body = (
+        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+        "很多人一遇到关系卡住，就先去找沟通方法。可真到自己身上，最先掉线的，常常不是技巧，而是余力。\n\n"
+        "人累的时候，心会变窄，话也会变硬。你不是没学过，是当下已经没有多余的稳定；不是失望，而是疲惫在前面顶着。\n\n"
+        "关系推不动时，常见的不是谁彻底不在乎，而是两个人都已经没剩多少缓冲。\n\n"
+        "意愿还在。\n\n"
+        "方法也懂。\n\n"
+        "可人已经快空了。\n\n"
+        "所以这时候最先要补的，不该只是沟通术，还得先把睡眠、情绪和身体那点底子慢慢接回来。"
+    )
+
+    current_summary = workbench.evaluate_ai_flavor_risk(
+        title="关系卡住的本质：意愿有、懂方法、但无能量",
+        body_markdown=current_body,
+    )
+    retried_summary = workbench.evaluate_ai_flavor_risk(
+        title="关系卡住的本质：意愿有、懂方法、但无能量",
+        body_markdown=retried_body,
+    )
+    assert current_summary.score == retried_summary.score
+    assert len(current_summary.hits) == len(retried_summary.hits)
+
+    chosen_markdown, chosen_title = workbench._pick_better_ai_flavor_candidate(
+        current_title="关系卡住的本质：意愿有、懂方法、但无能量",
+        current_markdown=current_body,
+        retried_title="关系卡住的本质：意愿有、懂方法、但无能量",
+        retried_markdown=retried_body,
+    )
+
+    assert chosen_title == "关系卡住的本质：意愿有、懂方法、但无能量"
+    assert chosen_markdown == retried_body
+
+
+def test_final_ai_flavor_cleanup_triggers_for_low_score_residue() -> None:
+    candidate_body = (
+        "# 别把日子过反了\n\n"
+        "我们总以为以后还有机会，可真正卡住人的，不是没时间，是把“重要”长期排在“紧急”后面。\n\n"
+        "阿杰后来还是去做了体检。\n\n"
+        "外婆走后，我才知道有些时刻不会重来。"
+    )
+
+    assert workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="别把日子过反了",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_final_ai_flavor_cleanup_triggers_for_moderate_score_small_residue() -> None:
+    candidate_body = (
+        "# 别让赌气毁掉关系\n\n"
+        "很多时候，手指停在输入框上，一下删掉，一遍重写，一个字一个字往回吞。\n\n"
+        "其实你不是不想说，而是那口气一直卡着，所以一句软话也递不出去。\n\n"
+        "你等他来问，他等你自己说。然后消息停着，后来沉默也跟着变重。\n\n"
+        "说到底，真正先累垮的往往还是彼此的心。"
+    )
+
+    assert workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="别让赌气毁掉关系",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_final_ai_flavor_cleanup_triggers_for_four_not_ab_only_residue() -> None:
+    candidate_body = (
+        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+        "不是不懂，而是根本没有能量。不是你故意要把话说坏，而是防御比表达跑得更快。"
+        "不是没有感觉，是已经不想再组织语言。不是坏在某个原则上，而是耗在长期亏空里。"
+    )
+
+    assert workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="关系卡住的本质：意愿有、懂方法、但无能量",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_remaining_ai_flavor_retry_instruction_bans_new_not_ab_for_analytic_prose() -> None:
+    candidate_body = (
+        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+        "你以为自己缺的是技巧，后来才发现，不是不懂，而是根本没有能量。\n\n"
+        "很多关系真正难的，不是一下子散掉，而是长期的亏空把耐心、注意力和柔软都磨薄了。\n\n"
+        "不是你故意要把话说坏，而是防御比表达跑得更快。不是没有感觉，是已经不想再组织语言。"
+        "不是坏在某个原则上，而是耗在长期亏空里。\n\n"
+        "关系卡住时，最常见的样子往往是三件事同时存在：\n\n"
+        "✔ 意愿有\n\n"
+        "✔ 方法也知道\n\n"
+        "✔ 但人已经空了。"
+    )
+
+    instruction = workbench._build_remaining_ai_flavor_retry_instruction(
+        base_instruction="降低模板感，但保留原稿结构和判断路径。",
+        source_markdown=candidate_body,
+        candidate_title="关系卡住的本质：意愿有、懂方法、但无能量",
+        candidate_markdown=candidate_body,
+    )
+
+    assert "分析型或并列展开的段落" in instruction
+    assert "全文不要新增任何新的“不是……而是/是……”骨架" in instruction
+
+
+def test_final_ai_flavor_cleanup_instruction_calls_out_connector_and_yi_cadence() -> None:
+    candidate_body = (
+        "# 别让赌气毁掉关系\n\n"
+        "很多时候，手指停在输入框上，一下删掉，一遍重写。\n\n"
+        "其实你不是不想说，而是那口气一直卡着，所以一句软话也递不出去。\n\n"
+        "你等他来问，他等你自己说。然后消息停着，一个字一个字往回吞。\n\n"
+        "一会儿想解释，一会儿又后悔。最后连原本要说的话，也被一句算了带过去。\n\n"
+        "说到底，真正先累垮的往往还是彼此的心。"
+    )
+
+    instruction = workbench._build_final_ai_flavor_cleanup_instruction(
+        base_instruction="降低模板感，但保留原稿结构和案例。",
+        source_markdown=candidate_body,
+        candidate_title="别让赌气毁掉关系",
+        candidate_markdown=candidate_body,
+    )
+
+    assert "删掉部分解释连接词" in instruction
+    assert "一字量词起手" in instruction
+
+
+def test_polish_draft_runs_final_ai_flavor_cleanup_for_low_score_residue(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction:
+                if "最后一轮局部清理" in instruction:
+                    return {
+                        "title": "别把日子过反了",
+                        "body_markdown": (
+                            "# 别把日子过反了\n\n"
+                            "白天忙的时候，很多事都会被往后推。等真正安静下来，人才会发现，最容易被省掉的总是身体、关系和自己真正想顾住的部分。\n\n"
+                            "朋友阿杰总说等这个项目结束就休息。后来躺在病床上，他才承认自己早就累过头了，只是一直没肯停下来。\n\n"
+                            "外婆走后，我翻手机才知道，有些想留下来的时刻，当时并没有认真接住。很多话拖过那个时候，再说就不对了。\n\n"
+                            "很多事看着都能往后放，可真正先被拖走的，往往是身体和关系。"
+                        ),
+                    }
+                if "上一次精修后，模板风险还没压够" in instruction:
+                    return {
+                        "title": "别把日子过反了",
+                        "body_markdown": (
+                            "# 别把日子过反了\n\n"
+                            "白天忙的时候，很多事都会被往后推。等真正安静下来，人总会回头想想自己把什么排到了后面。\n\n"
+                            "朋友阿杰总说等这个项目结束就休息。后来躺在病床上，他才承认自己早就累过头了，只是一直没肯停下来。\n\n"
+                            "外婆走后，我翻手机才知道，有些想留下来的时刻，当时并没有认真接住。很多话拖过那个时候，再说就不对了。\n\n"
+                            "我们总以为以后还有机会。\n\n"
+                            "不是没时间，是总把重要的事往后排。"
+                        ),
+                    }
+                return {
+                    "title": "别把日子过反了",
+                    "body_markdown": (
+                        "# 别把日子过反了\n\n"
+                        "朋友阿杰总说等这个项目结束就休息。后来他躺在病床上才意识到，不是不累，是一直没给自己停下来的机会。\n\n"
+                        "外婆走后，我翻手机才知道，有些想留下来的时刻，当时并没有认真接住。不是不在意，是总把以后想得太宽。\n\n"
+                        "很多事看着都能往后放，可真正先被拖走的，往往是身体和关系。"
+                    ),
+                }
+            return {
+                "title": "别把日子过反了",
+                "body_markdown": "# 别把日子过反了\n\n草稿",
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    tone_profile = workbench.get_active_tone_profile()
+    seeded_body = (
+        "# 别把日子过反了\n\n"
+        "阿杰晕倒之后，才肯承认自己已经很久没有认真休息。\n\n"
+        "外婆走后，我翻手机时才知道，很多平常时刻原来并不会重来。\n\n"
+        "想做的事，别一直往后拖。"
+    )
+    with workbench._get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO drafts (
+                project_slug, outline_version, version, title, body_markdown, word_count,
+                created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "office-burnout-recovery-weekly",
+                1,
+                1,
+                "别把日子过反了",
+                seeded_body,
+                len(seeded_body),
+                workbench._utc_now_iso(),
+                "manual_seed",
+                tone_profile.id,
+                tone_profile.name,
+            ),
+        )
+        connection.commit()
+
+    calls_before_manual_polish = len(fake_generator.calls)
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "降低模板感，但保留原稿结构和案例。"},
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+
+    assert "不是没时间" not in polished["body_markdown"]
+    assert "我们总以为" not in polished["body_markdown"]
+    assert "朋友阿杰总说等这个项目结束就休息" in polished["body_markdown"]
+
+    manual_polish_calls = fake_generator.calls[calls_before_manual_polish:]
+    polish_calls = [
+        call for call in manual_polish_calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) == 3
+    assert "上一次精修后，模板风险还没压够" in str(polish_calls[1][1]["polish_instruction"])
+    assert "最后一轮局部清理" in str(polish_calls[2][1]["polish_instruction"])
+
+
+def test_polish_draft_runs_final_ai_flavor_cleanup_for_moderate_score_small_residue(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction:
+                if "最后一轮局部清理" in instruction:
+                    return {
+                        "title": "别让赌气毁掉关系",
+                        "body_markdown": (
+                            "# 别让赌气毁掉关系\n\n"
+                            "聊天框停在那儿，输入了几行，又删掉。手指悬着，最后只回了个句号，或者干脆把手机扣在桌上，等着对方先来找你。\n\n"
+                            "关系变坏，常常不是从大吵大闹开始。往前倒，往往能看到某次赌气：谁都不愿先服软，谁都想等对方先低头。\n\n"
+                            "你等他来问，他等你自己说。表面上风平浪静，实际每次沉默都在往中间添块砖。后来再看，压垮关系的未必是某件大事，反而常常是这些没说出口的瞬间。\n\n"
+                            "但感情里很多僵住的时刻，真正卡住的，是那口咽不下去的气。你明明想要安慰，开口却成了反话；明明舍不得，转身时偏偏把脚步放得很重。\n\n"
+                            "先耗掉的，往往还是彼此的心。"
+                        ),
+                    }
+                return {
+                    "title": "别让赌气毁掉关系",
+                    "body_markdown": (
+                        "# 别让赌气毁掉关系\n\n"
+                        "很多时候，手指停在输入框上，一下删掉，一遍重写，一个字一个字往回吞。\n\n"
+                        "其实你不是不想说，而是那口气一直卡着，所以一句软话也递不出去。\n\n"
+                        "你等他来问，他等你自己说。然后消息停着，后来沉默也跟着变重。\n\n"
+                        "说到底，真正先累垮的往往还是彼此的心。"
+                    ),
+                }
+            return {
+                "title": "别让赌气毁掉关系",
+                "body_markdown": "# 别让赌气毁掉关系\n\n草稿",
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    tone_profile = workbench.get_active_tone_profile()
+    seeded_body = (
+        "# 别让赌气毁掉关系\n\n"
+        "你等他来问，他等你自己说。\n\n"
+        "赌气最怕的，是谁都不肯先开口。"
+    )
+    with workbench._get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO drafts (
+                project_slug, outline_version, version, title, body_markdown, word_count,
+                created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "office-burnout-recovery-weekly",
+                1,
+                1,
+                "别让赌气毁掉关系",
+                seeded_body,
+                len(seeded_body),
+                workbench._utc_now_iso(),
+                "manual_seed",
+                tone_profile.id,
+                tone_profile.name,
+            ),
+        )
+        connection.commit()
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "降低模板感，但保留原稿结构和案例。"},
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+
+    assert "很多时候" not in polished["body_markdown"]
+    assert "说到底" not in polished["body_markdown"]
+    assert "不是不想说，而是那口气一直卡着" not in polished["body_markdown"]
+
+    polish_calls = [
+        call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) >= 2
+    assert any("最后一轮局部清理" in str(call[1]["polish_instruction"]) for call in polish_calls)
+
+
+def test_polish_draft_retries_when_moderate_not_ab_residue_still_heavy(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction:
+                if "上一次精修后，模板风险还没压够" in instruction:
+                    return {
+                        "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                        "body_markdown": (
+                            "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+                            "看到这里，很多人会先把问题归到“不会沟通”上。可真落到自己身上，真正卡住的，不全是方法。\n\n"
+                            "关系推不动的时候，更常见的是人已经累了，心力先见底。\n\n"
+                            "你会发现，关系卡住时，常常是三件事叠在一起：\n\n"
+                            "✔ 意愿有\n\n"
+                            "✔ 方法也知道\n\n"
+                            "✔ 但没有能量\n\n"
+                            "意愿有，说明她心里还想把这段关系往回带。\n\n"
+                            "方法也知道，说明那些表达和边界的道理她并非没看过。\n\n"
+                            "先补能量，关系才转得动。"
+                        ),
+                    }
+                return {
+                    "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                    "body_markdown": (
+                        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+                        "看到这里，很多人会先把问题归到“不会沟通”上。可真落到自己身上，卡住的往往不是方法有没有学过，而是那口气提不上来。\n\n"
+                        "关系推不动的时候，最常见的不是完全不在乎，而是人已经累得没有多余的心力。\n\n"
+                        "你会发现，关系卡住时，常常是三件事叠在一起：\n\n"
+                        "✔ 意愿有\n\n"
+                        "✔ 方法也知道\n\n"
+                        "✔ 但没有能量\n\n"
+                        "意愿有，意味着你不是不想好。\n\n"
+                        "方法也知道，意味着你不是没学过。\n\n"
+                        "所以，关系里最麻烦的，往往不是没有爱，而是没有余力。不是不想靠近，而是连自己都快顾不上。不是不愿意改变，而是身体和情绪已经长期处在透支里。\n\n"
+                        "这时候最先要补的，常常不是沟通术，而是能量。"
+                    ),
+                }
+            return {
+                "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                "body_markdown": "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n草稿",
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    tone_profile = workbench.get_active_tone_profile()
+    seeded_body = (
+        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+        "你会发现，关系卡住的时候，常常是意愿有、方法也知道、但没有能量。\n\n"
+        "先承认自己很累。"
+    )
+    with workbench._get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO drafts (
+                project_slug, outline_version, version, title, body_markdown, word_count,
+                created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "office-burnout-recovery-weekly",
+                1,
+                1,
+                "关系卡住的本质：意愿有、懂方法、但无能量",
+                seeded_body,
+                len(seeded_body),
+                workbench._utc_now_iso(),
+                "manual_seed",
+                tone_profile.id,
+                tone_profile.name,
+            ),
+        )
+        connection.commit()
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "降低模板感，但保留原稿结构和案例。"},
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+
+    assert "不是没有爱，而是没有余力" not in polished["body_markdown"]
+    assert "不是不想靠近，而是连自己都快顾不上" not in polished["body_markdown"]
+
+    polish_calls = [
+        call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) >= 2
+    assert any("上一次精修后，模板风险还没压够" in str(call[1]["polish_instruction"]) for call in polish_calls)
+
+
+def test_polish_draft_keeps_better_candidate_when_remaining_ai_flavor_retry_is_worse(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction:
+                if "上一次精修后，模板风险还没压够" in instruction:
+                    return {
+                        "title": "别把日子过反了",
+                        "body_markdown": (
+                            "# 别把日子过反了\n\n"
+                            "很多遗憾，回头看都不是小事，而是当时没肯停一下。\n\n"
+                            "阿杰后来才知道，不是工作本身，是那种总把自己往后放的习惯。\n\n"
+                            "我们总以为还来得及。\n\n"
+                            "我们总习惯说等以后。\n\n"
+                            "说到底，最后不是没有惦记，是总觉得来得及。"
+                        ),
+                    }
+                return {
+                    "title": "别把日子过反了",
+                    "body_markdown": (
+                        "# 别把日子过反了\n\n"
+                        "夜里安静下来时，人会重新掂量什么该先顾住。\n\n"
+                        "阿杰在医院醒来时，先摸到的是手背上的针。\n\n"
+                        "不是发狠撑住，而是先让身体喘口气。\n\n"
+                        "从今天开始，别再把最该留给自己的力气往后挪。"
+                    ),
+                }
+            return {
+                "title": "别把日子过反了",
+                "body_markdown": (
+                    "# 别把日子过反了\n\n"
+                    "不是等失去才懂痛，而是很多重要的东西，早就在日常里被慢慢放后了。\n\n"
+                    "阿杰总说等这个项目结束就休息。\n\n"
+                    "外婆突然离世后，我翻遍手机，才发现连一张像样的合照都没有。\n\n"
+                    "从今天开始，别把最重要的东西押给以后。"
+                ),
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    tone_profile = workbench.get_active_tone_profile()
+    seeded_body = (
+        "# 别把日子过反了\n\n"
+        "夜里静下来时，人会重新掂量什么该先顾住。\n\n"
+        "阿杰在医院醒来后，先把手机扣在了床头柜上。\n\n"
+        "外婆走后，我才明白有些日常一旦错过去，就补不回来了。\n\n"
+        "想做的事，别全留给以后。"
+    )
+    with workbench._get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO drafts (
+                project_slug, outline_version, version, title, body_markdown, word_count,
+                created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "office-burnout-recovery-weekly",
+                1,
+                1,
+                "别把日子过反了",
+                seeded_body,
+                len(seeded_body),
+                workbench._utc_now_iso(),
+                "manual_seed",
+                tone_profile.id,
+                tone_profile.name,
+            ),
+        )
+        connection.commit()
+    calls_before_manual_polish = len(fake_generator.calls)
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "降低模板感，但保留原稿结构和案例。"},
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+
+    assert polished["title"] == "别把日子过反了"
+    assert "阿杰在医院醒来时" in polished["body_markdown"]
+    assert "不是工作本身" not in polished["body_markdown"]
+    assert "说到底" not in polished["body_markdown"]
+
+    manual_polish_calls = fake_generator.calls[calls_before_manual_polish:]
+    polish_calls = [
+        call for call in manual_polish_calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) == 3
+    assert "上一次精修后，模板风险还没压够" in str(polish_calls[1][1]["polish_instruction"])
+    assert "最后一轮局部清理" in str(polish_calls[2][1]["polish_instruction"])
+
+
+def test_polish_draft_runs_final_cleanup_for_four_not_ab_only_residue(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction:
+                if "最后一轮局部清理" in instruction:
+                    return {
+                        "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                        "body_markdown": (
+                            "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+                            "很多人以为问题出在不会说。可真卡住的时候，更常见的是人已经累得没有余力。\n\n"
+                            "身体先绷起来，语气就会变硬；话还没出口，防备已经先到了前面。\n\n"
+                            "等能量慢慢接回来，关系才有空间往前走。"
+                        ),
+                    }
+                return {
+                    "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                    "body_markdown": (
+                        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+                        "不是不懂，而是根本没有能量。不是你故意要把话说坏，而是防御比表达跑得更快。"
+                        "不是没有感觉，是已经不想再组织语言。不是坏在某个原则上，而是耗在长期亏空里。"
+                    ),
+                }
+            return {
+                "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                "body_markdown": "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n草稿",
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    tone_profile = workbench.get_active_tone_profile()
+    seeded_body = (
+        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+        "先承认人已经累了，再决定下一步怎么靠近。"
+    )
+    with workbench._get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO drafts (
+                project_slug, outline_version, version, title, body_markdown, word_count,
+                created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "office-burnout-recovery-weekly",
+                1,
+                1,
+                "关系卡住的本质：意愿有、懂方法、但无能量",
+                seeded_body,
+                len(seeded_body),
+                workbench._utc_now_iso(),
+                "manual_seed",
+                tone_profile.id,
+                tone_profile.name,
+            ),
+        )
+        connection.commit()
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "降低模板感，但保留原稿结构和判断路径。"},
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+
+    assert "不是不懂，而是根本没有能量" not in polished["body_markdown"]
+    assert "更常见的是人已经累得没有余力" in polished["body_markdown"]
+
+    polish_calls = [
+        call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) == 2
+    assert "最后一轮局部清理" in str(polish_calls[1][1]["polish_instruction"])
+
+
+def test_polish_draft_runs_second_final_cleanup_when_single_not_ab_residue_remains(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.final_cleanup_calls = 0
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction:
+                if "最后一轮局部清理" in instruction:
+                    self.final_cleanup_calls += 1
+                    if self.final_cleanup_calls == 1:
+                        return {
+                            "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                            "body_markdown": (
+                                "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+                                "午休快结束了，茶水间的微波炉叮了一声。你盯着手机里那条没回完的消息，"
+                                "手指停在输入框上，删了又打，打了又删。\n\n"
+                                "表面看，是回消息慢了，是话题又绕开了，是本来想说软话，出口还是带刺。"
+                                "可真正卡住人的，常常不在句子本身。\n\n"
+                                "关系不是一下坏掉的，是在长期亏空里慢慢失去弹性。"
+                            ),
+                        }
+                    return {
+                        "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                        "body_markdown": (
+                            "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+                            "午休快结束了，茶水间的微波炉叮了一声。你盯着手机里那条没回完的消息，"
+                            "手指停在输入框上，删了又打，打了又删。\n\n"
+                            "表面看，是回消息慢了，是话题又绕开了，是本来想说软话，出口还是带刺。"
+                            "可真正卡住人的，常常不在句子本身。\n\n"
+                            "关系是在长期亏空里，一点点失去弹性。"
+                        ),
+                    }
+                return {
+                    "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                    "body_markdown": (
+                        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+                        "不是不懂，而是根本没有能量。不是表达，而是自保。"
+                        "不是不珍惜关系，是连呼吸都想省着用。不是一下坏掉的，是在长期亏空里慢慢失去弹性。"
+                    ),
+                }
+            return {
+                "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                "body_markdown": "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n草稿",
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    tone_profile = workbench.get_active_tone_profile()
+    seeded_body = (
+        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+        "先承认人已经累了，再决定下一步怎么靠近。"
+    )
+    with workbench._get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO drafts (
+                project_slug, outline_version, version, title, body_markdown, word_count,
+                created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "office-burnout-recovery-weekly",
+                1,
+                1,
+                "关系卡住的本质：意愿有、懂方法、但无能量",
+                seeded_body,
+                len(seeded_body),
+                workbench._utc_now_iso(),
+                "manual_seed",
+                tone_profile.id,
+                tone_profile.name,
+            ),
+        )
+        connection.commit()
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "降低模板感，但保留原稿结构和判断路径。"},
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+
+    assert "关系是在长期亏空里，一点点失去弹性。" in polished["body_markdown"]
+    assert "关系不是一下坏掉的，是在长期亏空里慢慢失去弹性。" not in polished["body_markdown"]
+
+    polish_calls = [
+        call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) == 3
+    assert "最后一轮局部清理" in str(polish_calls[1][1]["polish_instruction"])
+    assert "最后一轮局部清理" in str(polish_calls[2][1]["polish_instruction"])
+
+
+def test_polish_draft_prefers_remaining_retry_when_score_ties_but_residue_drops(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction:
+                if "上一次精修后，模板风险还没压够" in instruction:
+                    return {
+                        "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                        "body_markdown": (
+                            "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+                            "很多人一遇到关系卡住，就先去找沟通方法。可真到自己身上，最先掉线的，常常不是技巧，而是余力。\n\n"
+                            "人累的时候，心会变窄，话也会变硬。你不是没学过，是当下已经没有多余的稳定；不是失望，而是疲惫在前面顶着。\n\n"
+                            "关系推不动时，常见的不是谁彻底不在乎，而是两个人都已经没剩多少缓冲。\n\n"
+                            "意愿还在。\n\n"
+                            "方法也懂。\n\n"
+                            "可人已经快空了。\n\n"
+                            "所以这时候最先要补的，不该只是沟通术，还得先把睡眠、情绪和身体那点底子慢慢接回来。"
+                        ),
+                    }
+                return {
+                    "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                    "body_markdown": (
+                        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+                        "你以为自己缺的是技巧，后来才发现，不是不懂，而是根本没有能量。\n\n"
+                        "很多关系真正难的，不是突然变了心，是之前压下去的委屈、疲惫、防备，慢慢把人拖住了。\n\n"
+                        "关系卡住时，最常见的样子往往是三件事同时存在：\n\n"
+                        "意愿有。\n\n"
+                        "方法也知道。\n\n"
+                        "但人已经空了。\n\n"
+                        "你会发现，很多时候不是判断失灵，而是整个人都在防守；不是你突然变得尖锐，而是神经已经很薄。\n\n"
+                        "这时候最先该补的，常常不是沟通术，而是余力。"
+                    ),
+                }
+            return {
+                "title": "关系卡住的本质：意愿有、懂方法、但无能量",
+                "body_markdown": "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n草稿",
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    tone_profile = workbench.get_active_tone_profile()
+    seeded_body = (
+        "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
+        "你会发现，关系卡住的时候，常常是意愿有、方法也知道、但没有能量。\n\n"
+        "先承认自己很累，再决定下一步怎么靠近。"
+    )
+    with workbench._get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO drafts (
+                project_slug, outline_version, version, title, body_markdown, word_count,
+                created_at, origin, tone_profile_id, tone_profile_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "office-burnout-recovery-weekly",
+                1,
+                1,
+                "关系卡住的本质：意愿有、懂方法、但无能量",
+                seeded_body,
+                len(seeded_body),
+                workbench._utc_now_iso(),
+                "manual_seed",
+                tone_profile.id,
+                tone_profile.name,
+            ),
+        )
+        connection.commit()
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={"instruction": "降低模板感，但保留原稿结构和判断路径。"},
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+
+    assert "不是失望，而是疲惫在前面顶着" in polished["body_markdown"]
+    assert "不是判断失灵，而是整个人都在防守" not in polished["body_markdown"]
+
+    polish_calls = [
+        call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) >= 2
+    assert "上一次精修后，模板风险还没压够" in str(polish_calls[1][1]["polish_instruction"])
 
 
 def test_generate_assets_can_polish_draft_before_generating_assets(monkeypatch) -> None:

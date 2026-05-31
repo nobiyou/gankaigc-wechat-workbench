@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import re
 
 from app.schemas.settings import PromptTemplateSummary
 
@@ -332,7 +333,7 @@ def _build_localized_ai_flavor_risk_instructions() -> str:
     return (
         "按 6 类中文公众号 AI 味风险检查表达："
         "套话风险，避免万能成长句、万能抒情和空泛金句；"
-        "结构模板风险，避免整齐反转、教程分步和标准答案式段落；"
+        "结构模板风险，避免整齐反转、教程分步、总括式泛感慨过渡句和标准答案式段落；"
         "句式节奏风险，避免同一种量词、连接词和判断句反复起手；"
         "抽象空话风险，把感受落到动作、物件、空间、声音和身体反应上；"
         "过度解释风险，不要把每个判断都解释透，允许场景和停顿承载意思；"
@@ -346,9 +347,13 @@ def _build_wechat_public_account_draft_instructions() -> str:
         "允许局部段落更松一点、更口语一点，但整体仍然要干净、可读、适合公众号排版。"
         "多写人是怎么感到累、怎么停一下、怎么把情绪往回压，少写完整方法论和对所有人的通用结论。"
         "不要把每个判断都解释透，留一点空白给读者自己接上。"
+        "不要为了显得成熟顺滑，给每一段都补“很多时候”“说到底”“人总是这样”这类总括过渡句。"
+        "不要系统性在开头第一屏、各小节首段或段落转场前补新的氛围场景；如果原稿不是从场景起笔，就继续沿用原稿已有的判断、人物或案例入口。"
         "避免机械扩写、刻意增肥和整篇统一修辞，不要为了像人写而堆砌“了、的、地、一下、一点、一阵”这类填充。"
         "避免系统性把“和”改成“以及”、“并”改成“并且”、“为了”改成“为了能够”这类生硬替换。"
         "不要把句子润成网文腔、鸡汤腔或文学仿写腔，仍然保持当代中文公众号的自然表达。"
+        "如果原稿主体是议论、感悟或并列展开，不要统一扩写成每段都先铺场景再抒情的散文稿。"
+        "不要把原稿整体磨成统一的成熟公众号成稿腔，允许局部保留更直一点、更硬一点的表达。"
         "专有名词、项目标题、人物关系和核心事实不能改，不能为了润色改掉原本的因果和立场。"
         "如果需要增强原创感，优先更换叙述重心、段落重音和细节抓手，而不是把原句拖长。"
     )
@@ -360,15 +365,140 @@ def _build_polish_protocol() -> str:
         "按 6 类中文公众号 AI 味风险逐项检查原稿。"
         "先删掉万能抒情、整齐反转、教程分步和口号式结尾。"
         "必须重写开头段和结尾段，优先调整段落连接、场景组织和观点推进顺序。"
+        "开头第一屏和每个保留小节的首段，优先沿用原稿已经出现的人物、案例、问题或判断进入，不要另起一段新的泛感慨或氛围描写。"
         "必须改写场景入口段、中段关键推进段和收束段。"
         "先判断原稿哪些段落最像模板话，再优先拆掉这些段落的原顺序重写。"
-        "至少把一个抽象判断段改写成可见场景段，把一个平铺说理段改写成情绪推进段。"
+        "至少把一个抽象判断段改写成更可感知的表达，把一个平铺说理段改写成更自然的情绪推进段。"
         "如果“一点、一下、一个、一种、一件”这类量词起手过密，主动改掉一半以上，不要整篇都靠同一节奏往下写。"
-        "如果原稿一上来就在讲道理，请改成先落画面再带判断。"
+        "如果原稿一上来就在讲道理，优先前置原稿里本来已有的例子、动作或处境；如果原稿没有这些材料，只压缩说理密度，不要额外虚构新场景。"
+        "如果原稿某一节本来直接进入人物案例、直接判断或一组并列例子，就保留这种直入方式，不要先补深夜、房间、工位、窗边这类陌生环境起手。"
         "必要时可以删除过熟的总结句和万能结论，不必把原稿每个判断都保留下来。"
+        "精修优先使用原稿已经出现的事实、人物、关系、例子和论证顺序，不要为了显得自然而额外虚构新人物、新职业、新病症、新城市、新道具或完整新剧情。"
+        "如果原稿本质上是一篇议论文或感悟文，允许增强画面感，但不要整体改写成小说化叙事。"
+        "不要把每个小节都扩成篇幅整齐、节奏相似的场景散文段；议论段可以继续是议论段，只把模板句拆开。"
+        "保留原稿的核心论点结构，不要把原稿中的主线改写成新的主题。"
+        "原稿里已经出现的人物、亲属称谓、关系对象和案例应优先保留并重写表达，不要随意换成新的陌生案例。"
+        "不要为了把段落接顺，额外补“很多时候”“说到底”“人总是这样”“我们总以为”这类泛感慨过渡句。"
+        "如果原稿本来更朴素、更直给，就保留这股劲，不要统一磨成成熟公众号标准成稿。"
         "不要只做同义词替换、语序微调或局部句子抛光，输出结果要像基于原稿重新写出的一版新正文。"
         "优先更换观察角度、细节选择、段落重心和句子节奏，而不是只修饰原句表面。"
         "输出前自查：场景具体度、句式重复度、模板风险、情绪自然度、改写幅度。"
+    )
+
+
+def _build_polish_mode_instructions() -> str:
+    return (
+        "当前任务是基于现有正文精修，不是根据大纲重新生成一篇新稿。"
+        "现有正文是本次改写的唯一正文输入，大纲如果出现，也只用于防止跑题，不是要求你按大纲重写结构。"
+        "如果原稿标题本身成立，优先保留原标题，只在明显模板感过重时做小幅调整，不要改成宽泛的人生感慨标题。"
+        "精修后要保留原稿的文体类型、核心论点顺序、人物关系和主要案例。"
+        "如果原稿是议论/感悟文，就继续写成议论/感悟文；如果原稿是经验文或案例文，就继续保留原有表达重心。"
+        "开头第一屏和各小节首段，要优先保住原稿原本的切入对象，不要为了像人写就统一换成新的深夜、办公室、窗边、路上这类环境起笔。"
+        "如果原稿已经有短小节标题或明显分段，精修后必须保留这些分段职责，不要另起一套新的总分总结构。"
+        "如果原稿中的短小节标题本身成立，请在精修结果中原样保留这些标题，不要改写成新的标题组。"
+        "如果原稿主体是并列展开的三到四个主题段，精修后仍然保持并列展开，不要压成单线抒情散文。"
+        "如果原稿某节原本一上来就是人物案例、直接判断或一组并列例子，精修后也优先从那里进入，不要先垫一层总括感慨。"
+        "优先沿用原稿已经存在的小标题、段落功能和论证顺序，不要额外新开一条更长的叙事线。"
+        "不要因为想显得更完整，就把原稿统一改成总括判断句加解释句的成熟公众号腔。"
+        "如果原稿里有更直、更硬、更不圆滑的句子重心，精修后也要尽量保住，不要全部磨平。"
+        "如果现有正文和大纲存在轻微不一致，以现有正文为准，只要主题没有跑偏即可。"
+    )
+
+
+def _split_markdown_blocks(markdown: str) -> list[str]:
+    return [block.strip() for block in re.split(r"\n\s*\n", markdown) if block.strip()]
+
+
+def _strip_markdown_heading(block: str) -> str:
+    return re.sub(r"^\s{0,3}#{1,6}\s*", "", block.strip())
+
+
+def _looks_like_short_section_heading(block: str) -> bool:
+    raw = _strip_markdown_heading(block).replace("\n", " ").strip()
+    normalized = raw
+    if not normalized:
+        return False
+    candidate = normalized.strip().rstrip("。！？!?；;：:")
+    if not candidate:
+        return False
+    if len(candidate) > 24:
+        return False
+    if re.search(r"[，,]", candidate):
+        return False
+    if re.search(r"[。！？!?；;：:]", candidate):
+        return False
+    if re.match(r"^\d+[.)、]\s*", candidate):
+        return False
+    if raw.endswith(("。", "！", "？", "!", "?", "；", ";", "：", ":")):
+        return candidate.startswith(("别", "不要", "先", "学会", "记得", "关于", "停止", "少", "多", "把"))
+    return True
+
+
+def _extract_first_sentence(block: str, *, max_length: int = 48) -> str:
+    normalized = _strip_markdown_heading(block).replace("\n", " ").strip()
+    if not normalized:
+        return ""
+    parts = re.split(r"[。！？!?；;\n]", normalized, maxsplit=1)
+    sentence = parts[0].strip()
+    if len(sentence) > max_length:
+        return sentence[:max_length].rstrip() + "..."
+    return sentence
+
+
+def _render_polish_structure_anchor_section(current_draft: Mapping[str, object] | None) -> str:
+    if not isinstance(current_draft, Mapping):
+        return ""
+
+    markdown = _as_clean_text(current_draft.get("body_markdown"))
+    if not markdown:
+        return ""
+
+    blocks = _split_markdown_blocks(markdown)
+    if blocks and blocks[0].lstrip().startswith("#"):
+        blocks = blocks[1:]
+
+    lines: list[str] = []
+    draft_title = _as_clean_text(current_draft.get("title"))
+    if draft_title:
+        lines.append(f"原标题锚点：{draft_title}")
+    pending_heading: str | None = None
+    general_count = 0
+
+    for block in blocks:
+        normalized = _strip_markdown_heading(block)
+        if not normalized:
+            continue
+
+        if _looks_like_short_section_heading(normalized):
+            heading = normalized
+            if f"保留小节：{heading}" not in lines:
+                lines.append(f"必须保留小节标题：{heading}")
+            pending_heading = heading
+            continue
+
+        sentence = _extract_first_sentence(normalized)
+        if not sentence:
+            continue
+
+        if pending_heading:
+            lines.append(f"{pending_heading}下必须继续围绕这个原稿锚点推进：{sentence}")
+            pending_heading = None
+            continue
+
+        if general_count < 2:
+            lines.append(f"必须保留的原稿关键句：{sentence}")
+            general_count += 1
+
+        if len(lines) >= 8:
+            break
+
+    if not lines:
+        return ""
+
+    return (
+        "原稿结构锚点（精修后应尽量保留这些顺序与案例，不要求逐字复用）：\n"
+        + "\n".join(lines)
+        + "\n"
     )
 
 
@@ -530,6 +660,13 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     review_comment = _as_clean_text(payload.get("review_comment"))
     polish_instruction = _as_clean_text(payload.get("polish_instruction"))
     current_draft = payload.get("draft")
+    is_polish_mode = bool(polish_instruction and isinstance(current_draft, Mapping))
+    structure_anchor_section = _render_polish_structure_anchor_section(current_draft if is_polish_mode else None)
+    task_brief = (
+        "请基于现有正文做一轮原创增强精修。要求保留原文主线和文体，只重写模板感重、说理过满或口号感明显的段落。"
+        if is_polish_mode
+        else "请把选题和大纲扩写成一篇可直接进入编辑流程的中文初稿。要求有清晰标题、自然分段、具体场景和收束段。"
+    )
 
     review_section = (
         f"\n审核修改意见：{review_comment}\n"
@@ -542,19 +679,26 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         f"当前草稿标题：{current_draft['title']}\n"
         f"当前草稿内容：\n{current_draft['body_markdown']}\n"
         "请基于现有草稿精修，不要偏离原有主题与结构主线。\n"
-        if polish_instruction and isinstance(current_draft, Mapping)
+        if is_polish_mode
         else ""
     )
-    polish_protocol = _build_polish_protocol() if polish_instruction and isinstance(current_draft, Mapping) else ""
+    polish_protocol = _build_polish_protocol() if is_polish_mode else ""
+    polish_mode_instructions = _build_polish_mode_instructions() if is_polish_mode else ""
+    outline_section = (
+        ""
+        if is_polish_mode
+        else f"大纲钩子：{outline['hook']}\n" f"大纲内容：\n{outline['outline_body']}\n"
+    )
     return PromptTemplate(
         instructions=build_stage_instructions(
             role="正文作者",
-            task_brief="请把选题和大纲扩写成一篇可直接进入编辑流程的中文初稿。要求有清晰标题、自然分段、具体场景和收束段。",
+            task_brief=task_brief,
             domain_pack=payload.get("domain_pack"),
         )
         + original_expression_instructions
         + ai_flavor_risk_instructions
         + wechat_public_account_instructions
+        + polish_mode_instructions
         + polish_protocol
         + reference_article_instructions,
         prompt=(
@@ -565,10 +709,10 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             f"{reference_article_section}"
             f"{style_section}"
             f"{target_wording}"
-            f"大纲钩子：{outline['hook']}\n"
-            f"大纲内容：\n{outline['outline_body']}\n"
+            f"{structure_anchor_section}"
             f"{review_section}\n"
             f"{polish_section}\n"
+            f"{outline_section}"
             "返回：\n"
             "1. 标题 title\n"
             "2. 正文 markdown body_markdown"
