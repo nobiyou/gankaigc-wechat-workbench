@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 import html
 import json
 import logging
@@ -29,10 +30,17 @@ from app.schemas.creative_workflow import (
 from app.services.ai_generator import get_default_generator
 from app.services.ai_flavor import (
     build_ai_flavor_polish_instruction,
+    count_short_long_cadence_pairs,
+    count_repeated_paragraph_starter_run,
     evaluate_ai_flavor_risk,
+    extract_explanatory_bridge_paragraphs,
+    extract_bridging_summary_paragraphs,
+    extract_embedded_banner_paragraphs,
     extract_growth_cliches,
     extract_generic_reflective_openers,
+    extract_isolated_quote_paragraphs,
     extract_not_ab_skeletons,
+    extract_short_judgment_paragraphs,
 )
 from app.schemas.projects import (
     AssetItem,
@@ -193,6 +201,110 @@ DEFAULT_TONE_PROFILE = {
     "target_word_count": 1400,
     "default_polish_instruction": "请执行原创增强精修：先拆掉模板化开头和口号式结尾，重写场景入口、中段推进与收束方式，把抽象判断改成可感知的细节与动作，减少“一点、一下、一个、一种”这类重复量词节奏，避免同义替换式改写。",
 }
+
+
+@dataclass(frozen=True)
+class _InitialDraftCandidateResult:
+    title: str
+    body_markdown: str
+    reference_title: str
+    reference_body_markdown: str
+    cleanup_applied: bool
+    cleanup_changed_steps: int
+
+
+def _build_initial_draft_candidate_result(
+    *,
+    title: str,
+    body_markdown: str,
+    source_type: str,
+) -> _InitialDraftCandidateResult:
+    reference_title = title
+    reference_body_markdown = body_markdown
+    current_body = body_markdown
+    changed_steps = 0
+
+    collapsed_body = _collapse_short_judgment_residue(
+        title=title,
+        body_markdown=current_body,
+    )
+    if collapsed_body != current_body:
+        changed_steps += 1
+    current_body = collapsed_body
+
+    if source_type == "tracked_article":
+        for cleanup_fn in (
+            _collapse_time_chain_shell_residue,
+            _collapse_embedded_banner_shell_residue,
+            _collapse_leading_short_long_cadence_residue,
+            _collapse_short_long_cadence_residue,
+            _collapse_over_segmented_shell_residue,
+            _collapse_light_segmented_shell_residue,
+            _soften_structural_ladder_residue,
+            _soften_not_ab_residue,
+            _soften_connector_residue,
+        ):
+            collapsed_body = cleanup_fn(
+                title=title,
+                body_markdown=current_body,
+            )
+            if collapsed_body != current_body:
+                changed_steps += 1
+            current_body = collapsed_body
+
+        stabilized_body, _ = _prefer_less_smoothed_tracked_article_variant(
+            preferred_title=title,
+            preferred_markdown=current_body,
+            fallback_title=reference_title,
+            fallback_markdown=reference_body_markdown,
+        )
+        if stabilized_body == reference_body_markdown:
+            current_body = reference_body_markdown
+            changed_steps = 0
+
+    return _InitialDraftCandidateResult(
+        title=title,
+        body_markdown=current_body,
+        reference_title=reference_title,
+        reference_body_markdown=reference_body_markdown,
+        cleanup_applied=current_body != reference_body_markdown,
+        cleanup_changed_steps=changed_steps,
+    )
+
+
+def _should_prefer_retried_candidate_after_cleanup_preview(
+    *,
+    current_title: str,
+    current_markdown: str,
+    retried_title: str,
+    retried_markdown: str,
+    source_type: str,
+) -> bool:
+    current_candidate = _build_initial_draft_candidate_result(
+        title=current_title,
+        body_markdown=current_markdown,
+        source_type=source_type,
+    )
+    retried_candidate = _build_initial_draft_candidate_result(
+        title=retried_title,
+        body_markdown=retried_markdown,
+        source_type=source_type,
+    )
+    return _should_prefer_retried_ai_flavor_candidate(
+        current_title=current_candidate.title,
+        current_markdown=current_candidate.body_markdown,
+        retried_title=retried_candidate.title,
+        retried_markdown=retried_candidate.body_markdown,
+        current_reference_title=current_candidate.reference_title,
+        current_reference_markdown=current_candidate.reference_body_markdown,
+        retried_reference_title=retried_candidate.reference_title,
+        retried_reference_markdown=retried_candidate.reference_body_markdown,
+        current_cleanup_applied=current_candidate.cleanup_applied,
+        current_cleanup_changed_steps=current_candidate.cleanup_changed_steps,
+        retried_cleanup_applied=retried_candidate.cleanup_applied,
+        retried_cleanup_changed_steps=retried_candidate.cleanup_changed_steps,
+        source_type=source_type,
+    )
 
 
 def _normalize_tracked_article_source_name(source_name: str | None) -> str:
@@ -461,8 +573,13 @@ def _ensure_creative_workflow_schema(connection: sqlite3.Connection) -> None:
             source_mode TEXT NOT NULL,
             raw_goal TEXT NOT NULL,
             clarified_problem TEXT NOT NULL,
+            observed_phenomenon TEXT NOT NULL DEFAULT '',
+            writing_goal TEXT NOT NULL DEFAULT '',
             target_reader_situation TEXT NOT NULL,
             core_conflict TEXT NOT NULL,
+            constraints TEXT NOT NULL DEFAULT '[]',
+            feedback_entry TEXT NOT NULL DEFAULT '',
+            problem_statement_markdown TEXT NOT NULL DEFAULT '',
             unknowns TEXT NOT NULL DEFAULT '[]',
             status TEXT NOT NULL,
             created_at TEXT DEFAULT NULL
@@ -480,8 +597,15 @@ def _ensure_creative_workflow_schema(connection: sqlite3.Connection) -> None:
             point_of_view TEXT NOT NULL,
             conflict_frame TEXT NOT NULL,
             emotional_path TEXT NOT NULL,
+            structure_mode TEXT NOT NULL DEFAULT '',
+            opening_move TEXT NOT NULL DEFAULT '',
+            body_shift TEXT NOT NULL DEFAULT '',
+            ending_move TEXT NOT NULL DEFAULT '',
             expression_constraints TEXT NOT NULL DEFAULT '[]',
+            divergence_axes TEXT NOT NULL DEFAULT '[]',
+            execution_checklist TEXT NOT NULL DEFAULT '[]',
             benchmark_summary TEXT NOT NULL,
+            strategy_markdown TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL,
             created_at TEXT DEFAULT NULL,
             adopted_at TEXT DEFAULT NULL
@@ -504,6 +628,56 @@ def _ensure_creative_workflow_schema(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    problem_brief_columns = _get_table_columns(connection, "problem_briefs")
+    if "observed_phenomenon" not in problem_brief_columns:
+        connection.execute(
+            "ALTER TABLE problem_briefs ADD COLUMN observed_phenomenon TEXT NOT NULL DEFAULT ''"
+        )
+    if "writing_goal" not in problem_brief_columns:
+        connection.execute(
+            "ALTER TABLE problem_briefs ADD COLUMN writing_goal TEXT NOT NULL DEFAULT ''"
+        )
+    if "constraints" not in problem_brief_columns:
+        connection.execute(
+            "ALTER TABLE problem_briefs ADD COLUMN constraints TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "feedback_entry" not in problem_brief_columns:
+        connection.execute(
+            "ALTER TABLE problem_briefs ADD COLUMN feedback_entry TEXT NOT NULL DEFAULT ''"
+        )
+    if "problem_statement_markdown" not in problem_brief_columns:
+        connection.execute(
+            "ALTER TABLE problem_briefs ADD COLUMN problem_statement_markdown TEXT NOT NULL DEFAULT ''"
+        )
+    strategy_card_columns = _get_table_columns(connection, "strategy_cards")
+    if "opening_move" not in strategy_card_columns:
+        connection.execute(
+            "ALTER TABLE strategy_cards ADD COLUMN opening_move TEXT NOT NULL DEFAULT ''"
+        )
+    if "body_shift" not in strategy_card_columns:
+        connection.execute(
+            "ALTER TABLE strategy_cards ADD COLUMN body_shift TEXT NOT NULL DEFAULT ''"
+        )
+    if "ending_move" not in strategy_card_columns:
+        connection.execute(
+            "ALTER TABLE strategy_cards ADD COLUMN ending_move TEXT NOT NULL DEFAULT ''"
+        )
+    if "structure_mode" not in strategy_card_columns:
+        connection.execute(
+            "ALTER TABLE strategy_cards ADD COLUMN structure_mode TEXT NOT NULL DEFAULT ''"
+        )
+    if "divergence_axes" not in strategy_card_columns:
+        connection.execute(
+            "ALTER TABLE strategy_cards ADD COLUMN divergence_axes TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "execution_checklist" not in strategy_card_columns:
+        connection.execute(
+            "ALTER TABLE strategy_cards ADD COLUMN execution_checklist TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "strategy_markdown" not in strategy_card_columns:
+        connection.execute(
+            "ALTER TABLE strategy_cards ADD COLUMN strategy_markdown TEXT NOT NULL DEFAULT ''"
+        )
 
 
 def _ensure_tracked_articles_schema(connection: sqlite3.Connection) -> None:
@@ -2459,9 +2633,11 @@ def list_projects() -> list[ProjectItem]:
                 p.owner,
                 p.preferred_tone_profile_id,
                 p.domain_pack_key,
-                tp.name AS preferred_tone_profile_name
+                tp.name AS preferred_tone_profile_name,
+                t.source_type
             FROM projects p
             LEFT JOIN tone_profiles tp ON tp.id = p.preferred_tone_profile_id
+            JOIN topics t ON t.slug = p.topic_slug
             ORDER BY p.rowid DESC
             """
         ).fetchall()
@@ -2574,9 +2750,11 @@ def _get_project_row(project_slug: str) -> sqlite3.Row:
                 p.owner,
                 p.preferred_tone_profile_id,
                 p.domain_pack_key,
-                tp.name AS preferred_tone_profile_name
+                tp.name AS preferred_tone_profile_name,
+                t.source_type
             FROM projects p
             LEFT JOIN tone_profiles tp ON tp.id = p.preferred_tone_profile_id
+            JOIN topics t ON t.slug = p.topic_slug
             WHERE p.slug = ?
             """,
             (project_slug,),
@@ -2607,6 +2785,7 @@ def _get_project_context(project_slug: str) -> sqlite3.Row:
                 ta.author AS reference_article_author,
                 COALESCE(NULLIF(TRIM(ta.source_name), ''), '手动录入') AS reference_article_source_name,
                 ta.summary AS reference_article_summary,
+                ta.body_markdown AS reference_article_body_markdown,
                 ta.structure_notes AS reference_article_structure_notes,
                 ta.tags AS reference_article_tags,
                 CASE
@@ -2629,11 +2808,18 @@ def _get_project_context(project_slug: str) -> sqlite3.Row:
     return existing
 
 
-def _build_reference_article_payload(project: sqlite3.Row) -> dict[str, object]:
+def _build_reference_article_payload(
+    project: sqlite3.Row,
+    *,
+    hide_details: bool = False,
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "source_type": str(project["source_type"]),
     }
     if str(project["source_type"]) != "tracked_article":
+        return payload
+    if hide_details:
+        payload["reference_article_hidden"] = True
         return payload
 
     tags: list[str] = []
@@ -2652,6 +2838,7 @@ def _build_reference_article_payload(project: sqlite3.Row) -> dict[str, object]:
             "reference_article_author": str(project["reference_article_author"] or ""),
             "reference_article_source_name": str(project["reference_article_source_name"] or "手动录入"),
             "reference_article_summary": str(project["reference_article_summary"] or ""),
+            "reference_article_body_markdown": str(project["reference_article_body_markdown"] or ""),
             "reference_article_structure_notes": str(project["reference_article_structure_notes"] or ""),
             "reference_article_tags": tags,
         }
@@ -2659,9 +2846,23 @@ def _build_reference_article_payload(project: sqlite3.Row) -> dict[str, object]:
     return payload
 
 
+def _build_strategy_bundle_payload(
+    *,
+    problem_brief: ProblemBriefItem | None,
+    strategy_card: StrategyCardItem | None,
+    benchmarks: list[BenchmarkReferenceItem],
+) -> dict[str, object]:
+    return {
+        "problem_brief": problem_brief.model_dump() if problem_brief and strategy_card else None,
+        "strategy_card": strategy_card.model_dump() if strategy_card else None,
+        "benchmarks": [benchmark.model_dump() for benchmark in benchmarks] if strategy_card else None,
+    }
+
+
 def _hydrate_problem_brief_row(row: sqlite3.Row) -> ProblemBriefItem:
     payload = dict(row)
     payload["unknowns"] = json.loads(str(payload["unknowns"]))
+    payload["constraints"] = json.loads(str(payload["constraints"]))
     return ProblemBriefItem(**payload)
 
 
@@ -2672,6 +2873,8 @@ def _hydrate_benchmark_reference_row(row: sqlite3.Row) -> BenchmarkReferenceItem
 def _hydrate_strategy_card_row(row: sqlite3.Row) -> StrategyCardItem:
     payload = dict(row)
     payload["expression_constraints"] = json.loads(str(payload["expression_constraints"]))
+    payload["divergence_axes"] = json.loads(str(payload["divergence_axes"]))
+    payload["execution_checklist"] = json.loads(str(payload["execution_checklist"]))
     return StrategyCardItem(**payload)
 
 
@@ -2684,8 +2887,13 @@ def _get_latest_problem_brief_row(connection: sqlite3.Connection, project_slug: 
             source_mode,
             raw_goal,
             clarified_problem,
+            observed_phenomenon,
+            writing_goal,
             target_reader_situation,
             core_conflict,
+            constraints,
+            feedback_entry,
+            problem_statement_markdown,
             unknowns,
             status,
             created_at
@@ -2711,8 +2919,13 @@ def _get_problem_brief_row_for_version(
             source_mode,
             raw_goal,
             clarified_problem,
+            observed_phenomenon,
+            writing_goal,
             target_reader_situation,
             core_conflict,
+            constraints,
+            feedback_entry,
+            problem_statement_markdown,
             unknowns,
             status,
             created_at
@@ -2736,8 +2949,15 @@ def _get_latest_strategy_card_row(connection: sqlite3.Connection, project_slug: 
             point_of_view,
             conflict_frame,
             emotional_path,
+            structure_mode,
+            opening_move,
+            body_shift,
+            ending_move,
             expression_constraints,
+            divergence_axes,
+            execution_checklist,
             benchmark_summary,
+            strategy_markdown,
             status,
             created_at,
             adopted_at
@@ -2761,8 +2981,15 @@ def _get_adopted_strategy_card_row(connection: sqlite3.Connection, project_slug:
             point_of_view,
             conflict_frame,
             emotional_path,
+            structure_mode,
+            opening_move,
+            body_shift,
+            ending_move,
             expression_constraints,
+            divergence_axes,
+            execution_checklist,
             benchmark_summary,
+            strategy_markdown,
             status,
             created_at,
             adopted_at
@@ -2790,8 +3017,15 @@ def _get_strategy_card_row_by_version(
             point_of_view,
             conflict_frame,
             emotional_path,
+            structure_mode,
+            opening_move,
+            body_shift,
+            ending_move,
             expression_constraints,
+            divergence_axes,
+            execution_checklist,
             benchmark_summary,
+            strategy_markdown,
             status,
             created_at,
             adopted_at
@@ -2966,6 +3200,9 @@ def _get_project_chain_rows(connection: sqlite3.Connection, project_slug: str) -
 def _derive_project_chain_state(
     *,
     stage: str,
+    source_type: str,
+    has_strategy_package: bool,
+    has_adopted_strategy: bool,
     outline_row: sqlite3.Row | None,
     draft_row: sqlite3.Row | None,
     assets_row: sqlite3.Row | None,
@@ -2976,7 +3213,15 @@ def _derive_project_chain_state(
     current_assets_version = int(assets_row["version"]) if assets_row else None
     current_publish_package_version = int(publish_package_row["version"]) if publish_package_row else None
 
-    if not outline_row:
+    if source_type == "tracked_article" and not has_strategy_package:
+        chain_status = "missing"
+        current_chain_state = "missing_strategy"
+        next_required_step = "generate_strategy_package"
+    elif source_type == "tracked_article" and not has_adopted_strategy:
+        chain_status = "stale"
+        current_chain_state = "strategy_ready"
+        next_required_step = None
+    elif not outline_row:
         chain_status = "missing"
         current_chain_state = "missing_outline"
         next_required_step = "generate_outline"
@@ -3021,6 +3266,9 @@ def _derive_project_chain_state(
 def _build_project_item_from_rows(
     project_row: sqlite3.Row,
     *,
+    source_type: str,
+    has_strategy_package: bool,
+    has_adopted_strategy: bool,
     outline_row: sqlite3.Row | None,
     draft_row: sqlite3.Row | None,
     assets_row: sqlite3.Row | None,
@@ -3032,6 +3280,9 @@ def _build_project_item_from_rows(
     payload.update(
         _derive_project_chain_state(
             stage=str(project_row["stage"]),
+            source_type=source_type,
+            has_strategy_package=has_strategy_package,
+            has_adopted_strategy=has_adopted_strategy,
             outline_row=outline_row,
             draft_row=draft_row,
             assets_row=assets_row,
@@ -3042,16 +3293,23 @@ def _build_project_item_from_rows(
 
 
 def _build_project_item(connection: sqlite3.Connection, project_row: sqlite3.Row) -> ProjectItem:
+    project_slug = str(project_row["slug"])
     outline_row, draft_row, assets_row, publish_package_row = _get_project_chain_rows(
-        connection, str(project_row["slug"])
+        connection, project_slug
     )
     retro_row = _get_project_retro_row(
         connection,
-        str(project_row["slug"]),
+        project_slug,
         publish_package_row=publish_package_row,
     )
+    problem_brief, _, strategy_card = _load_project_strategy_bundle(connection, project_slug)
+    has_strategy_package = problem_brief is not None and strategy_card is not None
+    has_adopted_strategy = bool(strategy_card and strategy_card.adopted_at)
     return _build_project_item_from_rows(
         project_row,
+        source_type=str(project_row["source_type"] or "trend"),
+        has_strategy_package=has_strategy_package,
+        has_adopted_strategy=has_adopted_strategy,
         outline_row=outline_row,
         draft_row=draft_row,
         assets_row=assets_row,
@@ -3222,13 +3480,18 @@ def generate_strategy_package(project_slug: str) -> StrategyPackageResult:
                     source_mode,
                     raw_goal,
                     clarified_problem,
+                    observed_phenomenon,
+                    writing_goal,
                     target_reader_situation,
                     core_conflict,
+                    constraints,
+                    feedback_entry,
+                    problem_statement_markdown,
                     unknowns,
                     status,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     package.problem_brief.project_slug,
@@ -3236,8 +3499,13 @@ def generate_strategy_package(project_slug: str) -> StrategyPackageResult:
                     package.problem_brief.source_mode,
                     package.problem_brief.raw_goal,
                     package.problem_brief.clarified_problem,
+                    package.problem_brief.observed_phenomenon,
+                    package.problem_brief.writing_goal,
                     package.problem_brief.target_reader_situation,
                     package.problem_brief.core_conflict,
+                    json.dumps(package.problem_brief.constraints, ensure_ascii=False),
+                    package.problem_brief.feedback_entry,
+                    package.problem_brief.problem_statement_markdown,
                     json.dumps(package.problem_brief.unknowns, ensure_ascii=False),
                     package.problem_brief.status,
                     package.problem_brief.created_at,
@@ -3253,13 +3521,20 @@ def generate_strategy_package(project_slug: str) -> StrategyPackageResult:
                     point_of_view,
                     conflict_frame,
                     emotional_path,
+                    structure_mode,
+                    opening_move,
+                    body_shift,
+                    ending_move,
                     expression_constraints,
+                    divergence_axes,
+                    execution_checklist,
                     benchmark_summary,
+                    strategy_markdown,
                     status,
                     created_at,
                     adopted_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     package.strategy_card.project_slug,
@@ -3269,8 +3544,15 @@ def generate_strategy_package(project_slug: str) -> StrategyPackageResult:
                     package.strategy_card.point_of_view,
                     package.strategy_card.conflict_frame,
                     package.strategy_card.emotional_path,
+                    package.strategy_card.structure_mode,
+                    package.strategy_card.opening_move,
+                    package.strategy_card.body_shift,
+                    package.strategy_card.ending_move,
                     json.dumps(package.strategy_card.expression_constraints, ensure_ascii=False),
+                    json.dumps(package.strategy_card.divergence_axes, ensure_ascii=False),
+                    json.dumps(package.strategy_card.execution_checklist, ensure_ascii=False),
                     package.strategy_card.benchmark_summary,
+                    package.strategy_card.strategy_markdown,
                     package.strategy_card.status,
                     package.strategy_card.created_at,
                     package.strategy_card.adopted_at,
@@ -3367,10 +3649,15 @@ def get_project_detail(project_slug: str) -> ProjectDetail:
             publish_package_row=publish_package_row,
         )
         problem_brief, benchmarks, strategy_card = _load_project_strategy_bundle(connection, project_slug)
+    has_strategy_package = problem_brief is not None and strategy_card is not None
+    has_adopted_strategy = bool(strategy_card and strategy_card.adopted_at)
 
     return ProjectDetail(
         project=_build_project_item_from_rows(
             project_row,
+            source_type=str(project_row["source_type"] or "trend"),
+            has_strategy_package=has_strategy_package,
+            has_adopted_strategy=has_adopted_strategy,
             outline_row=outline_row,
             draft_row=draft_row,
             assets_row=assets_row,
@@ -3470,8 +3757,14 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
                 point_of_view,
                 conflict_frame,
                 emotional_path,
+                opening_move,
+                body_shift,
+                ending_move,
                 expression_constraints,
+                divergence_axes,
+                execution_checklist,
                 benchmark_summary,
+                strategy_markdown,
                 status,
                 created_at,
                 adopted_at
@@ -3496,7 +3789,6 @@ def generate_outline(project_slug: str) -> OutlineItem:
     project = _get_project_context(project_slug)
     tone_profile = get_project_tone_profile(project)
     domain_pack = get_project_domain_pack(project)
-    reference_article_payload = _build_reference_article_payload(project)
     created_at = _utc_now_iso()
     origin = _resolve_version_origin()
     with _get_connection() as connection:
@@ -3505,6 +3797,15 @@ def generate_outline(project_slug: str) -> OutlineItem:
             project_slug,
             adopted_only=True,
         )
+    if str(project["source_type"]) == "tracked_article" and not (problem_brief and strategy_card):
+        raise HTTPException(
+            status_code=409,
+            detail="Tracked article projects require an adopted strategy card before outline generation",
+        )
+    reference_article_payload = _build_reference_article_payload(
+        project,
+        hide_details=str(project["source_type"]) == "tracked_article" and bool(problem_brief and strategy_card),
+    )
     ai_payload: dict[str, object] = {
         "trend_title": project["trend_title"],
         "topic_title": project["topic_title"],
@@ -3647,9 +3948,27 @@ def _generate_draft(
     project = _get_project_context(project_slug)
     tone_profile = get_project_tone_profile(project)
     domain_pack = get_project_domain_pack(project)
-    reference_article_payload = _build_reference_article_payload(project)
     with _get_project_version_lock(project_slug):
         with _get_connection() as connection:
+            problem_brief, benchmarks, strategy_card = _load_project_strategy_bundle(
+                connection,
+                project_slug,
+                adopted_only=True,
+            )
+            if str(project["source_type"]) == "tracked_article" and not (problem_brief and strategy_card):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Tracked article projects require an adopted strategy card before draft generation",
+                )
+            reference_article_payload = _build_reference_article_payload(
+                project,
+                hide_details=str(project["source_type"]) == "tracked_article" and bool(problem_brief and strategy_card),
+            )
+            strategy_bundle_payload = _build_strategy_bundle_payload(
+                problem_brief=problem_brief,
+                strategy_card=strategy_card,
+                benchmarks=benchmarks,
+            )
             outline_row = connection.execute(
                 """
                 SELECT project_slug, version, hook, outline_body, created_at, origin, tone_profile_id, tone_profile_name
@@ -3688,31 +4007,102 @@ def _generate_draft(
                 review_comment=review_comment,
                 polish_instruction=polish_instruction,
             )
-            ai_result = get_ai_generator().generate_draft(
-                {
-                    "trend_title": project["trend_title"],
-                    "topic_title": project["topic_title"],
-                    "topic_angle": project["topic_angle"],
-                    "project_title": project["title"],
-                    "outline": {
-                        "hook": outline_row["hook"],
-                        "outline_body": outline_row["outline_body"],
-                    },
-                    "tone_profile": tone_profile.model_dump(),
-                    "domain_pack": domain_pack,
-                    "review_comment": review_comment,
-                    "polish_instruction": polish_instruction,
-                    "draft": {
-                        "title": latest_draft_row["title"],
-                        "body_markdown": latest_draft_row["body_markdown"],
-                    }
-                    if polish_instruction and latest_draft_row
-                    else None,
-                    **reference_article_payload,
+            generator = get_ai_generator()
+            draft_payload: dict[str, object] = {
+                "trend_title": project["trend_title"],
+                "topic_title": project["topic_title"],
+                "topic_angle": project["topic_angle"],
+                "project_title": project["title"],
+                "outline": {
+                    "hook": outline_row["hook"],
+                    "outline_body": outline_row["outline_body"],
+                },
+                "tone_profile": tone_profile.model_dump(),
+                "domain_pack": domain_pack,
+                "review_comment": review_comment,
+                "polish_instruction": polish_instruction,
+                "draft": {
+                    "title": latest_draft_row["title"],
+                    "body_markdown": latest_draft_row["body_markdown"],
                 }
+                if polish_instruction and latest_draft_row
+                else None,
+                **strategy_bundle_payload,
+                **reference_article_payload,
+            }
+            initial_candidates = _generate_initial_draft_candidates(
+                project=project,
+                generator=generator,
+                draft_payload=draft_payload,
             )
-            title = str(ai_result["title"])
-            body_markdown = str(ai_result["body_markdown"])
+            has_multiple_initial_candidates = len(initial_candidates) > 1
+            title = ""
+            body_markdown = ""
+            best_title = ""
+            best_body_markdown = ""
+            best_reference_title = ""
+            best_reference_body_markdown = ""
+            best_cleanup_applied = False
+            best_cleanup_changed_steps = 0
+            for candidate_title, candidate_body_markdown in initial_candidates:
+                candidate_reference_title = candidate_title
+                candidate_reference_body_markdown = candidate_body_markdown
+                current_title = candidate_title
+                current_body_markdown = candidate_body_markdown
+                current_cleanup_applied = False
+                current_cleanup_changed_steps = 0
+                if not polish_instruction:
+                    finalized_candidate = _finalize_initial_draft_candidate(
+                        project_slug=project_slug,
+                        tone_profile=tone_profile,
+                        project=project,
+                        outline_row=outline_row,
+                        review_comment=review_comment,
+                        reference_article_payload=reference_article_payload,
+                        strategy_bundle_payload=strategy_bundle_payload,
+                        polish_instruction=polish_instruction,
+                        generator=generator,
+                        title=current_title,
+                        body_markdown=current_body_markdown,
+                        skip_nested_compact_polish=has_multiple_initial_candidates,
+                    )
+                    current_title = finalized_candidate.title
+                    current_body_markdown = finalized_candidate.body_markdown
+                    candidate_reference_title = finalized_candidate.reference_title
+                    candidate_reference_body_markdown = finalized_candidate.reference_body_markdown
+                    current_cleanup_applied = finalized_candidate.cleanup_applied
+                    current_cleanup_changed_steps = finalized_candidate.cleanup_changed_steps
+                if not best_title:
+                    best_title = current_title
+                    best_body_markdown = current_body_markdown
+                    best_reference_title = candidate_reference_title
+                    best_reference_body_markdown = candidate_reference_body_markdown
+                    best_cleanup_applied = current_cleanup_applied
+                    best_cleanup_changed_steps = current_cleanup_changed_steps
+                    continue
+                if _should_prefer_retried_ai_flavor_candidate(
+                    current_title=best_title,
+                    current_markdown=best_body_markdown,
+                    retried_title=current_title,
+                    retried_markdown=current_body_markdown,
+                    current_reference_title=best_reference_title,
+                    current_reference_markdown=best_reference_body_markdown,
+                    retried_reference_title=candidate_reference_title,
+                    retried_reference_markdown=candidate_reference_body_markdown,
+                    current_cleanup_applied=best_cleanup_applied,
+                    current_cleanup_changed_steps=best_cleanup_changed_steps,
+                    retried_cleanup_applied=current_cleanup_applied,
+                    retried_cleanup_changed_steps=current_cleanup_changed_steps,
+                    source_type=str(project["source_type"]),
+                ):
+                    best_body_markdown = current_body_markdown
+                    best_title = current_title
+                    best_reference_title = candidate_reference_title
+                    best_reference_body_markdown = candidate_reference_body_markdown
+                    best_cleanup_applied = current_cleanup_applied
+                    best_cleanup_changed_steps = current_cleanup_changed_steps
+            title = best_title
+            body_markdown = best_body_markdown
             if polish_instruction and latest_draft_row:
                 body_markdown, title = _maybe_retry_polish_for_structure_drift(
                     project=project,
@@ -3720,8 +4110,9 @@ def _generate_draft(
                     tone_profile=tone_profile,
                     review_comment=review_comment,
                     polish_instruction=polish_instruction,
+                    strategy_bundle_payload=strategy_bundle_payload,
                     reference_article_payload=reference_article_payload,
-                    generator=get_ai_generator(),
+                    generator=generator,
                     source_draft_title=str(latest_draft_row["title"]),
                     source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
                     candidate_title=title,
@@ -3733,8 +4124,23 @@ def _generate_draft(
                     tone_profile=tone_profile,
                     review_comment=review_comment,
                     polish_instruction=polish_instruction,
+                    strategy_bundle_payload=strategy_bundle_payload,
                     reference_article_payload=reference_article_payload,
-                    generator=get_ai_generator(),
+                    generator=generator,
+                    source_draft_title=str(latest_draft_row["title"]),
+                    source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
+                    candidate_title=title,
+                    candidate_body_markdown=body_markdown,
+                )
+                body_markdown, title = _maybe_retry_polish_for_article_shell_cleanup(
+                    project=project,
+                    outline_row=outline_row,
+                    tone_profile=tone_profile,
+                    review_comment=review_comment,
+                    polish_instruction=polish_instruction,
+                    strategy_bundle_payload=strategy_bundle_payload,
+                    reference_article_payload=reference_article_payload,
+                    generator=generator,
                     source_draft_title=str(latest_draft_row["title"]),
                     source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
                     candidate_title=title,
@@ -3746,8 +4152,9 @@ def _generate_draft(
                     tone_profile=tone_profile,
                     review_comment=review_comment,
                     polish_instruction=polish_instruction,
+                    strategy_bundle_payload=strategy_bundle_payload,
                     reference_article_payload=reference_article_payload,
-                    generator=get_ai_generator(),
+                    generator=generator,
                     source_draft_title=str(latest_draft_row["title"]),
                     source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
                     candidate_title=title,
@@ -3759,44 +4166,31 @@ def _generate_draft(
                     tone_profile=tone_profile,
                     review_comment=review_comment,
                     polish_instruction=polish_instruction,
+                    strategy_bundle_payload=strategy_bundle_payload,
                     reference_article_payload=reference_article_payload,
-                    generator=get_ai_generator(),
+                    generator=generator,
                     source_draft_title=str(latest_draft_row["title"]),
                     source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
                     candidate_title=title,
                     candidate_body_markdown=body_markdown,
                 )
-            body_markdown, title = _maybe_compress_draft_output(
-                project_slug=project_slug,
-                tone_profile=tone_profile,
-                title=title,
-                body_markdown=body_markdown,
-                project=project,
-                outline_row=outline_row,
-                review_comment=review_comment,
-                generator=get_ai_generator(),
-            )
-            body_markdown, title = _maybe_auto_polish_ai_flavor_draft_output(
-                title=title,
-                body_markdown=body_markdown,
-                project=project,
-                outline_row=outline_row,
-                tone_profile=tone_profile,
-                review_comment=review_comment,
-                polish_instruction=polish_instruction,
-                reference_article_payload=reference_article_payload,
-                generator=get_ai_generator(),
-            )
-            body_markdown, title = _maybe_compress_draft_output(
-                project_slug=project_slug,
-                tone_profile=tone_profile,
-                title=title,
-                body_markdown=body_markdown,
-                project=project,
-                outline_row=outline_row,
-                review_comment=review_comment,
-                generator=get_ai_generator(),
-            )
+            if polish_instruction:
+                finalized_candidate = _finalize_initial_draft_candidate(
+                    project_slug=project_slug,
+                    tone_profile=tone_profile,
+                    project=project,
+                    outline_row=outline_row,
+                    review_comment=review_comment,
+                    reference_article_payload=reference_article_payload,
+                    strategy_bundle_payload=strategy_bundle_payload,
+                    polish_instruction=polish_instruction,
+                    generator=generator,
+                    title=title,
+                    body_markdown=body_markdown,
+                    skip_nested_compact_polish=has_multiple_initial_candidates,
+                )
+                body_markdown = finalized_candidate.body_markdown
+                title = finalized_candidate.title
             word_count = len(body_markdown)
             connection.execute(
                 """
@@ -3846,6 +4240,217 @@ def _generate_draft(
     )
 
 
+def _generate_initial_draft_candidates(
+    *,
+    project: sqlite3.Row,
+    generator,
+    draft_payload: dict[str, object],
+) -> list[tuple[str, str]]:
+    is_tracked_article = str(project["source_type"]) == "tracked_article"
+    is_polish_mode = bool(draft_payload.get("polish_instruction"))
+    uses_custom_base_url = bool(getattr(generator, "uses_custom_base_url", False))
+
+    if not is_tracked_article or is_polish_mode or not uses_custom_base_url:
+        initial_result = generator.generate_draft(draft_payload)
+        return [
+            (
+                str(initial_result["title"]),
+                str(initial_result["body_markdown"]),
+            )
+        ]
+
+    compact_payload = dict(draft_payload)
+    compact_payload["compact_strategy_mode"] = True
+
+    compact_result = generator.generate_draft(compact_payload)
+    compact_title = str(compact_result["title"])
+    compact_body_markdown = str(compact_result["body_markdown"])
+    candidates = [(compact_title, compact_body_markdown)]
+
+    compact_summary = evaluate_ai_flavor_risk(
+        title=compact_title,
+        body_markdown=compact_body_markdown,
+    )
+    if compact_summary.level == "低" and compact_summary.score <= 18:
+        if not _looks_like_over_smoothed_tracked_article_candidate(compact_body_markdown):
+            return candidates
+    if _looks_like_tracked_article_fragment_chain_candidate(compact_body_markdown):
+        return candidates
+
+    try:
+        initial_result = generator.generate_draft(draft_payload)
+    except Exception as exc:
+        logger.warning(
+            "Full strategy draft branch failed for project %s: %s",
+            project["slug"],
+            exc,
+        )
+        return candidates
+
+    candidates.append(
+        (
+            str(initial_result["title"]),
+            str(initial_result["body_markdown"]),
+        )
+    )
+    return candidates
+
+
+def _finalize_initial_draft_candidate(
+    *,
+    project_slug: str,
+    tone_profile: ToneProfileItem,
+    project: sqlite3.Row,
+    outline_row: sqlite3.Row,
+    review_comment: str | None,
+    reference_article_payload: dict[str, object],
+    strategy_bundle_payload: dict[str, object],
+    polish_instruction: str | None,
+    generator,
+    title: str,
+    body_markdown: str,
+    skip_nested_compact_polish: bool = False,
+) -> _InitialDraftCandidateResult:
+    def _finish(body: str, current_title: str) -> _InitialDraftCandidateResult:
+        reference_title = current_title
+        reference_body_markdown = body
+        current_body = body
+        changed_steps = 0
+
+        collapsed_body = _collapse_short_judgment_residue(
+            title=current_title,
+            body_markdown=current_body,
+        )
+        if collapsed_body != current_body:
+            changed_steps += 1
+        current_body = collapsed_body
+        if str(project["source_type"]) == "tracked_article":
+            collapsed_body = _collapse_time_chain_shell_residue(
+                title=current_title,
+                body_markdown=current_body,
+            )
+            if collapsed_body != current_body:
+                changed_steps += 1
+            current_body = collapsed_body
+            collapsed_body = _collapse_embedded_banner_shell_residue(
+                title=current_title,
+                body_markdown=current_body,
+            )
+            if collapsed_body != current_body:
+                changed_steps += 1
+            current_body = collapsed_body
+            collapsed_body = _collapse_leading_short_long_cadence_residue(
+                title=current_title,
+                body_markdown=current_body,
+            )
+            if collapsed_body != current_body:
+                changed_steps += 1
+            current_body = collapsed_body
+            collapsed_body = _collapse_short_long_cadence_residue(
+                title=current_title,
+                body_markdown=current_body,
+            )
+            if collapsed_body != current_body:
+                changed_steps += 1
+            current_body = collapsed_body
+            collapsed_body = _collapse_over_segmented_shell_residue(
+                title=current_title,
+                body_markdown=current_body,
+            )
+            if collapsed_body != current_body:
+                changed_steps += 1
+            current_body = collapsed_body
+            collapsed_body = _collapse_light_segmented_shell_residue(
+                title=current_title,
+                body_markdown=current_body,
+            )
+            if collapsed_body != current_body:
+                changed_steps += 1
+            current_body = collapsed_body
+            collapsed_body = _soften_structural_ladder_residue(
+                title=current_title,
+                body_markdown=current_body,
+            )
+            if collapsed_body != current_body:
+                changed_steps += 1
+            current_body = collapsed_body
+            collapsed_body = _soften_not_ab_residue(
+                title=current_title,
+                body_markdown=current_body,
+            )
+            if collapsed_body != current_body:
+                changed_steps += 1
+            current_body = collapsed_body
+            collapsed_body = _soften_connector_residue(
+                title=current_title,
+                body_markdown=current_body,
+            )
+            if collapsed_body != current_body:
+                changed_steps += 1
+            current_body = collapsed_body
+        return _InitialDraftCandidateResult(
+            title=current_title,
+            body_markdown=current_body,
+            reference_title=reference_title,
+            reference_body_markdown=reference_body_markdown,
+            cleanup_applied=current_body != reference_body_markdown,
+            cleanup_changed_steps=changed_steps,
+        )
+
+    compressed_body_markdown, compressed_title = _maybe_compress_draft_output(
+        project_slug=project_slug,
+        tone_profile=tone_profile,
+        title=title,
+        body_markdown=body_markdown,
+        project=project,
+        outline_row=outline_row,
+        review_comment=review_comment,
+        reference_article_payload=reference_article_payload,
+        generator=generator,
+    )
+    try:
+        finalized_body_markdown, finalized_title = _maybe_auto_polish_ai_flavor_draft_output(
+            title=compressed_title,
+            body_markdown=compressed_body_markdown,
+            project=project,
+            outline_row=outline_row,
+            tone_profile=tone_profile,
+            review_comment=review_comment,
+            polish_instruction=polish_instruction,
+            strategy_bundle_payload=strategy_bundle_payload,
+            reference_article_payload=reference_article_payload,
+            generator=generator,
+            skip_nested_compact_polish=skip_nested_compact_polish,
+        )
+        finalized_body_markdown, finalized_title = _maybe_compress_draft_output(
+            project_slug=project_slug,
+            tone_profile=tone_profile,
+            title=finalized_title,
+            body_markdown=finalized_body_markdown,
+            project=project,
+            outline_row=outline_row,
+            review_comment=review_comment,
+            reference_article_payload=reference_article_payload,
+            generator=generator,
+        )
+        if str(project["source_type"]) == "tracked_article":
+            finalized_body_markdown, finalized_title = _prefer_less_smoothed_tracked_article_variant(
+                preferred_title=finalized_title,
+                preferred_markdown=finalized_body_markdown,
+                fallback_title=title,
+                fallback_markdown=body_markdown,
+            )
+        return _finish(finalized_body_markdown, finalized_title)
+    except Exception as exc:
+        logger.warning(
+            "Draft branch finalize failed for project %s with title %s: %s",
+            project_slug,
+            title,
+            exc,
+        )
+        return _finish(compressed_body_markdown, compressed_title)
+
+
 def _maybe_compress_draft_output(
     *,
     project_slug: str,
@@ -3855,6 +4460,7 @@ def _maybe_compress_draft_output(
     project: sqlite3.Row,
     outline_row: sqlite3.Row,
     review_comment: str | None,
+    reference_article_payload: dict[str, object],
     generator,
 ) -> tuple[str, str]:
     target_word_count = tone_profile.target_word_count
@@ -3865,28 +4471,48 @@ def _maybe_compress_draft_output(
     if len(body_markdown) <= max_allowed_length:
         return body_markdown, title
 
-    compressed_result = generator.generate_draft(
-        {
-            "trend_title": project["trend_title"],
-            "topic_title": project["topic_title"],
-            "topic_angle": project["topic_angle"],
-            "project_title": project["title"],
-            "outline": {
-                "hook": outline_row["hook"],
-                "outline_body": outline_row["outline_body"],
-            },
-            "tone_profile": tone_profile.model_dump(),
-            "domain_pack": get_project_domain_pack(project),
-            "review_comment": review_comment,
-            "polish_instruction": "请在不改变核心观点和结构顺序的前提下，压缩这篇草稿，删除重复表达与重复场景，把正文控制回目标字数附近。",
-            "draft": {
-                "title": title,
-                "body_markdown": body_markdown,
-            },
-            **_build_reference_article_payload(project),
-        }
-    )
-    return str(compressed_result["body_markdown"]), str(compressed_result["title"])
+    try:
+        compressed_result = generator.generate_draft(
+            {
+                "trend_title": project["trend_title"],
+                "topic_title": project["topic_title"],
+                "topic_angle": project["topic_angle"],
+                "project_title": project["title"],
+                "outline": {
+                    "hook": outline_row["hook"],
+                    "outline_body": outline_row["outline_body"],
+                },
+                "tone_profile": tone_profile.model_dump(),
+                "domain_pack": get_project_domain_pack(project),
+                "review_comment": review_comment,
+                "polish_instruction": "请在不改变核心观点和结构顺序的前提下，压缩这篇草稿，删除重复表达与重复场景，把正文控制回目标字数附近。",
+                "draft": {
+                    "title": title,
+                    "body_markdown": body_markdown,
+                },
+                **reference_article_payload,
+            }
+        )
+    except Exception as exc:
+        logger.warning(
+            "Draft compression failed for project %s with title %s: %s",
+            project_slug,
+            title,
+            exc,
+        )
+        return body_markdown, title
+
+    compressed_body_markdown = str(compressed_result.get("body_markdown") or "").strip()
+    compressed_title = str(compressed_result.get("title") or "").strip()
+    if not compressed_body_markdown or not compressed_title:
+        logger.warning(
+            "Draft compression returned incomplete output for project %s with title %s",
+            project_slug,
+            title,
+        )
+        return body_markdown, title
+
+    return compressed_body_markdown, compressed_title
 
 
 def _split_markdown_blocks(markdown: str) -> list[str]:
@@ -3983,6 +4609,13 @@ def _find_missing_structure_headings(
     return [heading for heading in source_headings if _normalize_structure_heading_label(heading) not in candidate_headings]
 
 
+def _preserves_structure_headings(*, source_markdown: str, candidate_markdown: str) -> bool:
+    return not _find_missing_structure_headings(
+        source_markdown=source_markdown,
+        candidate_markdown=candidate_markdown,
+    )
+
+
 def _build_structure_retry_instruction(
     *,
     base_instruction: str,
@@ -4027,6 +4660,95 @@ def _find_excessive_generic_reflective_openers(
     return excess[:4]
 
 
+def _looks_like_tracked_article_fragment_chain_candidate(markdown: str) -> bool:
+    summary = evaluate_ai_flavor_risk(title="tracked-fragment-chain-check", body_markdown=markdown)
+    residual_not_ab = extract_not_ab_skeletons(markdown)
+    residual_openers = extract_generic_reflective_openers(markdown)
+    residual_cliches = extract_growth_cliches(markdown)
+    residual_embedded_banners = extract_embedded_banner_paragraphs(markdown)
+    residual_quote_paragraphs = extract_isolated_quote_paragraphs(markdown)
+    residual_explanatory_paragraphs = extract_explanatory_bridge_paragraphs(markdown)
+    residual_short_judgments = extract_short_judgment_paragraphs(markdown)
+    residual_cadence_pairs = count_short_long_cadence_pairs(markdown)
+    bridging_paragraphs = extract_bridging_summary_paragraphs(markdown)
+    time_chain_leads = _count_time_chain_leads(markdown)
+    paragraphs = _extract_non_heading_paragraphs(markdown)
+
+    if len(paragraphs) < 12:
+        return False
+    if summary.score < 50 or summary.score > 80:
+        return False
+    if len(residual_not_ab) > 1 or residual_openers or residual_cliches:
+        return False
+    if residual_embedded_banners or residual_quote_paragraphs or residual_explanatory_paragraphs:
+        return False
+    if len(residual_short_judgments) < 6 or residual_cadence_pairs < 6:
+        return False
+    if len(bridging_paragraphs) < 5:
+        return False
+    if time_chain_leads >= 4:
+        return False
+    if any("命中：单句敲钟段偏多" in hit for hit in summary.hits) and any(
+        "命中：短句敲钟后接长解释的固定节拍" in hit for hit in summary.hits
+    ):
+        return True
+    return False
+
+
+def _looks_like_over_smoothed_tracked_article_candidate(markdown: str) -> bool:
+    paragraphs = _extract_non_heading_paragraphs(markdown)
+    if len(paragraphs) < 10:
+        return False
+
+    short_paragraph_count = sum(
+        1
+        for paragraph in paragraphs
+        if len(re.sub(r"\s+", "", paragraph)) <= 45
+    )
+    if short_paragraph_count > 2:
+        return False
+
+    if _count_time_chain_leads(markdown) > 1:
+        return False
+
+    if extract_not_ab_skeletons(markdown):
+        return False
+
+    if extract_generic_reflective_openers(markdown):
+        return False
+
+    summary = evaluate_ai_flavor_risk(title="tracked-over-smoothed-check", body_markdown=markdown)
+    if summary.score > 18:
+        return False
+
+    return True
+
+
+def _prefer_less_smoothed_tracked_article_variant(
+    *,
+    preferred_title: str,
+    preferred_markdown: str,
+    fallback_title: str,
+    fallback_markdown: str,
+) -> tuple[str, str]:
+    preferred_over_smoothed = _looks_like_over_smoothed_tracked_article_candidate(preferred_markdown)
+    fallback_over_smoothed = _looks_like_over_smoothed_tracked_article_candidate(fallback_markdown)
+    if not preferred_over_smoothed or fallback_over_smoothed:
+        return preferred_markdown, preferred_title
+
+    fallback_summary = evaluate_ai_flavor_risk(
+        title=fallback_title,
+        body_markdown=fallback_markdown,
+    )
+    preferred_summary = evaluate_ai_flavor_risk(
+        title=preferred_title,
+        body_markdown=preferred_markdown,
+    )
+    if fallback_summary.score <= max(26, preferred_summary.score + 12):
+        return fallback_markdown, fallback_title
+    return preferred_markdown, preferred_title
+
+
 def _build_over_smoothing_retry_instruction(
     *,
     base_instruction: str,
@@ -4058,22 +4780,57 @@ def _should_retry_for_remaining_ai_flavor(
     candidate_title: str,
     candidate_markdown: str,
 ) -> bool:
+    if _looks_like_tracked_article_fragment_chain_candidate(candidate_markdown):
+        return False
+
     source_summary = evaluate_ai_flavor_risk(title=source_title, body_markdown=source_markdown)
     candidate_summary = evaluate_ai_flavor_risk(title=candidate_title, body_markdown=candidate_markdown)
     residual_not_ab = extract_not_ab_skeletons(candidate_markdown)
     residual_openers = extract_generic_reflective_openers(candidate_markdown)
     residual_cliches = extract_growth_cliches(candidate_markdown)
+    residual_short_judgments = extract_short_judgment_paragraphs(candidate_markdown)
+    residual_cadence_pairs = count_short_long_cadence_pairs(candidate_markdown)
+    residual_embedded_banners = extract_embedded_banner_paragraphs(candidate_markdown)
+    residual_quote_paragraphs = extract_isolated_quote_paragraphs(candidate_markdown)
+    residual_explanatory_paragraphs = extract_explanatory_bridge_paragraphs(candidate_markdown)
     if candidate_summary.score < 20:
         return False
     if len(candidate_summary.hits) < 2:
-        if not residual_not_ab and len(residual_openers) < 2 and not residual_cliches:
+        if (
+            not residual_not_ab
+            and len(residual_openers) < 2
+            and not residual_cliches
+            and len(residual_short_judgments) < 3
+            and residual_cadence_pairs < 2
+            and len(residual_embedded_banners) < 2
+            and len(residual_quote_paragraphs) < 2
+            and len(residual_explanatory_paragraphs) < 2
+        ):
             return False
     if len(residual_not_ab) >= 4:
+        return True
+    if len(residual_short_judgments) >= 4:
+        return True
+    if residual_cadence_pairs >= 2:
+        return True
+    if len(residual_embedded_banners) >= 2:
+        return True
+    if len(residual_quote_paragraphs) >= 2 or len(residual_explanatory_paragraphs) >= 2:
         return True
     if source_summary.score >= 45:
         return True
     if (residual_not_ab or len(residual_openers) >= 2 or residual_cliches) and (
         candidate_summary.score >= 20 and candidate_summary.score >= source_summary.score + 8
+    ):
+        return True
+    if (
+        len(residual_short_judgments) >= 3
+        or residual_cadence_pairs >= 1
+        or len(residual_embedded_banners) >= 2
+        or len(residual_quote_paragraphs) >= 2
+        or len(residual_explanatory_paragraphs) >= 2
+    ) and (
+        candidate_summary.score >= 20 and candidate_summary.score >= source_summary.score + 6
     ):
         return True
     if candidate_summary.score >= 35 and candidate_summary.score >= source_summary.score + 10:
@@ -4090,7 +4847,32 @@ def _should_retry_for_final_ai_flavor_cleanup(
     residual_not_ab = extract_not_ab_skeletons(candidate_markdown)
     residual_openers = extract_generic_reflective_openers(candidate_markdown)
     residual_cliches = extract_growth_cliches(candidate_markdown)
+    residual_short_judgments = extract_short_judgment_paragraphs(candidate_markdown)
+    residual_cadence_pairs = count_short_long_cadence_pairs(candidate_markdown)
+    residual_embedded_banners = extract_embedded_banner_paragraphs(candidate_markdown)
+    residual_quote_paragraphs = extract_isolated_quote_paragraphs(candidate_markdown)
+    residual_explanatory_paragraphs = extract_explanatory_bridge_paragraphs(candidate_markdown)
+    repeated_quote_paragraphs = len(residual_quote_paragraphs) if len(residual_quote_paragraphs) >= 2 else 0
+    repeated_explanatory_paragraphs = (
+        len(residual_explanatory_paragraphs) if len(residual_explanatory_paragraphs) >= 2 else 0
+    )
     residual_total = len(residual_not_ab) + len(residual_openers) + len(residual_cliches)
+    residual_shape_total = residual_total + repeated_quote_paragraphs + repeated_explanatory_paragraphs
+    connector_only_residue = (
+        residual_shape_total == 0
+        and not residual_short_judgments
+        and residual_cadence_pairs == 0
+        and not residual_embedded_banners
+        and any("解释连接词偏多" in hit for hit in candidate_summary.hits)
+        and candidate_summary.score <= 18
+    )
+    minor_residue_only = (
+        residual_shape_total == 0
+        and len(residual_embedded_banners) == 0
+        and len(residual_short_judgments) <= 2
+        and residual_cadence_pairs <= 2
+        and candidate_summary.score <= 22
+    )
     allow_four_not_ab_only = (
         residual_total == 4
         and len(residual_not_ab) == 4
@@ -4101,15 +4883,1027 @@ def _should_retry_for_final_ai_flavor_cleanup(
 
     if candidate_summary.score > 50:
         return False
-    if residual_total == 0:
+    if connector_only_residue or minor_residue_only:
         return False
-    if residual_total > 3 and not allow_four_not_ab_only:
+    if (
+        residual_shape_total == 0
+        and len(residual_short_judgments) < 2
+        and residual_cadence_pairs == 0
+        and len(residual_embedded_banners) == 0
+    ):
+        return False
+    if residual_shape_total > 3 and not allow_four_not_ab_only:
         return False
     if len(residual_not_ab) > 3 and not allow_four_not_ab_only:
         return False
     if len(residual_openers) > 2 or len(residual_cliches) > 2:
         return False
+    if len(residual_short_judgments) > 4 or residual_cadence_pairs > 2:
+        return False
+    if len(residual_embedded_banners) > 2:
+        return False
+    if repeated_quote_paragraphs > 2 or repeated_explanatory_paragraphs > 2:
+        return False
     return True
+
+
+def _extract_non_heading_paragraphs(markdown: str) -> list[str]:
+    paragraphs: list[str] = []
+    for part in re.split(r"\n\s*\n", markdown):
+        normalized = part.strip()
+        if not normalized or normalized.startswith("#"):
+            continue
+        paragraphs.append(normalized)
+    return paragraphs
+
+
+def _collapse_short_judgment_residue(*, title: str, body_markdown: str) -> str:
+    original_short_paragraphs = extract_short_judgment_paragraphs(body_markdown)
+    if len(original_short_paragraphs) <= 2:
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    def _is_short_judgment_block(block: str) -> bool:
+        normalized = block.strip()
+        return extract_short_judgment_paragraphs(normalized) == [normalized]
+
+    def _short_judgment_count(items: list[str]) -> int:
+        return sum(1 for item in items if _is_short_judgment_block(item))
+
+    short_count = _short_judgment_count(body_blocks)
+    if short_count <= 2:
+        return body_markdown
+
+    changed = False
+    index = len(body_blocks) - 1
+    while short_count > 2 and index >= 0:
+        current_block = body_blocks[index].strip()
+        if not _is_short_judgment_block(current_block):
+            index -= 1
+            continue
+
+        if index == len(body_blocks) - 1 and index > 0:
+            body_blocks[index - 1] = body_blocks[index - 1].rstrip() + current_block
+            del body_blocks[index]
+            changed = True
+        elif index + 1 < len(body_blocks):
+            body_blocks[index] = current_block + body_blocks[index + 1].lstrip()
+            del body_blocks[index + 1]
+            changed = True
+        elif index > 0:
+            body_blocks[index - 1] = body_blocks[index - 1].rstrip() + current_block
+            del body_blocks[index]
+            changed = True
+        else:
+            break
+
+        short_count = _short_judgment_count(body_blocks)
+        index = min(index, len(body_blocks) - 1)
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_blocks = ([heading_block] if heading_block else []) + body_blocks
+    collapsed_markdown = "\n\n".join(rebuilt_blocks)
+    collapsed_short_paragraphs = extract_short_judgment_paragraphs(collapsed_markdown)
+    if len(collapsed_short_paragraphs) >= len(original_short_paragraphs):
+        return body_markdown
+
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    collapsed_summary = evaluate_ai_flavor_risk(title=title, body_markdown=collapsed_markdown)
+    if collapsed_summary.score > original_summary.score:
+        return body_markdown
+
+    return collapsed_markdown
+
+
+def _collapse_time_chain_shell_residue(*, title: str, body_markdown: str) -> str:
+    original_burden = _article_shell_burden(body_markdown)
+    if original_burden[0] < 8 or original_burden[1] < 10 or original_burden[6] < 4:
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    if len(body_blocks) < 3:
+        return body_markdown
+
+    time_chain_prefixes = (
+        "电梯",
+        "楼梯口",
+        "中午",
+        "饭局",
+        "回家路上",
+        "洗完澡",
+        "夜里",
+        "晚上",
+        "周末",
+        "早上",
+    )
+
+    def _compact_len(block: str) -> int:
+        return len(re.sub(r"\s+", "", block.strip()))
+
+    def _is_time_chain_lead(block: str) -> bool:
+        return block.strip().startswith(time_chain_prefixes)
+
+    def _is_ultra_short_single_line(block: str) -> bool:
+        normalized = block.strip()
+        compact = _compact_len(normalized)
+        if not 4 <= compact <= 18:
+            return False
+        return len([item for item in re.split(r"[。！？!?；;\n]", normalized) if item.strip()]) == 1
+
+    changed = False
+
+    index = 1
+    while index < len(body_blocks) - 1:
+        current_block = body_blocks[index].strip()
+        if not _is_ultra_short_single_line(current_block):
+            index += 1
+            continue
+
+        previous_block = body_blocks[index - 1].strip()
+        next_block = body_blocks[index + 1].strip()
+        if _compact_len(previous_block) >= 30 or _compact_len(next_block) >= 30:
+            body_blocks[index - 1] = body_blocks[index - 1].rstrip() + current_block
+            del body_blocks[index]
+            changed = True
+            continue
+        index += 1
+
+    index = 1
+    while index < len(body_blocks):
+        current_block = body_blocks[index].strip()
+        previous_block = body_blocks[index - 1].strip()
+        if (
+            _is_time_chain_lead(current_block)
+            and not _is_time_chain_lead(previous_block)
+            and 10 <= _compact_len(previous_block) <= 54
+            and 35 <= _compact_len(current_block) <= 140
+        ):
+            body_blocks[index - 1] = body_blocks[index - 1].rstrip() + current_block
+            del body_blocks[index]
+            changed = True
+            continue
+        index += 1
+
+    if len(body_blocks) >= 3:
+        tail_block = body_blocks[-1].strip()
+        tail_time_block = body_blocks[-2].strip()
+        tail_anchor_block = body_blocks[-3].strip()
+        if (
+            _is_time_chain_lead(tail_time_block)
+            and _compact_len(tail_time_block) <= 72
+            and _compact_len(tail_block) <= 60
+            and _compact_len(tail_anchor_block) >= 60
+            and not _is_time_chain_lead(tail_anchor_block)
+        ):
+            body_blocks[-3] = tail_anchor_block.rstrip() + tail_time_block + tail_block
+            del body_blocks[-1]
+            del body_blocks[-1]
+            changed = True
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_blocks = ([heading_block] if heading_block else []) + body_blocks
+    collapsed_markdown = "\n\n".join(rebuilt_blocks)
+    collapsed_burden = _article_shell_burden(collapsed_markdown)
+    if (
+        collapsed_burden[0] > original_burden[0]
+        or (collapsed_burden[0] == original_burden[0] and collapsed_burden[1] >= original_burden[1])
+    ):
+        return body_markdown
+
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    collapsed_summary = evaluate_ai_flavor_risk(title=title, body_markdown=collapsed_markdown)
+    if collapsed_summary.score > original_summary.score:
+        return body_markdown
+
+    return collapsed_markdown
+
+
+def _collapse_embedded_banner_shell_residue(*, title: str, body_markdown: str) -> str:
+    original_embedded_banners = extract_embedded_banner_paragraphs(body_markdown)
+    if len(original_embedded_banners) < 3:
+        return body_markdown
+
+    original_burden = _article_shell_burden(body_markdown)
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    if len(body_blocks) < 5:
+        return body_markdown
+
+    def _compact_len(block: str) -> int:
+        return len(re.sub(r"\s+", "", block.strip()))
+
+    changed = False
+    for index, block in enumerate(body_blocks):
+        collapsed_block = _collapse_banner_lead_sentence_block(block)
+        if collapsed_block is None:
+            continue
+        body_blocks[index] = collapsed_block
+        changed = True
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_blocks = ([heading_block] if heading_block else []) + body_blocks
+    collapsed_markdown = "\n\n".join(rebuilt_blocks)
+    collapsed_embedded_banners = extract_embedded_banner_paragraphs(collapsed_markdown)
+    if len(collapsed_embedded_banners) >= len(original_embedded_banners):
+        return body_markdown
+
+    collapsed_burden = _article_shell_burden(collapsed_markdown)
+    if collapsed_burden[0] >= original_burden[0]:
+        return body_markdown
+
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    collapsed_summary = evaluate_ai_flavor_risk(title=title, body_markdown=collapsed_markdown)
+    if collapsed_summary.score > original_summary.score:
+        return body_markdown
+
+    return collapsed_markdown
+
+
+def _collapse_banner_lead_sentence_block(block: str) -> str | None:
+    normalized = block.strip()
+    if not normalized:
+        return None
+
+    hits = extract_embedded_banner_paragraphs(f"# 标题\n\n{normalized}")
+    if not hits:
+        return None
+
+    match = re.match(r"^\s*(.+?[。！？!?；;])\s*(.+)$", normalized, re.S)
+    if not match:
+        return None
+
+    first_sentence = match.group(1).strip()
+    rest = match.group(2).lstrip("，,、 \t\r\n")
+    if first_sentence not in hits or not rest:
+        return None
+
+    first_len = len(re.sub(r"\s+", "", first_sentence.rstrip("。！？!?；;")))
+    rest_len = len(re.sub(r"\s+", "", rest))
+    if first_len > 28 or rest_len < 20:
+        return None
+
+    return first_sentence.rstrip("。！？!?；;") + "，" + rest
+
+
+def _collapse_short_long_cadence_residue(*, title: str, body_markdown: str) -> str:
+    original_pairs = count_short_long_cadence_pairs(body_markdown)
+    if original_pairs < 2:
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    if len(body_blocks) < 3:
+        return body_markdown
+
+    def _compact_len(block: str) -> int:
+        return len(re.sub(r"\s+", "", block.strip()))
+
+    def _is_short_judgment_block(block: str) -> bool:
+        normalized = block.strip()
+        return extract_short_judgment_paragraphs(normalized) == [normalized]
+
+    changed = False
+    index = 1
+    while index < len(body_blocks) - 1:
+        current_block = body_blocks[index].strip()
+        previous_block = body_blocks[index - 1].strip()
+        next_block = body_blocks[index + 1].strip()
+        if not _is_short_judgment_block(current_block):
+            index += 1
+            continue
+        if _compact_len(previous_block) < 60 or _compact_len(next_block) < 60:
+            index += 1
+            continue
+        body_blocks[index - 1] = body_blocks[index - 1].rstrip() + current_block
+        del body_blocks[index]
+        changed = True
+        continue
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_blocks = ([heading_block] if heading_block else []) + body_blocks
+    collapsed_markdown = "\n\n".join(rebuilt_blocks)
+    collapsed_pairs = count_short_long_cadence_pairs(collapsed_markdown)
+    if collapsed_pairs >= original_pairs:
+        return body_markdown
+
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    collapsed_summary = evaluate_ai_flavor_risk(title=title, body_markdown=collapsed_markdown)
+    if collapsed_summary.score > original_summary.score:
+        return body_markdown
+
+    return collapsed_markdown
+
+
+def _collapse_leading_short_long_cadence_residue(*, title: str, body_markdown: str) -> str:
+    original_pairs = count_short_long_cadence_pairs(body_markdown)
+    if original_pairs < 1:
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    if len(body_blocks) < 2:
+        return body_markdown
+
+    def _compact_len(block: str) -> int:
+        return len(re.sub(r"\s+", "", block.strip()))
+
+    first_block = body_blocks[0].strip()
+    second_block = body_blocks[1].strip()
+    if extract_short_judgment_paragraphs(first_block) != [first_block]:
+        return body_markdown
+    if _compact_len(second_block) < 60:
+        return body_markdown
+
+    sentence_match = re.match(r"^\s*(.+?[。！？!?；;])\s*(.+)$", second_block, re.S)
+    if not sentence_match:
+        return body_markdown
+
+    leading_sentence = sentence_match.group(1).strip()
+    remaining_second_block = sentence_match.group(2).strip()
+    if not 8 <= _compact_len(leading_sentence) <= 36:
+        return body_markdown
+    if _compact_len(remaining_second_block) < 40:
+        return body_markdown
+
+    candidate_blocks = body_blocks[:]
+    candidate_blocks[0] = candidate_blocks[0].rstrip() + leading_sentence
+    candidate_blocks[1] = remaining_second_block
+    rebuilt_blocks = ([heading_block] if heading_block else []) + candidate_blocks
+    collapsed_markdown = "\n\n".join(rebuilt_blocks)
+
+    collapsed_pairs = count_short_long_cadence_pairs(collapsed_markdown)
+    if collapsed_pairs >= original_pairs:
+        return body_markdown
+
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    collapsed_summary = evaluate_ai_flavor_risk(title=title, body_markdown=collapsed_markdown)
+    if collapsed_summary.score >= original_summary.score:
+        return body_markdown
+
+    return collapsed_markdown
+
+
+def _collapse_over_segmented_shell_residue(*, title: str, body_markdown: str) -> str:
+    original_burden = _article_shell_burden(body_markdown)
+    if original_burden[0] < 14 or original_burden[1] < 18 or original_burden[5] < 10:
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    if len(body_blocks) < 8:
+        return body_markdown
+
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    current_blocks = body_blocks[:]
+    current_burden = original_burden
+    current_summary = original_summary
+    target_paragraph_count = 15 if original_burden[1] >= 20 else 16
+    max_merges = min(8, max(3, original_burden[1] - target_paragraph_count))
+    changed = False
+
+    hinge_lead_pattern = re.compile(
+        r"^(?:"
+        r"可|但|只是|不过|因为|于是|所以|因此|其实|"
+        r"先别问为什么|这句解释太顺手了|更麻烦的是|麻烦就麻烦在|"
+        r"有时她也会察觉到不对|真正耗人的|这种消耗|这也是为什么|"
+        r"原来不是|后面的事|屋里安静下来以后|能让人往回退半步的|"
+        r"难的地方就在这儿|关系里的缺席|这条线常常就是这么出来的"
+        r")"
+    )
+
+    def _compact_len(block: str) -> int:
+        return len(re.sub(r"\s+", "", block.strip()))
+
+    def _sentence_count(block: str) -> int:
+        return len([item for item in re.split(r"[。！？!?；;\n]", block.strip()) if item.strip()])
+
+    def _first_sentence(block: str) -> str:
+        return re.split(r"[。！？!?；;\n]", block.strip(), maxsplit=1)[0].strip()
+
+    def _is_ultra_short_block(block: str) -> bool:
+        normalized = block.strip()
+        compact = _compact_len(normalized)
+        if not 1 <= compact <= 28:
+            return False
+        if _sentence_count(normalized) > 2:
+            return False
+        return not re.search(r"[：:]", normalized)
+
+    def _is_mergeable_hinge_block(block: str) -> bool:
+        normalized = block.strip()
+        compact = _compact_len(normalized)
+        sentences = _sentence_count(normalized)
+        first_sentence = _first_sentence(normalized)
+        first_sentence_len = _compact_len(first_sentence.rstrip("。！？!?；;"))
+        if _is_ultra_short_block(normalized):
+            return True
+        if compact <= 55 and sentences <= 2:
+            return True
+        if compact <= 120 and sentences <= 3 and hinge_lead_pattern.match(first_sentence):
+            return True
+        if compact <= 170 and sentences <= 6 and first_sentence_len <= 28 and hinge_lead_pattern.match(first_sentence):
+            return True
+        return False
+
+    for _ in range(max_merges):
+        best_candidate: tuple[int, list[str], tuple[int, int, int, int, int, int, int], object] | None = None
+
+        for index, block in enumerate(current_blocks):
+            current_block = block.strip()
+            if not _is_mergeable_hinge_block(current_block):
+                continue
+
+            current_len = _compact_len(current_block)
+            prefers_right = hinge_lead_pattern.match(_first_sentence(current_block)) is not None
+
+            for direction in (-1, 1):
+                neighbor_index = index + direction
+                if neighbor_index < 0 or neighbor_index >= len(current_blocks):
+                    continue
+
+                neighbor_block = current_blocks[neighbor_index].strip()
+                neighbor_len = _compact_len(neighbor_block)
+                if neighbor_len < 40 or current_len + neighbor_len > 300:
+                    continue
+
+                candidate_blocks = current_blocks[:]
+                if direction == -1:
+                    candidate_blocks[index - 1] = candidate_blocks[index - 1].rstrip() + current_block
+                    del candidate_blocks[index]
+                    merged_block = candidate_blocks[index - 1]
+                else:
+                    candidate_blocks[index] = current_block + candidate_blocks[index + 1].lstrip()
+                    del candidate_blocks[index + 1]
+                    merged_block = candidate_blocks[index]
+
+                candidate_markdown = "\n\n".join(([heading_block] if heading_block else []) + candidate_blocks)
+                candidate_burden = _article_shell_burden(candidate_markdown)
+                if candidate_burden[0] > current_burden[0] or candidate_burden[1] >= current_burden[1]:
+                    continue
+
+                candidate_summary = evaluate_ai_flavor_risk(title=title, body_markdown=candidate_markdown)
+                if candidate_summary.score > current_summary.score:
+                    continue
+
+                merged_len = _compact_len(merged_block)
+                value = (current_summary.score - candidate_summary.score) * 1000
+                value += (current_burden[0] - candidate_burden[0]) * 100
+                value += (current_burden[1] - candidate_burden[1]) * 20
+                value += max(0, 24 - abs(merged_len - 170) // 8)
+                if _is_ultra_short_block(current_block):
+                    value += 30
+                if prefers_right and direction == 1:
+                    value += 12
+                if not prefers_right and direction == -1:
+                    value += 6
+                if candidate_burden[1] <= target_paragraph_count:
+                    value += 200
+
+                if best_candidate is None or value > best_candidate[0]:
+                    best_candidate = (value, candidate_blocks, candidate_burden, candidate_summary)
+
+        if best_candidate is None:
+            break
+
+        _, current_blocks, current_burden, current_summary = best_candidate
+        changed = True
+        if current_burden[1] <= target_paragraph_count:
+            break
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_blocks = ([heading_block] if heading_block else []) + current_blocks
+    collapsed_markdown = "\n\n".join(rebuilt_blocks)
+    collapsed_burden = _article_shell_burden(collapsed_markdown)
+    if (
+        collapsed_burden[0] > original_burden[0]
+        or collapsed_burden[1] >= original_burden[1]
+        or collapsed_burden[1] > original_burden[1] - 2
+    ):
+        return body_markdown
+
+    collapsed_summary = evaluate_ai_flavor_risk(title=title, body_markdown=collapsed_markdown)
+    if collapsed_summary.score > original_summary.score:
+        return body_markdown
+
+    return collapsed_markdown
+
+
+def _collapse_light_segmented_shell_residue(*, title: str, body_markdown: str) -> str:
+    original_burden = _article_shell_burden(body_markdown)
+    if original_burden[0] < 5 or original_burden[1] < 12:
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    if len(body_blocks) < 6:
+        return body_markdown
+
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    current_blocks = body_blocks[:]
+    current_burden = original_burden
+    current_summary = original_summary
+    changed = False
+
+    hinge_lead_pattern = re.compile(
+        r"^(?:"
+        r"因为|所以|可是|但|不过|只是|于是|而且|"
+        r"更麻烦的是|真正耗人的|难的地方就在这儿|关系里的缺席|"
+        r"很多人就是从这种地方开始变慢的|因为她还没有倒下|"
+        r"有些代价是延迟出现的|后面的事|屋里安静下来以后|"
+        r"这句话听上去很体谅|原来不是"
+        r")",
+        re.UNICODE,
+    )
+
+    def _compact_len(block: str) -> int:
+        return len(re.sub(r"\s+", "", block.strip()))
+
+    def _sentence_count(block: str) -> int:
+        return len([item for item in re.split(r"[。！？!?；;\n]", block.strip()) if item.strip()])
+
+    def _first_sentence(block: str) -> str:
+        return re.split(r"[。！？!?；;\n]", block.strip(), maxsplit=1)[0].strip()
+
+    def _is_short_judgment_block(block: str) -> bool:
+        normalized = block.strip()
+        return extract_short_judgment_paragraphs(normalized) == [normalized]
+
+    def _is_mergeable_light_hinge(block: str, *, index: int, total: int) -> bool:
+        normalized = block.strip()
+        compact = _compact_len(normalized)
+        if not normalized or compact > 120:
+            return False
+
+        if _is_short_judgment_block(normalized):
+            return True
+
+        if extract_explanatory_bridge_paragraphs(f"# 标题\n\n{normalized}") == [normalized]:
+            return True
+
+        if extract_bridging_summary_paragraphs(f"# 标题\n\n{normalized}") == [normalized]:
+            return True
+
+        sentences = _sentence_count(normalized)
+        if index == total - 1 and compact <= 110 and sentences <= 3:
+            return True
+
+        if compact <= 60 and sentences <= 2:
+            return True
+
+        first_sentence = _first_sentence(normalized)
+        return compact <= 140 and sentences <= 3 and hinge_lead_pattern.match(first_sentence) is not None
+
+    def _is_mergeable_scene_shell(block: str) -> bool:
+        normalized = block.strip()
+        compact = _compact_len(normalized)
+        if not normalized or not 68 <= compact <= 150:
+            return False
+        if _looks_like_structure_heading(normalized):
+            return False
+        if _is_short_judgment_block(normalized):
+            return False
+        if extract_explanatory_bridge_paragraphs(f"# 标题\n\n{normalized}") == [normalized]:
+            return False
+        if extract_bridging_summary_paragraphs(f"# 标题\n\n{normalized}") == [normalized]:
+            return False
+        if extract_embedded_banner_paragraphs(f"# 标题\n\n{normalized}"):
+            return False
+
+        sentences = _sentence_count(normalized)
+        return 2 <= sentences <= 5
+
+    for _ in range(4):
+        best_candidate: tuple[int, list[str], tuple[int, int, int, int, int, int, int], object] | None = None
+
+        for index, block in enumerate(current_blocks):
+            collapsed_block = _collapse_banner_lead_sentence_block(block)
+            if collapsed_block is None or collapsed_block == block:
+                continue
+
+            candidate_blocks = current_blocks[:]
+            candidate_blocks[index] = collapsed_block
+            candidate_markdown = "\n\n".join(([heading_block] if heading_block else []) + candidate_blocks)
+            candidate_burden = _article_shell_burden(candidate_markdown)
+            candidate_summary = evaluate_ai_flavor_risk(title=title, body_markdown=candidate_markdown)
+
+            if candidate_summary.score > current_summary.score:
+                continue
+            if candidate_burden[0] > current_burden[0] or candidate_burden[1] > current_burden[1]:
+                continue
+            if candidate_burden[0] == current_burden[0] and candidate_summary.score == current_summary.score:
+                continue
+
+            value = (current_summary.score - candidate_summary.score) * 1000
+            value += (current_burden[0] - candidate_burden[0]) * 100
+            value += 80
+            if best_candidate is None or value > best_candidate[0]:
+                best_candidate = (value, candidate_blocks, candidate_burden, candidate_summary)
+
+        total_blocks = len(current_blocks)
+        for index, block in enumerate(current_blocks):
+            current_block = block.strip()
+            if not _is_mergeable_light_hinge(current_block, index=index, total=total_blocks):
+                continue
+
+            current_len = _compact_len(current_block)
+            for direction in (-1, 1):
+                neighbor_index = index + direction
+                if neighbor_index < 0 or neighbor_index >= len(current_blocks):
+                    continue
+
+                neighbor_block = current_blocks[neighbor_index].strip()
+                neighbor_len = _compact_len(neighbor_block)
+                if neighbor_len < 35 or current_len + neighbor_len > 320:
+                    continue
+
+                candidate_blocks = current_blocks[:]
+                if direction == -1:
+                    candidate_blocks[index - 1] = candidate_blocks[index - 1].rstrip() + current_block
+                    del candidate_blocks[index]
+                else:
+                    candidate_blocks[index] = current_block + candidate_blocks[index + 1].lstrip()
+                    del candidate_blocks[index + 1]
+
+                candidate_markdown = "\n\n".join(([heading_block] if heading_block else []) + candidate_blocks)
+                candidate_burden = _article_shell_burden(candidate_markdown)
+                candidate_summary = evaluate_ai_flavor_risk(title=title, body_markdown=candidate_markdown)
+
+                if candidate_summary.score > current_summary.score:
+                    continue
+                if candidate_burden[0] > current_burden[0] or candidate_burden[1] >= current_burden[1]:
+                    continue
+
+                value = (current_summary.score - candidate_summary.score) * 1000
+                value += (current_burden[0] - candidate_burden[0]) * 100
+                value += (current_burden[1] - candidate_burden[1]) * 25
+                value += max(0, 18 - abs((current_len + neighbor_len) - 150) // 10)
+                if _is_short_judgment_block(current_block):
+                    value += 30
+                if index == total_blocks - 1:
+                    value += 20
+                if direction == 1 and hinge_lead_pattern.match(_first_sentence(current_block)):
+                    value += 12
+
+                if best_candidate is None or value > best_candidate[0]:
+                    best_candidate = (value, candidate_blocks, candidate_burden, candidate_summary)
+
+        if current_burden[1] >= 14 and current_burden[5] >= 8:
+            for index in range(len(current_blocks) - 1):
+                left_block = current_blocks[index].strip()
+                right_block = current_blocks[index + 1].strip()
+                if not _is_mergeable_scene_shell(left_block) or not _is_mergeable_scene_shell(right_block):
+                    continue
+
+                left_len = _compact_len(left_block)
+                right_len = _compact_len(right_block)
+                combined_len = left_len + right_len
+                if combined_len < 135 or combined_len > 255:
+                    continue
+
+                candidate_blocks = current_blocks[:]
+                candidate_blocks[index] = candidate_blocks[index].rstrip() + current_blocks[index + 1].lstrip()
+                del candidate_blocks[index + 1]
+
+                candidate_markdown = "\n\n".join(([heading_block] if heading_block else []) + candidate_blocks)
+                candidate_burden = _article_shell_burden(candidate_markdown)
+                candidate_summary = evaluate_ai_flavor_risk(title=title, body_markdown=candidate_markdown)
+
+                if candidate_summary.score > current_summary.score:
+                    continue
+                if candidate_burden[0] > current_burden[0] or candidate_burden[1] >= current_burden[1]:
+                    continue
+
+                value = (current_summary.score - candidate_summary.score) * 1000
+                value += (current_burden[0] - candidate_burden[0]) * 100
+                value += (current_burden[1] - candidate_burden[1]) * 35
+                value += max(0, 24 - abs(combined_len - 195) // 8)
+                if candidate_burden[5] < current_burden[5]:
+                    value += 40
+                if index <= 1:
+                    value += 8
+
+                if best_candidate is None or value > best_candidate[0]:
+                    best_candidate = (value, candidate_blocks, candidate_burden, candidate_summary)
+
+        if best_candidate is None:
+            break
+
+        _, current_blocks, current_burden, current_summary = best_candidate
+        changed = True
+        if current_burden[1] <= 12:
+            break
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_blocks = ([heading_block] if heading_block else []) + current_blocks
+    collapsed_markdown = "\n\n".join(rebuilt_blocks)
+    collapsed_burden = _article_shell_burden(collapsed_markdown)
+    collapsed_summary = evaluate_ai_flavor_risk(title=title, body_markdown=collapsed_markdown)
+    if collapsed_summary.score > original_summary.score:
+        return body_markdown
+    if collapsed_burden[0] >= original_burden[0] or collapsed_burden[1] >= original_burden[1]:
+        return body_markdown
+
+    return collapsed_markdown
+
+
+def _soften_structural_ladder_residue(*, title: str, body_markdown: str) -> str:
+    pattern = re.compile(
+        r"先是([^。！？!?；;\n]{1,80})。后来([^。！？!?；;\n]{1,80})。再后来[，,、]?([^。！？!?；;\n]{1,80})。",
+        re.UNICODE,
+    )
+    if not pattern.search(body_markdown):
+        return body_markdown
+
+    softened_markdown = pattern.sub(
+        lambda match: f"先是{match.group(1).strip()}，接着{match.group(2).strip()}，最后{match.group(3).strip()}。",
+        body_markdown,
+    )
+    if softened_markdown == body_markdown:
+        return body_markdown
+
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    softened_summary = evaluate_ai_flavor_risk(title=title, body_markdown=softened_markdown)
+    if softened_summary.score > original_summary.score:
+        return body_markdown
+
+    return softened_markdown
+
+
+def _soften_not_ab_residue(*, title: str, body_markdown: str) -> str:
+    original_not_ab = extract_not_ab_skeletons(body_markdown)
+    if not original_not_ab or len(original_not_ab) > 3:
+        return body_markdown
+
+    pattern = re.compile(r"不是([^，。；\n]{1,20})[，,、]?\s*而?是([^，。；\n]{1,30})", re.UNICODE)
+    if not pattern.search(body_markdown):
+        return body_markdown
+
+    softened_markdown = pattern.sub(
+        lambda match: f"与其说是{match.group(1).strip()}，不如说是{match.group(2).strip()}",
+        body_markdown,
+    )
+    if softened_markdown == body_markdown:
+        return body_markdown
+
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    softened_summary = evaluate_ai_flavor_risk(title=title, body_markdown=softened_markdown)
+    if softened_summary.score > original_summary.score:
+        return body_markdown
+
+    return softened_markdown
+
+
+def _soften_connector_residue(*, title: str, body_markdown: str) -> str:
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    if original_summary.score > 18:
+        return body_markdown
+    if len(original_summary.hits) != 1:
+        return body_markdown
+    if not any("解释连接词偏多" in hit for hit in original_summary.hits):
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    if not body_blocks:
+        return body_markdown
+
+    def _strip_clause_connector(block: str, connector: str) -> str:
+        return re.sub(
+            rf"(^|[。！？!?；;，,、])\s*{re.escape(connector)}",
+            lambda match: match.group(1),
+            block,
+        )
+
+    changed = False
+    softened_blocks: list[str] = []
+    for block in body_blocks:
+        softened_block = block
+        for connector in ("其实", "所以", "因此", "然后", "换句话说", "也就是说", "比如"):
+            softened_block = _strip_clause_connector(softened_block, connector)
+        softened_block = re.sub(
+            r"(^|[。！？!?；;，,、])\s*最后(?=还是)",
+            lambda match: f"{match.group(1)}到头来",
+            softened_block,
+        )
+        softened_block = re.sub(r"([。！？!?；;，,、])\s+", r"\1", softened_block)
+        softened_block = softened_block.strip()
+        if softened_block != block:
+            changed = True
+        softened_blocks.append(softened_block)
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_blocks = ([heading_block] if heading_block else []) + softened_blocks
+    softened_markdown = "\n\n".join(rebuilt_blocks)
+    softened_summary = evaluate_ai_flavor_risk(title=title, body_markdown=softened_markdown)
+    if softened_summary.score >= original_summary.score:
+        return body_markdown
+
+    return softened_markdown
+
+
+def _count_time_chain_leads(markdown: str) -> int:
+    time_chain_prefixes = (
+        "电梯",
+        "楼梯口",
+        "中午",
+        "饭局",
+        "回家路上",
+        "洗完澡",
+        "夜里",
+        "晚上",
+        "周末",
+        "早上",
+    )
+    count = 0
+    for paragraph in _extract_non_heading_paragraphs(markdown):
+        normalized = paragraph.strip()
+        if not normalized:
+            continue
+        if normalized.startswith(time_chain_prefixes):
+            count += 1
+    return count
+
+
+def _article_shell_burden(markdown: str) -> tuple[int, int, int, int, int, int, int]:
+    paragraphs = _extract_non_heading_paragraphs(markdown)
+    paragraph_count = len(paragraphs)
+    announcing_count = len(extract_bridging_summary_paragraphs(markdown)) + len(
+        extract_embedded_banner_paragraphs(markdown)
+    )
+    repeated_run = count_repeated_paragraph_starter_run(markdown)[1]
+    generic_openers = len(extract_generic_reflective_openers(markdown))
+    medium_paragraphs = sum(1 for paragraph in paragraphs if 70 <= len(re.sub(r"\s+", "", paragraph)) <= 220)
+    time_chain_leads = _count_time_chain_leads(markdown)
+    shell_like_blocks = medium_paragraphs if paragraph_count and medium_paragraphs / paragraph_count >= 0.7 else 0
+    burden = (
+        announcing_count * 3
+        + max(0, repeated_run - 2) * 2
+        + max(0, generic_openers - 1) * 2
+        + max(0, paragraph_count - 8)
+        + max(0, time_chain_leads - 2) * 2
+        + (2 if shell_like_blocks else 0)
+    )
+    return (
+        burden,
+        paragraph_count,
+        announcing_count,
+        repeated_run,
+        generic_openers,
+        shell_like_blocks,
+        time_chain_leads,
+    )
+
+
+def _should_retry_for_article_shell_cleanup(
+    *,
+    source_markdown: str,
+    candidate_title: str,
+    candidate_markdown: str,
+) -> bool:
+    if _looks_like_over_smoothed_tracked_article_candidate(candidate_markdown):
+        return True
+
+    candidate_summary = evaluate_ai_flavor_risk(title=candidate_title, body_markdown=candidate_markdown)
+    source_paragraphs = _extract_non_heading_paragraphs(source_markdown)
+    candidate_paragraphs = _extract_non_heading_paragraphs(candidate_markdown)
+    if len(candidate_paragraphs) < 7:
+        return False
+
+    bridging_count = len(extract_bridging_summary_paragraphs(candidate_markdown))
+    embedded_banner_count = len(extract_embedded_banner_paragraphs(candidate_markdown))
+    repeated_run = count_repeated_paragraph_starter_run(candidate_markdown)[1]
+    generic_openers = len(extract_generic_reflective_openers(candidate_markdown))
+    burden, paragraph_count, _, _, _, shell_like_blocks, time_chain_leads = _article_shell_burden(candidate_markdown)
+    source_heading_count = len(_extract_structure_headings(source_markdown))
+    source_paragraph_count = len(source_paragraphs)
+    shell_layout_hits = [
+        hit
+        for hit in candidate_summary.hits
+        if "时间节点串珠式单线推进" in hit or "中长段匀速排布" in hit
+    ]
+    has_shell_signal = bool(
+        shell_layout_hits
+        or bridging_count >= 1
+        or embedded_banner_count >= 1
+        or repeated_run >= 3
+        or generic_openers >= 1
+        or time_chain_leads >= 4
+        or candidate_summary.score >= 10
+    )
+
+    if candidate_summary.score > 24 and not shell_layout_hits:
+        return False
+    if paragraph_count > 14 and not (
+        time_chain_leads >= 4
+        or bridging_count >= 2
+        or (shell_like_blocks and burden >= 12 and has_shell_signal)
+        or (paragraph_count >= source_paragraph_count + 4 and burden >= 12 and has_shell_signal)
+    ):
+        return False
+    if (
+        source_heading_count >= 2
+        and paragraph_count <= source_paragraph_count - 1
+        and time_chain_leads >= 4
+        and shell_like_blocks
+    ):
+        return True
+    if paragraph_count >= max(9, len(source_paragraphs) + 2) and shell_like_blocks and has_shell_signal:
+        return True
+    if bridging_count >= 1 and paragraph_count >= 8:
+        return True
+    if repeated_run >= 3 and generic_openers >= 1 and paragraph_count >= 8:
+        return True
+    if source_heading_count >= 2 and paragraph_count >= 8 and time_chain_leads >= 5:
+        return True
+    return burden >= 6 and paragraph_count >= 8 and has_shell_signal
 
 
 def _format_retry_examples(examples: list[str], *, max_items: int = 3, max_length: int = 36) -> list[str]:
@@ -4156,6 +5950,40 @@ def _build_remaining_ai_flavor_retry_instruction(
     if residual_cliches:
         retry_notes.append(f"这些套话不要再保留：{' / '.join(residual_cliches)}。")
 
+    residual_short_judgments = _format_retry_examples(extract_short_judgment_paragraphs(candidate_markdown), max_items=4, max_length=18)
+    if residual_short_judgments:
+        retry_notes.append(f"这些独立短判断段要处理掉或并回前后段：{' / '.join(residual_short_judgments)}。")
+
+    residual_cadence_pairs = count_short_long_cadence_pairs(candidate_markdown)
+    if residual_cadence_pairs >= 2:
+        retry_notes.append("这次必须打散“短句点一下，下一段再长解释”的固定节拍，不要继续一短一长轮着写。")
+
+    residual_embedded_banners = _format_retry_examples(
+        extract_embedded_banner_paragraphs(candidate_markdown),
+        max_items=4,
+        max_length=22,
+    )
+    if residual_embedded_banners:
+        retry_notes.append(f"这些先总括再展开的长段起手要拆掉：{' / '.join(residual_embedded_banners)}。")
+
+    residual_quote_paragraphs_raw = extract_isolated_quote_paragraphs(candidate_markdown)
+    residual_quote_paragraphs = _format_retry_examples(
+        residual_quote_paragraphs_raw,
+        max_items=3,
+        max_length=20,
+    )
+    if len(residual_quote_paragraphs_raw) >= 2 and residual_quote_paragraphs:
+        retry_notes.append(f"这些独立引语段不要再单独站出来：{' / '.join(residual_quote_paragraphs)}。")
+
+    residual_explanatory_paragraphs_raw = extract_explanatory_bridge_paragraphs(candidate_markdown)
+    residual_explanatory_paragraphs = _format_retry_examples(
+        residual_explanatory_paragraphs_raw,
+        max_items=3,
+        max_length=22,
+    )
+    if len(residual_explanatory_paragraphs_raw) >= 2 and residual_explanatory_paragraphs:
+        retry_notes.append(f"这些独立解释段要并回过程里：{' / '.join(residual_explanatory_paragraphs)}。")
+
     heading_anchors = _extract_structure_heading_anchors(source_markdown)
     if heading_anchors:
         retry_notes.append(
@@ -4168,6 +5996,10 @@ def _build_remaining_ai_flavor_retry_instruction(
     retry_notes.append("不要把开头第一屏和各小节首段统一扩成新的氛围场景或散文式环境描写，优先沿用原稿已有的人物、案例、判断或并列例子起笔。")
     retry_notes.append("如果原稿本来是议论推进或并列展开，就继续保留这种推进方式，不要每一节都先铺场景再总结。")
     retry_notes.append("分析型或并列展开的段落，宁可直接写状态、动作后果、身体反应和关系变化，也不要再用新的“不是……而是……”对照句补解释。")
+    retry_notes.append("如果某个短段只是为了敲一下、点一下、提醒一下，优先并回相邻段落，不要再把这类短段写成固定节拍。")
+    retry_notes.append("不要把一句消息、对话、短信或引用写成反复出现的展示段；如果全文只留一处且确实承担现场感，可以保留。")
+    retry_notes.append("不要把“解释也来得很快：……”这类独立解释短段写成固定排版习惯；如果全文只留一处且确实承担心理跳转，可以保留。")
+    retry_notes.append("至少留一段只停在观察、动作、关系变化或身体反应上，不必每段都补齐完整判断。")
     retry_notes.append("这轮改完以后，全文不要新增任何新的“不是……而是/是……”骨架；上面点名的残留句要逐句拆掉，而不是换个近义词继续保留结构。")
     retry_notes.append("不要只把句子改顺，要把还带统一解释腔的段落真正重写。")
     return base_instruction.strip() + " " + "".join(retry_notes)
@@ -4198,6 +6030,40 @@ def _build_final_ai_flavor_cleanup_instruction(
     if residual_cliches:
         retry_notes.append(f"把这些残留套话改掉：{' / '.join(residual_cliches)}。")
 
+    residual_short_judgments = _format_retry_examples(extract_short_judgment_paragraphs(candidate_markdown), max_items=4, max_length=18)
+    if residual_short_judgments:
+        retry_notes.append(f"把这些独立短判断段并回相邻段落或改成更具体的句子：{' / '.join(residual_short_judgments)}。")
+
+    residual_cadence_pairs = count_short_long_cadence_pairs(candidate_markdown)
+    if residual_cadence_pairs >= 1:
+        retry_notes.append("如果这里还保留着“短句点一下，下一段长解释”的节拍，就打散至少一处，不要再维持一短一长的固定轮换。")
+
+    residual_embedded_banners = _format_retry_examples(
+        extract_embedded_banner_paragraphs(candidate_markdown),
+        max_items=3,
+        max_length=22,
+    )
+    if residual_embedded_banners:
+        retry_notes.append(f"把这些长段前置总括句并回过程里，不要保留在段首：{' / '.join(residual_embedded_banners)}。")
+
+    residual_quote_paragraphs_raw = extract_isolated_quote_paragraphs(candidate_markdown)
+    residual_quote_paragraphs = _format_retry_examples(
+        residual_quote_paragraphs_raw,
+        max_items=3,
+        max_length=20,
+    )
+    if len(residual_quote_paragraphs_raw) >= 2 and residual_quote_paragraphs:
+        retry_notes.append(f"把这些独立引语段并回前后动作和反应里：{' / '.join(residual_quote_paragraphs)}。")
+
+    residual_explanatory_paragraphs_raw = extract_explanatory_bridge_paragraphs(candidate_markdown)
+    residual_explanatory_paragraphs = _format_retry_examples(
+        residual_explanatory_paragraphs_raw,
+        max_items=3,
+        max_length=22,
+    )
+    if len(residual_explanatory_paragraphs_raw) >= 2 and residual_explanatory_paragraphs:
+        retry_notes.append(f"把这些独立解释段并回过程里：{' / '.join(residual_explanatory_paragraphs)}。")
+
     if any("解释连接词偏多" in hit for hit in candidate_summary.hits):
         retry_notes.append("如果这几句里还在靠“比如 / 其实 / 所以 / 然后 / 也就是说”这类词硬接，就删掉部分解释连接词，让动作、停顿和前后句直接接上。")
 
@@ -4214,8 +6080,230 @@ def _build_final_ai_flavor_cleanup_instruction(
 
     retry_notes.append("不要新增新的环境描写、人物、病症、道具、支线或总结段。")
     retry_notes.append("如果需要改句，优先把判断改成当前段落里已经存在的动作、处境、顺序或关系，不要补新的总括句。")
+    retry_notes.append("不要把一句消息、对话、短信或引用写成反复出现的展示段，也不要把独立解释短段写成固定排版习惯。")
     retry_notes.append("清理完之后，不要再保留新的“不是……而是/是……”骨架，也不要补新的“我们总以为”“很多时候”“说到底”起手。")
     return base_instruction.strip() + " " + "".join(retry_notes)
+
+
+def _build_article_shell_retry_instruction(
+    *,
+    base_instruction: str,
+    source_markdown: str,
+    candidate_markdown: str,
+) -> str:
+    paragraph_count = len(_extract_non_heading_paragraphs(candidate_markdown))
+    bridging_examples = _format_retry_examples(extract_bridging_summary_paragraphs(candidate_markdown), max_items=3, max_length=20)
+    embedded_banner_examples = _format_retry_examples(
+        extract_embedded_banner_paragraphs(candidate_markdown),
+        max_items=3,
+        max_length=20,
+    )
+    generic_openers = _format_retry_examples(extract_generic_reflective_openers(candidate_markdown), max_items=3, max_length=12)
+    repeated_starter, repeated_run = count_repeated_paragraph_starter_run(candidate_markdown)
+
+    retry_notes = [
+        "这版已经不像原文了，但还像一篇打磨过头的完整公众号成稿，整体太匀、太整齐、太像每段只负责一个职责的成品文。",
+        "这次不要只改句子，要直接拆掉这种成稿骨架。",
+        f"当前正文大约有 {paragraph_count} 个自然段；如果它们被切得太均匀，请主动压成 6 到 8 个更长、更自然的段落。",
+        "不要把全文排成“现象段 -> 解释段 -> 总结段”轮换，也不要每段只完成一个单一职责。",
+        "每个段落里允许同时出现现象、动作、局部解释和后续影响，不必把判断单独拎出来宣布。",
+        "如果策略要求碎片回环，就不要把多个现实接口顺着时间缝成一个人从早到晚一路推进的完整日程线。",
+        "不要让电梯、楼梯、午休、饭局、回家、洗澡、深夜这些节点按时间表整齐排队；至少打断一处，改成回看、插入或接口回环。",
+        "前两段先钉一个可观察现象和真正卡住的冲突，不要提前回答整篇题眼，也不要一上来就把道理讲完。",
+        "至少留一处还没完全说透的观察，不要让每段都像已经被审校过的标准答案。",
+        "不要花很多篇幅包装一个已经说过的判断；如果一句话已经成立，后面就继续推进，不要反复换说法证明它。",
+        "如果某些段落只是为了宣布、包装、解释或收束观点，优先删掉或并回前后过程，而不是保留整段。",
+        "如果正文已经切成很多整齐小段，宁可合并段落，也不要保留一屏一结论的均匀排布。",
+    ]
+
+    if bridging_examples:
+        retry_notes.append(f"这些负责宣布观点的段落优先删掉或并回过程：{' / '.join(bridging_examples)}。")
+    if embedded_banner_examples:
+        retry_notes.append(f"这些长段开头先总括再解释的句子也要拆掉：{' / '.join(embedded_banner_examples)}。")
+    if generic_openers:
+        retry_notes.append(f"这些总括起手先不要再补：{' / '.join(generic_openers)}。")
+    if repeated_starter and repeated_run >= 3:
+        retry_notes.append(
+            f"目前有连续同主语起段（{repeated_starter} x{repeated_run}），至少打散一半，让动作、物件、时间节点或环境先打开句子。"
+        )
+
+    heading_anchors = _extract_structure_heading_anchors(source_markdown)
+    if heading_anchors:
+        retry_notes.append(
+            "原稿锚点仍然以这些为准："
+            + "；".join(f"{heading} -> {anchor}" for heading, anchor in heading_anchors[:4])
+            + "。"
+        )
+
+    retry_notes.append("保留原稿已有事实、人物、关系和案例，不要新增陌生人物、病症、城市、职业、支线或寓言化场景。")
+    retry_notes.append("如果原稿本质是议论、感悟或并列展开，就继续按这个体裁重写，不要统一转成小说化散文。")
+    retry_notes.append("重写后仍然只返回标题和正文，不要解释你做了什么。")
+    return base_instruction.strip() + " " + "".join(retry_notes)
+
+
+def _should_prefer_retried_ai_flavor_candidate(
+    *,
+    current_title: str,
+    current_markdown: str,
+    retried_title: str,
+    retried_markdown: str,
+    current_reference_title: str | None = None,
+    current_reference_markdown: str | None = None,
+    retried_reference_title: str | None = None,
+    retried_reference_markdown: str | None = None,
+    current_cleanup_applied: bool | None = None,
+    current_cleanup_changed_steps: int | None = None,
+    retried_cleanup_applied: bool | None = None,
+    retried_cleanup_changed_steps: int | None = None,
+    source_type: str | None = None,
+) -> bool:
+    def _short_paragraph_count(markdown: str) -> int:
+        return sum(
+            1
+            for paragraph in _extract_non_heading_paragraphs(markdown)
+            if len(re.sub(r"\s+", "", paragraph)) <= 45
+        )
+
+    def _hard_template_burden(markdown: str) -> tuple[int, int, int, int, int, int]:
+        quote_paragraphs = max(0, len(extract_isolated_quote_paragraphs(markdown)) - 1)
+        explanatory_paragraphs = max(0, len(extract_explanatory_bridge_paragraphs(markdown)) - 1)
+        return (
+            len(extract_not_ab_skeletons(markdown)),
+            len(extract_generic_reflective_openers(markdown)),
+            len(extract_growth_cliches(markdown)),
+            len(extract_embedded_banner_paragraphs(markdown)),
+            quote_paragraphs,
+            explanatory_paragraphs,
+        )
+
+    def _has_only_minor_ai_flavor_residue(*, title: str, markdown: str) -> bool:
+        summary = evaluate_ai_flavor_risk(title=title, body_markdown=markdown)
+        if summary.score > 22:
+            return False
+        if _hard_template_burden(markdown) != (0, 0, 0, 0, 0, 0):
+            return False
+        if len(extract_short_judgment_paragraphs(markdown)) > 2:
+            return False
+        if count_short_long_cadence_pairs(markdown) > 2:
+            return False
+        return any(
+            (
+                "解释连接词偏多" in hit
+                or "短句敲钟后接长解释的固定节拍" in hit
+                or "“一”字节奏偏密" in hit
+            )
+            for hit in summary.hits
+        )
+
+    def _has_mild_template_burden(*, title: str, markdown: str) -> bool:
+        summary = evaluate_ai_flavor_risk(title=title, body_markdown=markdown)
+        return (
+            summary.score <= 18
+            and len(extract_not_ab_skeletons(markdown)) <= 1
+            and len(extract_generic_reflective_openers(markdown)) == 0
+            and len(extract_growth_cliches(markdown)) == 0
+            and len(extract_embedded_banner_paragraphs(markdown)) == 0
+            and count_short_long_cadence_pairs(markdown) <= 1
+        )
+
+    def _looks_over_smoothed_relative_to_current(current_markdown: str, retried_markdown: str) -> bool:
+        current_paragraph_count = len(_extract_non_heading_paragraphs(current_markdown))
+        retried_paragraph_count = len(_extract_non_heading_paragraphs(retried_markdown))
+        current_short_paragraphs = _short_paragraph_count(current_markdown)
+        retried_short_paragraphs = _short_paragraph_count(retried_markdown)
+        current_quote_paragraphs = len(extract_isolated_quote_paragraphs(current_markdown))
+        retried_quote_paragraphs = len(extract_isolated_quote_paragraphs(retried_markdown))
+        current_explanatory_paragraphs = len(extract_explanatory_bridge_paragraphs(current_markdown))
+        retried_explanatory_paragraphs = len(extract_explanatory_bridge_paragraphs(retried_markdown))
+
+        return (
+            current_paragraph_count - retried_paragraph_count >= 3
+            and current_short_paragraphs - retried_short_paragraphs >= 3
+            and (
+                current_quote_paragraphs > retried_quote_paragraphs
+                or current_explanatory_paragraphs > retried_explanatory_paragraphs
+                or current_short_paragraphs >= 5
+            )
+        )
+
+    def _residual_burden(markdown: str) -> tuple[int, int, int, int, int, int, int, int, int]:
+        not_ab = len(extract_not_ab_skeletons(markdown))
+        openers = len(extract_generic_reflective_openers(markdown))
+        cliches = len(extract_growth_cliches(markdown))
+        short_judgments = len(extract_short_judgment_paragraphs(markdown))
+        cadence_pairs = count_short_long_cadence_pairs(markdown)
+        embedded_banners = len(extract_embedded_banner_paragraphs(markdown))
+        quote_paragraphs = max(0, len(extract_isolated_quote_paragraphs(markdown)) - 1)
+        explanatory_paragraphs = max(0, len(extract_explanatory_bridge_paragraphs(markdown)) - 1)
+        return (
+            not_ab + openers + cliches + short_judgments + cadence_pairs + embedded_banners + quote_paragraphs + explanatory_paragraphs,
+            embedded_banners,
+            short_judgments,
+            cadence_pairs,
+            not_ab,
+            openers,
+            cliches,
+            quote_paragraphs,
+            explanatory_paragraphs,
+        )
+
+    current_summary = evaluate_ai_flavor_risk(title=current_title, body_markdown=current_markdown)
+    retried_summary = evaluate_ai_flavor_risk(title=retried_title, body_markdown=retried_markdown)
+    tracked_article_mode = source_type == "tracked_article"
+    current_over_smoothed = (
+        tracked_article_mode and _looks_like_over_smoothed_tracked_article_candidate(current_markdown)
+    )
+    retried_over_smoothed = (
+        tracked_article_mode and _looks_like_over_smoothed_tracked_article_candidate(retried_markdown)
+    )
+    current_reference_summary = evaluate_ai_flavor_risk(
+        title=current_reference_title or current_title,
+        body_markdown=current_reference_markdown or current_markdown,
+    )
+    retried_reference_summary = evaluate_ai_flavor_risk(
+        title=retried_reference_title or retried_title,
+        body_markdown=retried_reference_markdown or retried_markdown,
+    )
+    if current_over_smoothed != retried_over_smoothed:
+        return not retried_over_smoothed
+    if _has_only_minor_ai_flavor_residue(title=current_title, markdown=current_markdown):
+        if (
+            retried_summary.score < current_summary.score
+            and not _has_only_minor_ai_flavor_residue(title=retried_title, markdown=retried_markdown)
+            and _hard_template_burden(retried_markdown) >= _hard_template_burden(current_markdown)
+        ):
+            return False
+    if (
+        retried_summary.score < current_summary.score
+        and _has_mild_template_burden(title=current_title, markdown=current_markdown)
+        and _looks_over_smoothed_relative_to_current(current_markdown, retried_markdown)
+    ):
+        return False
+    if retried_summary.score < current_summary.score:
+        return True
+    if retried_summary.score == current_summary.score:
+        if retried_reference_summary.score < current_reference_summary.score:
+            return True
+        if retried_reference_summary.score > current_reference_summary.score:
+            return False
+        current_cleanup_flag = 1 if bool(current_cleanup_applied) else 0
+        retried_cleanup_flag = 1 if bool(retried_cleanup_applied) else 0
+        if retried_cleanup_flag < current_cleanup_flag:
+            return True
+        if retried_cleanup_flag > current_cleanup_flag:
+            return False
+        current_cleanup_cost = int(current_cleanup_changed_steps or 0)
+        retried_cleanup_cost = int(retried_cleanup_changed_steps or 0)
+        if retried_cleanup_cost < current_cleanup_cost:
+            return True
+        if retried_cleanup_cost > current_cleanup_cost:
+            return False
+    if retried_summary.score == current_summary.score and len(retried_summary.hits) < len(current_summary.hits):
+        return True
+    if retried_summary.score == current_summary.score and len(retried_summary.hits) == len(current_summary.hits):
+        if _residual_burden(retried_markdown) < _residual_burden(current_markdown):
+            return True
+    return False
 
 
 def _pick_better_ai_flavor_candidate(
@@ -4224,21 +6312,60 @@ def _pick_better_ai_flavor_candidate(
     current_markdown: str,
     retried_title: str,
     retried_markdown: str,
+    current_reference_title: str | None = None,
+    current_reference_markdown: str | None = None,
+    retried_reference_title: str | None = None,
+    retried_reference_markdown: str | None = None,
+    current_cleanup_applied: bool | None = None,
+    current_cleanup_changed_steps: int | None = None,
+    retried_cleanup_applied: bool | None = None,
+    retried_cleanup_changed_steps: int | None = None,
+    source_type: str | None = None,
 ) -> tuple[str, str]:
-    def _residual_burden(markdown: str) -> tuple[int, int, int, int]:
-        not_ab = len(extract_not_ab_skeletons(markdown))
-        openers = len(extract_generic_reflective_openers(markdown))
-        cliches = len(extract_growth_cliches(markdown))
-        return (not_ab + openers + cliches, not_ab, openers, cliches)
+    if _should_prefer_retried_ai_flavor_candidate(
+        current_title=current_title,
+        current_markdown=current_markdown,
+        retried_title=retried_title,
+        retried_markdown=retried_markdown,
+        current_reference_title=current_reference_title,
+        current_reference_markdown=current_reference_markdown,
+        retried_reference_title=retried_reference_title,
+        retried_reference_markdown=retried_reference_markdown,
+        current_cleanup_applied=current_cleanup_applied,
+        current_cleanup_changed_steps=current_cleanup_changed_steps,
+        retried_cleanup_applied=retried_cleanup_applied,
+        retried_cleanup_changed_steps=retried_cleanup_changed_steps,
+        source_type=source_type,
+    ):
+        return retried_markdown, retried_title
+    return current_markdown, current_title
 
+
+def _pick_better_article_shell_candidate(
+    *,
+    current_title: str,
+    current_markdown: str,
+    retried_title: str,
+    retried_markdown: str,
+) -> tuple[str, str]:
     current_summary = evaluate_ai_flavor_risk(title=current_title, body_markdown=current_markdown)
     retried_summary = evaluate_ai_flavor_risk(title=retried_title, body_markdown=retried_markdown)
+    current_burden = _article_shell_burden(current_markdown)
+    retried_burden = _article_shell_burden(retried_markdown)
+    current_over_smoothed = _looks_like_over_smoothed_tracked_article_candidate(current_markdown)
+    retried_over_smoothed = _looks_like_over_smoothed_tracked_article_candidate(retried_markdown)
+
+    if current_over_smoothed != retried_over_smoothed:
+        if retried_over_smoothed:
+            return current_markdown, current_title
+        return retried_markdown, retried_title
+
     if retried_summary.score < current_summary.score:
         return retried_markdown, retried_title
-    if retried_summary.score == current_summary.score and len(retried_summary.hits) < len(current_summary.hits):
+    if retried_burden < current_burden and retried_summary.score <= current_summary.score + 8:
         return retried_markdown, retried_title
-    if retried_summary.score == current_summary.score and len(retried_summary.hits) == len(current_summary.hits):
-        if _residual_burden(retried_markdown) < _residual_burden(current_markdown):
+    if retried_burden == current_burden and retried_summary.score == current_summary.score:
+        if len(_extract_non_heading_paragraphs(retried_markdown)) < len(_extract_non_heading_paragraphs(current_markdown)):
             return retried_markdown, retried_title
     return current_markdown, current_title
 
@@ -4250,6 +6377,7 @@ def _maybe_retry_polish_for_structure_drift(
     tone_profile: ToneProfileItem,
     review_comment: str | None,
     polish_instruction: str | None,
+    strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
     source_draft_title: str,
@@ -4285,10 +6413,13 @@ def _maybe_retry_polish_for_structure_drift(
                 source_markdown=source_draft_body_markdown,
                 missing_headings=missing_headings,
             ),
+            "allow_structure_recomposition": False,
+            "preserve_structure_anchors": True,
             "draft": {
                 "title": source_draft_title,
                 "body_markdown": source_draft_body_markdown,
             },
+            **strategy_bundle_payload,
             **reference_article_payload,
         }
     )
@@ -4302,6 +6433,7 @@ def _maybe_retry_polish_for_over_smoothing(
     tone_profile: ToneProfileItem,
     review_comment: str | None,
     polish_instruction: str | None,
+    strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
     source_draft_title: str,
@@ -4337,14 +6469,88 @@ def _maybe_retry_polish_for_over_smoothing(
                 source_markdown=source_draft_body_markdown,
                 excessive_openers=excessive_openers,
             ),
+            "allow_structure_recomposition": False,
+            "preserve_structure_anchors": True,
             "draft": {
-                "title": source_draft_title,
-                "body_markdown": source_draft_body_markdown,
+                "title": candidate_title,
+                "body_markdown": candidate_body_markdown,
             },
+            **strategy_bundle_payload,
             **reference_article_payload,
         }
     )
-    return _pick_better_ai_flavor_candidate(
+    if not _preserves_structure_headings(
+        source_markdown=source_draft_body_markdown,
+        candidate_markdown=str(retry_result["body_markdown"]),
+    ):
+        return candidate_body_markdown, candidate_title
+    retried_title = str(retry_result["title"])
+    retried_markdown = str(retry_result["body_markdown"])
+    if _should_prefer_retried_candidate_after_cleanup_preview(
+        current_title=candidate_title,
+        current_markdown=candidate_body_markdown,
+        retried_title=retried_title,
+        retried_markdown=retried_markdown,
+        source_type=str(project["source_type"]),
+    ):
+        return retried_markdown, retried_title
+    return candidate_body_markdown, candidate_title
+
+
+def _maybe_retry_polish_for_article_shell_cleanup(
+    *,
+    project: sqlite3.Row,
+    outline_row: sqlite3.Row,
+    tone_profile: ToneProfileItem,
+    review_comment: str | None,
+    polish_instruction: str | None,
+    strategy_bundle_payload: dict[str, object],
+    reference_article_payload: dict[str, object],
+    generator,
+    source_draft_title: str,
+    source_draft_body_markdown: str,
+    candidate_title: str,
+    candidate_body_markdown: str,
+) -> tuple[str, str]:
+    if not polish_instruction or str(project["source_type"]) != "tracked_article":
+        return candidate_body_markdown, candidate_title
+
+    if not _should_retry_for_article_shell_cleanup(
+        source_markdown=source_draft_body_markdown,
+        candidate_title=candidate_title,
+        candidate_markdown=candidate_body_markdown,
+    ):
+        return candidate_body_markdown, candidate_title
+
+    retry_result = generator.generate_draft(
+        {
+            "trend_title": project["trend_title"],
+            "topic_title": project["topic_title"],
+            "topic_angle": project["topic_angle"],
+            "project_title": project["title"],
+            "outline": {
+                "hook": outline_row["hook"],
+                "outline_body": outline_row["outline_body"],
+            },
+            "tone_profile": tone_profile.model_dump(),
+            "domain_pack": get_project_domain_pack(project),
+            "review_comment": review_comment,
+            "polish_instruction": _build_article_shell_retry_instruction(
+                base_instruction=polish_instruction,
+                source_markdown=source_draft_body_markdown,
+                candidate_markdown=candidate_body_markdown,
+            ),
+            "allow_structure_recomposition": True,
+            "preserve_structure_anchors": False,
+            "draft": {
+                "title": candidate_title,
+                "body_markdown": candidate_body_markdown,
+            },
+            **strategy_bundle_payload,
+            **reference_article_payload,
+        }
+    )
+    return _pick_better_article_shell_candidate(
         current_title=candidate_title,
         current_markdown=candidate_body_markdown,
         retried_title=str(retry_result["title"]),
@@ -4359,6 +6565,7 @@ def _maybe_retry_polish_for_remaining_ai_flavor(
     tone_profile: ToneProfileItem,
     review_comment: str | None,
     polish_instruction: str | None,
+    strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
     source_draft_title: str,
@@ -4396,19 +6603,32 @@ def _maybe_retry_polish_for_remaining_ai_flavor(
                 candidate_title=candidate_title,
                 candidate_markdown=candidate_body_markdown,
             ),
+            "allow_structure_recomposition": str(project["source_type"]) == "tracked_article",
+            "preserve_structure_anchors": str(project["source_type"]) != "tracked_article",
             "draft": {
-                "title": source_draft_title,
-                "body_markdown": source_draft_body_markdown,
+                "title": candidate_title,
+                "body_markdown": candidate_body_markdown,
             },
+            **strategy_bundle_payload,
             **reference_article_payload,
         }
     )
-    return _pick_better_ai_flavor_candidate(
+    if str(project["source_type"]) != "tracked_article" and not _preserves_structure_headings(
+        source_markdown=source_draft_body_markdown,
+        candidate_markdown=str(retry_result["body_markdown"]),
+    ):
+        return candidate_body_markdown, candidate_title
+    retried_title = str(retry_result["title"])
+    retried_markdown = str(retry_result["body_markdown"])
+    if _should_prefer_retried_candidate_after_cleanup_preview(
         current_title=candidate_title,
         current_markdown=candidate_body_markdown,
-        retried_title=str(retry_result["title"]),
-        retried_markdown=str(retry_result["body_markdown"]),
-    )
+        retried_title=retried_title,
+        retried_markdown=retried_markdown,
+        source_type=str(project["source_type"]),
+    ):
+        return retried_markdown, retried_title
+    return candidate_body_markdown, candidate_title
 
 
 def _maybe_retry_polish_for_final_ai_flavor_cleanup(
@@ -4418,6 +6638,7 @@ def _maybe_retry_polish_for_final_ai_flavor_cleanup(
     tone_profile: ToneProfileItem,
     review_comment: str | None,
     polish_instruction: str | None,
+    strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
     source_draft_title: str,
@@ -4457,20 +6678,30 @@ def _maybe_retry_polish_for_final_ai_flavor_cleanup(
                     candidate_title=current_title,
                     candidate_markdown=current_markdown,
                 ),
+                "allow_structure_recomposition": str(project["source_type"]) == "tracked_article",
+                "preserve_structure_anchors": str(project["source_type"]) != "tracked_article",
                 "draft": {
                     "title": current_title,
                     "body_markdown": current_markdown,
                 },
+                **strategy_bundle_payload,
                 **reference_article_payload,
             }
         )
-        next_markdown, next_title = _pick_better_ai_flavor_candidate(
+        if str(project["source_type"]) != "tracked_article" and not _preserves_structure_headings(
+            source_markdown=source_draft_body_markdown,
+            candidate_markdown=str(retry_result["body_markdown"]),
+        ):
+            break
+        next_title = str(retry_result["title"])
+        next_markdown = str(retry_result["body_markdown"])
+        if not _should_prefer_retried_candidate_after_cleanup_preview(
             current_title=current_title,
             current_markdown=current_markdown,
-            retried_title=str(retry_result["title"]),
-            retried_markdown=str(retry_result["body_markdown"]),
-        )
-        if next_markdown == current_markdown and next_title == current_title:
+            retried_title=next_title,
+            retried_markdown=next_markdown,
+            source_type=str(project["source_type"]),
+        ):
             break
         current_markdown = next_markdown
         current_title = next_title
@@ -4487,48 +6718,123 @@ def _maybe_auto_polish_ai_flavor_draft_output(
     tone_profile: ToneProfileItem,
     review_comment: str | None,
     polish_instruction: str | None,
+    strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
+    skip_nested_compact_polish: bool = False,
 ) -> tuple[str, str]:
     if review_comment or polish_instruction:
         return body_markdown, title
 
     summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
-    if summary.level == "低":
+    is_tracked_article = str(project["source_type"]) == "tracked_article"
+    tracked_shell_source_title = title
+    tracked_shell_source_markdown = body_markdown
+    if is_tracked_article:
+        reference_body_markdown = str(project["reference_article_body_markdown"] or "").strip()
+        if reference_body_markdown:
+            tracked_shell_source_markdown = reference_body_markdown
+            tracked_shell_source_title = str(project["reference_article_title"] or title)
+        if _looks_like_tracked_article_fragment_chain_candidate(body_markdown):
+            return body_markdown, title
+    needs_tracked_shell_cleanup = (
+        is_tracked_article
+        and _should_retry_for_article_shell_cleanup(
+            source_markdown=tracked_shell_source_markdown,
+            candidate_title=title,
+            candidate_markdown=body_markdown,
+        )
+    )
+    if summary.level == "低" and not needs_tracked_shell_cleanup:
         return body_markdown, title
 
-    polished_result = generator.generate_draft(
-        {
-            "trend_title": project["trend_title"],
-            "topic_title": project["topic_title"],
-            "topic_angle": project["topic_angle"],
-            "project_title": project["title"],
-            "outline": {
-                "hook": outline_row["hook"],
-                "outline_body": outline_row["outline_body"],
-            },
-            "tone_profile": tone_profile.model_dump(),
-            "domain_pack": get_project_domain_pack(project),
-            "polish_instruction": build_ai_flavor_polish_instruction(summary),
-            "draft": {
-                "title": title,
-                "body_markdown": body_markdown,
-            },
-            **reference_article_payload,
-        }
-    )
+    uses_custom_base_url = bool(getattr(generator, "uses_custom_base_url", False))
+    allow_structure_recomposition = is_tracked_article
+    preserve_structure_anchors = not is_tracked_article
+    initial_polish_instruction = build_ai_flavor_polish_instruction(summary)
+    if needs_tracked_shell_cleanup:
+        initial_polish_instruction = _build_article_shell_retry_instruction(
+            base_instruction=initial_polish_instruction,
+            source_markdown=tracked_shell_source_markdown,
+            candidate_markdown=body_markdown,
+        )
+    polish_payload: dict[str, object] = {
+        "trend_title": project["trend_title"],
+        "topic_title": project["topic_title"],
+        "topic_angle": project["topic_angle"],
+        "project_title": project["title"],
+        "outline": {
+            "hook": outline_row["hook"],
+            "outline_body": outline_row["outline_body"],
+        },
+        "tone_profile": tone_profile.model_dump(),
+        "domain_pack": get_project_domain_pack(project),
+        "polish_instruction": initial_polish_instruction,
+        "allow_structure_recomposition": allow_structure_recomposition,
+        "preserve_structure_anchors": preserve_structure_anchors,
+        "draft": {
+            "title": title,
+            "body_markdown": body_markdown,
+        },
+        **strategy_bundle_payload,
+        **reference_article_payload,
+    }
+    polished_result = generator.generate_draft(polish_payload)
+    polished_title = str(polished_result["title"])
+    polished_markdown = str(polished_result["body_markdown"])
+    if _should_prefer_retried_candidate_after_cleanup_preview(
+        current_title=title,
+        current_markdown=body_markdown,
+        retried_title=polished_title,
+        retried_markdown=polished_markdown,
+        source_type=str(project["source_type"]),
+    ):
+        best_markdown, best_title = polished_markdown, polished_title
+    else:
+        best_markdown, best_title = body_markdown, title
+    working_title = polished_title
+    working_markdown = polished_markdown
+
+    if uses_custom_base_url and allow_structure_recomposition and not skip_nested_compact_polish:
+        compact_polish_payload = dict(polish_payload)
+        compact_polish_payload["compact_polish_mode"] = True
+        compact_result = generator.generate_draft(compact_polish_payload)
+        compact_title = str(compact_result["title"])
+        compact_markdown = str(compact_result["body_markdown"])
+        if _should_prefer_retried_candidate_after_cleanup_preview(
+            current_title=working_title,
+            current_markdown=working_markdown,
+            retried_title=compact_title,
+            retried_markdown=compact_markdown,
+            source_type=str(project["source_type"]),
+        ):
+            working_markdown, working_title = compact_markdown, compact_title
+        if _should_prefer_retried_candidate_after_cleanup_preview(
+            current_title=best_title,
+            current_markdown=best_markdown,
+            retried_title=working_title,
+            retried_markdown=working_markdown,
+            source_type=str(project["source_type"]),
+        ):
+            best_markdown, best_title = working_markdown, working_title
+
+    best_summary = evaluate_ai_flavor_risk(title=best_title, body_markdown=best_markdown)
+    if best_summary.level == "低" and not is_tracked_article:
+        return best_markdown, best_title
+
     retried_body_markdown, retried_title = _maybe_retry_polish_for_structure_drift(
         project=project,
         outline_row=outline_row,
         tone_profile=tone_profile,
         review_comment=review_comment,
         polish_instruction=build_ai_flavor_polish_instruction(summary),
+        strategy_bundle_payload=strategy_bundle_payload,
         reference_article_payload=reference_article_payload,
         generator=generator,
         source_draft_title=title,
         source_draft_body_markdown=body_markdown,
-        candidate_title=str(polished_result["title"]),
-        candidate_body_markdown=str(polished_result["body_markdown"]),
+        candidate_title=working_title,
+        candidate_body_markdown=working_markdown,
     )
     retried_body_markdown, retried_title = _maybe_retry_polish_for_over_smoothing(
         project=project,
@@ -4536,10 +6842,25 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         tone_profile=tone_profile,
         review_comment=review_comment,
         polish_instruction=build_ai_flavor_polish_instruction(summary),
+        strategy_bundle_payload=strategy_bundle_payload,
         reference_article_payload=reference_article_payload,
         generator=generator,
         source_draft_title=title,
         source_draft_body_markdown=body_markdown,
+        candidate_title=retried_title,
+        candidate_body_markdown=retried_body_markdown,
+    )
+    retried_body_markdown, retried_title = _maybe_retry_polish_for_article_shell_cleanup(
+        project=project,
+        outline_row=outline_row,
+        tone_profile=tone_profile,
+        review_comment=review_comment,
+        polish_instruction=build_ai_flavor_polish_instruction(summary),
+        strategy_bundle_payload=strategy_bundle_payload,
+        reference_article_payload=reference_article_payload,
+        generator=generator,
+        source_draft_title=tracked_shell_source_title,
+        source_draft_body_markdown=tracked_shell_source_markdown,
         candidate_title=retried_title,
         candidate_body_markdown=retried_body_markdown,
     )
@@ -4549,6 +6870,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         tone_profile=tone_profile,
         review_comment=review_comment,
         polish_instruction=build_ai_flavor_polish_instruction(summary),
+        strategy_bundle_payload=strategy_bundle_payload,
         reference_article_payload=reference_article_payload,
         generator=generator,
         source_draft_title=title,
@@ -4562,6 +6884,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         tone_profile=tone_profile,
         review_comment=review_comment,
         polish_instruction=build_ai_flavor_polish_instruction(summary),
+        strategy_bundle_payload=strategy_bundle_payload,
         reference_article_payload=reference_article_payload,
         generator=generator,
         source_draft_title=title,
@@ -4569,7 +6892,15 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         candidate_title=retried_title,
         candidate_body_markdown=retried_body_markdown,
     )
-    return retried_body_markdown, retried_title
+    if _should_prefer_retried_candidate_after_cleanup_preview(
+        current_title=best_title,
+        current_markdown=best_markdown,
+        retried_title=retried_title,
+        retried_markdown=retried_body_markdown,
+        source_type=str(project["source_type"]),
+    ):
+        return retried_body_markdown, retried_title
+    return best_markdown, best_title
 
 
 def restore_draft_version(project_slug: str, version: int) -> DraftItem:
@@ -5768,6 +8099,8 @@ def list_background_task_logs(*, scope: str = "all", limit: int = 20) -> list[Ta
 
 
 def _continue_project_next_step(project_slug: str, next_required_step: str):
+    if next_required_step == "generate_strategy_package":
+        return generate_strategy_package(project_slug)
     if next_required_step == "generate_outline":
         return generate_outline(project_slug)
     if next_required_step == "generate_draft":

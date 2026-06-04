@@ -9,9 +9,14 @@ class ProblemBriefItem(BaseModel):
     source_mode: str
     raw_goal: str
     clarified_problem: str
+    observed_phenomenon: str = ""
+    writing_goal: str = ""
     target_reader_situation: str
     core_conflict: str
     unknowns: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    feedback_entry: str = ""
+    problem_statement_markdown: str = ""
     status: str
     created_at: str | None = None
 
@@ -36,8 +41,16 @@ class StrategyCardItem(BaseModel):
     point_of_view: str
     conflict_frame: str
     emotional_path: str
+    structure_mode: str = ""
+    opening_move: str = ""
+    body_shift: str = ""
+    ending_move: str = ""
+    recomposition_recipe: list[str] = Field(default_factory=list)
     expression_constraints: list[str] = Field(default_factory=list)
+    divergence_axes: list[str] = Field(default_factory=list)
+    execution_checklist: list[str] = Field(default_factory=list)
     benchmark_summary: str
+    strategy_markdown: str = ""
     status: str
     created_at: str | None = None
     adopted_at: str | None = None

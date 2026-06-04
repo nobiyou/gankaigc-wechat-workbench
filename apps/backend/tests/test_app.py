@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 import time
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -812,6 +813,30 @@ def test_project_generation_works_for_topics_created_from_tracked_articles(monke
     assert project_response.status_code == 201
     project = project_response.json()
     assert project["topic_slug"] == "slow-repair-topic"
+    assert project["current_chain_state"] == "missing_strategy"
+    assert project["next_required_step"] == "generate_strategy_package"
+
+    blocked_outline_response = client.post("/api/projects/slow-repair-project/generate-outline")
+    assert blocked_outline_response.status_code == 409
+    assert blocked_outline_response.json()["detail"] == (
+        "Tracked article projects require an adopted strategy card before outline generation"
+    )
+
+    blocked_draft_response = client.post("/api/projects/slow-repair-project/generate-draft")
+    assert blocked_draft_response.status_code == 409
+    assert blocked_draft_response.json()["detail"] == (
+        "Tracked article projects require an adopted strategy card before draft generation"
+    )
+
+    strategy_response = client.post("/api/projects/slow-repair-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    assert strategy_response.json()["strategy_card"]["version"] == 1
+
+    adopt_response = client.post("/api/projects/slow-repair-project/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+    adopted_project = adopt_response.json()["project"]
+    assert adopted_project["current_chain_state"] == "missing_outline"
+    assert adopted_project["next_required_step"] == "generate_outline"
 
     outline_response = client.post("/api/projects/slow-repair-project/generate-outline")
     assert outline_response.status_code == 201
@@ -830,20 +855,26 @@ def test_project_generation_works_for_topics_created_from_tracked_articles(monke
     assert outline_payload["topic_title"] == "先接住失望，再谈道理"
     assert outline_payload["topic_angle"] == "关系修复"
     assert outline_payload["source_type"] == "tracked_article"
-    assert outline_payload["reference_article_title"] == "真正让关系缓回来，不是解释，是先接住那一下失望"
-    assert outline_payload["reference_article_author"] == "北岛"
-    assert outline_payload["reference_article_source_name"] == "夜读关系实验室"
-    assert outline_payload["reference_article_summary"] == "从关系修复案例提炼表达顺序。"
-    assert outline_payload["reference_article_structure_notes"] == "案例开头 + 情绪拆解 + 动作建议。"
-    assert outline_payload["reference_article_tags"] == ["表达修复"]
+    assert outline_payload["reference_article_hidden"] is True
+    assert "reference_article_title" not in outline_payload
+    assert "reference_article_author" not in outline_payload
+    assert "reference_article_source_name" not in outline_payload
+    assert "reference_article_summary" not in outline_payload
+    assert "reference_article_structure_notes" not in outline_payload
+    assert "reference_article_tags" not in outline_payload
+    assert outline_payload["strategy_card"]["version"] == 1
+    assert outline_payload["problem_brief"]["version"] == 1
 
     draft_call_type, draft_payload = fake_generator.calls[1]
     assert draft_call_type == "draft"
     assert draft_payload["source_type"] == "tracked_article"
-    assert draft_payload["reference_article_title"] == "真正让关系缓回来，不是解释，是先接住那一下失望"
-    assert draft_payload["reference_article_summary"] == "从关系修复案例提炼表达顺序。"
-    assert draft_payload["reference_article_structure_notes"] == "案例开头 + 情绪拆解 + 动作建议。"
-    assert draft_payload["reference_article_tags"] == ["表达修复"]
+    assert draft_payload["reference_article_hidden"] is True
+    assert "reference_article_title" not in draft_payload
+    assert "reference_article_summary" not in draft_payload
+    assert "reference_article_structure_notes" not in draft_payload
+    assert "reference_article_tags" not in draft_payload
+    assert draft_payload["strategy_card"]["version"] == 1
+    assert draft_payload["problem_brief"]["version"] == 1
 
 
 def test_create_project_from_topic_and_advance_stage() -> None:
@@ -1513,6 +1544,11 @@ def test_generate_strategy_package_and_adopt_strategy_card_for_project() -> None
     assert generated["problem_brief"]["version"] == 1
     assert generated["problem_brief"]["status"] == "ready"
     assert "办公室倦怠" in generated["problem_brief"]["clarified_problem"]
+    assert generated["problem_brief"]["observed_phenomenon"]
+    assert generated["problem_brief"]["writing_goal"]
+    assert len(generated["problem_brief"]["constraints"]) >= 2
+    assert generated["problem_brief"]["feedback_entry"]
+    assert generated["problem_brief"]["problem_statement_markdown"].startswith("# 问题说明书")
     assert generated["benchmarks"][0]["strategy_version"] == 1
     assert generated["benchmarks"][0]["reference_kind"] == "trend"
     assert generated["benchmarks"][0]["reference_label"] == "办公室倦怠修复"
@@ -1521,12 +1557,27 @@ def test_generate_strategy_package_and_adopt_strategy_card_for_project() -> None
     assert generated["strategy_card"]["problem_brief_version"] == 1
     assert generated["strategy_card"]["status"] == "ready"
     assert generated["strategy_card"]["adopted_at"] is None
+    assert generated["strategy_card"]["structure_mode"]
+    assert generated["strategy_card"]["opening_move"]
+    assert generated["strategy_card"]["body_shift"]
+    assert generated["strategy_card"]["ending_move"]
+    assert len(generated["strategy_card"]["divergence_axes"]) >= 4
+    assert len(generated["strategy_card"]["execution_checklist"]) >= 4
+    assert generated["strategy_card"]["strategy_markdown"].startswith("# 创作策略卡")
 
     detail_response = client.get("/api/projects/office-burnout-recovery-weekly")
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["problem_brief"]["version"] == 1
+    assert detail["problem_brief"]["observed_phenomenon"] == generated["problem_brief"]["observed_phenomenon"]
+    assert detail["problem_brief"]["writing_goal"] == generated["problem_brief"]["writing_goal"]
+    assert detail["problem_brief"]["problem_statement_markdown"].startswith("# 问题说明书")
     assert detail["strategy_card"]["version"] == 1
+    assert detail["strategy_card"]["structure_mode"] == generated["strategy_card"]["structure_mode"]
+    assert detail["strategy_card"]["opening_move"] == generated["strategy_card"]["opening_move"]
+    assert detail["strategy_card"]["body_shift"] == generated["strategy_card"]["body_shift"]
+    assert detail["strategy_card"]["ending_move"] == generated["strategy_card"]["ending_move"]
+    assert detail["strategy_card"]["strategy_markdown"].startswith("# 创作策略卡")
     assert detail["strategy_card"]["adopted_at"] is None
     assert detail["benchmarks"][0]["reference_label"] == "办公室倦怠修复"
 
@@ -1586,7 +1637,50 @@ def test_generate_outline_uses_strategy_only_after_card_is_adopted(monkeypatch) 
     assert second_outline_response.status_code == 201
     second_payload = fake_generator.calls[1]
     assert second_payload["strategy_card"]["version"] == 1
+    assert second_payload["strategy_card"]["strategy_markdown"].startswith("# 创作策略卡")
     assert second_payload["problem_brief"]["version"] == 1
+    assert second_payload["problem_brief"]["problem_statement_markdown"].startswith("# 问题说明书")
+    assert second_payload["benchmarks"][0]["reference_label"] == "关系边界重设"
+
+
+def test_generate_draft_uses_strategy_only_after_card_is_adopted(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(payload)
+            return {"title": "title", "body_markdown": "# title\n\nbody"}
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    generate_response = client.post("/api/projects/high-sensitivity-restoration-notes/generate-strategy-package")
+    assert generate_response.status_code == 201
+
+    outline_response = client.post("/api/projects/high-sensitivity-restoration-notes/generate-outline")
+    assert outline_response.status_code == 201
+
+    first_draft_response = client.post("/api/projects/high-sensitivity-restoration-notes/generate-draft")
+    assert first_draft_response.status_code == 201
+    first_payload = fake_generator.calls[0]
+    assert first_payload["problem_brief"] is None
+    assert first_payload["strategy_card"] is None
+    assert first_payload["benchmarks"] is None
+
+    adopt_response = client.post("/api/projects/high-sensitivity-restoration-notes/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+
+    second_draft_response = client.post("/api/projects/high-sensitivity-restoration-notes/generate-draft")
+    assert second_draft_response.status_code == 201
+    second_payload = fake_generator.calls[1]
+    assert second_payload["strategy_card"]["version"] == 1
+    assert second_payload["strategy_card"]["strategy_markdown"].startswith("# 创作策略卡")
+    assert second_payload["problem_brief"]["version"] == 1
+    assert second_payload["problem_brief"]["problem_statement_markdown"].startswith("# 问题说明书")
     assert second_payload["benchmarks"][0]["reference_label"] == "关系边界重设"
 
 
@@ -1793,6 +1887,186 @@ def test_generate_draft_auto_polishes_high_ai_flavor_first_pass(monkeypatch) -> 
     assert detail["draft"]["title"] == "她说完“我没事”之后，关系是怎么慢慢冷下去的"
 
 
+def test_generate_draft_runs_single_auto_polish_pass_for_custom_base_url_generator(monkeypatch) -> None:
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "她把那句我没事说出口的时候，其实已经在往后退了。",
+                "outline_body": "1. 对话卡住的瞬间\n2. 赌气背后的误解\n3. 关系怎么慢慢冷下来\n4. 重新开口的动作",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if payload.get("polish_instruction"):
+                return {
+                    "title": "她说完“我没事”之前，身体其实已经慢慢把人往后拖了",
+                    "body_markdown": (
+                        "# 她说完“我没事”之前，身体其实已经慢慢把人往后拖了\n\n"
+                        "电梯门快合上的时候，她明明已经往前迈了半步，鞋尖碰到金属边，又收了回来。\n\n"
+                        "电脑包勒着手指，主管那句“上午会别迟到”还挂在手机最上面。她把屏幕按灭，胸口那阵发空没有立刻过去。\n\n"
+                        "这不是突然垮掉，更像很多次把不舒服往后按，最后连自己也差点认不出来。\n\n"
+                        "洗手台前那次干呕、回家找不到钥匙那次发火、站在挂号页面前迟迟没按下去，都是同一件事在往外冒。\n\n"
+                        "她真正怕的不是去医院，而是承认自己已经慢下来很久了。"
+                    ),
+                }
+            return {
+                "title": "你赌我不敢走，我赌你再也遇不到真诚的人",
+                "body_markdown": (
+                    "# 标题\n\n"
+                    "不是不爱，而是太久没有被看见。其实很多时候，关系崩塌不是从争吵开始，而是从一次赌气开始。\n\n"
+                    "你以为他懂，他以为你不在乎，所以两个人都在等对方先低头。换句话说，真正受伤的不是面子，而是那颗还想靠近的心。\n\n"
+                    "很多人会这样，一点委屈、一个沉默、一些误会，最后都变成一种谁也不肯先开口的僵持。\n\n"
+                    "从今天开始，别再赌气，愿你有话直说，成为不靠试探也能被懂的人。"
+                ),
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    outline_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+    assert draft_response.status_code == 201
+    draft = draft_response.json()
+
+    assert draft["version"] == 1
+    assert draft["title"] == "她说完“我没事”之前，身体其实已经慢慢把人往后拖了"
+    draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
+    assert len(draft_calls) == 2
+    assert draft_calls[0][1].get("polish_instruction") in {None, ""}
+    polished_payload = draft_calls[1][1]
+    assert "去模板化重写" in str(polished_payload.get("polish_instruction") or "")
+    assert polished_payload["problem_brief"] is None
+    assert polished_payload["strategy_card"] is None
+    assert polished_payload["benchmarks"] is None
+    assert "compact_polish_mode" not in polished_payload
+
+
+def test_generate_draft_auto_polish_for_custom_provider_keeps_strategy_bundle_on_tracked_article(monkeypatch) -> None:
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("outline", payload))
+            return {
+                "hook": "先落一个没接住的停顿。",
+                "outline_body": "1. 停顿现场\n2. 为什么总先解释\n3. 关系怎么慢慢冷下来\n4. 重新开口的动作",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if payload.get("polish_instruction"):
+                return {
+                    "title": "她把解释咽回去之后，关系为什么还是没有慢慢好起来",
+                    "body_markdown": (
+                        "# 她把解释咽回去之后，关系为什么还是没有慢慢好起来\n\n"
+                        "她盯着对话框看了两秒，先删掉了那句已经打好的“我不是那个意思”。\n\n"
+                        "桌上的水没动，屏幕亮了一下又暗下去。她没有继续往下解释，只把手机扣回桌面。\n\n"
+                        "很多关系不是坏在不会说，而是坏在那一下失望先掉到了地上，后面的解释都慢了半步。\n\n"
+                        "后来她重新开口，也不是一下就说清了，只是先把那晚没接住的情绪补了回来。"
+                    ),
+                }
+            return {
+                "title": "先接住失望，再谈道理",
+                "body_markdown": (
+                    "# 先接住失望，再谈道理\n\n"
+                    "不是不会说，而是每次都先急着解释。很多时候，关系就是这样一点点冷下去的。\n\n"
+                    "你以为说明白就够了，他以为你根本没在听，所以两个人都在各自那边用力。\n\n"
+                    "真正难的不是道理，而是那一下失望没有被接住。\n\n"
+                    "从今天开始，别急着解释，先把情绪接回来。"
+                ),
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "custom-provider-auto-polish-source",
+            "source_name": "夜读关系实验室",
+            "title": "真正让关系缓回来，不是解释，是先接住那一下失望",
+            "url": "https://example.com/custom-provider-auto-polish-source",
+            "author": "北岛",
+            "summary": "从关系修复案例提炼表达顺序。",
+            "structure_notes": "案例开头 + 情绪拆解 + 动作建议。",
+            "tags": ["表达修复", "关系修复"],
+        },
+    )
+    client.post(
+        "/api/tracked-articles/custom-provider-auto-polish-source/to-topic",
+        json={
+            "slug": "custom-provider-auto-polish-topic",
+            "title": "先接住失望，再谈道理",
+            "angle": "关系修复",
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    project_response = client.post(
+        "/api/topics/custom-provider-auto-polish-topic/create-project",
+        json={
+            "slug": "custom-provider-auto-polish-project",
+            "title": "慢修复关系稿",
+            "owner": "editorial",
+        },
+    )
+    assert project_response.status_code == 201
+
+    strategy_response = client.post("/api/projects/custom-provider-auto-polish-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    adopt_response = client.post("/api/projects/custom-provider-auto-polish-project/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+
+    outline_response = client.post("/api/projects/custom-provider-auto-polish-project/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/custom-provider-auto-polish-project/generate-draft")
+    assert draft_response.status_code == 201
+    draft = draft_response.json()
+
+    assert draft["title"] == "她把解释咽回去之后，关系为什么还是没有慢慢好起来"
+
+    draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
+    draft_payloads = [payload for _, payload in draft_calls]
+    initial_payloads = [payload for payload in draft_payloads if payload.get("polish_instruction") in {None, ""}]
+    polished_payloads = [payload for payload in draft_payloads if payload.get("polish_instruction") not in {None, ""}]
+
+    assert len(initial_payloads) >= 2
+    assert polished_payloads
+
+    benchmark_label = "真正让关系缓回来，不是解释，是先接住那一下失望"
+
+    def assert_tracked_article_strategy_bundle(payload: dict[str, object]) -> None:
+        assert payload["source_type"] == "tracked_article"
+        assert payload["reference_article_hidden"] is True
+        assert payload["problem_brief"]["version"] == 1
+        assert payload["strategy_card"]["version"] == 1
+        assert payload["benchmarks"][0]["reference_label"] == benchmark_label
+
+    for payload in initial_payloads:
+        assert_tracked_article_strategy_bundle(payload)
+
+    regular_initial_payloads = [payload for payload in initial_payloads if payload.get("compact_strategy_mode") is not True]
+    compact_initial_payloads = [payload for payload in initial_payloads if payload.get("compact_strategy_mode") is True]
+    assert regular_initial_payloads
+    assert compact_initial_payloads
+
+    for payload in polished_payloads:
+        assert_tracked_article_strategy_bundle(payload)
+        assert payload["allow_structure_recomposition"] is True
+        assert payload["preserve_structure_anchors"] is False
+        assert "去模板化重写" in str(payload["polish_instruction"] or "")
+
+
 def test_generate_draft_auto_polish_retries_when_ai_flavor_still_remains(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:
@@ -1857,9 +2131,968 @@ def test_generate_draft_auto_polish_retries_when_ai_flavor_still_remains(monkeyp
     draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
     assert len(draft_calls) == 3
     assert draft_calls[0][1].get("polish_instruction") in {None, ""}
-    assert "去模板化重写" in str(draft_calls[1][1]["polish_instruction"])
-    assert "上一次精修后，模板风险还没压够" in str(draft_calls[2][1]["polish_instruction"])
-    assert "当前仍命中" in str(draft_calls[2][1]["polish_instruction"])
+    instructions = [str(call[1].get("polish_instruction") or "") for call in draft_calls[1:]]
+    assert any("去模板化重写" in instruction for instruction in instructions)
+    assert any("上一次精修后，模板风险还没压够" in instruction for instruction in instructions)
+    assert not any("最后一轮局部清理" in instruction for instruction in instructions)
+
+
+def test_generate_draft_skips_full_branch_when_compact_candidate_is_already_low_risk(monkeypatch) -> None:
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "她把消息读完，却没有立刻回。",
+                "outline_body": "1. 消息停住\n2. 白天继续硬撑\n3. 身体提醒开始变密\n4. 夜里终于看见自己在往后退",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if not instruction and payload.get("compact_strategy_mode"):
+                return {
+                    "title": "消息先回出去了，她才看见自己已经慢下来",
+                    "body_markdown": (
+                        "# 消息先回出去了，她才看见自己已经慢下来\n\n"
+                        "手机震了一下，她先把那句“收到，晚点给你”发了出去，才发现自己还站在门口，没有继续往里走。\n\n"
+                        "白天能顶住的事，她照样都顶着。开会、改表、回消息，看起来没什么不对。只是到了晚上，手指停在输入框上更久了，楼梯走到一半也会下意识扶一下栏杆。\n\n"
+                        "她没把这些立刻叫成问题，只是顺手往后压。可越往后压，第二天要装作没事的力气就越多。\n\n"
+                        "回到家，她把包放下，先坐了两分钟，才去接那杯已经凉掉的水。"
+                    ),
+                }
+            raise AssertionError("full strategy branch should not run when compact candidate is already low risk")
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "compact-first-low-risk-source",
+            "source_name": "夜读关系实验室",
+            "title": "真正让人慢下来的，不是某一天，而是一直把自己往后放",
+            "url": "https://example.com/compact-first-low-risk-source",
+            "author": "北岛",
+            "summary": "从身体提醒和日常顺延写人为什么会一点点耗尽。",
+            "structure_notes": "动作入口 + 白天硬撑 + 夜里回看。",
+            "tags": ["身体提醒", "关系修复"],
+        },
+    )
+    client.post(
+        "/api/tracked-articles/compact-first-low-risk-source/to-topic",
+        json={
+            "slug": "compact-first-low-risk-topic",
+            "title": "真正让人慢下来的，不是某一天，而是一直把自己往后放",
+            "angle": "身体提醒",
+        },
+    )
+
+    project_response = client.post(
+        "/api/topics/compact-first-low-risk-topic/create-project",
+        json={
+            "slug": "compact-first-low-risk-project",
+            "title": "compact 优先低风险稿",
+            "owner": "editorial",
+        },
+    )
+    assert project_response.status_code == 201
+
+    assert client.post("/api/projects/compact-first-low-risk-project/generate-strategy-package").status_code == 201
+    assert client.post("/api/projects/compact-first-low-risk-project/adopt-strategy-card/1").status_code == 200
+    assert client.post("/api/projects/compact-first-low-risk-project/generate-outline").status_code == 201
+
+    draft_response = client.post("/api/projects/compact-first-low-risk-project/generate-draft")
+    assert draft_response.status_code == 201
+    draft = draft_response.json()
+
+    assert draft["title"] == "消息先回出去了，她才看见自己已经慢下来"
+    draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
+    assert len(draft_calls) == 1
+    initial_payloads = [payload for _, payload in draft_calls if payload.get("polish_instruction") in {None, ""}]
+    assert len(initial_payloads) == 1
+    assert initial_payloads[0]["compact_strategy_mode"] is True
+
+
+def test_generate_initial_draft_candidates_runs_full_branch_when_compact_candidate_is_low_risk_but_over_smoothed(
+    monkeypatch,
+) -> None:
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls += 1
+            if payload.get("compact_strategy_mode"):
+                return {
+                    "title": "过度顺滑 compact 稿",
+                    "body_markdown": "过度顺滑 compact 正文",
+                }
+            return {
+                "title": "常规分支稿",
+                "body_markdown": "常规分支正文",
+            }
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+    monkeypatch.setattr(
+        workbench,
+        "_looks_like_over_smoothed_tracked_article_candidate",
+        lambda markdown: markdown == "过度顺滑 compact 正文",
+    )
+    monkeypatch.setattr(workbench, "_looks_like_tracked_article_fragment_chain_candidate", lambda _: False)
+
+    generator = FakeGenerator()
+    candidates = workbench._generate_initial_draft_candidates(
+        project={"source_type": "tracked_article", "slug": "compact-over-smoothed-demo"},
+        generator=generator,
+        draft_payload={},
+    )
+
+    assert generator.calls == 2
+    assert candidates == [
+        ("过度顺滑 compact 稿", "过度顺滑 compact 正文"),
+        ("常规分支稿", "常规分支正文"),
+    ]
+
+
+def test_generate_draft_skips_full_branch_when_compact_candidate_matches_fragment_chain_shape(monkeypatch) -> None:
+    fragment_chain_candidate = (
+        "# 她把消息回完以后，才看见自己已经慢下来了\n\n"
+        "朋友的消息弹出来时，她正对着桌上那杯咖啡发愣。\n\n"
+        "杯壁外侧已经结了一层薄薄的水，电脑右下角跳到 21:47，文档还开着，光标一闪一闪。那条消息很短：最近怎么样，要不要找天见一面？\n\n"
+        "她点开语音，说了两个字，停住。删掉。又按住，说到“我最近……”就没声了。肩膀绷得很紧，像有人把两边往里拽。最后发出去的，还是那句最省力的话：这周有点满，下次一定。\n\n"
+        "很多人就是从这种地方开始变慢的。\n\n"
+        "不是什么大事，也没有戏剧性的崩塌。闹钟响了，按掉，再按掉。明明只差十分钟就能从容出门，还是在床边坐了很久。洗头这件事，要在心里过两遍流程。\n\n"
+        "白天她照常开会、改东西、回邮件。谁来催，她都能接住，语气也稳。到了下班路上，地铁门一开，风吹进来，她忽然只想把耳机音量调大一点，谁都别找她。\n\n"
+        "这里面有条很清楚的线。\n\n"
+        "待办一项项堆上来，她最先做的，通常不是分辨自己累到哪了，而是把那点不舒服往里折，先做完再说。眼前这关要过，明天那项不能拖，周会材料还差最后两页。\n\n"
+        "她不是突然不爱说话的。\n\n"
+        "早上出门前，口红拿起来又放下，算了。午休时间，本来想去楼下走走，结果坐在工位上发呆。深夜洗漱，牙刷含在嘴里，眼睛看着镜子里的人，脑子却是空的。\n\n"
+        "更麻烦的是，她常把这些信号当成“最近状态不太好”。\n\n"
+        "醒来更累，胃口乱，有时下午三四点突然心慌；消息提示音一密集，太阳穴就跟着发紧。按理说，这些已经够明显了。可她对自己的解释总是很熟：忙完这阵就好了，周末补个觉就好了，最近事情多，谁不是这样。\n\n"
+        "因为她还没有倒下。\n\n"
+        "还能上班，能交差，能在别人问起时回一句“挺好的”。正是这种“还能”，最容易让人误判。像房间里有一盏灯开始忽明忽暗，但只要没彻底灭掉，大家就继续用。\n\n"
+        "关系里的缺席，也不是某天忽然形成的。\n\n"
+        "先是把见面改成改天。后来电话变成文字。再后来，长回复缩成表情，解释缩成“最近有点忙”。聊天框里的未读红点越来越多，她收藏过几条想认真回的话，后来也没再点开。\n\n"
+        "这句话听上去很体谅，可听多了，人会更沉默。\n\n"
+        "因为她慢慢适应了自己总在往后退。生活里有新变化，不太主动讲了；受了委屈，也觉得讲起来太费劲。别人伸手的时候，她先想到的不是“我可以说”，而是“我得赶紧恢复正常，再去见人”。\n\n"
+        "有些代价是延迟出现的。\n\n"
+        "回家的路上，手机又亮了一次。她站在电梯里，看着镜子里自己有点发白的脸，拇指在屏幕上停了停，没有再逼自己把所有消息都回完。她只给其中一个人发了句实话：我最近有点撑不动，可能会回得慢一点。"
+    )
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "她把消息回完以后，才看见自己已经慢下来了。",
+                "outline_body": "1. 咖啡边的停顿\n2. 白天照常撑住\n3. 关系里的缺席\n4. 晚上终于说一句实话",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if not payload.get("polish_instruction") and payload.get("compact_strategy_mode"):
+                return {
+                    "title": "她把消息回完以后，才看见自己已经慢下来了",
+                    "body_markdown": fragment_chain_candidate,
+                }
+            raise AssertionError("full strategy branch should not run when compact candidate matches fragment-chain shape")
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "fragment-chain-compact-source",
+            "source_name": "夜读关系实验室",
+            "title": "总在处理别人的消息，轮到自己时只剩深夜那一点空",
+            "url": "https://example.com/fragment-chain-compact-source",
+            "author": "北岛",
+            "summary": "从深夜回消息的停顿切入，写人为什么会把自己的提醒一再往后放。",
+            "structure_notes": "碎片起笔 + 观察回环 + 轻动作收尾。",
+            "tags": ["深夜停顿", "身体提醒"],
+        },
+    )
+    client.post(
+        "/api/tracked-articles/fragment-chain-compact-source/to-topic",
+        json={
+            "slug": "fragment-chain-compact-topic",
+            "title": "总在处理别人的消息，轮到自己时只剩深夜那一点空",
+            "angle": "身体提醒",
+        },
+    )
+
+    project_response = client.post(
+        "/api/topics/fragment-chain-compact-topic/create-project",
+        json={
+            "slug": "fragment-chain-compact-project",
+            "title": "fragment chain compact 优先稿",
+            "owner": "editorial",
+        },
+    )
+    assert project_response.status_code == 201
+
+    assert client.post("/api/projects/fragment-chain-compact-project/generate-strategy-package").status_code == 201
+    assert client.post("/api/projects/fragment-chain-compact-project/adopt-strategy-card/1").status_code == 200
+    assert client.post("/api/projects/fragment-chain-compact-project/generate-outline").status_code == 201
+
+    draft_response = client.post("/api/projects/fragment-chain-compact-project/generate-draft")
+    assert draft_response.status_code == 201
+    draft = draft_response.json()
+
+    assert draft["title"] == "她把消息回完以后，才看见自己已经慢下来了"
+    draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
+    assert len(draft_calls) == 1
+    assert draft_calls[0][1]["compact_strategy_mode"] is True
+
+
+def test_generate_draft_keeps_successful_branch_when_other_branch_auto_polish_fails(monkeypatch) -> None:
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "她盯着屏幕发了会儿呆。",
+                "outline_body": "1. 电梯口的停顿\n2. 白天的硬撑\n3. 人际回应的变慢\n4. 夜里终于看见提醒",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            draft_payload = payload.get("draft")
+            draft_title = ""
+            if isinstance(draft_payload, dict):
+                draft_title = str(draft_payload.get("title") or "")
+
+            if not instruction:
+                if payload.get("compact_strategy_mode"):
+                    return {
+                        "title": "预约页面停在最后一步",
+                        "body_markdown": (
+                            "# 预约页面停在最后一步\n\n"
+                            "不是不想去，而是她总觉得还能再拖一拖。很多时候，人就是这样把自己的提醒压下去。\n\n"
+                            "白天她照常回消息，晚上照常说服自己明天再看。\n\n"
+                            "从今天开始，别再把身体往后放。"
+                        ),
+                    }
+                return {
+                    "title": "她把那句等会儿先放回去了",
+                    "body_markdown": (
+                        "# 她把那句等会儿先放回去了\n\n"
+                        "不是不累，而是她还想先把眼前这点事做完。很多时候，人就是这样一点点把自己往后挪。\n\n"
+                        "会议、消息、进度、解释，每一件都像比身体更急。\n\n"
+                        "从今天开始，别再把该停下来的时候继续往前推。"
+                    ),
+                }
+
+            if draft_title == "预约页面停在最后一步":
+                raise RuntimeError("upstream temporarily unavailable")
+
+            if payload.get("compact_polish_mode"):
+                return {
+                    "title": "她先回了消息，才看见自己已经慢下来了",
+                    "body_markdown": (
+                        "# 她先回了消息，才看见自己已经慢下来了\n\n"
+                        "电梯门快合上的时候，她已经抬了脚，又收回来。\n\n"
+                        "消息先回出去，身体那一下发空却被她顺手按了下去。\n\n"
+                        "回到工位以后，文件还在往前推，人却像被什么轻轻拽住了。"
+                    ),
+                }
+
+            return {
+                "title": "她先把消息回完，才发现身体已经在往后拖",
+                "body_markdown": (
+                    "# 她先把消息回完，才发现身体已经在往后拖\n\n"
+                    "电梯门快合上的时候，她已经抬了脚，又收回来。手指先把那句“能，稍等”发出去，胃里那阵发空却没有立刻过去。\n\n"
+                    "到了工位，她照常开电脑、接电话、改表格。旁边的人只会觉得她今天话更少一点，看不出她连解释一句都嫌费劲。\n\n"
+                    "真正麻烦的，不是某一次突然撑不住，而是身体已经在往后拖，人还在把每一件眼前事都排到它前面。"
+                ),
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "branch-failure-source",
+            "source_name": "夜读关系实验室",
+            "title": "真正让人慢下来的，不是某一天，而是一直把自己往后放",
+            "url": "https://example.com/branch-failure-source",
+            "author": "北岛",
+            "summary": "从身体提醒和日常延后写人为什么会一点点耗尽。",
+            "structure_notes": "动作入口 + 白天硬撑 + 夜里回看。",
+            "tags": ["身体提醒", "关系修复"],
+        },
+    )
+    client.post(
+        "/api/tracked-articles/branch-failure-source/to-topic",
+        json={
+            "slug": "branch-failure-topic",
+            "title": "真正让人慢下来的，不是某一天，而是一直把自己往后放",
+            "angle": "身体提醒",
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    project_response = client.post(
+        "/api/topics/branch-failure-topic/create-project",
+        json={
+            "slug": "branch-failure-project",
+            "title": "分支失败兜底稿",
+            "owner": "editorial",
+        },
+    )
+    assert project_response.status_code == 201
+
+    assert client.post("/api/projects/branch-failure-project/generate-strategy-package").status_code == 201
+    assert client.post("/api/projects/branch-failure-project/adopt-strategy-card/1").status_code == 200
+    assert client.post("/api/projects/branch-failure-project/generate-outline").status_code == 201
+
+    draft_response = client.post("/api/projects/branch-failure-project/generate-draft")
+    assert draft_response.status_code == 201
+    draft = draft_response.json()
+
+    assert draft["title"] == "她先把消息回完，才发现身体已经在往后拖"
+    assert "电梯门快合上的时候" in draft["body_markdown"]
+
+    draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
+    assert len(draft_calls) == 4
+    assert draft_calls[0][1]["compact_strategy_mode"] is True
+    assert "compact_strategy_mode" not in draft_calls[2][1]
+    assert "compact_polish_mode" not in draft_calls[1][1]
+    assert "compact_polish_mode" not in draft_calls[3][1]
+
+
+def test_finalize_initial_draft_candidate_prefers_branch_with_better_post_cleanup_state(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        workbench,
+        "_maybe_compress_draft_output",
+        lambda **kwargs: (kwargs["body_markdown"], kwargs["title"]),
+    )
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_structure_drift", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_over_smoothing", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_article_shell_cleanup", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_remaining_ai_flavor", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_final_ai_flavor_cleanup", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+
+    score_map = {
+        "source raw": 60,
+        "regular raw": 30,
+        "compact raw": 10,
+        "regular cleaned": 0,
+        "compact cleaned": 5,
+    }
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        score = score_map[body_markdown]
+        level = "高" if score >= 60 else "中" if score >= 30 else "低"
+        return SimpleNamespace(score=score, level=level, hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    def fake_cleanup(*, title: str, body_markdown: str) -> str:
+        if body_markdown == "regular raw":
+            return "regular cleaned"
+        if body_markdown == "compact raw":
+            return "compact cleaned"
+        return body_markdown
+
+    monkeypatch.setattr(workbench, "_collapse_short_judgment_residue", fake_cleanup)
+    monkeypatch.setattr(workbench, "_collapse_time_chain_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_embedded_banner_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(
+        workbench,
+        "_collapse_leading_short_long_cadence_residue",
+        lambda **kwargs: kwargs["body_markdown"],
+        raising=False,
+    )
+    monkeypatch.setattr(workbench, "_collapse_short_long_cadence_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_over_segmented_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_light_segmented_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_structural_ladder_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_not_ab_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_connector_residue", lambda **kwargs: kwargs["body_markdown"])
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            if payload.get("compact_polish_mode"):
+                return {"title": "compact winner by raw", "body_markdown": "compact raw"}
+            return {"title": "regular winner after cleanup", "body_markdown": "regular raw"}
+
+    class FakeToneProfile:
+        target_word_count = 0
+
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    result = workbench._finalize_initial_draft_candidate(
+        project_slug="demo",
+        tone_profile=FakeToneProfile(),
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+            "reference_article_body_markdown": "",
+            "reference_article_title": "",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        review_comment=None,
+        reference_article_payload={},
+        strategy_bundle_payload={},
+        polish_instruction=None,
+        generator=FakeGenerator(),
+        title="source title",
+        body_markdown="source raw",
+    )
+
+    assert result.title == "regular winner after cleanup"
+    assert result.body_markdown == "regular cleaned"
+    assert result.reference_body_markdown == "regular raw"
+
+
+def test_maybe_retry_polish_for_final_ai_flavor_cleanup_prefers_retry_after_cleanup_preview(
+    monkeypatch,
+) -> None:
+    score_map = {
+        "current raw": 4,
+        "retry raw": 12,
+        "current cleaned": 3,
+        "retry cleaned": 0,
+    }
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        score = score_map[body_markdown]
+        level = "高" if score >= 60 else "中" if score >= 30 else "低"
+        return SimpleNamespace(score=score, level=level, hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    def fake_cleanup(*, title: str, body_markdown: str) -> str:
+        if body_markdown == "current raw":
+            return "current cleaned"
+        if body_markdown == "retry raw":
+            return "retry cleaned"
+        return body_markdown
+
+    monkeypatch.setattr(workbench, "_collapse_short_judgment_residue", fake_cleanup)
+    monkeypatch.setattr(workbench, "_collapse_time_chain_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_embedded_banner_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(
+        workbench,
+        "_collapse_leading_short_long_cadence_residue",
+        lambda **kwargs: kwargs["body_markdown"],
+        raising=False,
+    )
+    monkeypatch.setattr(workbench, "_collapse_short_long_cadence_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_over_segmented_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_light_segmented_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_structural_ladder_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_not_ab_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_connector_residue", lambda **kwargs: kwargs["body_markdown"])
+
+    retry_flags = iter([True, False])
+    monkeypatch.setattr(
+        workbench,
+        "_should_retry_for_final_ai_flavor_cleanup",
+        lambda **_: next(retry_flags),
+    )
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            return {"title": "retry title", "body_markdown": "retry raw"}
+
+    result_markdown, result_title = workbench._maybe_retry_polish_for_final_ai_flavor_cleanup(
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction="cleanup",
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=FakeGenerator(),
+        source_draft_title="source title",
+        source_draft_body_markdown="source raw",
+        candidate_title="current title",
+        candidate_body_markdown="current raw",
+    )
+
+    assert result_title == "retry title"
+    assert result_markdown == "retry raw"
+
+
+def test_maybe_retry_polish_for_over_smoothing_prefers_retry_after_cleanup_preview(
+    monkeypatch,
+) -> None:
+    score_map = {
+        "current raw": 4,
+        "retry raw": 12,
+        "current cleaned": 3,
+        "retry cleaned": 0,
+    }
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        score = score_map[body_markdown]
+        level = "高" if score >= 60 else "中" if score >= 30 else "低"
+        return SimpleNamespace(score=score, level=level, hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    def fake_cleanup(*, title: str, body_markdown: str) -> str:
+        if body_markdown == "current raw":
+            return "current cleaned"
+        if body_markdown == "retry raw":
+            return "retry cleaned"
+        return body_markdown
+
+    monkeypatch.setattr(workbench, "_collapse_short_judgment_residue", fake_cleanup)
+    monkeypatch.setattr(workbench, "_find_excessive_generic_reflective_openers", lambda **_: ["很多时候"])
+    monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True)
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            return {"title": "retry title", "body_markdown": "retry raw"}
+
+    result_markdown, result_title = workbench._maybe_retry_polish_for_over_smoothing(
+        project={
+            "source_type": "manual",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction="cleanup",
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=FakeGenerator(),
+        source_draft_title="source title",
+        source_draft_body_markdown="source raw",
+        candidate_title="current title",
+        candidate_body_markdown="current raw",
+    )
+
+    assert result_title == "retry title"
+    assert result_markdown == "retry raw"
+
+
+def test_maybe_retry_polish_for_remaining_ai_flavor_prefers_retry_after_cleanup_preview(
+    monkeypatch,
+) -> None:
+    score_map = {
+        "current raw": 4,
+        "retry raw": 12,
+        "current cleaned": 3,
+        "retry cleaned": 0,
+    }
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        score = score_map[body_markdown]
+        level = "高" if score >= 60 else "中" if score >= 30 else "低"
+        return SimpleNamespace(score=score, level=level, hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    def fake_cleanup(*, title: str, body_markdown: str) -> str:
+        if body_markdown == "current raw":
+            return "current cleaned"
+        if body_markdown == "retry raw":
+            return "retry cleaned"
+        return body_markdown
+
+    monkeypatch.setattr(workbench, "_collapse_short_judgment_residue", fake_cleanup)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: True)
+    monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True)
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            return {"title": "retry title", "body_markdown": "retry raw"}
+
+    result_markdown, result_title = workbench._maybe_retry_polish_for_remaining_ai_flavor(
+        project={
+            "source_type": "manual",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction="cleanup",
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=FakeGenerator(),
+        source_draft_title="source title",
+        source_draft_body_markdown="source raw",
+        candidate_title="current title",
+        candidate_body_markdown="current raw",
+    )
+
+    assert result_title == "retry title"
+    assert result_markdown == "retry raw"
+
+
+def test_maybe_retry_polish_for_remaining_ai_flavor_skips_tracked_article_fragment_chain_candidate(
+    monkeypatch,
+) -> None:
+    candidate_markdown = (
+        "朋友的消息弹出来时，她正对着桌上那杯咖啡发愣。\n\n"
+        "杯壁外侧已经结了一层薄薄的水，电脑右下角跳到 21:47，文档还开着，光标一闪一闪。那条消息很短：最近怎么样，要不要找天见一面？\n\n"
+        "她点开语音，说了两个字，停住。删掉。又按住，说到“我最近……”就没声了。肩膀绷得很紧，像有人把两边往里拽。最后发出去的，还是那句最省力的话：这周有点满，下次一定。\n\n"
+        "很多人就是从这种地方开始变慢的。\n\n"
+        "不是什么大事，也没有戏剧性的崩塌。闹钟响了，按掉，再按掉。明明只差十分钟就能从容出门，还是在床边坐了很久。洗头这件事，要在心里过两遍流程。\n\n"
+        "白天她照常开会、改东西、回邮件。谁来催，她都能接住，语气也稳。到了下班路上，地铁门一开，风吹进来，她忽然只想把耳机音量调大一点，谁都别找她。\n\n"
+        "这里面有条很清楚的线。\n\n"
+        "待办一项项堆上来，她最先做的，通常不是分辨自己累到哪了，而是把那点不舒服往里折，先做完再说。眼前这关要过，明天那项不能拖，周会材料还差最后两页。\n\n"
+        "她不是突然不爱说话的。\n\n"
+        "早上出门前，口红拿起来又放下，算了。午休时间，本来想去楼下走走，结果坐在工位上发呆。深夜洗漱，牙刷含在嘴里，眼睛看着镜子里的人，脑子却是空的。\n\n"
+        "更麻烦的是，她常把这些信号当成“最近状态不太好”。\n\n"
+        "醒来更累，胃口乱，有时下午三四点突然心慌；消息提示音一密集，太阳穴就跟着发紧。按理说，这些已经够明显了。可她对自己的解释总是很熟：忙完这阵就好了，周末补个觉就好了，最近事情多，谁不是这样。\n\n"
+        "因为她还没有倒下。\n\n"
+        "还能上班，能交差，能在别人问起时回一句“挺好的”。正是这种“还能”，最容易让人误判。像房间里有一盏灯开始忽明忽暗，但只要没彻底灭掉，大家就继续用。\n\n"
+        "关系里的缺席，也不是某天忽然形成的。\n\n"
+        "先是把见面改成改天。后来电话变成文字。再后来，长回复缩成表情，解释缩成“最近有点忙”。聊天框里的未读红点越来越多，她收藏过几条想认真回的话，后来也没再点开。\n\n"
+        "这句话听上去很体谅，可听多了，人会更沉默。\n\n"
+        "因为她慢慢适应了自己总在往后退。生活里有新变化，不太主动讲了；受了委屈，也觉得讲起来太费劲。别人伸手的时候，她先想到的不是“我可以说”，而是“我得赶紧恢复正常，再去见人”。\n\n"
+        "有些代价是延迟出现的。\n\n"
+        "回家的路上，手机又亮了一次。她站在电梯里，看着镜子里自己有点发白的脸，拇指在屏幕上停了停，没有再逼自己把所有消息都回完。她只给其中一个人发了句实话：我最近有点撑不动，可能会回得慢一点。"
+    )
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            raise AssertionError("fragment-chain tracked article candidate should not enter remaining ai flavor retry")
+
+    result_markdown, result_title = workbench._maybe_retry_polish_for_remaining_ai_flavor(
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction="cleanup",
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=FakeGenerator(),
+        source_draft_title="source title",
+        source_draft_body_markdown="source raw",
+        candidate_title="tracked title",
+        candidate_body_markdown=candidate_markdown,
+    )
+
+    assert result_title == "tracked title"
+    assert result_markdown == candidate_markdown
+
+
+def test_maybe_auto_polish_ai_flavor_draft_output_prefers_retry_chain_candidate_after_cleanup_preview(
+    monkeypatch,
+) -> None:
+    score_map = {
+        "source raw": 60,
+        "best raw": 35,
+        "retry raw": 42,
+        "best cleaned": 3,
+        "retry cleaned": 0,
+    }
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        score = score_map[body_markdown]
+        level = "高" if score >= 60 else "中" if score >= 30 else "低"
+        return SimpleNamespace(score=score, level=level, hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    def fake_cleanup(*, title: str, body_markdown: str) -> str:
+        if body_markdown == "best raw":
+            return "best cleaned"
+        if body_markdown == "retry raw":
+            return "retry cleaned"
+        return body_markdown
+
+    monkeypatch.setattr(workbench, "_collapse_short_judgment_residue", fake_cleanup)
+    monkeypatch.setattr(
+        workbench,
+        "_maybe_retry_polish_for_structure_drift",
+        lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]),
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_maybe_retry_polish_for_over_smoothing",
+        lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]),
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_maybe_retry_polish_for_article_shell_cleanup",
+        lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]),
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_maybe_retry_polish_for_remaining_ai_flavor",
+        lambda **kwargs: ("retry raw", "retry title"),
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_maybe_retry_polish_for_final_ai_flavor_cleanup",
+        lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]),
+    )
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        uses_custom_base_url = False
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            return {"title": "best title", "body_markdown": "best raw"}
+
+    result_markdown, result_title = workbench._maybe_auto_polish_ai_flavor_draft_output(
+        title="source title",
+        body_markdown="source raw",
+        project={
+            "source_type": "manual",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction=None,
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=FakeGenerator(),
+    )
+
+    assert result_title == "retry title"
+    assert result_markdown == "retry raw"
+
+
+def test_maybe_auto_polish_ai_flavor_draft_output_skips_tracked_article_low_risk_without_shell_signals(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        workbench,
+        "evaluate_ai_flavor_risk",
+        lambda **_: SimpleNamespace(score=0, level="低", hits=[], suggestions=[]),
+    )
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False)
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            raise AssertionError("auto polish should short-circuit before retry generation")
+
+    result_markdown, result_title = workbench._maybe_auto_polish_ai_flavor_draft_output(
+        title="tracked title",
+        body_markdown="tracked raw",
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+            "reference_article_body_markdown": "reference raw",
+            "reference_article_title": "reference title",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction=None,
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=FakeGenerator(),
+    )
+
+    assert result_title == "tracked title"
+    assert result_markdown == "tracked raw"
+
+
+def test_maybe_auto_polish_ai_flavor_draft_output_skips_tracked_article_fragment_chain_candidate(
+    monkeypatch,
+) -> None:
+    candidate_markdown = (
+        "朋友的消息弹出来时，她正对着桌上那杯咖啡发愣。\n\n"
+        "杯壁外侧已经结了一层薄薄的水，电脑右下角跳到 21:47，文档还开着，光标一闪一闪。那条消息很短：最近怎么样，要不要找天见一面？\n\n"
+        "她点开语音，说了两个字，停住。删掉。又按住，说到“我最近……”就没声了。肩膀绷得很紧，像有人把两边往里拽。最后发出去的，还是那句最省力的话：这周有点满，下次一定。\n\n"
+        "很多人就是从这种地方开始变慢的。\n\n"
+        "不是什么大事，也没有戏剧性的崩塌。闹钟响了，按掉，再按掉。明明只差十分钟就能从容出门，还是在床边坐了很久。洗头这件事，要在心里过两遍流程。\n\n"
+        "白天她照常开会、改东西、回邮件。谁来催，她都能接住，语气也稳。到了下班路上，地铁门一开，风吹进来，她忽然只想把耳机音量调大一点，谁都别找她。\n\n"
+        "这里面有条很清楚的线。\n\n"
+        "待办一项项堆上来，她最先做的，通常不是分辨自己累到哪了，而是把那点不舒服往里折，先做完再说。眼前这关要过，明天那项不能拖，周会材料还差最后两页。\n\n"
+        "她不是突然不爱说话的。\n\n"
+        "早上出门前，口红拿起来又放下，算了。午休时间，本来想去楼下走走，结果坐在工位上发呆。深夜洗漱，牙刷含在嘴里，眼睛看着镜子里的人，脑子却是空的。\n\n"
+        "更麻烦的是，她常把这些信号当成“最近状态不太好”。\n\n"
+        "醒来更累，胃口乱，有时下午三四点突然心慌；消息提示音一密集，太阳穴就跟着发紧。按理说，这些已经够明显了。可她对自己的解释总是很熟：忙完这阵就好了，周末补个觉就好了，最近事情多，谁不是这样。\n\n"
+        "因为她还没有倒下。\n\n"
+        "还能上班，能交差，能在别人问起时回一句“挺好的”。正是这种“还能”，最容易让人误判。像房间里有一盏灯开始忽明忽暗，但只要没彻底灭掉，大家就继续用。\n\n"
+        "关系里的缺席，也不是某天忽然形成的。\n\n"
+        "先是把见面改成改天。后来电话变成文字。再后来，长回复缩成表情，解释缩成“最近有点忙”。聊天框里的未读红点越来越多，她收藏过几条想认真回的话，后来也没再点开。\n\n"
+        "这句话听上去很体谅，可听多了，人会更沉默。\n\n"
+        "因为她慢慢适应了自己总在往后退。生活里有新变化，不太主动讲了；受了委屈，也觉得讲起来太费劲。别人伸手的时候，她先想到的不是“我可以说”，而是“我得赶紧恢复正常，再去见人”。\n\n"
+        "有些代价是延迟出现的。\n\n"
+        "回家的路上，手机又亮了一次。她站在电梯里，看着镜子里自己有点发白的脸，拇指在屏幕上停了停，没有再逼自己把所有消息都回完。她只给其中一个人发了句实话：我最近有点撑不动，可能会回得慢一点。"
+    )
+
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False)
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            raise AssertionError("fragment-chain tracked article candidate should not enter initial auto polish")
+
+    result_markdown, result_title = workbench._maybe_auto_polish_ai_flavor_draft_output(
+        title="tracked title",
+        body_markdown=candidate_markdown,
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+            "reference_article_body_markdown": "reference raw",
+            "reference_article_title": "reference title",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction=None,
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=FakeGenerator(),
+    )
+
+    assert result_title == "tracked title"
+    assert result_markdown == candidate_markdown
+
+
+def test_maybe_auto_polish_ai_flavor_draft_output_skips_low_risk_single_window_tracked_article_candidate(
+    monkeypatch,
+) -> None:
+    candidate_markdown = (
+        "外卖袋勒得手指发白，她在玄关弯腰解结，汤盒烫得掌心换了两次位置。门在背后响了一下，他进来，手里空着，钥匙往柜子上一放，低头换鞋。\n\n"
+        "下午六点多，她明明发过消息：家里纸巾没了，顺路带一提回来。聊天框里还停着他的“好”。人回来了，纸没回来。\n\n"
+        "话其实已经到嘴边了。她原本想说“你又忘了”，舌尖抵了抵上颚，最后落下来，成了句很轻的：“先吃饭吧。”\n\n"
+        "电视开着，综艺里的笑声一阵一阵飘出来。他走到餐桌边，看了眼外卖盒，随口问：“怎么还没吃？”\n\n"
+        "肩膀就是那时绷起来的。这句问话不重，难受的地方也不在语气。它像把前面那串小事一起抹平了：下班绕路拿外卖，回家发现抽纸真没了，蹲在柜子前翻出半包旧纸巾，边角都压皱了。好像这些都不算事，所以也不用被提起。\n\n"
+        "她把筷子抽出来，塑料套刮过桌面，声音有点干。本来还想接一句“我在等你，也在等那提纸”，可人坐下以后，嘴又收回去了，只剩“刚拆”。\n\n"
+        "后来她蹲下去，把柜子底下那半包纸抽出来，里面只剩三张。她盯着那三张纸，看了一会儿。有些关系变味，不是靠一次大吵认出来的。更常见的情况是，家里还照常吃饭，消息也照常回，只是开口这件事，已经悄悄变贵了。"
+    )
+
+    class FakeSummary:
+        score = 0
+        level = "低"
+        hits: list[str] = []
+        suggestions: list[str] = []
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", lambda **_: FakeSummary())
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False)
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            raise AssertionError("low-risk single-window tracked article candidate should not enter auto polish")
+
+    result_markdown, result_title = workbench._maybe_auto_polish_ai_flavor_draft_output(
+        title="tracked title",
+        body_markdown=candidate_markdown,
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+            "reference_article_body_markdown": "reference raw",
+            "reference_article_title": "reference title",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction=None,
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=FakeGenerator(),
+    )
+
+    assert result_title == "tracked title"
+    assert result_markdown == candidate_markdown
 
 
 def test_generate_assets_falls_back_when_cover_image_generation_is_unavailable(monkeypatch) -> None:
@@ -2914,6 +4147,7 @@ def test_polish_draft_retries_when_structure_headings_are_lost(monkeypatch) -> N
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+    calls_before_manual_polish = len(fake_generator.calls)
 
     polish_response = client.post(
         "/api/projects/office-burnout-recovery-weekly/polish-draft",
@@ -2927,11 +4161,15 @@ def test_polish_draft_retries_when_structure_headings_are_lost(monkeypatch) -> N
     assert "别等失去才懂珍惜" in polished["body_markdown"]
     assert "别把幸福寄托在“等以后”" in polished["body_markdown"]
 
-    polish_calls = [call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")]
-    assert len(polish_calls) == 2
-    assert polish_calls[0][1]["polish_instruction"] == "降低模板感，但保留原稿结构。"
-    assert "上一次改写发生了结构漂移" in str(polish_calls[1][1]["polish_instruction"])
-    assert "这次必须原样保留以下小节标题" in str(polish_calls[1][1]["polish_instruction"])
+    manual_polish_calls = fake_generator.calls[calls_before_manual_polish:]
+    polish_calls = [
+        call for call in manual_polish_calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    instructions = [str(call[1]["polish_instruction"]) for call in polish_calls]
+    assert len(polish_calls) >= 2
+    assert instructions[0] == "降低模板感，但保留原稿结构。"
+    assert any("上一次改写发生了结构漂移" in instruction for instruction in instructions[1:])
+    assert any("这次必须原样保留以下小节标题" in instruction for instruction in instructions[1:])
 
 
 def test_polish_draft_retries_when_result_is_over_smoothed(monkeypatch) -> None:
@@ -3057,10 +4295,11 @@ def test_polish_draft_retries_when_result_is_over_smoothed(monkeypatch) -> None:
     assert "外婆" in polished["body_markdown"]
 
     polish_calls = [call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")]
-    assert len(polish_calls) == 2
-    assert polish_calls[0][1]["polish_instruction"] == "降低模板感，但保留原稿结构和案例。"
-    assert "上一次改写虽然保住了结构，但把原稿磨得太顺" in str(polish_calls[1][1]["polish_instruction"])
-    assert "很多时候 / 说到底" in str(polish_calls[1][1]["polish_instruction"])
+    instructions = [str(call[1]["polish_instruction"]) for call in polish_calls]
+    assert len(polish_calls) >= 2
+    assert instructions[0] == "降低模板感，但保留原稿结构和案例。"
+    assert any("上一次改写虽然保住了结构，但把原稿磨得太顺" in instruction for instruction in instructions[1:])
+    assert any("很多时候 / 说到底" in instruction for instruction in instructions[1:])
 
 
 def test_polish_draft_retries_when_ai_flavor_still_remains(monkeypatch) -> None:
@@ -3160,11 +4399,12 @@ def test_polish_draft_retries_when_ai_flavor_still_remains(monkeypatch) -> None:
     polish_calls = [
         call for call in manual_polish_calls if call[0] == "draft" and call[1].get("polish_instruction")
     ]
-    assert len(polish_calls) == 2
+    assert len(polish_calls) == 3
     assert polish_calls[0][1]["polish_instruction"] == "降低模板感，但保留原稿结构和案例。"
-    assert "上一次精修后，模板风险还没压够" in str(polish_calls[1][1]["polish_instruction"])
-    assert "当前仍命中" in str(polish_calls[1][1]["polish_instruction"])
-    assert "不要把开头第一屏和各小节首段统一扩成新的氛围场景" in str(polish_calls[1][1]["polish_instruction"])
+    instructions = [str(call[1]["polish_instruction"]) for call in polish_calls[1:]]
+    assert any("上一次精修后，模板风险还没压够" in instruction for instruction in instructions)
+    assert any("最后一轮局部清理" in instruction for instruction in instructions)
+    assert any("不要把开头第一屏和各小节首段统一扩成新的氛围场景" in instruction for instruction in instructions)
 
 
 def test_remaining_ai_flavor_retry_triggers_for_low_score_not_ab_residue() -> None:
@@ -3221,6 +4461,57 @@ def test_remaining_ai_flavor_retry_triggers_for_moderate_score_heavy_not_ab_resi
     )
 
 
+def test_remaining_ai_flavor_retry_triggers_for_short_judgment_cadence_residue() -> None:
+    source_body = (
+        "# 她后来没再把真心话都留到夜里\n\n"
+        "她一整天都很忙，真正想回的人，总被她拖到最后。\n\n"
+        "后来她试着在白天先回一条消息。"
+    )
+    candidate_body = (
+        "# 她后来没再把真心话都留到夜里\n\n"
+        "电梯快合上的时候，她低头看了眼手机。\n\n"
+        "置顶对话里躺着两条昨晚没回完的消息。朋友问她这周要不要见面，妈妈发来一张家里阳台新开的花。她的手指停在屏幕上方，楼层往下跳，她先回了工作群里的“收到”，又把那两个对话按灭。\n\n"
+        "白天的她并没有闲着。\n\n"
+        "消息很多，页面一直在跳。确认排期、对接流程、改表格、补一句“辛苦了”、再接住新的安排。她能回的大多是这种话：明确，简短，不需要情绪，也不需要把自己放进去。\n\n"
+        "聊天框也会变得很难打开。\n\n"
+        "她不是没话说，是那种要把心思拿出来、把语气放软、把一句普通回复变成真正的交流，这件事忽然很重。光是想一想，就已经觉得累。\n\n"
+        "后来她有过个很小的变化。\n\n"
+        "午休快结束时，她没有先去刷工作群，而是靠在茶水间窗边，回了朋友那条约见面的消息。没写很多，只是认真定了个周六下午。\n\n"
+        "这一步很难。\n\n"
+        "因为她清楚，一旦停下来，很多被压着的东西会一起冒头。委屈、烦躁、亏空感，还有那种说不出口的失望。"
+    )
+
+    assert workbench._should_retry_for_remaining_ai_flavor(
+        source_title="她后来没再把真心话都留到夜里",
+        source_markdown=source_body,
+        candidate_title="她后来没再把真心话都留到夜里",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_remaining_ai_flavor_retry_triggers_for_embedded_banner_residue() -> None:
+    source_body = (
+        "# 别把日子过反了\n\n"
+        "阿杰晕倒之后，才肯承认自己已经很久没有认真休息。\n\n"
+        "外婆走后，我翻手机时才知道，很多平常时刻原来并不会重来。\n\n"
+        "想做的事，别一直往后拖。"
+    )
+    candidate_body = (
+        "# 别把日子过反了\n\n"
+        "电梯门快合上时，她抬手挡了下。门弹开，白光照着空空的轿厢。手机在掌心震了两次，聊天框停在那句没发出去的话上：这阵子有点忙，忙完再联系。\n\n"
+        "这条线常常就是这么出来的。休息往后挪，情绪往后挪，身体给的提醒也往后挪。困了，先把表格做完；胃空着，先把会开完；体检预约改了又改，心里想着下周总能腾出空。\n\n"
+        "关系也是这样淡下去的。朋友问近况，本来只是想听你说两句真的；家里来消息，也未必是催你做什么。可聊天框停在“改天见”后面太久，下一次点开时，里面会多出层生分。\n\n"
+        "真正磨人的，往往不在最忙的那几天。忙的时候，人是被推着走的，顾不上细想。后面反复冒出来的，是那些原本能当时回掉、当时照顾、当时在场的时刻，被自己轻轻推开了。"
+    )
+
+    assert workbench._should_retry_for_remaining_ai_flavor(
+        source_title="别把日子过反了",
+        source_markdown=source_body,
+        candidate_title="别把日子过反了",
+        candidate_markdown=candidate_body,
+    )
+
+
 def test_pick_better_ai_flavor_candidate_prefers_lower_residual_burden_on_tied_score() -> None:
     current_body = (
         "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
@@ -3266,6 +4557,228 @@ def test_pick_better_ai_flavor_candidate_prefers_lower_residual_burden_on_tied_s
     assert chosen_markdown == retried_body
 
 
+def test_pick_better_ai_flavor_candidate_prefers_lower_reference_score_when_cleaned_scores_tie(
+    monkeypatch,
+) -> None:
+    current_body = "# 当前候选\n\n她看着消息，没有立刻回。"
+    retried_body = "# 重试候选\n\n她看着消息，先把手机扣在桌上。"
+    current_reference_body = "# 当前原始候选\n\n很多时候，人会先把话收回去。"
+    retried_reference_body = "# 重试原始候选\n\n电梯快合上的时候，她先按住了那口气。"
+
+    score_map = {
+        current_body: 0,
+        retried_body: 0,
+        current_reference_body: 28,
+        retried_reference_body: 10,
+    }
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        return SimpleNamespace(
+            score=score_map[body_markdown],
+            level="低",
+            hits=[],
+            suggestions=[],
+        )
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    chosen_markdown, chosen_title = workbench._pick_better_ai_flavor_candidate(
+        current_title="当前候选",
+        current_markdown=current_body,
+        retried_title="重试候选",
+        retried_markdown=retried_body,
+        current_reference_title="当前原始候选",
+        current_reference_markdown=current_reference_body,
+        retried_reference_title="重试原始候选",
+        retried_reference_markdown=retried_reference_body,
+    )
+
+    assert chosen_title == "重试候选"
+    assert chosen_markdown == retried_body
+
+
+def test_pick_better_ai_flavor_candidate_prefers_lower_cleanup_cost_when_scores_tie(
+    monkeypatch,
+) -> None:
+    current_body = "# 当前候选\n\n她把消息先按灭了。"
+    retried_body = "# 重试候选\n\n她把消息扣在桌上。"
+    reference_body = "# 共同参考候选\n\n她先没有开口。"
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        return SimpleNamespace(
+            score=0 if body_markdown in {current_body, retried_body, reference_body} else 0,
+            level="低",
+            hits=[],
+            suggestions=[],
+        )
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    chosen_markdown, chosen_title = workbench._pick_better_ai_flavor_candidate(
+        current_title="当前候选",
+        current_markdown=current_body,
+        retried_title="重试候选",
+        retried_markdown=retried_body,
+        current_reference_title="共同参考候选",
+        current_reference_markdown=reference_body,
+        retried_reference_title="共同参考候选",
+        retried_reference_markdown=reference_body,
+        current_cleanup_applied=True,
+        current_cleanup_changed_steps=3,
+        retried_cleanup_applied=True,
+        retried_cleanup_changed_steps=1,
+    )
+
+    assert chosen_title == "重试候选"
+    assert chosen_markdown == retried_body
+
+
+def test_pick_better_ai_flavor_candidate_prefers_non_over_smoothed_branch_for_tracked_article(
+    monkeypatch,
+) -> None:
+    current_body = "# 当前候选\n\n过度顺滑正文"
+    retried_body = "# 重试候选\n\n保留一点毛边的正文"
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+    monkeypatch.setattr(
+        workbench,
+        "_looks_like_over_smoothed_tracked_article_candidate",
+        lambda markdown: markdown == current_body,
+    )
+
+    chosen_markdown, chosen_title = workbench._pick_better_ai_flavor_candidate(
+        current_title="当前候选",
+        current_markdown=current_body,
+        retried_title="重试候选",
+        retried_markdown=retried_body,
+        source_type="tracked_article",
+    )
+
+    assert chosen_title == "重试候选"
+    assert chosen_markdown == retried_body
+
+
+def test_pick_better_article_shell_candidate_prefers_non_over_smoothed_retry(
+    monkeypatch,
+) -> None:
+    current_body = "# 当前候选\n\n过度顺滑正文"
+    retried_body = "# 重试候选\n\n保留一点毛边的正文"
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+    monkeypatch.setattr(
+        workbench,
+        "_looks_like_over_smoothed_tracked_article_candidate",
+        lambda markdown: markdown == current_body,
+    )
+
+    chosen_markdown, chosen_title = workbench._pick_better_article_shell_candidate(
+        current_title="当前候选",
+        current_markdown=current_body,
+        retried_title="重试候选",
+        retried_markdown=retried_body,
+    )
+
+    assert chosen_title == "重试候选"
+    assert chosen_markdown == retried_body
+
+
+def test_finalize_initial_draft_candidate_exposes_pre_cleanup_reference_and_cleanup_cost(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        workbench,
+        "_maybe_compress_draft_output",
+        lambda **kwargs: (kwargs["body_markdown"], kwargs["title"]),
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_maybe_auto_polish_ai_flavor_draft_output",
+        lambda **kwargs: (kwargs["body_markdown"], kwargs["title"]),
+    )
+
+    candidate_title = "她在电梯镜子里补了口红，却把胸口那阵闷意按了回去"
+    candidate_body = (
+        "电梯门快合上的时候，她抬手拦了一下，另一只手还拿着口红。镜子里那张脸被顶灯照得有点白，她抿了抿唇，把颜色补匀，顺手按住胸口那阵发闷。不是很疼，更像有块东西横在那里，气吸不满。手机屏幕亮着，待办列表最上面那行写着：10:00 周会。\n\n"
+        "门开了，会议室在走廊尽头。她边走边把口红塞回包里，心里想的是，今天先把会开完再说。\n\n"
+        "很多提醒，最早都长得不吓人。\n\n"
+        "先是动作变慢。群消息弹出来，她看完，没有立刻回，过了几分钟再点开，又从头看了一遍，还是没想好怎么接。明明字都认识，脑子却像隔着层雾。对面催了一句“在吗”，她才赶紧回过去，手指打字很快，内容却比平时更短，像在补交作业。\n\n"
+        "这样的停顿一多，周围人先感到的是不顺。工作对接的人会追问，家里人会说她最近老走神。她自己也察觉到了，于是开始补：白天加一杯冰美式，晚上把没做完的事往后挪，想着再熬两个小时，节奏就能拉回来。胸口闷、回消息慢、说话要想半秒，都被她归到同一类——这阵子太忙了。\n\n"
+        "可身体不太认这个说法。\n\n"
+        "咖啡把人往上拎，晚上却更难真正睡沉。第二天起床更钝，洗脸时盯着镜子发会儿呆，才想起来护肤做到哪步。越想把效率补回去，白天那层迟缓越明显，像橡皮筋被拉过头，弹不回原来的位置。\n\n"
+        "胸口那阵闷意又上来了。\n\n"
+        "这次她没有去拿口红。"
+    )
+
+    result = workbench._finalize_initial_draft_candidate(
+        project_slug="demo",
+        tone_profile=SimpleNamespace(target_word_count=0),
+        project={"source_type": "tracked_article"},
+        outline_row={"hook": "", "outline_body": ""},
+        review_comment=None,
+        reference_article_payload={},
+        strategy_bundle_payload={},
+        polish_instruction=None,
+        generator=object(),
+        title=candidate_title,
+        body_markdown=candidate_body,
+    )
+
+    assert result.reference_title == candidate_title
+    assert result.reference_body_markdown == candidate_body
+    assert result.cleanup_applied is True
+    assert result.cleanup_changed_steps >= 1
+    assert result.body_markdown != candidate_body
+
+
+def test_build_initial_draft_candidate_result_reverts_cleanup_that_over_smooths_tracked_article(
+    monkeypatch,
+) -> None:
+    source_body = "# 原稿\n\n保留一点毛边的正文"
+    over_smoothed_body = "# 原稿\n\n过度顺滑正文"
+
+    monkeypatch.setattr(workbench, "_collapse_short_judgment_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_time_chain_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_embedded_banner_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_leading_short_long_cadence_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_short_long_cadence_residue", lambda **kwargs: over_smoothed_body)
+    monkeypatch.setattr(workbench, "_collapse_over_segmented_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_light_segmented_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_structural_ladder_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_not_ab_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_connector_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(
+        workbench,
+        "_looks_like_over_smoothed_tracked_article_candidate",
+        lambda markdown: markdown == over_smoothed_body,
+    )
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        score_map = {
+            source_body: 18,
+            over_smoothed_body: 0,
+        }
+        return SimpleNamespace(score=score_map[body_markdown], level="低", hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    result = workbench._build_initial_draft_candidate_result(
+        title="原稿",
+        body_markdown=source_body,
+        source_type="tracked_article",
+    )
+
+    assert result.reference_body_markdown == source_body
+    assert result.body_markdown == source_body
+    assert result.cleanup_applied is False
+    assert result.cleanup_changed_steps == 0
+
+
 def test_final_ai_flavor_cleanup_triggers_for_low_score_residue() -> None:
     candidate_body = (
         "# 别把日子过反了\n\n"
@@ -3308,6 +4821,564 @@ def test_final_ai_flavor_cleanup_triggers_for_four_not_ab_only_residue() -> None
     )
 
 
+def test_final_ai_flavor_cleanup_triggers_for_short_judgment_residue() -> None:
+    candidate_body = (
+        "# 她后来没再把真心话都留到夜里\n\n"
+        "电梯快合上的时候，她低头看了眼手机。\n\n"
+        "置顶对话里躺着两条昨晚没回完的消息。朋友问她这周要不要见面，妈妈发来一张家里阳台新开的花。她的手指停在屏幕上方，楼层往下跳，她先回了工作群里的“收到”，又把那两个对话按灭。\n\n"
+        "白天的她并没有闲着。\n\n"
+        "消息很多，页面一直在跳。确认排期、对接流程、改表格、补一句“辛苦了”、再接住新的安排。她能回的大多是这种话：明确，简短，不需要情绪，也不需要把自己放进去。\n\n"
+        "后来她有过个很小的变化。\n\n"
+        "午休快结束时，她没有先去刷工作群，而是靠在茶水间窗边，回了朋友那条约见面的消息。没写很多，只是认真定了个周六下午。"
+    )
+
+    assert workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="她后来没再把真心话都留到夜里",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_collapse_short_judgment_residue_merges_tail_short_paragraphs() -> None:
+    candidate_body = (
+        "# 她在电梯镜子里补了口红，却把胸口那阵闷意按了回去\n\n"
+        "电梯门快合上的时候，她抬手拦了一下，另一只手还拿着口红。镜子里那张脸被顶灯照得有点白，她抿了抿唇，把颜色补匀，顺手按住胸口那阵发闷。不是很疼，更像有块东西横在那里，气吸不满。手机屏幕亮着，待办列表最上面那行写着：10:00 周会。\n\n"
+        "门开了，会议室在走廊尽头。她边走边把口红塞回包里，心里想的是，今天先把会开完再说。\n\n"
+        "很多提醒，最早都长得不吓人。\n\n"
+        "先是动作变慢。群消息弹出来，她看完，没有立刻回，过了几分钟再点开，又从头看了一遍，还是没想好怎么接。明明字都认识，脑子却像隔着层雾。对面催了一句“在吗”，她才赶紧回过去，手指打字很快，内容却比平时更短，像在补交作业。\n\n"
+        "这样的停顿一多，周围人先感到的是不顺。工作对接的人会追问，家里人会说她最近老走神。她自己也察觉到了，于是开始补：白天加一杯冰美式，晚上把没做完的事往后挪，想着再熬两个小时，节奏就能拉回来。胸口闷、回消息慢、说话要想半秒，都被她归到同一类——这阵子太忙了。\n\n"
+        "可身体不太认这个说法。\n\n"
+        "咖啡把人往上拎，晚上却更难真正睡沉。第二天起床更钝，洗脸时盯着镜子发会儿呆，才想起来护肤做到哪步。越想把效率补回去，白天那层迟缓越明显，像橡皮筋被拉过头，弹不回原来的位置。\n\n"
+        "胸口那阵闷意又上来了。\n\n"
+        "这次她没有去拿口红。"
+    )
+
+    collapsed = workbench._collapse_short_judgment_residue(
+        title="她在电梯镜子里补了口红，却把胸口那阵闷意按了回去",
+        body_markdown=candidate_body,
+    )
+    summary = workbench.evaluate_ai_flavor_risk(
+        title="她在电梯镜子里补了口红，却把胸口那阵闷意按了回去",
+        body_markdown=collapsed,
+    )
+
+    assert "胸口那阵闷意又上来了。这次她没有去拿口红。" in collapsed
+    assert len(workbench.extract_short_judgment_paragraphs(collapsed)) == 2
+    assert not any("单句敲钟段偏多" in hit for hit in summary.hits)
+
+
+def test_collapse_time_chain_shell_residue_reduces_retry44_like_shell_burden() -> None:
+    candidate_body = (
+        "电梯快到楼层，她对着镜面补了口红。手机震了下，屏幕顶端跳出一行字：体检改期成功。\n\n"
+        "手指往上一划，门开了，外面已经有人在喊投屏连不上。高跟鞋踩在地砖上，声响空空的。那条短信很快被新的通知压下去，和群消息、日程提醒叠在一起。\n\n"
+        "楼梯口那次也很直白。同事走了两级，回头看见她扶着栏杆，问今天怎么这么慢。她笑了笑，只接了句，昨晚没睡好。中午群里催文件，光标在对话框里闪了很久，最后发出去的还是“收到”。她不是想省字，当时先冒出来的感觉是钝，像脑子外面糊着层湿布，句子要往外拽，半天也拽不整齐。\n\n"
+        "这种时候，人往往不会停，反而会往前补。咖啡换大杯，午休先撤掉，晚上回家再开电脑，把白天掉下去的进度补回来。她也这么做。因为一旦慢下来，麻烦立刻就有了形：请假要重排，答应过的事得往后挪，还要自己开口承认，这会儿确实撑不太住。\n\n"
+        "于是“最近有点累”成了最顺手的说法。轻，薄，像拿手掌把桌上的纸压平，底下那层褶还在。\n\n"
+        "饭局那回，声音更吵。杯子碰杯子，勺子刮盘子，过道上来回有人走。她坐在靠外侧的位置，菜转到面前，夹了口南瓜，就停那儿了。朋友问项目是不是很麻烦，她点头，没接下去。等旁边的人聊到周末去哪儿，她还低头看着碗里那块凉掉的南瓜。\n\n"
+        "回家路上，朋友发来语音。她点开，听完，退出来。过两站，又点开一遍，还是没回。后来屏幕上跳出一句：你最近是不是有点怪。\n\n"
+        "她按灭了手机。\n\n"
+        "安静落在别人耳朵里，很容易被听成冷淡。可她那会儿更像是空了。回应别人要组织词，接住情绪也要力气，连“我最近不太好”这几个字，都显得重。前面那次没说，后面就更难说；消息拖着拖着，误会也会跟着长出来。人际上的消耗，常常不是争吵出来的，很多时候是回复框亮着，你看着它，身体先往后缩了半步。\n\n"
+        "第三次提醒更碎，也更容易被她往后放。洗完澡出来，胸口发紧，像内衣肩带勒久了，摘掉以后那道印子还留着。她坐到床边，头发没吹干，先把第二天的待办往下拉，又把闹钟从7点10分改到6点40分。周末本来约了散步，临出门前又把电脑掀开，说先改完这版。收件箱里那条复诊改期短信一直躺着，没删，也没点。\n\n"
+        "给自己的解释倒是很顺：项目特殊，交付完再说，忙过这阵应该就好了。可人一旦急着把自己拨回“正常”，最先被压下去的，偏偏就是这些已经冒头的信号。楼梯走慢了，她往睡眠上归；不想回话，她往情绪上轻轻带过去；胸口发紧，就先改闹钟，先开电脑。每次都像只推迟了一小会儿，后面却要用更多力气去装作没有那回事。\n\n"
+        "所以代价看起来并不响。工作群还在回，饭局也照常去，第二天甚至起得更早。表面没断，里面已经开始掉速。最磨人的地方就在这儿：她不是突然垮掉的，是在一次次“先把眼前做完”里，慢慢变钝，慢慢变沉，连察觉自己不对劲都比从前晚了半拍。\n\n"
+        "夜里十一点多，洗完澡的发尾还在滴水，睡衣领口湿了一小片。手机又亮了，还是那个朋友：你最近还好吗？\n\n"
+        "她把输入框点开，打了两个字，又删掉。屏幕白着，下面压着那条复诊改期的确认短信。"
+    )
+
+    before_burden = workbench._article_shell_burden(candidate_body)
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="收件箱里那条改期短信，她一直没点开",
+        body_markdown=candidate_body,
+    )
+
+    collapsed = workbench._collapse_time_chain_shell_residue(
+        title="收件箱里那条改期短信，她一直没点开",
+        body_markdown=candidate_body,
+    )
+
+    after_burden = workbench._article_shell_burden(collapsed)
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="收件箱里那条改期短信，她一直没点开",
+        body_markdown=collapsed,
+    )
+
+    assert collapsed != candidate_body
+    assert after_burden[0] < before_burden[0]
+    assert after_burden[1] < before_burden[1]
+    assert after_burden[6] < before_burden[6]
+    assert after_summary.score < before_summary.score
+    assert "\n\n她按灭了手机。\n\n" not in collapsed
+    assert "你最近是不是有点怪。她按灭了手机。" in collapsed
+    assert "夜里十一点多" in collapsed
+
+
+def test_collapse_embedded_banner_shell_residue_reduces_anchor_step_shell() -> None:
+    candidate_body = (
+        "朋友的消息弹出来时，她正对着桌上那杯咖啡发愣。\n\n"
+        "杯壁外侧已经结了一层薄薄的水，电脑右下角跳到 21:47，文档还开着，光标一闪一闪。那条消息很短：最近怎么样，要不要找天见一面？\n\n"
+        "人很多时候就是从这里开始慢下来的。没出什么大事，也谈不上垮。只是闹钟响了，按掉，再按掉；明明只差十分钟就能从容出门，还是在床边坐了很久。\n\n"
+        "麻烦就麻烦在，这些信号太容易被她自己轻轻带过去。醒来更累，胃口乱，下午三四点会突然心慌；消息提示音一密集，太阳穴就跟着发紧。可熟悉的话也会立刻跟上来：忙完这阵就好了，周末补个觉就好了。\n\n"
+        "身体先亮红灯，人却还照着原来的效率和礼貌往前走。该交的照交，该回的照回，见了人也还能笑，说自己没事。\n\n"
+        "她还没倒下。还能上班，能交差，能在别人问起时回一句“挺好的”。偏偏就是这种“还能”，最容易让人误判。\n\n"
+        "关系里的缺席，也是在这些时候一点点长出来的。见面改成改天，电话换成文字，长回复缩成表情，解释缩成“最近有点忙”。\n\n"
+        "这句话很体谅，可听久了，人会更沉。因为她慢慢也默认了自己总在往后退。生活里有变化，不太主动讲了；受了委屈，也觉得讲起来太费劲。\n\n"
+        "难的地方就在这儿。不是因为太久没见，也不全是因为之前推掉太多次。更常见的情况是，人已经在长时间硬撑里，跟自己的感受脱了节。\n\n"
+        "回家的路上，手机又亮了一次。她站在电梯里，看着镜子里自己有点发白的脸，拇指在屏幕上停了停，没有再逼自己把所有消息都回完。"
+    )
+
+    before_banners = workbench.extract_embedded_banner_paragraphs(candidate_body)
+    before_burden = workbench._article_shell_burden(candidate_body)
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="朋友的消息弹出来时，她正对着桌上那杯咖啡发愣",
+        body_markdown=candidate_body,
+    )
+
+    collapsed = workbench._collapse_embedded_banner_shell_residue(
+        title="朋友的消息弹出来时，她正对着桌上那杯咖啡发愣",
+        body_markdown=candidate_body,
+    )
+
+    after_banners = workbench.extract_embedded_banner_paragraphs(collapsed)
+    after_burden = workbench._article_shell_burden(collapsed)
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="朋友的消息弹出来时，她正对着桌上那杯咖啡发愣",
+        body_markdown=collapsed,
+    )
+
+    assert len(before_banners) >= 4
+    assert collapsed != candidate_body
+    assert len(after_banners) == 0
+    assert after_burden[0] < before_burden[0]
+    assert after_summary.score < before_summary.score
+    assert "人很多时候就是从这里开始慢下来的，没出什么大事，也谈不上垮。" in collapsed
+    assert "她还没倒下。" in collapsed
+    assert "能上班，能交差，能在别人问起时回一句“挺好的”" in collapsed
+
+
+def test_collapse_short_long_cadence_residue_merges_middle_anchor_step_pairs() -> None:
+    candidate_body = (
+        "包带还挂在肩上，勒得锁骨发酸。她站在洗手台前，把牙膏挤到牙刷上，白色膏体歪歪地停在刷毛边缘，快要掉下来。镜子里那张脸有点灰，额前碎发贴着，耳边像还残留着消息提示音。\n\n"
+        "她没动。\n\n"
+        "水龙头没有开，手也没抬起来。就那么站了十几秒，脑子里先冒出来的是：明天不能再这样了。接着，空了。后面该想什么，怎么改，先处理哪件事，她都接不上。像走到楼梯口，突然忘了自己是上楼还是下楼。\n\n"
+        "很多人的累，不是那种轰一下压下来的累。更像这类时刻：睡前流程还在继续，身体会自动去做那些熟悉的动作，人却没有真正收回来。肩膀沉，后槽牙咬得发紧，眼睛盯着镜子，又像什么都没看见。情绪也不算大，甚至没有力气委屈。连崩溃都得往后排。\n\n"
+        "真往前倒，不是从凌晨开始的。\n\n"
+        "白天就已经有痕迹了。回同事消息时，她把打好的那行字删掉重来，来回看两遍，还是觉得哪里不对。会议里有人问到她，她明明听见了，反应却慢半拍，先是心里空白，接着才仓促补上几句。午饭摆在工位边上，饭吃了大半，才发现自己没尝出味道，嘴里只有温热和咀嚼。\n\n"
+        "还有些更小的地方，零碎得不值得专门拿出来说。电梯到了她常去的楼层，她晚了半秒才迈腿；下楼取外卖，站在门口想了会儿，忘记自己拿没拿钥匙；朋友发来语音，她点开听完，没有不高兴，也没有想回，手机屏幕暗下去，她就让它那么躺着。\n\n"
+        "她坐了会儿，把第二天最早的提醒关掉了。\n\n"
+        "屋里安静下来以后，很多事并不会马上变轻，工作还在，消息明天还会继续来，人际里的牵扯也不会自己消失。但至少那一晚，她不用再一边难受，一边把这件事说得很小。她先承认了：自己确实已经撑了太久。"
+    )
+
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="她把第二天最早的提醒关掉了",
+        body_markdown=candidate_body,
+    )
+
+    collapsed = workbench._collapse_short_long_cadence_residue(
+        title="她把第二天最早的提醒关掉了",
+        body_markdown=candidate_body,
+    )
+
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="她把第二天最早的提醒关掉了",
+        body_markdown=collapsed,
+    )
+
+    assert collapsed != candidate_body
+    assert "连崩溃都得往后排。真往前倒，不是从凌晨开始的。" in collapsed
+    assert "她就让它那么躺着。她坐了会儿，把第二天最早的提醒关掉了。" in collapsed
+    assert workbench.count_short_long_cadence_pairs(collapsed) < workbench.count_short_long_cadence_pairs(candidate_body)
+    assert after_summary.score < before_summary.score
+    assert not any("短句敲钟后接长解释的固定节拍" in hit for hit in after_summary.hits)
+
+
+def test_collapse_leading_short_long_cadence_residue_reflows_retry42_like_opening_pair() -> None:
+    candidate_body = (
+        "电梯门快要合上的时候，她伸手挡了一下。\n\n"
+        "金属门沿碰到手背，凉了一瞬。人是进来了，心口却突然空了一拍，像踩空楼梯那种短促的失重。她站稳，先低头看手机，聊天框顶着一句：文件到了吗。拇指飞快敲了两个字：马上。\n\n"
+        "电梯往上走，镜面里的人脸色有点白。她盯着数字跳，没把那口气补完整。刚才那下心慌，按理说该停一停，至少靠着轿厢站会儿，等胸口缓过来。可屏幕亮着，红点还在，她下意识先把身体往后排。\n\n"
+        "这时候最容易发生的误认，是把报警当偷懒。\n\n"
+        "明明已经开始耗了，她还会拿“别人也这么忙”压自己，拿“就这几天”拖自己，拿“先把这件做完”借自己。每回只借走一小截体力，借走一点耐心，借走一次好好吃饭和好好说话的机会。表面看都不算大事，拼在一起，人才会慢慢变成现在这样：反应迟，睡不好，不想回消息，不想解释，坐着都像在咬牙。"
+    )
+
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="她在电梯口扶住门的那一秒，身体已经先开口了",
+        body_markdown=candidate_body,
+    )
+
+    collapsed = workbench._collapse_leading_short_long_cadence_residue(
+        title="她在电梯口扶住门的那一秒，身体已经先开口了",
+        body_markdown=candidate_body,
+    )
+
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="她在电梯口扶住门的那一秒，身体已经先开口了",
+        body_markdown=collapsed,
+    )
+
+    assert collapsed != candidate_body
+    assert "电梯门快要合上的时候，她伸手挡了一下。金属门沿碰到手背，凉了一瞬。" in collapsed
+    assert "\n\n人是进来了，心口却突然空了一拍" in collapsed
+    assert workbench.count_short_long_cadence_pairs(collapsed) < workbench.count_short_long_cadence_pairs(candidate_body)
+    assert after_summary.score < before_summary.score
+    assert not any("短句敲钟后接长解释的固定节拍" in hit for hit in after_summary.hits)
+
+
+def test_collapse_over_segmented_shell_residue_merges_hinge_blocks_in_retry8_shape() -> None:
+    candidate_body = (
+        "包带还挂在肩上，勒得锁骨发酸。她站在洗手台前，把牙膏挤到牙刷上，白色膏体歪歪地停在刷毛边缘，快要掉下来。镜子里那张脸有点灰，额前碎发贴着，耳边像还残留着消息提示音。\n\n"
+        "她没动。\n\n"
+        "水龙头没有开，手也没抬起来。就那么站了十几秒，脑子里先冒出来的是：明天不能再这样了。接着，空了。后面该想什么，怎么改，先处理哪件事，她都接不上。像走到楼梯口，突然忘了自己是上楼还是下楼。\n\n"
+        "很多人的累，不是那种轰一下压下来的累。更像这类时刻：睡前流程还在继续，身体会自动去做那些熟悉的动作，人却没有真正收回来。肩膀沉，后槽牙咬得发紧，眼睛盯着镜子，又像什么都没看见。情绪也不算大，甚至没有力气委屈。连崩溃都得往后排。真往前倒，不是从凌晨开始的。\n\n"
+        "白天就已经有痕迹了。回同事消息时，她把打好的那行字删掉重来，来回看两遍，还是觉得哪里不对。会议里有人问到她，她明明听见了，反应却慢半拍，先是心里空白，接着才仓促补上几句。午饭摆在工位边上，饭吃了大半，才发现自己没尝出味道，嘴里只有温热和咀嚼。\n\n"
+        "还有些更小的地方，零碎得不值得专门拿出来说。电梯到了她常去的楼层，她晚了半秒才迈腿；下楼取外卖，站在门口想了会儿，忘记自己拿没拿钥匙；朋友发来语音，她点开听完，没有不高兴，也没有想回，手机屏幕暗下去，她就让它那么躺着。\n\n"
+        "那天开会前，同事问她要不要喝咖啡，她说，都行。中午订餐，别人问你吃什么，她还是那句，都行。晚上家里人发来消息，说周末怎么安排，她盯着对话框看了会儿，回：先这样吧。\n\n"
+        "“我想吃什么”“我想休息”“我现在不太行”，这些话没有突然消失。只是慢慢地，很少再从嘴里出来了。\n\n"
+        "她也没请假，没哭，没跟谁吵起来。工作照常交，消息照常回，见到人也会笑。表面看不出什么大问题，她自己也更容易把这些小卡顿压成一句：最近状态不好。\n\n"
+        "这句解释太顺手了，没睡好，过两天就好了；这阵子忙完，应该能缓过来；周末多睡会儿，别多想。她拿这些话安顿自己，也拿它们把那些更细的感觉挡回去。毕竟待办还在往上跳，群里有人艾特，家里还有人等回复，连下班路上都塞着“顺手处理一下”的事。一个人被推着往前走时，能留给自己分辨的空间其实很窄。\n\n"
+        "有时她也会察觉到不对。原来十分钟能做完的表格，现在坐了半小时还没进入状态；以前能接住的话题，现在听别人说话都觉得费劲；有人关心她一句“你最近还好吗”，她喉咙发紧，差点就想说实话了，到头来还是习惯性回：挺好的。\n\n"
+        "先别问为什么。很多时候，那句“挺好的”几乎是弹出来的。\n\n"
+        "因为停下来很麻烦。工作会乱，别人会等，答应过的事要重新解释。更麻烦的是，她得承认自己已经不像平时那样了。那个原本利落、能扛、反应快的人，现在做什么都发沉，说两句话都嫌累。这件事不好受。甚至有点刺人。\n\n"
+        "她更容易用力把自己往“正常”里推。困了就灌咖啡，迟钝了就逼自己集中，想安静会儿又怕显得消极。明明已经拧巴得厉害，脸上还得维持平常的表情。该回的话照回，该笑的时候照笑，该出现的场合照出现。\n\n"
+        "真正耗人的，常常不是事情本身有多大，而是人已经听见身体里的报警声，还要假装办公室里什么都没响。\n\n"
+        "这种消耗有点阴，它不壮烈，也不戏剧化，不会给你一个明确的瞬间，告诉你“好，你现在撑不住了”。它更像电量被很多后台程序慢慢拖走。你照旧开着页面，照旧切任务，照旧回复别人，直到夜里站在洗手台前，才发现自己连“我现在到底怎么了”都组织不出来。\n\n"
+        "这也是为什么，越着急恢复成原来那个样子，越容易看不见自己已经透支。她想赶快追平进度，赶快找回效率，赶快证明自己没事，于是那些变慢、变钝、不想说话的信号，就又被归到“短期失控”里。忍忍，顶顶，睡一觉再说。\n\n"
+        "可身体有时不按这套来。你越催，它越迟。\n\n"
+        "能让人往回退半步的，通常也不是什么大动作，可能只是第二天通勤路上，她没有一上车就点开工作群，而是把手机切到备忘录，记下最近最明显的三个变化：回消息变慢；越来越怕说话；做什么都像拖着一截湿衣服。写完那三行，事情不会立刻变少，人也不会立刻轻松，但模糊的自责会松开一条缝。\n\n"
+        "原来不是自己突然变懒了，真正卡住的地方在，她已经耗到需要分辨：哪些是必须做的，哪些可以晚点回；哪些是责任，哪些只是习惯性逞强。\n\n"
+        "后面的事，也许只是先减掉一项没那么要紧的安排，先让某条无关紧要的消息晚回半天，先别逼自己今天就恢复利落。不是每次都要搞出完整方案。有时候，能把“我得赶紧正常起来”改成“我今天少撑一会儿”，已经很难了，也很有用。\n\n"
+        "夜里那面镜子还在，灯光照下来，脸色还是疲惫的。她没有突然想通，也没有瞬间好起来。牙刷还在手里，包终于从肩上滑下来，落到门边的凳子上，发出一声很轻的闷响。她坐了会儿，把第二天最早的提醒关掉了。\n\n"
+        "屋里安静下来以后，很多事并不会马上变轻，工作还在，消息明天还会继续来，人际里的牵扯也不会自己消失。但至少那一晚，她不用再一边难受，一边把这件事说得很小。她先承认了：自己确实已经撑了太久。"
+    )
+
+    before_burden = workbench._article_shell_burden(candidate_body)
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="别把日子过反了",
+        body_markdown=candidate_body,
+    )
+
+    collapsed = workbench._collapse_over_segmented_shell_residue(
+        title="别把日子过反了",
+        body_markdown=candidate_body,
+    )
+
+    after_burden = workbench._article_shell_burden(collapsed)
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="别把日子过反了",
+        body_markdown=collapsed,
+    )
+
+    assert collapsed != candidate_body
+    assert after_burden[0] < before_burden[0]
+    assert after_burden[1] <= 15
+    assert after_summary.score < before_summary.score
+    assert "\n\n她没动。\n\n" not in collapsed
+    assert "先别问为什么。很多时候，那句“挺好的”几乎是弹出来的。" in collapsed
+    assert "原来不是自己突然变懒了，真正卡住的地方在，她已经耗到需要分辨" in collapsed
+    assert "后面的事，也许只是先减掉一项没那么要紧的安排" in collapsed
+    assert not any("段落职责切分过细" in hit for hit in after_summary.hits)
+
+
+def test_collapse_light_segmented_shell_residue_merges_residual_anchor_and_tail_blocks() -> None:
+    candidate_body = (
+        "朋友的消息弹出来时，她正对着桌上那杯咖啡发愣。\n\n"
+        "杯壁外侧已经结了一层薄薄的水，电脑右下角跳到 21:47，文档还开着，光标一闪一闪。那条消息很短：最近怎么样，要不要找天见一面？\n\n"
+        "她点开语音，说了两个字，停住。删掉。又按住，说到“我最近……”就没声了。肩膀绷得很紧，像有人把两边往里拽。最后发出去的，还是那句最省力的话：这周有点满，下次一定。\n\n"
+        "消息发完，手机被她扣在桌上。屋里很安静，只有冰箱压缩机时不时响一声。她坐着没动，连起身去洗那个杯子都像要先攒一会儿力气。很多人就是从这种地方开始变慢的。\n\n"
+        "不是什么大事，也没有戏剧性的崩塌。闹钟响了，按掉，再按掉。明明只差十分钟就能从容出门，还是在床边坐了很久。洗头这件事，要在心里过两遍流程。工作群里的消息回得很快，私人聊天框一排红点，看见了，也知道该回，手指却悬在那儿，不太想点开。\n\n"
+        "白天她照常开会、改东西、回邮件。谁来催，她都能接住，语气也稳。到了下班路上，地铁门一开，风吹进来，她忽然只想把耳机音量调大一点，谁都别找她。回家以后，包放在门口，外套搭上椅背，人靠着沙发坐下去，盯着墙，或者盯着短视频往下滑。不是在看什么，就是不想动。\n\n"
+        "这里面有条很清楚的线。\n\n"
+        "待办一项项堆上来，她最先做的，通常与其说是分辨自己累到哪了，不如说是把那点不舒服往里折，先做完再说。眼前这关要过，明天那项不能拖，周会材料还差最后两页。情绪先收起来，困和烦也先收起来。这样撑过去几次，表面看着没出事，代价却会留在别处：越晚处理自己，恢复的门槛越高，到后来，连见朋友、回电话、认真聊近况这种原本能让人松口气的事，也开始带着任务感。\n\n"
+        "她不是突然不爱说话的。早上出门前，口红拿起来又放下，算了。午休时间，本来想去楼下走走，结果坐在工位上发呆。深夜洗漱，牙刷含在嘴里，眼睛看着镜子里的人，脑子却是空的。第二天继续。你会发现她还在运转，但速度不一样了，钝感也出来了，像手机进入了省电模式，屏幕亮着，后台却关掉了很多东西。\n\n"
+        "更麻烦的是，她常把这些信号当成“最近状态不太好”。\n\n"
+        "醒来更累，胃口乱，有时下午三四点突然心慌；消息提示音一密集，太阳穴就跟着发紧。按理说，这些已经够明显了。可她对自己的解释总是很熟：忙完这阵就好了，周末补个觉就好了，最近事情多，谁不是这样。\n\n"
+        "她不是没感觉到，只是太习惯“撑一下”。\n\n"
+        "身体先给信号，她的反应却往往还是维持原来的效率和礼貌。该交的照交，该回的照回，见了人也还能笑，说自己没事。这样做短期确实管用，能让日子继续往前推；可后续的空，会越来越实。最先被取消的，常常不是工作，不是合作，也与其说是那些明确有后果的安排，不如说是朋友约饭、回家人的电话、好好讲一遍自己这阵子到底怎么了。\n\n"
+        "因为她还没有倒下。还能上班，能交差，能在别人问起时回一句“挺好的”。正是这种“还能”，最容易让人误判。像房间里有一盏灯开始忽明忽暗，但只要没彻底灭掉，大家就继续用。她自己也继续用，直到连换个灯泡都嫌麻烦。\n\n"
+        "关系里的缺席，也不是某天忽然形成的。先是把见面改成改天，接着电话变成文字，最后长回复缩成表情，解释缩成“最近有点忙”。聊天框里的未读红点越来越多，她收藏过几条想认真回的话，后来也没再点开。朋友起初还会追问两句，发生了什么，忙成这样？再往后，大家学会了顺着她：行，等你忙完。\n\n"
+        "这句话听上去很体谅，可听多了，人会更沉默。因为她慢慢适应了自己总在往后退。生活里有新变化，不太主动讲了；受了委屈，也觉得讲起来太费劲。别人伸手的时候，她先想到的与其说是“我可以说”，不如说是“我得赶紧恢复正常，再去见人”。真正卡住的地方就在这儿：她越想尽快回到从前那个利落、能聊、能接住一切的自己，就越容易忽略现在这个已经很累的人。\n\n"
+        "有些代价是延迟出现的。\n\n"
+        "过了很久，终于约出来吃饭。餐厅里灯偏黄，汤上来时还冒着热气，对面的人问她，最近还好吗。她先笑了一下，下意识说“还行”。筷子碰到碗沿，轻轻响了一声。后半句卡住了。与其说是故意藏着不说，不如说是她真的一时不知道从哪里讲起。\n\n"
+        "那种难，不只在于太久没见，不只在于之前推掉了太多次。更常见的情况是，人已经在长期硬撑里跟自己的感受脱了节。她知道自己累，知道自己变了，可要把这段日子重新接起来，像把散在地上的线头重新找出来，光找开头就要坐很久。\n\n"
+        "所以后来很多女人补的，根本不只是几顿饭、几次见面、几条没回的消息。她在补的是一段长时间的缺席：没在最难的时候承认自己难，没在身体已经开始报警时停下来，也没在关系还松动得开的时刻，把真实情况递出去。\n\n"
+        "回家的路上，手机又亮了一次。她站在电梯里，看着镜子里自己有点发白的脸，拇指在屏幕上停了停，没有再逼自己把所有消息都回完。\n\n"
+        "她只给其中一个人发了句实话：我最近有点撑不动，可能会回得慢一点。\n\n"
+        "发完以后，电梯门开了。她把手机放回口袋，先去把那只杯子洗了。"
+    )
+
+    before_burden = workbench._article_shell_burden(candidate_body)
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="朋友的消息弹出来时，她正对着桌上那杯咖啡发愣",
+        body_markdown=candidate_body,
+    )
+
+    collapsed = workbench._collapse_light_segmented_shell_residue(
+        title="朋友的消息弹出来时，她正对着桌上那杯咖啡发愣",
+        body_markdown=candidate_body,
+    )
+
+    after_burden = workbench._article_shell_burden(collapsed)
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="朋友的消息弹出来时，她正对着桌上那杯咖啡发愣",
+        body_markdown=collapsed,
+    )
+
+    assert collapsed != candidate_body
+    assert after_burden[0] < before_burden[0]
+    assert after_burden[1] < before_burden[1]
+    assert after_summary.score <= before_summary.score
+    assert after_burden[1] <= before_burden[1] - 2
+
+
+def test_collapse_light_segmented_shell_residue_merges_adjacent_scene_shell_blocks() -> None:
+    candidate_body = (
+        "凌晨一点多，手机屏幕还亮着。最后一个工作群安静下来，家族群那条六十秒语音也听完了，朋友发来的“你睡了吗”被她回成“刚忙完”。她把输入框切到置顶的那个聊天框，停了几秒，打下：我最近有点撑不住。\n\n"
+        "光标在句尾一闪一闪，像在催。手指悬在发送键上，肩膀先松了，整个人往床边陷。洗手台上还摆着没收的护肤品，头发扎了一整天，发根发紧。她原本想趁终于没人找的时候洗个头，或者把垃圾带下楼，结果只是背靠着衣柜门坐着，半天没动。\n\n"
+        "外面的声响退下去以后，身体里的钝重才慢慢浮上来。白天像被推着往前走，回消息、接话、安抚、解释，做得太熟了，熟到很难立刻察觉自己已经空了。等轮到自己，话却卡在喉咙口，连发出去都嫌费劲。这种耗尽，未必会闹出很大的动静。更多时候，它只是把人往慢里拽。\n\n"
+        "早上站在衣柜前，常穿的几套衣服都认得，还是会多站一会儿。电梯门合上，镜面里照出脸，她把视线移开，去盯跳动的楼层数字。到了公司，同事问要不要带咖啡，她照旧说好，声音听不出什么问题。\n\n"
+        "午休时困得眼睛发涩，趴下也睡不着，手机拿起来就往下滑。视频一条条过去，内容没留下什么，手指倒一直在动。别人叫她名字，她还是会立刻应；轮到私人消息，常常只回“收到”“好”“晚点说”。\n\n"
+        "原本顺手的事也开始停在半路。洗完澡，护发素搁在洗手台边，隔天才想起。外卖吃到一半凉在桌上。备忘录里记着体检、朋友那条拖了很久的长消息、要给自己换双舒服点的鞋，字都在，事情悬着，像总差最后那口气。\n\n"
+        "她也会替自己找理由。最近太忙。睡够就能缓过来。等这阵子过去再说。表面上看，这些话并不离谱：工作没耽误，开会能接话，见人有礼貌，饭也按顿在吃。正因为日子还在照常往前，她更容易把那些发紧、发空、提不起劲，压成“先放放”。\n\n"
+        "身体给提醒的时候，通常很轻。先是速度慢下来，接着话变短，耐心变薄，原来愿意伸出去的那部分热情也缩回去。她以为自己只是累，只是懒得动，直到连喜欢的人发来消息，她都要先把手机扣在桌上，缓几分钟，才有力气点开。\n\n"
+        "她很会处理别人的情绪。工作上有误会，她习惯把话理顺，尽量别让场面僵住；朋友夜里发来长长的倾诉，她会认真看完，再慢慢回；家里有琐事，也总有人先来问她。哪怕只是回个表情，别人也知道，她在，她看见了。\n\n"
+        "时间久了，周围的人会把这种在场当成默认设置。临时改方案先找她，家里有事先问她，朋友情绪下来了也先敲她。她未必没边界，只是先响应外面，已经成了反应。手机一震，她先低头；别人语气有点不对，她先想是不是自己哪里没顾到。\n\n"
+        "于是白天她总在往外送：注意力送出去，耐心送出去，话送出去。到了夜里，屋子安静了，那些被她暂时压住的疲惫才回来。不是突然袭来的崩塌，更像水退下去，露出一直在那里的沙地。她对别人其实很敏感。谁情绪不对，谁说话变快了，谁沉默得反常，她常常看得出来。\n\n"
+        "听见了，也不等于马上停下。第二天还是照常起床，照常打卡，照常把语气放软，照常说“没事”。她熟悉的是继续运转，不太熟悉承认自己已经掉电。那个念头总被往后挪：等忙完，等周末，等别人先稳定下来。挪到最后，留给自己的，只剩这点夜深人静的空。\n\n"
+        "可人在这个时段往往已经见底了。脑子钝，心口也闷，连难过都没什么声响。聊天框开着，想说的话在里面转了几圈，还是删掉。她不是想隐瞒，只是那时候连解释自己怎么了，都显得太耗神。\n\n"
+        "有些累，就长在这些看上去还算体面的日常里。你照样把事情做完，照样回复消息，照样跟人说笑，甚至照样关心别人。只是回到自己这里，像一扇门慢慢合上了。外面的人未必看得见，她自己也常常要过很久才反应过来。\n\n"
+        "后来有个夜里，她没再逼着自己把空白填满。聊天框关掉，屏幕暗下去。她去厨房倒了半杯温水，站着喝完，没有顺手去看新的红点。回到床边，还是没立刻想通什么，屋里也没突然变得轻松。\n\n"
+        "她只是把第二天答应下来的安排往后挪了挪，又给常联系的人发了句：这两天我回得会慢些。做完这些，生活并没有马上整齐起来。房间还是那间房，洗手台上的瓶瓶罐罐还在，明早该响的闹钟也不会放过她。只是那天晚上，她没有再把自己塞回“正常”里。头发解开后落下来，勒了一整天的发根终于松开，她也跟着安静了些。"
+    )
+
+    before_burden = workbench._article_shell_burden(candidate_body)
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="凌晨一点多，手机屏幕还亮着",
+        body_markdown=candidate_body,
+    )
+
+    collapsed = workbench._collapse_light_segmented_shell_residue(
+        title="凌晨一点多，手机屏幕还亮着",
+        body_markdown=candidate_body,
+    )
+
+    after_burden = workbench._article_shell_burden(collapsed)
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="凌晨一点多，手机屏幕还亮着",
+        body_markdown=collapsed,
+    )
+
+    assert collapsed != candidate_body
+    assert "我最近有点撑不住。光标在句尾一闪一闪，像在催。" in collapsed
+    assert after_burden[0] < before_burden[0]
+    assert after_burden[1] <= before_burden[1] - 2
+    assert after_burden[5] < before_burden[5]
+    assert after_summary.score <= before_summary.score
+
+
+def test_soften_structural_ladder_residue_breaks_orderly_ladder_shell() -> None:
+    candidate_body = (
+        "关系里的缺席，也不是某天忽然形成的。先是把见面改成改天。后来电话变成文字。再后来，长回复缩成表情，解释缩成“最近有点忙”。聊天框里的未读红点越来越多，她收藏过几条想认真回的话，后来也没再点开。"
+    )
+
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="关系里的缺席，也不是某天忽然形成的",
+        body_markdown=candidate_body,
+    )
+
+    softened = workbench._soften_structural_ladder_residue(
+        title="关系里的缺席，也不是某天忽然形成的",
+        body_markdown=candidate_body,
+    )
+
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="关系里的缺席，也不是某天忽然形成的",
+        body_markdown=softened,
+    )
+
+    assert softened != candidate_body
+    assert "先是把见面改成改天，接着电话变成文字，最后长回复缩成表情，解释缩成“最近有点忙”。" in softened
+    assert after_summary.score < before_summary.score
+    assert not any("先是后来再后来的整齐梳理" in hit for hit in after_summary.hits)
+
+
+def test_soften_not_ab_residue_rewrites_balanced_reversal_shell() -> None:
+    candidate_body = (
+        "筷子碰到碗沿，轻轻响了一声。后半句卡住了。不是故意藏着不说，是她真的一时不知道从哪里讲起。"
+    )
+
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="她一时不知道从哪里讲起",
+        body_markdown=candidate_body,
+    )
+
+    softened = workbench._soften_not_ab_residue(
+        title="她一时不知道从哪里讲起",
+        body_markdown=candidate_body,
+    )
+
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="她一时不知道从哪里讲起",
+        body_markdown=softened,
+    )
+
+    assert softened != candidate_body
+    assert "与其说是故意藏着不说，不如说是她真的一时不知道从哪里讲起" in softened
+    assert after_summary.score < before_summary.score
+    assert not any("不是A，是B" in hit for hit in after_summary.hits)
+
+
+def test_soften_not_ab_residue_rewrites_three_residual_reversals() -> None:
+    candidate_body = (
+        "有些变化很难在当场被承认。不是因为她真的觉得自己没事，而是“我最近不太对劲”这句话一旦说出口，就像要连带承认很多事。\n\n"
+        "都行有时不是体贴，是脑子已经不想再做选择。\n\n"
+        "真正卡住的地方，常常不是她没发现，而是她发现了也不敢认。"
+    )
+
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="别把日子过反了",
+        body_markdown=candidate_body,
+    )
+
+    softened = workbench._soften_not_ab_residue(
+        title="别把日子过反了",
+        body_markdown=candidate_body,
+    )
+
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="别把日子过反了",
+        body_markdown=softened,
+    )
+
+    assert softened != candidate_body
+    assert "与其说是因为她真的觉得自己没事，不如说是“我最近不太对劲”这句话一旦说出口" in softened
+    assert "与其说是体贴，不如说是脑子已经不想再做选择" in softened
+    assert "与其说是她没发现，不如说是她发现了也不敢认" in softened
+    assert after_summary.score < before_summary.score
+    assert not any("不是A，是B" in hit for hit in after_summary.hits)
+
+
+def test_soften_connector_residue_clears_minor_explanatory_connector_shell() -> None:
+    candidate_body = (
+        "她也没请假，没哭，没跟谁吵起来。工作照常交，消息照常回，见到人也会笑。表面看不出什么大问题，所以她自己也更容易把这些小卡顿压成一句：最近状态不好。\n\n"
+        "有时她也会察觉到不对。比如原来十分钟能做完的表格，现在坐了半小时还没进入状态；比如以前能接住的话题，现在听别人说话都觉得费劲；比如有人关心她一句“你最近还好吗”，她喉咙发紧，差点就想说实话了，最后还是习惯性回：挺好的。\n\n"
+        "所以她更容易用力把自己往“正常”里推。困了就灌咖啡，迟钝了就逼自己集中，想安静会儿又怕显得消极。"
+    )
+
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="她还是习惯性回了句挺好的",
+        body_markdown=candidate_body,
+    )
+
+    softened = workbench._soften_connector_residue(
+        title="她还是习惯性回了句挺好的",
+        body_markdown=candidate_body,
+    )
+
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="她还是习惯性回了句挺好的",
+        body_markdown=softened,
+    )
+
+    assert softened != candidate_body
+    assert "表面看不出什么大问题，她自己也更容易" in softened
+    assert "。原来十分钟能做完的表格" in softened
+    assert "；以前能接住的话题" in softened
+    assert "；有人关心她一句“你最近还好吗”" in softened
+    assert "所以她更容易用力把自己往“正常”里推" not in softened
+    assert after_summary.score < before_summary.score
+    assert not any("解释连接词偏多" in hit for hit in after_summary.hits)
+
+
+def test_final_ai_flavor_cleanup_triggers_for_embedded_banner_residue() -> None:
+    candidate_body = (
+        "# 别把日子过反了\n\n"
+        "她回工作消息还是很快，真正拖着不想点开的，反而是那些要带情绪、要接回应的话。\n\n"
+        "这条线常常就是这么出来的。休息往后挪，情绪往后挪，身体给的提醒也往后挪。困了，先把表格做完；胃空着，先把会开完；体检预约改了又改，心里想着下周总能腾出空。\n\n"
+        "关系也是这样淡下去的。朋友问近况，本来只是想听你说两句真的；家里来消息，也未必是催你做什么。可聊天框停在“改天见”后面太久，下一次点开时，里面会多出层生分。"
+    )
+
+    assert workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="别把日子过反了",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_final_ai_flavor_cleanup_skips_for_connector_only_residue() -> None:
+    candidate_body = (
+        "# 门关上之后，她才意识到自己已经转不动了\n\n"
+        "门合上的声音很轻，她把包丢在玄关砖上，没开灯，也没弯腰换鞋。\n\n"
+        "她盯着手机屏幕看了两秒，所以原本要回的消息还是没点开。然后她把手机按灭，还是没有往里走。\n\n"
+        "其实她知道自己不是不想动，只是脑子和身体都慢了半拍。最后连去烧壶水这件事，也像要重新发动一次。"
+    )
+
+    assert not workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="门关上之后，她才意识到自己已经转不动了",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_pick_better_ai_flavor_candidate_preserves_minor_human_roughness() -> None:
+    current_body = (
+        "# 别把日子过反了\n\n"
+        "包带还挂在肩上，勒得锁骨发酸。她站在洗手台前，把牙膏挤到牙刷上，白色膏体歪歪地停在刷毛边缘，快要掉下来。\n\n"
+        "她没动。\n\n"
+        "水龙头没有开，手也没抬起来。就那么站了十几秒，脑子里先冒出来的是：明天不能再这样了。接着，空了。\n\n"
+        "可身体有时不按这套来。你越催，它越迟。"
+    )
+    retried_body = (
+        "# 别把日子过反了\n\n"
+        "她站在洗手台前，忽然意识到自己已经累过头了。那些被往后推的安排、身体信号和没回完的关系，都在这个时刻一起浮上来。\n\n"
+        "她知道自己该慢下来，也知道有些事不能再一直往后排。"
+    )
+
+    chosen_markdown, chosen_title = workbench._pick_better_ai_flavor_candidate(
+        current_title="别把日子过反了",
+        current_markdown=current_body,
+        retried_title="别把日子过反了",
+        retried_markdown=retried_body,
+    )
+
+    assert chosen_title == "别把日子过反了"
+    assert chosen_markdown == current_body
+
+
+def test_pick_better_ai_flavor_candidate_rejects_over_smoothed_cleanup_even_if_score_drops() -> None:
+    current_body = (
+        "# 标题\n\n"
+        "中午十二点多，桌角那杯水还是满的。\n\n"
+        "她刚从会议室出来，电脑还夹在臂弯里，群消息一层层往上顶，手机屏幕亮了又暗。旁边有人问文件放哪儿，她说“我发你”，声音听着还稳，手却先去按了按桌沿。指尖有点凉，后颈发紧，像有块硬东西贴在那儿。\n\n"
+        "水就在手边，她没喝。想着把这页改完再去吃，邮件发完再说，等对方回了再说。这样往后挪，挪着挪着，饿意先没了，只剩胃里发空。\n\n"
+        "早上出门前，速度就已经不对了。闹钟六点四十响，她按掉。七点整又响，手机被塞进枕头下面。第三次睁眼时，窗帘缝里的光已经发白，牙刷含在嘴里，人却对着镜子站了很久，泡沫快落到手背上，才想起来漱口。洗脸巾拧到一半，动作停住了，像脑子还没接上今天。\n\n"
+        "到电梯口时，她伸手挡了下快要合上的门。明明只走了半层楼，胸口却先紧起来，那口气卡在喉咙口，上不去，也下不来。金属扶手有点凉，她低头盯了两秒鞋尖，等那阵发虚过去，再把手机翻过来。屏幕上已经跳出三条工作消息。她先回“收到”，又补了个表情，像这样，早晨才算接上轨。\n\n"
+        "人开始耗的时候，常常不是先崩掉，也不是先哭出来。更常见的是动作变慢，脑子发木，站在水池前发愣，拿着杯子走到饮水机旁边，忽然忘了自己要做什么。可她当下最先催自己的，往往还是那句：快点，别磨蹭。\n\n"
+        "这句催促很有用，至少在白天有用。它能把不舒服暂时压平，让人继续开会、记笔记、回消息、接任务，也能让那杯水一直放在桌角，像个没人顾得上的旁证。\n\n"
+        "下午三点多，身体给了次更直接的提醒。心跳突然快了一拍，太阳穴往里收，椅背贴着后背也不舒服。她把手放在桌沿上，缓了缓。旁边同事还在等文件，她照常接话，照常把事情往下接，转身去茶水间买了杯冰美式。\n\n"
+        "解释也来得很快：昨晚睡少了，今天会多，喝点咖啡就过去了。\n\n"
+        "人一旦先替不适找好了理由，后面的动作就会很顺。回工位，盯屏幕，继续把自己往下一格日程里塞。问题不在那一刻有没有忍住，问题在于这种处理会留下尾巴。晚上回家，人已经空了，却说不清是累，还是哪里真的出了状况。第二天起床，速度更慢，再逼自己追上去。\n\n"
+        "傍晚，朋友发来一条消息：\n\n"
+        "“你最近怎么都不说话了？”\n\n"
+        "她看见了，点进去，又退出来。过了十几分钟，回了个捂脸表情。对方又问：“忙成这样？”她盯着那四个字看了几秒，最后发过去一句：“这阵子有点满。”\n\n"
+        "其实手机这头并不是真的没话。耳边那阵嗡嗡的底噪，午饭拖到两点半，开完会站起来时眼前黑了一下，回家后不想开灯，也不想把今天从头讲一遍——这些都在。只是要把它们组织成一句完整的话，也挺费劲的。更麻烦的不是没人问，是有人问了，她也知道自己该回，但身体已经先把沉默当成省力模式了。"
+    )
+    retried_body = (
+        "# 标题\n\n"
+        "中午十二点多，桌角那杯水还是满的。\n\n"
+        "她刚从会议室出来，电脑还夹在臂弯里，群消息一层层往上顶，手机屏幕亮了又暗。旁边有人问文件放哪儿，她说“我发你”，声音还稳，手先去按了按桌沿。指尖发凉，后颈那块筋绷着，像从早上一直没松开。\n\n"
+        "水就在手边，她看见了，没喝。脑子里想的是把这页改完再去吃，邮件发完再说，等对方回了再说。事情被这样一格格往后挪，挪到后来，饿意先退了，胃里只剩空。\n\n"
+        "早上出门前，速度就已经乱了。闹钟六点四十响过一次，七点整又响，手机被她塞进枕头下面。第三回睁眼，窗帘缝里的光已经发白。牙刷含在嘴里，人却对着镜子站了会儿，泡沫快落到手背上，才想起来漱口。洗脸巾拧到半截，动作停住，像脑子还没跟上今天。\n\n"
+        "到电梯口，她伸手去挡快合上的门。明明只走了半层楼，胸口却先紧起来，那口气卡在喉咙口，上不去，也下不来。金属扶手有点凉，她低头盯着鞋尖，等那阵发虚过去，再把手机翻过来。三条工作消息已经跳出来了，她回了两个“收到”，早晨像是这时候才硬接上。\n\n"
+        "人耗下去，常常就是从这些地方开始的：动作慢半拍，站在水池前发愣，拿着杯子走到饮水机旁边，又忘了自己过来干什么。可当场最先冒出来的，往往不是“我得歇会儿”，而是另一句更熟的催促——快点，别卡着。"
+    )
+
+    chosen_markdown, chosen_title = workbench._pick_better_ai_flavor_candidate(
+        current_title="标题",
+        current_markdown=current_body,
+        retried_title="标题",
+        retried_markdown=retried_body,
+    )
+
+    assert chosen_title == "标题"
+    assert chosen_markdown == current_body
+
+
 def test_remaining_ai_flavor_retry_instruction_bans_new_not_ab_for_analytic_prose() -> None:
     candidate_body = (
         "# 关系卡住的本质：意愿有、懂方法、但无能量\n\n"
@@ -3330,6 +5401,51 @@ def test_remaining_ai_flavor_retry_instruction_bans_new_not_ab_for_analytic_pros
 
     assert "分析型或并列展开的段落" in instruction
     assert "全文不要新增任何新的“不是……而是/是……”骨架" in instruction
+
+
+def test_remaining_ai_flavor_retry_instruction_calls_out_short_judgment_cadence() -> None:
+    candidate_body = (
+        "# 她后来没再把真心话都留到夜里\n\n"
+        "电梯快合上的时候，她低头看了眼手机。\n\n"
+        "置顶对话里躺着两条昨晚没回完的消息。朋友问她这周要不要见面，妈妈发来一张家里阳台新开的花。她的手指停在屏幕上方，楼层往下跳，她先回了工作群里的“收到”，又把那两个对话按灭。\n\n"
+        "白天的她并没有闲着。\n\n"
+        "消息很多，页面一直在跳。确认排期、对接流程、改表格、补一句“辛苦了”、再接住新的安排。她能回的大多是这种话：明确，简短，不需要情绪，也不需要把自己放进去。\n\n"
+        "聊天框也会变得很难打开。\n\n"
+        "她不是没话说，是那种要把心思拿出来、把语气放软、把一句普通回复变成真正的交流，这件事忽然很重。光是想一想，就已经觉得累。\n\n"
+        "后来她有过个很小的变化。\n\n"
+        "午休快结束时，她没有先去刷工作群，而是靠在茶水间窗边，回了朋友那条约见面的消息。没写很多，只是认真定了个周六下午。\n\n"
+        "这一步很难。\n\n"
+        "因为她清楚，一旦停下来，很多被压着的东西会一起冒头。委屈、烦躁、亏空感，还有那种说不出口的失望。"
+    )
+
+    instruction = workbench._build_remaining_ai_flavor_retry_instruction(
+        base_instruction="降低模板感，但保留原稿结构和判断路径。",
+        source_markdown=candidate_body,
+        candidate_title="她后来没再把真心话都留到夜里",
+        candidate_markdown=candidate_body,
+    )
+
+    assert "这些独立短判断段要处理掉或并回前后段" in instruction
+    assert "固定节拍" in instruction
+
+
+def test_remaining_ai_flavor_retry_instruction_calls_out_embedded_banners() -> None:
+    candidate_body = (
+        "# 别把日子过反了\n\n"
+        "电梯门快合上时，她抬手挡了下。门弹开，白光照着空空的轿厢。手机在掌心震了两次，聊天框停在那句没发出去的话上：这阵子有点忙，忙完再联系。\n\n"
+        "这条线常常就是这么出来的。休息往后挪，情绪往后挪，身体给的提醒也往后挪。困了，先把表格做完；胃空着，先把会开完；体检预约改了又改，心里想着下周总能腾出空。\n\n"
+        "关系也是这样淡下去的。朋友问近况，本来只是想听你说两句真的；家里来消息，也未必是催你做什么。可聊天框停在“改天见”后面太久，下一次点开时，里面会多出层生分。"
+    )
+
+    instruction = workbench._build_remaining_ai_flavor_retry_instruction(
+        base_instruction="降低模板感，但保留原稿结构和判断路径。",
+        source_markdown=candidate_body,
+        candidate_title="别把日子过反了",
+        candidate_markdown=candidate_body,
+    )
+
+    assert "这些先总括再展开的长段起手要拆掉" in instruction
+    assert "这条线常常就是这么出来的。" in instruction
 
 
 def test_final_ai_flavor_cleanup_instruction_calls_out_connector_and_yi_cadence() -> None:
@@ -3472,8 +5588,9 @@ def test_polish_draft_runs_final_ai_flavor_cleanup_for_low_score_residue(monkeyp
         call for call in manual_polish_calls if call[0] == "draft" and call[1].get("polish_instruction")
     ]
     assert len(polish_calls) == 3
-    assert "上一次精修后，模板风险还没压够" in str(polish_calls[1][1]["polish_instruction"])
-    assert "最后一轮局部清理" in str(polish_calls[2][1]["polish_instruction"])
+    instructions = [str(call[1]["polish_instruction"]) for call in polish_calls[1:]]
+    assert any("上一次精修后，模板风险还没压够" in instruction for instruction in instructions)
+    assert any("最后一轮局部清理" in instruction for instruction in instructions)
 
 
 def test_polish_draft_runs_final_ai_flavor_cleanup_for_moderate_score_small_residue(monkeypatch) -> None:
@@ -3823,9 +5940,8 @@ def test_polish_draft_keeps_better_candidate_when_remaining_ai_flavor_retry_is_w
     polish_calls = [
         call for call in manual_polish_calls if call[0] == "draft" and call[1].get("polish_instruction")
     ]
-    assert len(polish_calls) == 3
+    assert len(polish_calls) == 2
     assert "上一次精修后，模板风险还没压够" in str(polish_calls[1][1]["polish_instruction"])
-    assert "最后一轮局部清理" in str(polish_calls[2][1]["polish_instruction"])
 
 
 def test_polish_draft_runs_final_cleanup_for_four_not_ab_only_residue(monkeypatch) -> None:
@@ -4171,6 +6287,936 @@ def test_polish_draft_prefers_remaining_retry_when_score_ties_but_residue_drops(
     assert "上一次精修后，模板风险还没压够" in str(polish_calls[1][1]["polish_instruction"])
 
 
+def test_remaining_ai_flavor_retry_uses_candidate_draft_for_tracked_article(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction and "上一次精修后，模板风险还没压够" in instruction:
+                draft_payload = payload.get("draft") or {}
+                return {
+                    "title": str(draft_payload.get("title") or "新标题"),
+                    "body_markdown": str(draft_payload.get("body_markdown") or "") + "\n\n后续继续压残留。",
+                }
+            if instruction:
+                return {
+                    "title": "厨房里先亮的不是灯，是那条消息",
+                    "body_markdown": (
+                        "锅里余温还在，抽油烟机停了，厨房突然安静下来。\n\n"
+                        "她把手机拿起来，又放下。\n\n"
+                        "很多时候，人不是没话说，只是还没力气把那段解释再走一遍。"
+                    ),
+                }
+            return {
+                "title": "别把日子过反了",
+                "body_markdown": (
+                    "很多时候，人不是不想休息，而是不敢停下来。\n\n"
+                    "不是工作本身，而是长期紧绷。\n\n"
+                    "不是不累，而是一直往后放。\n\n"
+                    "说到底，她只是把自己排到了最后。"
+                ),
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: True, raising=False)
+    monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
+
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "candidate-retry-article",
+            "source_kind": "manual",
+            "source_name": "手动录入",
+            "title": "别把日子过反了",
+            "url": "https://example.com/candidate-retry",
+            "author": "测试",
+            "summary": "摘要",
+            "body_markdown": "原文第一段\n\n原文第二段",
+            "structure_notes": "",
+            "tags": ["测试"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/candidate-retry-article/to-topic",
+        json={
+            "slug": "candidate-retry-topic",
+            "title": "把最后那点力气留给自己",
+            "angle": "情绪耗尽",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "candidate-retry-project", "title": "候选稿回炉测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/candidate-retry-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    adopt_response = client.post("/api/projects/candidate-retry-project/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+    outline_response = client.post("/api/projects/candidate-retry-project/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/candidate-retry-project/generate-draft")
+    assert draft_response.status_code == 201
+
+    polish_calls = [
+        call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) >= 2
+    first_polish_payload = polish_calls[0][1]
+    second_polish_payload = polish_calls[1][1]
+    assert first_polish_payload["allow_structure_recomposition"] is True
+    assert first_polish_payload["preserve_structure_anchors"] is False
+    assert second_polish_payload["allow_structure_recomposition"] is True
+    assert second_polish_payload["preserve_structure_anchors"] is False
+    assert second_polish_payload["draft"]["title"] == "厨房里先亮的不是灯，是那条消息"
+    assert "锅里余温还在" in str(second_polish_payload["draft"]["body_markdown"])
+
+
+def test_article_shell_cleanup_triggers_for_time_chained_tracked_article_shell() -> None:
+    source_markdown = (
+        "# 别把日子过反了\n\n"
+        "别用健康换明天\n\n"
+        "朋友阿杰总说等忙完再休息。\n\n"
+        "别等失去才懂珍惜\n\n"
+        "外婆离世后，我翻遍手机。\n\n"
+        "别把幸福寄托在等以后\n\n"
+        "我们总习惯把想做的事往后推。"
+    )
+    candidate_markdown = (
+        "电梯快到楼层，她对着镜面补了口红。手机震了下，屏幕顶端跳出一行字：体检改期成功。\n\n"
+        "手指往上一划，门开了，外面已经有人在喊投屏连不上。那条短信很快被新的通知压下去。\n\n"
+        "楼梯口那次也很直白。同事回头问她今天怎么这么慢，她笑了笑，只接了句昨晚没睡好。\n\n"
+        "这种时候，人往往不会停，反而会往前补。咖啡换大杯，午休先撤掉，晚上回家再开电脑。\n\n"
+        "饭局那回，声音更吵。她坐在靠外侧的位置，夹了口南瓜，就停那儿了。\n\n"
+        "回家路上，朋友发来语音。她点开，听完，退出来。过两站，又点开一遍，还是没回。\n\n"
+        "第三次提醒更碎，也更容易被她往后放。洗完澡出来，胸口发紧，她先把第二天的待办往下拉。\n\n"
+        "给自己的解释倒是很顺：项目特殊，交付完再说，忙过这阵应该就好了。\n\n"
+        "所以代价看起来并不响。工作群还在回，饭局也照常去，第二天甚至起得更早。\n\n"
+        "夜里十一点多，手机又亮了，还是那个朋友：你最近还好吗？\n\n"
+        "她把输入框点开，打了两个字，又删掉。"
+    )
+
+    assert workbench._should_retry_for_article_shell_cleanup(
+        source_markdown=source_markdown,
+        candidate_title="收件箱里那条改期短信，她一直没点开",
+        candidate_markdown=candidate_markdown,
+    )
+
+
+def test_article_shell_cleanup_triggers_for_high_paragraph_shell_burden_candidates() -> None:
+    source_markdown = (
+        "# 别把日子过反了\n\n"
+        "别用健康换明天\n\n"
+        "朋友阿杰总说等忙完再休息。\n\n"
+        "别等失去才懂珍惜\n\n"
+        "外婆离世后，我翻遍手机。\n\n"
+        "别把幸福寄托在等以后\n\n"
+        "我们总习惯把想做的事往后推。"
+    )
+    candidate_markdown = (
+        "包带还挂在肩上，勒得锁骨发酸。她站在洗手台前，把牙膏挤到牙刷上，白色膏体歪歪地停在刷毛边缘，镜子里那张脸有点灰，耳边像还残留着消息提示音。\n\n"
+        "水龙头没有开，手也没抬起来。就那么站了十几秒，脑子里先冒出来的是明天不能再这样了，可后面该怎么改、先处理哪件事，她一时全都接不上。\n\n"
+        "白天就已经有痕迹了。回同事消息时，她把打好的那行字删掉重来，来回看两遍，还是觉得哪里不对，像脑子里总有一层雾压着。\n\n"
+        "会议里有人问到她，她明明听见了，反应却慢半拍，先是心里空白，接着才仓促补上几句。等话说完，她自己也不知道刚才到底回了什么。\n\n"
+        "午饭摆在工位边上，饭吃了大半，才发现自己没尝出味道，嘴里只有温热和咀嚼。叉子放下去的时候，她甚至想不起上一次认真吃完一顿饭是什么时候。\n\n"
+        "还有些更小的地方，零碎得不值得专门拿出来说。电梯到了常去的楼层，她晚了半秒才迈腿；下楼取外卖，站在门口想了会儿，忘记自己拿没拿钥匙。\n\n"
+        "朋友发来语音，她点开听完，没有不高兴，也没有想回，手机屏幕暗下去，她就让它那么躺着。消息并不凶，也没人催，她只是提不起那口气。\n\n"
+        "那天开会前，同事问她要不要喝咖啡，她说，都行。中午订餐，别人问你吃什么，她还是那句，都行。晚上家里人发来消息，她盯着对话框看了会儿，回了句先这样吧。\n\n"
+        "她也没请假，没哭，没跟谁吵起来。工作照常交，消息照常回，见到人也会笑，表面看不出什么大问题，连她自己都更容易把这些小卡顿压成一句最近状态不好。\n\n"
+        "这句解释太顺手了，没睡好，过两天就好了；这阵子忙完，应该能缓过来；周末多睡会儿，别多想。她拿这些话安顿自己，也拿它们把那些更细的感觉挡回去。\n\n"
+        "有时她也会察觉到不对。原来十分钟能做完的表格，现在坐了半小时还没进入状态；以前能接住的话题，现在听别人说话都觉得费劲。\n\n"
+        "有人关心她一句你最近还好吗，她喉咙发紧，差点就想说实话了，到头来还是习惯性回挺好的。那几个字发出去的时候，她自己都觉得空。\n\n"
+        "因为停下来很麻烦。工作会乱，别人会等，答应过的事要重新解释。更麻烦的是，她得承认自己已经不像平时那样利落、能扛、反应快了。\n\n"
+        "她更容易用力把自己往正常里推。困了就灌咖啡，迟钝了就逼自己集中，想安静会儿又怕显得消极，脸上还得维持平常的表情和礼貌。\n\n"
+        "这种消耗有点阴，它不壮烈，也不戏剧化，不会给你一个明确的瞬间，告诉你现在真的撑不住了。它更像很多后台程序一起开着，把力气一点点拖走。\n\n"
+        "能让人往回退半步的，通常也不是什么大动作。可能只是某天通勤路上，她没有一上车就点开工作群，而是先把最近最明显的变化写进备忘录，免得又被自己糊弄过去。\n\n"
+        "夜里那面镜子还在，灯光照下来，脸色还是疲惫的。她没有突然想通，也没有瞬间好起来，只是先把第二天最早的提醒关掉，承认自己确实已经撑了太久。"
+    )
+
+    assert workbench._article_shell_burden(candidate_markdown)[0] >= 12
+    assert len(workbench._extract_non_heading_paragraphs(candidate_markdown)) > 14
+    assert workbench._should_retry_for_article_shell_cleanup(
+        source_markdown=source_markdown,
+        candidate_title="她没有突然垮掉，只是把自己排到了最后",
+        candidate_markdown=candidate_markdown,
+    )
+
+
+def test_article_shell_cleanup_triggers_for_low_risk_over_smoothed_tracked_article_candidate(
+    monkeypatch,
+) -> None:
+    source_markdown = "# 不纠缠，是成年人最好的治愈\n\n原文是分段议论，不是单线成稿。"
+    candidate_markdown = (
+        "微波炉转到第二圈，玻璃门里那盒饭已经冒了白气，塑料盖微微鼓起。她站在厨房门口，包还挂在手肘上，拇指悬在聊天框上面。\n\n"
+        "铃声停过三回，屋里更静了。等到那声提示音落下去，她还是没把饭拿出来。屏幕灭掉以后，黑色玻璃门里照出她半张脸，肩膀塌着，像人已经到家，脑子还卡在别处。\n\n"
+        "下班后的十来分钟，本来该很快过去。换鞋，洗手，吃饭，回消息。以前这套顺序不需要想，手脚自己会接上。那天却卡在料理台边上，筷子压着盒盖，水杯放在旁边，包还靠着门，哪样都碰过，哪样都没往前走。\n\n"
+        "她坐到沙发边，想先把饭吃完再回。屏幕一解锁，未读跳出来，脑子先空了几秒。也不是没话讲。卡住她的，是后面那截，要补一句为什么现在才回，要接住别人那点担心，光想到这儿，肩膀就往下沉。\n\n"
+        "厨房和沙发隔着几步，她来回走了两趟，倒了水，喝了两口，又把杯子放回原位。饭明明就在微波炉里，胃里也空着，人却像忽然弄丢了最基本的次序感。\n\n"
+        "苗头白天就有了。原定中午前交的表格，十一点二十临时改版；刚准备吃饭，工作群又跳出新的确认。手头的事被拦腰截断，后面的安排就一起往后滑。那顿午饭拖到两点多，盒子打开时米饭已经结块。\n\n"
+        "这种积压当场看不出什么。午饭晚点吃，消息先放着，会议结束再处理，表面都还能撑住。可白天压下去的动作，到了晚上会一起回来。人坐进家里，脑子却还留在工位上，发热，转得慢，像用了很多年的旧风扇，叶片还在动，风已经很弱了。\n\n"
+        "她先打出一句对不起，删掉。又换成我没事，就是事情有点多。停住。她盯着那几个字看了片刻，最后还是只发了句这两天有点慢。\n\n"
+        "她看着那行字，没有松下来。饭那时已经凉了，盒盖上的白汽也散干净了。她后来回想，自己那晚先感到的与其说是烦，不如说是钝。像手机快没电时，屏幕还亮着，页面却总要隔半拍才动。\n\n"
+        "关系往后缩，常常就是这么缩的。不是出了什么大事，也没有谁故意冷下来。人累到发钝时，最先被砍掉的，往往是解释成本高的部分。她没力气把这几天怎么过的从头讲完，也顾不上安顿对方那点担心，于是挑最快的话发出去。\n\n"
+        "于是回消息越来越像搬重物。白天把吃饭和喘口气往后挪，到了晚上，连组织语言都费劲；回得慢，会生出愧疚，愧疚又把对话框压得更沉。前面少吃的那顿饭，后面没接住的话，慢慢缠到同一处去。\n\n"
+        "她那晚一直站在微波炉旁边，第三次启动前，把在忙晚点回删掉，重新打了一句更认真的解释。发出去以后，厨房台面还是乱的，杯子没洗，包还斜靠在门边，饭也得重新热。她只是没再急着把自己拨回原来的样子。"
+    )
+
+    monkeypatch.setattr(
+        workbench,
+        "_looks_like_over_smoothed_tracked_article_candidate",
+        lambda markdown: markdown == candidate_markdown,
+    )
+
+    assert workbench._should_retry_for_article_shell_cleanup(
+        source_markdown=source_markdown,
+        candidate_title="微波炉转到第二圈，她才发现自己整晚都没真正停下来",
+        candidate_markdown=candidate_markdown,
+    )
+
+
+def test_article_shell_cleanup_skips_low_risk_high_paragraph_candidates_without_shell_signals() -> None:
+    source_markdown = (
+        "# 别把日子过反了\n\n"
+        "别用健康换明天\n\n"
+        "朋友阿杰总说等忙完再休息。\n\n"
+        "别等失去才懂珍惜\n\n"
+        "外婆离世后，我翻遍手机。\n\n"
+        "别把幸福寄托在等以后\n\n"
+        "我们总习惯把想做的事往后推。"
+    )
+    candidate_markdown = (
+        "凌晨一点多，手机屏幕还亮着。最后一个工作群安静下来，家族群那条六十秒语音也听完了，朋友发来的“你睡了吗”被她回成“刚忙完”。她把输入框切到置顶的那个聊天框，停了几秒，打下：我最近有点撑不住。\n\n"
+        "光标在句尾一闪一闪，像在催。手指悬在发送键上，肩膀先松了，整个人往床边陷。洗手台上还摆着没收的护肤品，头发扎了一整天，发根发紧。她原本想趁终于没人找的时候洗个头，或者把垃圾带下楼，结果只是背靠着衣柜门坐着，半天没动。\n\n"
+        "外面的声响退下去以后，身体里的钝重才慢慢浮上来。白天像被推着往前走，回消息、接话、安抚、解释，做得太熟了，熟到很难立刻察觉自己已经空了。等轮到自己，话却卡在喉咙口，连发出去都嫌费劲。\n\n"
+        "这种耗尽，未必会闹出很大的动静。更多时候，它只是把人往慢里拽。\n\n"
+        "早上站在衣柜前，常穿的几套衣服都认得，还是会多站一会儿。电梯门合上，镜面里照出脸，她把视线移开，去盯跳动的楼层数字。到了公司，同事问要不要带咖啡，她照旧说好，声音听不出什么问题。\n\n"
+        "午休时困得眼睛发涩，趴下也睡不着，手机拿起来就往下滑。视频一条条过去，内容没留下什么，手指倒一直在动。别人叫她名字，她还是会立刻应；轮到私人消息，常常只回“收到”“好”“晚点说”。\n\n"
+        "原本顺手的事也开始停在半路。洗完澡，护发素搁在洗手台边，隔天才想起。外卖吃到一半凉在桌上。备忘录里记着体检、朋友那条拖了很久的长消息、要给自己换双舒服点的鞋，字都在，事情悬着，像总差最后那口气。\n\n"
+        "她也会替自己找理由。最近太忙。睡够就能缓过来。等这阵子过去再说。表面上看，这些话并不离谱：工作没耽误，开会能接话，见人有礼貌，饭也按顿在吃。正因为日子还在照常往前，她更容易把那些发紧、发空、提不起劲，压成“先放放”。\n\n"
+        "身体给提醒的时候，通常很轻。先是速度慢下来，接着话变短，耐心变薄，原来愿意伸出去的那部分热情也缩回去。她以为自己只是累，只是懒得动，直到连喜欢的人发来消息，她都要先把手机扣在桌上，缓几分钟，才有力气点开。\n\n"
+        "她很会处理别人的情绪。工作上有误会，她习惯把话理顺，尽量别让场面僵住；朋友夜里发来长长的倾诉，她会认真看完，再慢慢回；家里有琐事，也总有人先来问她。哪怕只是回个表情，别人也知道，她在，她看见了。\n\n"
+        "时间久了，周围的人会把这种在场当成默认设置。临时改方案先找她，家里有事先问她，朋友情绪下来了也先敲她。她未必没边界，只是先响应外面，已经成了反应。手机一震，她先低头；别人语气有点不对，她先想是不是自己哪里没顾到。\n\n"
+        "于是白天她总在往外送：注意力送出去，耐心送出去，话送出去。到了夜里，屋子安静了，那些被她暂时压住的疲惫才回来。不是突然袭来的崩塌，更像水退下去，露出一直在那里的沙地。\n\n"
+        "她对别人其实很敏感。谁情绪不对，谁说话变快了，谁沉默得反常，她常常看得出来。轮到自己，却总要拖到深夜，拖到四周都安静，才勉强听见心里那句很轻的话：我好像不太行了。\n\n"
+        "听见了，也不等于马上停下。第二天还是照常起床，照常打卡，照常把语气放软，照常说“没事”。她熟悉的是继续运转，不太熟悉承认自己已经掉电。那个念头总被往后挪：等忙完，等周末，等别人先稳定下来。挪到最后，留给自己的，只剩这点夜深人静的空。\n\n"
+        "可人在这个时段往往已经见底了。脑子钝，心口也闷，连难过都没什么声响。聊天框开着，想说的话在里面转了几圈，还是删掉。她不是想隐瞒，只是那时候连解释自己怎么了，都显得太耗神。\n\n"
+        "有些累，就长在这些看上去还算体面的日常里。你照样把事情做完，照样回复消息，照样跟人说笑，甚至照样关心别人。只是回到自己这里，像一扇门慢慢合上了。外面的人未必看得见，她自己也常常要过很久才反应过来。\n\n"
+        "后来有个夜里，她没再逼着自己把空白填满。聊天框关掉，屏幕暗下去。她去厨房倒了半杯温水，站着喝完，没有顺手去看新的红点。回到床边，还是没立刻想通什么，屋里也没突然变得轻松。\n\n"
+        "她只是把第二天答应下来的安排往后挪了挪，又给常联系的人发了句：这两天我回得会慢些。\n\n"
+        "做完这些，生活并没有马上整齐起来。房间还是那间房，洗手台上的瓶瓶罐罐还在，明早该响的闹钟也不会放过她。只是那天晚上，她没有再把自己塞回“正常”里。头发解开后落下来，勒了一整天的发根终于松开，她也跟着安静了些。"
+    )
+
+    assert len(workbench._extract_non_heading_paragraphs(candidate_markdown)) > 14
+    assert not workbench.extract_bridging_summary_paragraphs(candidate_markdown)
+    assert not workbench.extract_embedded_banner_paragraphs(candidate_markdown)
+    assert not workbench.extract_generic_reflective_openers(candidate_markdown)
+    assert workbench._count_time_chain_leads(candidate_markdown) < 4
+    assert workbench._article_shell_burden(candidate_markdown)[0] >= 12
+    assert not workbench._should_retry_for_article_shell_cleanup(
+        source_markdown=source_markdown,
+        candidate_title="总在处理别人的消息，轮到自己时只剩深夜那一点空",
+        candidate_markdown=candidate_markdown,
+    )
+
+
+def test_tracked_article_low_ai_flavor_still_runs_article_shell_cleanup(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if "不要把多个现实接口顺着时间缝成一个人从早到晚一路推进的完整日程线" in instruction:
+                return {
+                    "title": "她把提醒划走了三次",
+                    "body_markdown": (
+                        "她把预约提醒划掉时，咖啡刚接满。\n\n"
+                        "消息没有回，体检也没改回去。\n\n"
+                        "晚上回家，她站在门口，先把包放在地上。"
+                    ),
+                }
+            if instruction:
+                return {
+                    "title": "收件箱里那条改期短信，她一直没点开",
+                    "body_markdown": (
+                        "电梯快到楼层，她对着镜面补了口红。手机震了下，屏幕顶端跳出一行字：体检改期成功。\n\n"
+                        "手指往上一划，门开了，外面已经有人在喊投屏连不上。那条短信很快被新的通知压下去。\n\n"
+                        "楼梯口那次也很直白。同事回头问她今天怎么这么慢，她笑了笑，只接了句昨晚没睡好。\n\n"
+                        "这种时候，人往往不会停，反而会往前补。咖啡换大杯，午休先撤掉，晚上回家再开电脑。\n\n"
+                        "饭局那回，声音更吵。她坐在靠外侧的位置，夹了口南瓜，就停那儿了。\n\n"
+                        "回家路上，朋友发来语音。她点开，听完，退出来。过两站，又点开一遍，还是没回。\n\n"
+                        "第三次提醒更碎，也更容易被她往后放。洗完澡出来，胸口发紧，她先把第二天的待办往下拉。\n\n"
+                        "给自己的解释倒是很顺：项目特殊，交付完再说，忙过这阵应该就好了。\n\n"
+                        "所以代价看起来并不响。工作群还在回，饭局也照常去，第二天甚至起得更早。\n\n"
+                        "夜里十一点多，手机又亮了，还是那个朋友：你最近还好吗？\n\n"
+                        "她把输入框点开，打了两个字，又删掉。"
+                    ),
+                }
+            return {
+                "title": "别把日子过反了",
+                "body_markdown": (
+                    "很多时候，人不是不想停下来，而是不敢承认自己已经撑不住了。\n\n"
+                    "不是工作本身，而是那种一直把自己往后排的习惯。\n\n"
+                    "不是身体突然垮掉，而是很多提醒都被她顺手划过去了。\n\n"
+                    "说到底，她只是又一次把自己放到了最后。"
+                ),
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
+
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "article-shell-low-score-article",
+            "source_kind": "manual",
+            "source_name": "手动录入",
+            "title": "别把日子过反了",
+            "url": "https://example.com/article-shell-low-score",
+            "author": "测试",
+            "summary": "摘要",
+            "body_markdown": (
+                "# 别把日子过反了\n\n"
+                "别用健康换明天\n\n"
+                "朋友阿杰总说等忙完再休息。\n\n"
+                "别等失去才懂珍惜\n\n"
+                "外婆离世后，我翻遍手机。\n\n"
+                "别把幸福寄托在等以后\n\n"
+                "我们总习惯把想做的事往后推。"
+            ),
+            "structure_notes": "",
+            "tags": ["测试"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/article-shell-low-score-article/to-topic",
+        json={
+            "slug": "article-shell-low-score-topic",
+            "title": "她总说等忙完这一阵",
+            "angle": "身体提醒被往后推",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "article-shell-low-score-project", "title": "文章壳回炉测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/article-shell-low-score-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    adopt_response = client.post("/api/projects/article-shell-low-score-project/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+    outline_response = client.post("/api/projects/article-shell-low-score-project/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/article-shell-low-score-project/generate-draft")
+    assert draft_response.status_code == 201
+
+    polish_calls = [
+        call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) >= 2
+    first_polish_payload = polish_calls[0][1]
+    second_polish_payload = polish_calls[1][1]
+    assert first_polish_payload["draft"]["title"] == "别把日子过反了"
+    assert second_polish_payload["draft"]["title"] == "收件箱里那条改期短信，她一直没点开"
+    assert second_polish_payload["allow_structure_recomposition"] is True
+    assert second_polish_payload["preserve_structure_anchors"] is False
+    assert "不要把多个现实接口顺着时间缝成一个人从早到晚一路推进的完整日程线" in str(
+        second_polish_payload["polish_instruction"]
+    )
+
+
+def test_tracked_article_shell_like_draft_enters_auto_polish_with_shell_instruction(monkeypatch) -> None:
+    shell_like_draft = (
+        "电梯快到楼层，她对着镜面补了口红。手机震了下，屏幕顶端跳出一行字：体检改期成功。\n\n"
+        "手指往上一划，门开了，外面已经有人在喊投屏连不上。那条短信很快被新的通知压下去，和群消息、日程提醒叠在一起。\n\n"
+        "楼梯口那次也很直白。同事走了两级，回头看见她扶着栏杆，问今天怎么这么慢。她笑了笑，只接了句，昨晚没睡好。\n\n"
+        "这种时候，人往往不会停，反而会往前补。咖啡换大杯，午休先撤掉，晚上回家再开电脑，把白天掉下去的进度补回来。\n\n"
+        "饭局那回，声音更吵。杯子碰杯子，勺子刮盘子，过道上来回有人走。她坐在靠外侧的位置，菜转到面前，夹了口南瓜，就停那儿了。\n\n"
+        "回家路上，朋友发来语音。她点开，听完，退出来。过两站，又点开一遍，还是没回。\n\n"
+        "第三次提醒更碎，也更容易被她往后放。洗完澡出来，胸口发紧，像内衣肩带勒久了，摘掉以后那道印子还留着。\n\n"
+        "给自己的解释倒是很顺：项目特殊，交付完再说，忙过这阵应该就好了。\n\n"
+        "所以代价看起来并不响。工作群还在回，饭局也照常去，第二天甚至起得更早。\n\n"
+        "夜里十一点多，洗完澡的发尾还在滴水，睡衣领口湿了一小片。手机又亮了，还是那个朋友：你最近还好吗？\n\n"
+        "她把输入框点开，打了两个字，又删掉。屏幕白着，下面压着那条复诊改期的确认短信。"
+    )
+    assert workbench.evaluate_ai_flavor_risk(
+        title="收件箱里那条改期短信，她一直没点开",
+        body_markdown=shell_like_draft,
+    ).level == "中"
+
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if "不要把多个现实接口顺着时间缝成一个人从早到晚一路推进的完整日程线" in instruction:
+                return {
+                    "title": "她把提醒划走了三次",
+                    "body_markdown": (
+                        "她把预约提醒划掉时，咖啡刚接满。\n\n"
+                        "消息没有回，体检也没改回去。\n\n"
+                        "屏幕暗下去以后，她站在门口，没有立刻进屋。"
+                    ),
+                }
+            return {
+                "title": "收件箱里那条改期短信，她一直没点开",
+                "body_markdown": shell_like_draft,
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
+
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "article-shell-entry-article",
+            "source_kind": "manual",
+            "source_name": "手动录入",
+            "title": "别把日子过反了",
+            "url": "https://example.com/article-shell-entry",
+            "author": "测试",
+            "summary": "摘要",
+            "body_markdown": (
+                "# 别把日子过反了\n\n"
+                "别用健康换明天\n\n"
+                "朋友阿杰总说等忙完再休息。\n\n"
+                "别等失去才懂珍惜\n\n"
+                "外婆离世后，我翻遍手机。\n\n"
+                "别把幸福寄托在等以后\n\n"
+                "我们总习惯把想做的事往后推。"
+            ),
+            "structure_notes": "",
+            "tags": ["测试"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/article-shell-entry-article/to-topic",
+        json={
+            "slug": "article-shell-entry-topic",
+            "title": "她总说等忙完这一阵",
+            "angle": "身体提醒被往后推",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "article-shell-entry-project", "title": "入口壳层回炉测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/article-shell-entry-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    adopt_response = client.post("/api/projects/article-shell-entry-project/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+    outline_response = client.post("/api/projects/article-shell-entry-project/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/article-shell-entry-project/generate-draft")
+    assert draft_response.status_code == 201
+
+    polish_calls = [
+        call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) >= 1
+    assert "不要把多个现实接口顺着时间缝成一个人从早到晚一路推进的完整日程线" in str(
+        polish_calls[0][1]["polish_instruction"]
+    )
+    assert polish_calls[0][1]["allow_structure_recomposition"] is True
+    assert polish_calls[0][1]["preserve_structure_anchors"] is False
+
+
+def test_tracked_article_initial_shell_instruction_uses_reference_article_anchors(monkeypatch) -> None:
+    shell_like_draft = (
+        "电梯快到楼层，她对着镜面补了口红。手机震了下，屏幕顶端跳出一行字：体检改期成功。\n\n"
+        "手指往上一划，门开了，外面已经有人在喊投屏连不上。那条短信很快被新的通知压下去。\n\n"
+        "楼梯口那次也很直白。同事回头问她今天怎么这么慢，她笑了笑，只接了句昨晚没睡好。\n\n"
+        "这种时候，人往往不会停，反而会往前补。咖啡换大杯，午休先撤掉，晚上回家再开电脑。\n\n"
+        "饭局那回，声音更吵。她坐在靠外侧的位置，夹了口南瓜，就停那儿了。\n\n"
+        "回家路上，朋友发来语音。她点开，听完，退出来。过两站，又点开一遍，还是没回。\n\n"
+        "第三次提醒更碎，也更容易被她往后放。洗完澡出来，胸口发紧，她先把第二天的待办往下拉。\n\n"
+        "给自己的解释倒是很顺：项目特殊，交付完再说，忙过这阵应该就好了。\n\n"
+        "所以代价看起来并不响。工作群还在回，饭局也照常去，第二天甚至起得更早。\n\n"
+        "夜里十一点多，手机又亮了，还是那个朋友：你最近还好吗？\n\n"
+        "她把输入框点开，打了两个字，又删掉。"
+    )
+
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if "不要把多个现实接口顺着时间缝成一个人从早到晚一路推进的完整日程线" in instruction:
+                return {
+                    "title": "她把提醒划走了三次",
+                    "body_markdown": (
+                        "她把预约提醒划掉时，咖啡刚接满。\n\n"
+                        "消息没有回，体检也没改回去。\n\n"
+                        "晚上回家，她站在门口，先把包放在地上。"
+                    ),
+                }
+            return {
+                "title": "收件箱里那条改期短信，她一直没点开",
+                "body_markdown": shell_like_draft,
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
+
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "article-shell-anchor-article",
+            "source_kind": "manual",
+            "source_name": "手动录入",
+            "title": "别把日子过反了",
+            "url": "https://example.com/article-shell-anchor",
+            "author": "测试",
+            "summary": "摘要",
+            "body_markdown": (
+                "# 别把日子过反了\n\n"
+                "别用健康换明天\n\n"
+                "朋友阿杰总说等忙完再休息。\n\n"
+                "别等失去才懂珍惜\n\n"
+                "外婆离世后，我翻遍手机。\n\n"
+                "别把幸福寄托在等以后\n\n"
+                "我们总习惯把想做的事往后推。"
+            ),
+            "structure_notes": "",
+            "tags": ["测试"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/article-shell-anchor-article/to-topic",
+        json={
+            "slug": "article-shell-anchor-topic",
+            "title": "她总说等忙完这一阵",
+            "angle": "身体提醒被往后推",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "article-shell-anchor-project", "title": "壳层锚点测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/article-shell-anchor-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    adopt_response = client.post("/api/projects/article-shell-anchor-project/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+    outline_response = client.post("/api/projects/article-shell-anchor-project/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/article-shell-anchor-project/generate-draft")
+    assert draft_response.status_code == 201
+
+    polish_calls = [
+        call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction")
+    ]
+    assert len(polish_calls) >= 1
+    instruction = str(polish_calls[0][1]["polish_instruction"])
+    assert "别用健康换明天 -> 朋友阿杰总说等忙完再休息" in instruction
+    assert "别等失去才懂珍惜 -> 外婆离世后，我翻遍手机" in instruction
+
+
+def test_tracked_article_finalize_collapses_time_chain_shell_when_model_stalls(monkeypatch) -> None:
+    shell_like_draft = (
+        "电梯快到楼层，她对着镜面补了口红。手机震了下，屏幕顶端跳出一行字：体检改期成功。\n\n"
+        "手指往上一划，门开了，外面已经有人在喊投屏连不上。高跟鞋踩在地砖上，声响空空的。那条短信很快被新的通知压下去，和群消息、日程提醒叠在一起。\n\n"
+        "楼梯口那次也很直白。同事走了两级，回头看见她扶着栏杆，问今天怎么这么慢。她笑了笑，只接了句，昨晚没睡好。中午群里催文件，光标在对话框里闪了很久，最后发出去的还是“收到”。她不是想省字，当时先冒出来的感觉是钝，像脑子外面糊着层湿布，句子要往外拽，半天也拽不整齐。\n\n"
+        "这种时候，人往往不会停，反而会往前补。咖啡换大杯，午休先撤掉，晚上回家再开电脑，把白天掉下去的进度补回来。她也这么做。因为一旦慢下来，麻烦立刻就有了形：请假要重排，答应过的事得往后挪，还要自己开口承认，这会儿确实撑不太住。\n\n"
+        "于是“最近有点累”成了最顺手的说法。轻，薄，像拿手掌把桌上的纸压平，底下那层褶还在。\n\n"
+        "饭局那回，声音更吵。杯子碰杯子，勺子刮盘子，过道上来回有人走。她坐在靠外侧的位置，菜转到面前，夹了口南瓜，就停那儿了。朋友问项目是不是很麻烦，她点头，没接下去。等旁边的人聊到周末去哪儿，她还低头看着碗里那块凉掉的南瓜。\n\n"
+        "回家路上，朋友发来语音。她点开，听完，退出来。过两站，又点开一遍，还是没回。后来屏幕上跳出一句：你最近是不是有点怪。\n\n"
+        "她按灭了手机。\n\n"
+        "安静落在别人耳朵里，很容易被听成冷淡。可她那会儿更像是空了。回应别人要组织词，接住情绪也要力气，连“我最近不太好”这几个字，都显得重。前面那次没说，后面就更难说；消息拖着拖着，误会也会跟着长出来。人际上的消耗，常常不是争吵出来的，很多时候是回复框亮着，你看着它，身体先往后缩了半步。\n\n"
+        "第三次提醒更碎，也更容易被她往后放。洗完澡出来，胸口发紧，像内衣肩带勒久了，摘掉以后那道印子还留着。她坐到床边，头发没吹干，先把第二天的待办往下拉，又把闹钟从7点10分改到6点40分。周末本来约了散步，临出门前又把电脑掀开，说先改完这版。收件箱里那条复诊改期短信一直躺着，没删，也没点。\n\n"
+        "给自己的解释倒是很顺：项目特殊，交付完再说，忙过这阵应该就好了。可人一旦急着把自己拨回“正常”，最先被压下去的，偏偏就是这些已经冒头的信号。楼梯走慢了，她往睡眠上归；不想回话，她往情绪上轻轻带过去；胸口发紧，就先改闹钟，先开电脑。每次都像只推迟了一小会儿，后面却要用更多力气去装作没有那回事。\n\n"
+        "所以代价看起来并不响。工作群还在回，饭局也照常去，第二天甚至起得更早。表面没断，里面已经开始掉速。最磨人的地方就在这儿：她不是突然垮掉的，是在一次次“先把眼前做完”里，慢慢变钝，慢慢变沉，连察觉自己不对劲都比从前晚了半拍。\n\n"
+        "夜里十一点多，洗完澡的发尾还在滴水，睡衣领口湿了一小片。手机又亮了，还是那个朋友：你最近还好吗？\n\n"
+        "她把输入框点开，打了两个字，又删掉。屏幕白着，下面压着那条复诊改期的确认短信。"
+    )
+
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            return {
+                "title": "收件箱里那条改期短信，她一直没点开",
+                "body_markdown": shell_like_draft,
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
+
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "article-shell-fallback-article",
+            "source_kind": "manual",
+            "source_name": "手动录入",
+            "title": "别把日子过反了",
+            "url": "https://example.com/article-shell-fallback",
+            "author": "测试",
+            "summary": "摘要",
+            "body_markdown": (
+                "# 别把日子过反了\n\n"
+                "别用健康换明天\n\n"
+                "朋友阿杰总说等忙完再休息。\n\n"
+                "别等失去才懂珍惜\n\n"
+                "外婆离世后，我翻遍手机。\n\n"
+                "别把幸福寄托在等以后\n\n"
+                "我们总习惯把想做的事往后推。"
+            ),
+            "structure_notes": "",
+            "tags": ["测试"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/article-shell-fallback-article/to-topic",
+        json={
+            "slug": "article-shell-fallback-topic",
+            "title": "她总说等忙完这一阵",
+            "angle": "身体提醒被往后推",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "article-shell-fallback-project", "title": "壳层兜底测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/article-shell-fallback-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    adopt_response = client.post("/api/projects/article-shell-fallback-project/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+    outline_response = client.post("/api/projects/article-shell-fallback-project/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/article-shell-fallback-project/generate-draft")
+    assert draft_response.status_code == 201
+
+    result = draft_response.json()
+    assert result["body_markdown"] != shell_like_draft
+    assert workbench._article_shell_burden(result["body_markdown"]) < workbench._article_shell_burden(shell_like_draft)
+    assert (
+        workbench.evaluate_ai_flavor_risk(
+            title=result["title"],
+            body_markdown=result["body_markdown"],
+        ).score
+        < workbench.evaluate_ai_flavor_risk(
+            title="收件箱里那条改期短信，她一直没点开",
+            body_markdown=shell_like_draft,
+        ).score
+    )
+
+
+def test_tracked_article_finalize_collapses_embedded_banner_shell_when_model_stalls(monkeypatch) -> None:
+    shell_like_draft = (
+        "朋友的消息弹出来时，她正对着桌上那杯咖啡发愣。\n\n"
+        "杯壁外侧已经结了一层薄薄的水，电脑右下角跳到 21:47，文档还开着，光标一闪一闪。那条消息很短：最近怎么样，要不要找天见一面？\n\n"
+        "人很多时候就是从这里开始慢下来的。没出什么大事，也谈不上垮。只是闹钟响了，按掉，再按掉；明明只差十分钟就能从容出门，还是在床边坐了很久。\n\n"
+        "麻烦就麻烦在，这些信号太容易被她自己轻轻带过去。醒来更累，胃口乱，下午三四点会突然心慌；消息提示音一密集，太阳穴就跟着发紧。可熟悉的话也会立刻跟上来：忙完这阵就好了，周末补个觉就好了。\n\n"
+        "身体先亮红灯，人却还照着原来的效率和礼貌往前走。该交的照交，该回的照回，见了人也还能笑，说自己没事。\n\n"
+        "她还没倒下。还能上班，能交差，能在别人问起时回一句“挺好的”。偏偏就是这种“还能”，最容易让人误判。\n\n"
+        "关系里的缺席，也是在这些时候一点点长出来的。见面改成改天，电话换成文字，长回复缩成表情，解释缩成“最近有点忙”。\n\n"
+        "这句话很体谅，可听久了，人会更沉。因为她慢慢也默认了自己总在往后退。生活里有变化，不太主动讲了；受了委屈，也觉得讲起来太费劲。\n\n"
+        "难的地方就在这儿。不是因为太久没见，也不全是因为之前推掉太多次。更常见的情况是，人已经在长时间硬撑里，跟自己的感受脱了节。\n\n"
+        "回家的路上，手机又亮了一次。她站在电梯里，看着镜子里自己有点发白的脸，拇指在屏幕上停了停，没有再逼自己把所有消息都回完。"
+    )
+
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b\n3. c"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            return {
+                "title": "朋友的消息弹出来时，她正对着桌上那杯咖啡发愣",
+                "body_markdown": shell_like_draft,
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a", "title b"],
+                "cover_prompt": "prompt",
+                "cover_copy": "cover copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "abstract": "abstract",
+                "tags": ["tag-a", "tag-b"],
+                "editor_note": "note",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
+
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "article-banner-fallback-article",
+            "source_kind": "manual",
+            "source_name": "手动录入",
+            "title": "别把日子过反了",
+            "url": "https://example.com/article-banner-fallback",
+            "author": "测试",
+            "summary": "摘要",
+            "body_markdown": (
+                "# 别把日子过反了\n\n"
+                "别用健康换明天\n\n"
+                "朋友阿杰总说等忙完再休息。\n\n"
+                "别等失去才懂珍惜\n\n"
+                "外婆离世后，我翻遍手机。"
+            ),
+            "structure_notes": "",
+            "tags": ["测试"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/article-banner-fallback-article/to-topic",
+        json={
+            "slug": "article-banner-fallback-topic",
+            "title": "她总说等忙完这一阵",
+            "angle": "关系里的缺席是怎么慢慢长出来的",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "article-banner-fallback-project", "title": "锚句壳层兜底测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/article-banner-fallback-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    adopt_response = client.post("/api/projects/article-banner-fallback-project/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+    outline_response = client.post("/api/projects/article-banner-fallback-project/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/article-banner-fallback-project/generate-draft")
+    assert draft_response.status_code == 201
+
+    result = draft_response.json()
+    assert result["body_markdown"] != shell_like_draft
+    assert not workbench.extract_embedded_banner_paragraphs(result["body_markdown"])
+    assert (
+        workbench.evaluate_ai_flavor_risk(
+            title=result["title"],
+            body_markdown=result["body_markdown"],
+        ).score
+        < workbench.evaluate_ai_flavor_risk(
+            title="朋友的消息弹出来时，她正对着桌上那杯咖啡发愣",
+            body_markdown=shell_like_draft,
+        ).score
+    )
+    assert "人很多时候就是从这里开始慢下来的，没出什么大事，也谈不上垮。" in result["body_markdown"]
+
+
+def test_article_shell_retry_instruction_calls_out_single_dayline_stitching() -> None:
+    instruction = workbench._build_article_shell_retry_instruction(
+        base_instruction="请基于现有正文做一轮原创增强精修。",
+        source_markdown=(
+            "# 别把日子过反了\n\n"
+            "别用健康换明天\n\n"
+            "朋友阿杰总说等忙完再休息。\n\n"
+            "别等失去才懂珍惜\n\n"
+            "外婆离世后，我翻遍手机。"
+        ),
+        candidate_markdown=(
+            "电梯快到楼层，她对着镜面补了口红。\n\n"
+            "楼梯口那次也很直白。\n\n"
+            "中午群里催文件，光标在对话框里闪了很久。\n\n"
+            "饭局那回，声音更吵。\n\n"
+            "回家路上，朋友发来语音。\n\n"
+            "洗完澡出来，胸口发紧。\n\n"
+            "夜里十一点多，手机又亮了。"
+        ),
+    )
+
+    assert "不要把多个现实接口顺着时间缝成一个人从早到晚一路推进的完整日程线" in instruction
+    assert "不要让电梯、楼梯、午休、饭局、回家、洗澡、深夜这些节点按时间表整齐排队" in instruction
+
+
 def test_generate_assets_can_polish_draft_before_generating_assets(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:
@@ -4355,6 +7401,45 @@ def test_generate_draft_auto_compresses_when_far_above_target_word_count(monkeyp
     assert draft_calls[0][1]["polish_instruction"] is None
     assert draft_calls[1][1]["polish_instruction"] == "请在不改变核心观点和结构顺序的前提下，压缩这篇草稿，删除重复表达与重复场景，把正文控制回目标字数附近。"
     assert draft_calls[1][1]["draft"]["title"] == "draft title long"
+
+
+def test_maybe_compress_draft_output_falls_back_to_original_when_compression_fails(caplog) -> None:
+    class FailingGenerator:
+        def generate_draft(self, _: dict[str, object]) -> dict[str, str]:
+            raise RuntimeError("OpenAI chat fallback returned no output")
+
+    class ToneProfileStub:
+        target_word_count = 100
+
+        @staticmethod
+        def model_dump() -> dict[str, object]:
+            return {"target_word_count": 100}
+
+    caplog.set_level("WARNING")
+
+    original_body = "很长" * 200
+    original_title = "原始标题"
+    compressed_body, compressed_title = workbench._maybe_compress_draft_output(
+        project_slug="compression-fallback-demo",
+        tone_profile=ToneProfileStub(),
+        title=original_title,
+        body_markdown=original_body,
+        project={
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "总把自己往后放的人，生活为什么会慢慢失序",
+            "topic_angle": "从推迟和顺延的日常动作切入，解释生活排序为什么会慢慢倒过来。",
+            "title": "压缩失败兜底稿",
+            "domain_pack_key": None,
+        },
+        outline_row={"hook": "hook", "outline_body": "1. a\n2. b"},
+        review_comment=None,
+        reference_article_payload={},
+        generator=FailingGenerator(),
+    )
+
+    assert compressed_body == original_body
+    assert compressed_title == original_title
+    assert "Draft compression failed for project compression-fallback-demo" in caplog.text
 
 
 def test_topics_and_projects_list_reflect_stateful_changes() -> None:

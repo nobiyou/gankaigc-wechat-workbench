@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from functools import lru_cache
 import json
+from json import JSONDecodeError
 import time
 from typing import TypeVar
 
@@ -11,6 +12,7 @@ from openai import APIConnectionError
 from openai import APITimeoutError
 from openai import OpenAI
 from pydantic import BaseModel
+from pydantic import ValidationError
 
 from app.core.settings import Settings, settings
 from app.schemas.settings import AIConfigCheckResult, AIConfigSummary
@@ -74,10 +76,12 @@ class OpenAIWorkbenchGenerator:
         client_kwargs["timeout"] = config.openai_request_timeout_seconds
 
         self._client = OpenAI(**client_kwargs)
+        self._uses_custom_base_url = bool(config.openai_base_url)
         self._model = config.openai_model
         self._image_model = config.openai_image_model
         self._reasoning_effort = config.openai_reasoning_effort
         self._request_timeout_seconds = config.openai_request_timeout_seconds
+        self._prefer_chat_json_for_formats: set[type[BaseModel]] = set()
 
     def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
         prompt_template = build_outline_prompt(payload)
@@ -180,11 +184,21 @@ class OpenAIWorkbenchGenerator:
         prompt: str,
         response_format: type[ResponseModelT],
     ) -> ResponseModelT:
+        timeout_seconds = self._resolve_text_request_timeout(response_format)
+        if self._should_prefer_chat_json(response_format):
+            return self._parse_response_with_chat_json_fallback(
+                instructions=instructions,
+                prompt=prompt,
+                response_format=response_format,
+                timeout_seconds=timeout_seconds,
+            )
+
         request_kwargs: dict[str, object] = {
             "model": self._model,
             "instructions": instructions,
             "input": prompt,
             "text_format": response_format,
+            "timeout": timeout_seconds,
         }
         if self._reasoning_effort:
             request_kwargs["reasoning"] = {"effort": self._reasoning_effort}
@@ -194,18 +208,57 @@ class OpenAIWorkbenchGenerator:
             try:
                 response = self._client.responses.parse(**request_kwargs)
                 parsed = response.output_parsed
-                if parsed is None:
-                    raise RuntimeError("OpenAI returned no structured output")
-                return parsed
-            except TypeError as exc:
-                if "'NoneType' object is not iterable" not in str(exc):
-                    raise
+                if parsed is not None:
+                    return parsed
+
+                parsed_from_text = self._parse_json_response_output(
+                    response=response,
+                    response_format=response_format,
+                )
+                if parsed_from_text is not None:
+                    return parsed_from_text
+
+                self._remember_chat_json_preference(response_format)
                 return self._parse_response_with_chat_json_fallback(
                     instructions=instructions,
                     prompt=prompt,
                     response_format=response_format,
+                    timeout_seconds=timeout_seconds,
                 )
-            except (openai.InternalServerError, openai.RateLimitError, openai.APIConnectionError) as exc:
+            except TypeError as exc:
+                if "'NoneType' object is not iterable" not in str(exc):
+                    raise
+                self._remember_chat_json_preference(response_format)
+                return self._parse_response_with_chat_json_fallback(
+                    instructions=instructions,
+                    prompt=prompt,
+                    response_format=response_format,
+                    timeout_seconds=timeout_seconds,
+                )
+            except APITimeoutError:
+                return self._parse_response_with_chat_json_fallback(
+                    instructions=instructions,
+                    prompt=prompt,
+                    response_format=response_format,
+                    timeout_seconds=timeout_seconds,
+                )
+            except (openai.InternalServerError, openai.APIConnectionError) as exc:
+                if self._should_fallback_to_chat_json_after_parse_error(
+                    response_format=response_format,
+                    error=exc,
+                ):
+                    self._remember_chat_json_preference(response_format)
+                    return self._parse_response_with_chat_json_fallback(
+                        instructions=instructions,
+                        prompt=prompt,
+                        response_format=response_format,
+                        timeout_seconds=timeout_seconds,
+                    )
+                last_error = exc
+                if attempt == 2:
+                    raise
+                time.sleep(1 + attempt)
+            except openai.RateLimitError as exc:
                 last_error = exc
                 if attempt == 2:
                     raise
@@ -215,16 +268,66 @@ class OpenAIWorkbenchGenerator:
             raise last_error
         raise RuntimeError("OpenAI response parsing failed without a captured exception")
 
+    def _should_prefer_chat_json(self, response_format: type[ResponseModelT]) -> bool:
+        return (
+            response_format in self._prefer_chat_json_for_formats
+            or self._should_default_to_chat_json(response_format)
+        )
+
+    def _remember_chat_json_preference(self, response_format: type[ResponseModelT]) -> None:
+        if self._uses_custom_base_url and not self._supports_custom_base_url_chat_json(response_format):
+            return
+        self._prefer_chat_json_for_formats.add(response_format)
+
+    def _should_default_to_chat_json(self, response_format: type[ResponseModelT]) -> bool:
+        return self._uses_custom_base_url and self._supports_custom_base_url_chat_json(response_format)
+
+    def _should_fallback_to_chat_json_after_parse_error(
+        self,
+        *,
+        response_format: type[ResponseModelT],
+        error: Exception,
+    ) -> bool:
+        if not self._uses_custom_base_url:
+            return False
+        if not self._supports_custom_base_url_chat_json(response_format):
+            return False
+        return isinstance(error, (openai.InternalServerError, openai.APIConnectionError))
+
+    def _supports_custom_base_url_chat_json(self, response_format: type[ResponseModelT]) -> bool:
+        return response_format is DraftGenerationResult
+
+    def _resolve_text_request_timeout(self, response_format: type[ResponseModelT]) -> float:
+        if response_format is DraftGenerationResult:
+            return max(self._request_timeout_seconds, 90.0)
+        return self._request_timeout_seconds
+
+    def _parse_json_response_output(
+        self,
+        *,
+        response: object,
+        response_format: type[ResponseModelT],
+    ) -> ResponseModelT | None:
+        output_text = getattr(response, "output_text", None)
+        if not isinstance(output_text, str) or not output_text.strip():
+            return None
+        try:
+            payload = json.loads(output_text)
+        except JSONDecodeError:
+            return None
+        return response_format.model_validate(payload)
+
     def _parse_response_with_chat_json_fallback(
         self,
         *,
         instructions: str,
         prompt: str,
         response_format: type[ResponseModelT],
+        timeout_seconds: float,
     ) -> ResponseModelT:
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=[
+        request_kwargs: dict[str, object] = {
+            "model": self._model,
+            "messages": [
                 {
                     "role": "system",
                     "content": (
@@ -234,13 +337,31 @@ class OpenAIWorkbenchGenerator:
                 },
                 {"role": "user", "content": prompt},
             ],
-            response_format={"type": "json_object"},
-            timeout=self._request_timeout_seconds,
-        )
-        output_text = response.choices[0].message.content
-        if not output_text:
-            raise RuntimeError("OpenAI chat fallback returned no output")
-        return response_format.model_validate(json.loads(output_text))
+            "response_format": {"type": "json_object"},
+            "timeout": timeout_seconds,
+        }
+
+        last_error: Exception | None = None
+        for attempt in range(3):
+            response = self._client.chat.completions.create(**request_kwargs)
+            output_text = response.choices[0].message.content
+            if not output_text:
+                last_error = RuntimeError("OpenAI chat fallback returned no output")
+            else:
+                try:
+                    return response_format.model_validate(json.loads(output_text))
+                except (JSONDecodeError, ValidationError) as exc:
+                    last_error = exc
+            if attempt < 2:
+                time.sleep(0.5 + attempt * 0.5)
+
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("OpenAI chat fallback failed without a captured exception")
+
+    @property
+    def uses_custom_base_url(self) -> bool:
+        return self._uses_custom_base_url
 
     def check_connection(self) -> None:
         request_kwargs: dict[str, object] = {
