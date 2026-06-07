@@ -53,6 +53,14 @@ _EXPLANATORY_BRIDGE_PARAGRAPH_PATTERN = re.compile(
     r"^(?:(?:解释|理由|安慰自己的话|脑子里的解释)(?:也)?(?:来得)?(?:很快|很齐|立刻|马上)?(?:就)?(?:来了|跟上来|冒出来|出现了)?|(?:第一个|先冒出来的)(?:解释|理由)|(?:第一反应|第一个念头)(?:通常)?(?:是|就是))[：:，,]",
     re.UNICODE,
 )
+_DIRECT_ADDRESS_EXPLAINER_PATTERN = re.compile(
+    r"(?:你以为|有一类[^。！？!?；;\n]{0,18}|你已经太久|答案先放这儿|更麻烦的地方在这儿|你也不用|如果你已经|先别再拿|你只是不再|你总能|你会把|你拿出去|你把自己|你先把自己)",
+    re.UNICODE,
+)
+_ABSTRACT_MECHANISM_LABEL_PATTERN = re.compile(
+    r"(?:次序失衡|这套模式|自我忽略|长期撤掉|优先权|自我亏欠|生活次序|固定位置|长期取消|长期透支|边界|外部倒计时)",
+    re.UNICODE,
+)
 _TIME_CHAIN_PREFIXES = (
     "电梯",
     "楼梯口",
@@ -365,6 +373,27 @@ def _count_paragraph_shell_burden(markdown: str) -> tuple[int, int, int]:
     return (burden, paragraph_count, shell_like_blocks)
 
 
+def _extract_direct_address_explainer_markers(markdown: str) -> list[str]:
+    matches = [match.group(0).strip() for match in _DIRECT_ADDRESS_EXPLAINER_PATTERN.finditer(markdown)]
+    return _dedupe_preserve_order(matches)
+
+
+def _extract_abstract_mechanism_labels(markdown: str) -> list[str]:
+    matches = [match.group(0).strip() for match in _ABSTRACT_MECHANISM_LABEL_PATTERN.finditer(markdown)]
+    return _dedupe_preserve_order(matches)
+
+
+def _count_standard_explainer_paragraphs(markdown: str) -> tuple[int, int]:
+    paragraphs = _extract_paragraphs(markdown)
+    standard_count = 0
+    for paragraph in paragraphs:
+        compact_length = len(_compact_text(paragraph))
+        sentence_count = len(_extract_sentences(paragraph))
+        if 90 <= compact_length <= 260 and 3 <= sentence_count <= 7:
+            standard_count += 1
+    return (standard_count, len(paragraphs))
+
+
 def evaluate_ai_flavor_risk(*, title: str, body_markdown: str) -> AiFlavorRiskSummary:
     hits: list[str] = []
     suggestions: list[str] = []
@@ -431,6 +460,28 @@ def evaluate_ai_flavor_risk(*, title: str, body_markdown: str) -> AiFlavorRiskSu
         hits.append(f"命中：段落职责切分过细 {paragraph_count}段")
         suggestions.append("建议：不要把正文切成十几段每段只承担一个推进职责，至少合并 3 到 5 段，让观察、解释和后续影响回到同一段。")
         score += min(24, 12 + (paragraph_count - 16) + max(0, paragraph_shell_burden - 14))
+
+    direct_address_markers = _extract_direct_address_explainer_markers(body_markdown)
+    if len(direct_address_markers) >= 4:
+        hits.append(f"命中：第二人称讲理腔偏重 x{len(direct_address_markers)}")
+        suggestions.append("建议：删掉“答案先放这儿”“更麻烦的地方在这儿”“你也不用”这类讲解台词，降低第二人称密度。")
+        score += min(26, 16 + (len(direct_address_markers) - 4) * 2)
+
+    abstract_labels = _extract_abstract_mechanism_labels(body_markdown)
+    if len(abstract_labels) >= 5:
+        hits.append(f"命中：抽象机制标签密集 x{len(abstract_labels)}")
+        suggestions.append("建议：把抽象概念标签改成具体压力、选择代价或身体反应，不要先抛概念再解释。")
+        score += min(24, 14 + (len(abstract_labels) - 5) * 2)
+
+    standard_explainer_blocks, explainer_paragraph_count = _count_standard_explainer_paragraphs(body_markdown)
+    if (
+        8 <= explainer_paragraph_count <= 14
+        and standard_explainer_blocks / max(1, explainer_paragraph_count) >= 0.75
+        and (len(direct_address_markers) >= 4 or len(abstract_labels) >= 5)
+    ):
+        hits.append(f"命中：中长段标准讲理排布 {standard_explainer_blocks}/{explainer_paragraph_count}")
+        suggestions.append("建议：不要每段都写成“判断 + 解释 + 小结”，打散段落长度和职责，保留局部未说满。")
+        score += 18
 
     bridging_summary_paragraphs = extract_bridging_summary_paragraphs(body_markdown)
     if len(bridging_summary_paragraphs) >= 2:
@@ -540,6 +591,12 @@ def build_ai_flavor_polish_instruction(summary: AiFlavorRiskSummary, *, compact:
             actions.append("标题改成具体处境入口，不要用宽泛判断句。")
         if any("先是后来再后来的整齐梳理" in hit for hit in summary.hits):
             actions.append("拆开“先是……后来……再后来……”这种整齐梳理链，保留更自然的时间推进。")
+        if any("第二人称讲理腔偏重" in hit for hit in summary.hits):
+            actions.append("删掉“答案先放这儿 / 更麻烦的地方在这儿 / 你也不用”这类讲解台词，降低第二人称密度，改成作者自己的判断、局部事实或更短的承接。")
+        if any("抽象机制标签密集" in hit for hit in summary.hits):
+            actions.append("把“次序失衡 / 自我亏欠 / 长期透支”这类抽象标签改成具体压力、选择代价或身体反应，不要先抛概念再解释。")
+        if any("中长段标准讲理排布" in hit for hit in summary.hits):
+            actions.append("不要每段都写成“判断 + 解释 + 小结”，至少合并两处、截短两处，保留局部没有说满的停顿。")
         if not actions:
             actions.append("优先删掉最像模板成稿的判断段，把判断压回现有动作、场景和反应里。")
         action_block = " ".join(f"{index + 1}. {action}" for index, action in enumerate(actions))
@@ -570,6 +627,9 @@ def build_ai_flavor_polish_instruction(summary: AiFlavorRiskSummary, *, compact:
         "不要把所有停顿句、改口句和动作残留都清掉，保留少量真正具体的毛边，比统一磨成顺滑总结更接近人写。"
         "不要单独起一段宣布“更麻烦的是”“有些代价是延迟出现的”“关系里的缺席”这类观点，把它并回前后过程段。"
         "不要在长段开头先补“这条线常常就是这么出来的”“关系也是这样淡下去的”“真正磨人的，往往……”这类总括句，再往下接一整段解释。"
+        "删掉“答案先放这儿”“更麻烦的地方在这儿”“你也不用”这类讲解台词，降低第二人称讲理密度。"
+        "不要先抛“次序失衡”“自我亏欠”“长期透支”这类抽象机制标签再解释，改成具体压力、代价或身体反应。"
+        "不要每段都写成“判断 + 解释 + 小结”，至少让一部分段落只承接动作、关系变化或未说完的余波。"
         "不要把一句消息、对话或引用单独切成一个展示段这种做法写成固定排版习惯；如果全文只有一处且确实能增强现场感，可以保留。"
         "不要单独起一个只负责解释的短段这种做法写成固定排版习惯；如果全文只有一处且能保住当场心理跳转，可以保留。"
         "打散连续“她……她……她……”或“你……你……你……”起段，优先让动作、物件、时间节点或环境先起句。"

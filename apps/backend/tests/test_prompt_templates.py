@@ -1323,6 +1323,9 @@ def test_draft_prompt_includes_anti_ai_flavor_guardrails() -> None:
     assert "结构模板风险" in template.instructions
     assert "句式节奏风险" in template.instructions
     assert "段落节拍风险" in template.instructions
+    assert "解释型公众号 AI 腔" in template.instructions
+    assert "答案先放这儿" in template.instructions
+    assert "不要每段都写成“判断 + 解释 + 小结”" in template.instructions
     assert "抽象空话风险" in template.instructions
     assert "过度解释风险" in template.instructions
     assert "结尾口号风险" in template.instructions
