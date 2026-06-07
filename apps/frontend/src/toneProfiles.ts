@@ -2,6 +2,7 @@ import type { ToneProfileItem, ToneProfileUpsert } from "./api/workbench";
 
 export type ToneProfileFormState = {
   id: number;
+  preset_key: string;
   name: string;
   opening_style: string;
   paragraph_rhythm: string;
@@ -25,6 +26,7 @@ function requireTrimmedValue(value: string, label: string): string {
 export function buildToneProfileFormState(profile: ToneProfileItem): ToneProfileFormState {
   return {
     id: profile.id,
+    preset_key: profile.preset_key ?? "",
     name: profile.name,
     opening_style: profile.opening_style,
     paragraph_rhythm: profile.paragraph_rhythm,
@@ -39,6 +41,7 @@ export function buildToneProfileFormState(profile: ToneProfileItem): ToneProfile
 export function createToneProfileFormState(): ToneProfileFormState {
   return {
     id: 0,
+    preset_key: "",
     name: "",
     opening_style: "",
     paragraph_rhythm: "",
@@ -138,6 +141,7 @@ export function buildToneProfileUpdatePayload(form: ToneProfileFormState): ToneP
   }
 
   return {
+    preset_key: form.preset_key.trim() || null,
     name: requireTrimmedValue(form.name, "风格名称"),
     opening_style: requireTrimmedValue(form.opening_style, "开头风格"),
     paragraph_rhythm: requireTrimmedValue(form.paragraph_rhythm, "段落节奏"),

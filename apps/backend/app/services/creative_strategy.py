@@ -72,7 +72,7 @@ def build_strategy_package(
     )
     point_of_view = _build_point_of_view(topic_angle)
     conflict_frame = _build_conflict_frame(topic_title, topic_angle)
-    emotional_path = "从具体处境进入，先让委屈和停顿出现，再慢慢推进到能开口或能自救的动作。"
+    emotional_path = "先建立终局感或亏欠感，再给读者一个被理解、被松绑、被允许照顾自己的出口。"
     structure_mode = _build_structure_mode(
         source_mode=source_mode,
         topic_angle=topic_angle,
@@ -297,16 +297,16 @@ def _normalize_topic_angle(*, topic_angle: str, topic_title: str, source_mode: s
     if source_mode != "tracked_article":
         return normalized
     if "推迟" in normalized or "往后放" in normalized or "等有空再说" in normalized:
-        return "从一次被顺手往后挪开的生活瞬间切入，重点写“推迟”怎样慢慢改写一个人的生活排序。"
-    if "情绪" in normalized or "报警" in normalized or "耗尽" in normalized:
-        return "从一次身体变慢、情绪钝住或日常失序的小瞬间切入，重点写人为什么会把报警误认成暂时状态不好。"
+        return "从人生有限和长期亏欠自己的矛盾切入，重点写“推迟”怎样慢慢改写一个人的生活排序。"
     if "胃口变差" in normalized or "作息发乱" in normalized or "没耐心" in normalized or "负荷" in normalized:
-        return "从一次胃口变差、作息发乱或回复动作开始拖慢的小瞬间切入，重点写生活接口的负荷是怎样一点点把人推向内耗的。"
+        return "从生活接口的长期负荷切入，重点写人为什么会把身体提醒放到所有事情后面。"
+    if "情绪" in normalized or "报警" in normalized or "耗尽" in normalized:
+        return "从身体报警背后的自我亏欠感切入，重点写人为什么会把长期透支误认成暂时状态不好。"
     if "边界" in normalized or "开口" in normalized or "误解" in normalized or "沟通" in normalized:
-        return "从一次想开口又收回去的瞬间切入，重点写失望和误解是怎样把表达一点点堵住的。"
+        return "从长期失望后的表达退缩切入，重点写人为什么越想被理解越不敢再开口。"
     if "自我" in normalized or "撑住" in normalized or "稳住" in normalized:
-        return "从一次表面正常、心里已经绷紧的瞬间切入，重点写人为什么越想撑住自己越累。"
-    return f"围绕 `{topic_title}` 重建一个新的具体处境入口，不沿用原始说明书的句式、顺序和收束动作。"
+        return "从总想撑住自己背后的亏欠感切入，重点写人为什么越想稳住越累。"
+    return f"围绕 `{topic_title}` 重建新的情绪发动机，不沿用原始说明书的句式、顺序和收束动作。"
 
 
 def _build_writing_goal(*, topic_title: str, topic_angle: str) -> str:
@@ -316,14 +316,15 @@ def _build_writing_goal(*, topic_title: str, topic_angle: str) -> str:
         return "把“为什么人会一点点耗尽”讲清楚，让读者先意识到这已经是身体和情绪在报警，不必再把它误认成偷懒。"
     if "自我" in topic_angle:
         return "把“为什么越想稳住自己越累”讲清楚，让读者愿意先承认疲惫，再谈修复。"
-    return f"把 `{topic_title}` 从抽象判断改写成读者能立刻代入的具体处境。"
+    return f"把 `{topic_title}` 从抽象判断改写成能让读者被看见、被松绑或被提醒的情绪发动机。"
 
 
 def _build_problem_constraints(*, source_mode: str) -> list[str]:
     constraints = [
         "不要写成口号文、模板鸡汤文或标准答案式议论文。",
-        "不要做近义词改写，要换观察路径和场景入口。",
-        "优先把抽象情绪落到动作、停顿、空间、物件或身体反应上。",
+        "不要做近义词改写，要换观察路径和情绪发动机。",
+        "优先提炼终局感、亏欠感、失去后的反省、被允许的松绑或现实答案。",
+        "原则上删除场景描写，不把动作、空间、物件或生活表面当成正文入口。",
     ]
     if source_mode == "tracked_article":
         constraints.append("参考材料只用于确认赛道和冲突，不得沿用原标题骨架、段落顺序和结尾动作。")
@@ -346,7 +347,7 @@ def _build_unknowns(*, topic_angle: str, source_mode: str, tracked_article_scene
     if not topic_angle.strip():
         unknowns.append("切口仍偏泛，大纲阶段要主动收窄到一个更具体的处境。")
     if source_mode == "tracked_article" and not tracked_article_scene:
-        unknowns.append("参考材料缺少足够具体的处境线索，开头需要自行重建新的生活场景。")
+        unknowns.append("参考材料缺少足够清晰的情绪发动机，开头需要自行重建终局问题、亏欠感或价值赦免。")
     return unknowns
 
 
@@ -363,10 +364,12 @@ def _build_conflict_frame(topic_title: str, topic_angle: str) -> str:
         return "真正把关系拖住的，是一次次想开口又收回去。"
     if "情绪" in topic_angle:
         return "那些失去电量的迹象，往往很早就开始一点点积着。"
-    return f"把 {topic_title} 还原成一个人是怎么慢慢被推到这里的。"
+    return f"把 {topic_title} 背后的自我亏欠、失去感和现实压力讲清楚。"
 
 
 def _build_opening_move(*, topic_title: str, topic_angle: str, tracked_article_scene: str, structure_mode: str) -> str:
+    if structure_mode == "emotional_engine_direct":
+        return "开头不要生活场景冷启动，先用终局问题、反常识判断、情绪命名或价值赦免把读者拉进来。"
     if structure_mode == "fragment_chain_observation":
         if "推迟" in topic_angle or "往后放" in topic_angle or "等有空再说" in topic_angle:
             return "开头先落一个被顺手往后挪开的普通接口：没回的消息、改掉的预约、没吃完的饭或被推迟的电话，不要铺成完整小说场景。"
@@ -385,6 +388,10 @@ def _build_opening_move(*, topic_title: str, topic_angle: str, tracked_article_s
 
 
 def _build_body_shift(*, topic_angle: str, core_conflict: str, structure_mode: str) -> str:
+    if "胃口变差" in topic_angle or "作息发乱" in topic_angle or "没耐心" in topic_angle or "负荷" in topic_angle:
+        return "中段先拆生活接口为什么长期超负荷，再讲人为什么会把身体提醒放到所有事情后面。"
+    if structure_mode == "emotional_engine_direct":
+        return "中段先拆情绪发动机：人为什么总在失去后才懂得拥有，又为什么会把照顾自己放到最后。"
     if structure_mode == "fragment_chain_observation":
         return "中段围绕同一个问题串起 2 到 4 个现实接口，让每个碎片各自承担不同压力：有人际回应，有身体提醒，也有被往后挪开的日常动作，不要平均写成并列分论点。"
     if "边界" in topic_angle:
@@ -397,6 +404,8 @@ def _build_body_shift(*, topic_angle: str, core_conflict: str, structure_mode: s
 
 
 def _build_ending_move(topic_angle: str, structure_mode: str) -> str:
+    if structure_mode == "emotional_engine_direct":
+        return "结尾给读者一个明确的价值赦免和现实答案：不必再把自己排到最后。"
     if structure_mode == "fragment_chain_observation":
         return "结尾回到其中一个还没完全处理完的小动作或未回的接口，停在那里，不要写成总结清单、三连问或温柔祝福。"
     if "边界" in topic_angle:
@@ -455,7 +464,7 @@ def _build_structure_mode(
     if source_mode == "tracked_article":
         if _has_fragment_chain_source(reference_body_markdown):
             return "fragment_chain_observation"
-        return "single_window_scene"
+        return "emotional_engine_direct"
     scene_first_keywords = (
         "情绪",
         "耗尽",
@@ -473,8 +482,8 @@ def _build_structure_mode(
         "倦怠",
     )
     if tracked_article_scene or any(keyword in normalized for keyword in scene_first_keywords):
-        return "single_window_scene"
-    return "scene_first_progression"
+        return "emotional_engine_direct"
+    return "emotional_engine_direct"
 
 
 def _describe_structure_mode(structure_mode: str) -> tuple[str, str]:
@@ -487,6 +496,11 @@ def _describe_structure_mode(structure_mode: str) -> tuple[str, str]:
         return (
             "单场景窄时窗推进",
             "前半篇尽量守住同一段时间和同一处境现场，不要均匀拆成几个并列观点段。",
+        )
+    if structure_mode == "emotional_engine_direct":
+        return (
+            "情绪发动机直接推进",
+            "先抽出终局感、亏欠感、失去后的反省和价值赦免，再展开判断与现实答案；默认不铺生活场景。",
         )
     if structure_mode == "scene_first_progression":
         return (
@@ -502,9 +516,9 @@ def _build_recomposition_recipe(
     topic_angle: str,
     reference_shell_signals: list[str] | None = None,
 ) -> list[str]:
-    opening_step = "标题和开头都改成具体处境入口：标题不用命令句或判断句，首段先落一个能摸到的动作、物件、界面或身体反应。"
-    middle_step = "中段先推进事情怎么一步步变成现在这样，再补判断；不要按“观点一句 + 解释一句”的标准答案节拍平推。"
-    ending_step = "结尾只收在一个还没完全处理完的小动作、关系余波或现实阻力上，不提问、不祝福、不列清单。"
+    opening_step = "标题和开头都改成情绪发动机入口：不用命令句，不用生活场景冷启动，先给终局问题、反常识判断或情绪命名。"
+    middle_step = "中段先拆为什么会亏欠自己、为什么会失去后才懂得拥有，再补现实机制；不要按“观点一句 + 解释一句”的标准答案节拍平推。"
+    ending_step = "结尾给明确的价值赦免和现实答案，不提问、不列清单，也不要靠生活小动作收束。"
 
     if structure_mode == "fragment_chain_observation":
         recipe = [
@@ -522,6 +536,14 @@ def _build_recomposition_recipe(
             "机制说明集中在一次回看或停顿里，不要每推进一段就补一个抽象判断段。",
             ending_step,
         ]
+    elif structure_mode == "emotional_engine_direct":
+        recipe = [
+            opening_step,
+            "前半篇不要守生活场景，先守住一个情绪问题：人为什么总把自己放到最后，又为什么失去后才看见当下。",
+            "中段用 2 到 4 层推进：终局感、失去链条、自我亏欠、被允许的松绑；每层都要给读者情绪价值。",
+            "需要例子时只保留一句事实或引用，并并入判断段；不展开动作、物件、环境和氛围描写，也不单独保留动作残留段。",
+            ending_step,
+        ]
     else:
         recipe = [
             opening_step,
@@ -533,7 +555,7 @@ def _build_recomposition_recipe(
 
     shell_signals = reference_shell_signals or []
     if "imperative_title_banner" in shell_signals:
-        recipe.append("如果参考标题本身是“别…… / 不要……”式提醒句，你的新标题必须改成场景、动作或处境断面，不能再像劝告。")
+        recipe.append("如果参考标题本身是“别…… / 不要……”式提醒句，你的新标题必须改成情绪发动机入口，不能再像劝告。")
     if "banner_case_banner_case_banner" in shell_signals or "imperative_heading_chain" in shell_signals:
         recipe.append("正文默认不用分节小标题，整篇靠自然段推进；如果出现小标题，必须确保它不是命令句，也不负责替段落下结论。")
     if "self_check_triplet_closing" in shell_signals or "quoted_waiting_list" in shell_signals:
@@ -549,15 +571,17 @@ def _build_recomposition_recipe(
 
 def _build_divergence_axes(*, source_mode: str, structure_mode: str) -> list[str]:
     axes = [
-        "标题骨架要换成新的处境入口",
-        "开头对象要换成新的动作、空间或物件",
+        "标题骨架要换成新的情绪发动机入口",
+        "开头不能换成新的动作、空间或物件，要换成终局问题、反常识判断或情绪命名",
         "中段推进顺序必须重排，不能照着原文先后关系走",
-        "结尾动作要改成更小、更轻、更具体的收束",
+        "结尾要改成新的价值赦免或现实答案，不能只换一个小动作收束",
     ]
     if structure_mode == "fragment_chain_observation":
         axes.append("不要把原文压成一个连续主角场景，要保留多个现实接口之间的散落感和错位感")
     if structure_mode == "single_window_scene":
         axes.append("前半篇尽量守住同一段时间和同一处境现场，不要平均铺开多个平行案例")
+    if structure_mode == "emotional_engine_direct":
+        axes.append("不要把原创距离理解成换场景，必须换情绪发动机、判断顺序和价值赦免方式")
     if source_mode == "tracked_article":
         axes.append("判断句的措辞和情绪转折不能复用参考文章现成表达")
         axes = merge_unique_lines(
@@ -591,16 +615,20 @@ def _build_execution_checklist(*, structure_mode: str, reference_shell_signals: 
 
     return merge_unique_lines(
         [
-            "标题是否已经换成新的生活处境，而不是复述题眼。",
-            "开头是否先出现动作或画面，而不是先定义观点。",
-            "中段是否至少完成一次从场景到判断的自然转折，而不是分点说理。",
-            "结尾是否回到更小的动作或余波，而不是喊话式总结。",
+            "标题是否已经换成新的情绪发动机入口，而不是复述题眼。",
+            "开头是否先给终局问题、反常识判断或情绪命名，而不是生活场景。",
+            "中段是否讲清了亏欠自己、失去后才懂得拥有或被允许松绑的情绪机制。",
+            "结尾是否给出价值赦免或现实答案，而不是只换一个小动作收束。",
         ]
         + (
             [
                 "前半篇是否基本守住同一段时间和同一处境现场，没有平均拆成几个并列观点段。",
             ]
             if structure_mode == "single_window_scene"
+            else [
+                "是否默认删除场景描写，没有连续铺动作、物件、环境和氛围。",
+            ]
+            if structure_mode == "emotional_engine_direct"
             else [
                 "是否串起了 2 到 4 个现实接口，并让每个碎片承担不同压力，而不是平均排成几条并列观点。"
             ]
@@ -719,7 +747,7 @@ def _build_reference_shell_divergence_axes(reference_shell_signals: list[str]) -
     if "abstract_reflection_opening" in reference_shell_signals:
         axes.append("开头入口不能继续走抽象反思 + 普遍感慨，要改成更小、更近、更当下的动作入口")
     if "imperative_title_banner" in reference_shell_signals:
-        axes.append("标题不能继续沿用提醒句或训诫句骨架，要换成新的处境断面或动作入口")
+        axes.append("标题不能继续沿用提醒句或训诫句骨架，要换成新的情绪发动机入口")
     if "imperative_heading_chain" in reference_shell_signals:
         axes.append("中段结构不能照搬命令式小标题串联，要改成新的问题推进或接口回环")
     if "quoted_waiting_list" in reference_shell_signals:
@@ -740,13 +768,13 @@ def _build_reference_shell_divergence_axes(reference_shell_signals: list[str]) -
 def _build_benchmark_borrow_focus(source_mode: str, structure_notes: str, tracked_article_scene: str) -> str:
     parts: list[str] = []
     if tracked_article_scene:
-        parts.append("具体处境入口")
+        parts.append("原文压力类型和情绪发动机")
     if structure_notes:
         parts.append("段落职责分配")
     if source_mode == "tracked_article":
-        parts.append("中段从场景转判断的节奏")
+        parts.append("中段情绪推进和价值赦免节奏")
     else:
-        parts.append("开头先落动作再推进判断的节奏")
+        parts.append("开头先给问题再推进判断的节奏")
     return " / ".join(parts) if parts else "观察路径和段落职责"
 
 
@@ -758,7 +786,7 @@ def _build_benchmark_avoid_focus(source_mode: str) -> str:
 
 def _build_benchmark_summary(source_mode: str, tracked_article_scene: str, reference_shell_signals: list[str] | None = None) -> str:
     if source_mode == "tracked_article" and tracked_article_scene:
-        summary = "只借原文对应的生活压力类型，不借原文标题、首段处境、推进顺序和结尾动作。"
+        summary = "只借原文对应的生活压力类型和情绪发动机，不借原文标题、首段场景、推进顺序和结尾动作。"
     elif source_mode == "tracked_article":
         summary = "只借赛道冲突和观察路径，不借现成表达和段落次序。"
     else:
@@ -836,7 +864,7 @@ def _build_problem_statement_markdown(
                 f"- 来源：{reference_source_name or '手动录入'}",
                 f"- 原文标题：{reference_title or '无'}",
                 f"- 原文摘要线索：{reference_summary or '无'}",
-                f"- 可借的处境线索：{tracked_article_scene or '无'}",
+                f"- 可借的情绪线索：{tracked_article_scene or '无'}",
                 "- 参考材料只用于确认赛道、冲突和读者处境，不得沿用原标题骨架、段落顺序、论断次序和结尾动作。",
             ]
         )
@@ -951,8 +979,8 @@ def _build_strategy_markdown(
                 "## 参考文章消化说明",
                 f"- 来源账号：{reference_source_name or '手动录入'}",
                 f"- 参考标题：{reference_title or '无'}",
-                f"- 可借的原文处境线索：{tracked_article_scene or '无'}",
-                "- 必须主动拉开距离的维度：标题骨架、开头对象、中段顺序、结尾动作。",
+                f"- 可借的原文情绪线索：{tracked_article_scene or '无'}",
+                "- 必须主动拉开距离的维度：标题骨架、开头情绪发动机、中段顺序、结尾价值赦免。",
             ]
         )
         if reference_shell_signals:
@@ -965,7 +993,7 @@ def _build_strategy_markdown(
             [
                 "",
                 "## 本次优先强化",
-                f"- 把 `{normalized_topic_angle}` 做成读者能立刻代入的具体处境，而不是停在抽象定义上。",
+                f"- 把 `{normalized_topic_angle}` 做成读者能被看见、被松绑或被提醒的情绪发动机，而不是停在场景替换上。",
             ]
         )
     return "\n".join(lines)

@@ -425,11 +425,12 @@ def test_generate_topic_from_trend_uses_ai_and_persists(monkeypatch) -> None:
     assert call_payload["heat_score"] == 92
     assert call_payload["status"] == "screening"
     assert call_payload["tone_profile"]["name"] == "女性成长克制陪伴风"
-    assert call_payload["tone_profile"]["opening_style"] == "从具体场景冷启动切入"
-    assert call_payload["tone_profile"]["paragraph_rhythm"] == "短段落，慢推进"
-    assert call_payload["tone_profile"]["closing_style"] == "留白式收束"
+    assert "直接问题、终局问题或判断切入" in call_payload["tone_profile"]["opening_style"]
+    assert "不用生活场景冷启动" in call_payload["tone_profile"]["opening_style"]
+    assert "不铺场景" in call_payload["tone_profile"]["paragraph_rhythm"]
+    assert call_payload["tone_profile"]["closing_style"] == "明确结论或行动落点收束"
     assert call_payload["tone_profile"]["forbidden_phrases"] == ["你必须", "立刻改变"]
-    assert call_payload["tone_profile"]["value_constraints"] == "不说教，不制造羞耻感，避免空泛鸡汤"
+    assert "具体、克制、有承接" in call_payload["tone_profile"]["value_constraints"]
     assert call_payload["tone_profile"]["target_word_count"] == 1400
 
 
@@ -1073,8 +1074,9 @@ def test_tone_profiles_can_be_updated_and_are_applied_to_generation(monkeypatch)
     profiles_response = client.get("/api/tone-profiles")
     assert profiles_response.status_code == 200
     profiles = profiles_response.json()
-    assert len(profiles) == 1
-    profile_id = profiles[0]["id"]
+    assert len(profiles) >= 2
+    default_profile = next(profile for profile in profiles if profile["name"] == "女性成长克制陪伴风")
+    profile_id = default_profile["id"]
 
     update_response = client.patch(
         f"/api/tone-profiles/{profile_id}",
@@ -1125,9 +1127,10 @@ def test_tone_profiles_can_be_created_and_activated(monkeypatch) -> None:
     profiles_response = client.get("/api/tone-profiles")
     assert profiles_response.status_code == 200
     profiles = profiles_response.json()
-    assert len(profiles) == 1
-    assert profiles[0]["is_active"] is True
-    default_profile_id = profiles[0]["id"]
+    assert len(profiles) >= 2
+    active_profiles = [profile for profile in profiles if profile["is_active"]]
+    assert len(active_profiles) == 1
+    default_profile_id = active_profiles[0]["id"]
 
     create_response = client.post(
         "/api/tone-profiles",
@@ -1153,7 +1156,7 @@ def test_tone_profiles_can_be_created_and_activated(monkeypatch) -> None:
     refreshed_profiles_response = client.get("/api/tone-profiles")
     assert refreshed_profiles_response.status_code == 200
     refreshed_profiles = refreshed_profiles_response.json()
-    assert len(refreshed_profiles) == 2
+    assert len(refreshed_profiles) >= 3
     assert [profile["id"] for profile in refreshed_profiles if profile["is_active"]] == [created_profile["id"]]
     default_profile = next(profile for profile in refreshed_profiles if profile["id"] == default_profile_id)
     assert default_profile["is_active"] is False
@@ -1463,8 +1466,8 @@ def test_tone_profiles_support_copy_delete_and_reorder() -> None:
     default_profiles_response = client.get("/api/tone-profiles")
     assert default_profiles_response.status_code == 200
     default_profiles = default_profiles_response.json()
-    assert len(default_profiles) == 1
-    default_profile = default_profiles[0]
+    assert len(default_profiles) >= 2
+    default_profile = next(profile for profile in default_profiles if profile["name"] == "女性成长克制陪伴风")
 
     second_profile_response = client.post(
         "/api/tone-profiles",
@@ -1485,15 +1488,23 @@ def test_tone_profiles_support_copy_delete_and_reorder() -> None:
     assert copy_response.status_code == 201
     copied_profile = copy_response.json()
     assert copied_profile["name"] == "纪实关系复盘风 副本"
+    assert copied_profile["preset_key"] is None
     assert copied_profile["is_active"] is False
+
+    current_profiles = client.get("/api/tone-profiles").json()
+    other_profile_ids = [
+        profile["id"]
+        for profile in current_profiles
+        if profile["id"] not in {default_profile["id"], second_profile["id"], copied_profile["id"]}
+    ]
 
     reorder_response = client.post(
         "/api/tone-profiles/reorder",
-        json={"profile_ids": [copied_profile["id"], default_profile["id"], second_profile["id"]]},
+        json={"profile_ids": [copied_profile["id"], default_profile["id"], second_profile["id"], *other_profile_ids]},
     )
     assert reorder_response.status_code == 200
     reordered_profiles = reorder_response.json()
-    assert [profile["id"] for profile in reordered_profiles] == [
+    assert [profile["id"] for profile in reordered_profiles][:3] == [
         default_profile["id"],
         copied_profile["id"],
         second_profile["id"],
@@ -1509,7 +1520,7 @@ def test_tone_profiles_support_copy_delete_and_reorder() -> None:
     assert deleted_payload["deleted_profile_id"] == copied_profile["id"]
 
     profiles_after_delete = client.get("/api/tone-profiles").json()
-    assert len(profiles_after_delete) == 2
+    assert len(profiles_after_delete) >= 3
     active_profiles = [profile for profile in profiles_after_delete if profile["is_active"]]
     assert len(active_profiles) == 1
     assert active_profiles[0]["id"] == default_profile["id"]
@@ -1517,7 +1528,131 @@ def test_tone_profiles_support_copy_delete_and_reorder() -> None:
     delete_last_guard_response = client.request("DELETE", f"/api/tone-profiles/{default_profile['id']}")
     assert delete_last_guard_response.status_code == 200
     delete_second_guard_response = client.request("DELETE", f"/api/tone-profiles/{second_profile['id']}")
-    assert delete_second_guard_response.status_code == 409
+    assert delete_second_guard_response.status_code == 200
+    remaining_profiles = client.get("/api/tone-profiles").json()
+    final_profile = next(profile for profile in remaining_profiles if profile["name"] == "今晚有语")
+    delete_preset_guard_response = client.request("DELETE", f"/api/tone-profiles/{final_profile['id']}")
+    assert delete_preset_guard_response.status_code == 409
+
+
+def test_builtin_tone_profiles_include_jinwan_youyu_preset() -> None:
+    response = client.get("/api/tone-profiles")
+    assert response.status_code == 200
+    profiles = response.json()
+
+    default_profile = next(profile for profile in profiles if profile["name"] == "女性成长克制陪伴风")
+    assert default_profile["preset_key"] == "women-growth-classic"
+    assert default_profile["is_active"] is True
+    assert "直接问题、终局问题或判断切入" in default_profile["opening_style"]
+    assert "不用生活场景冷启动" in default_profile["opening_style"]
+    assert "不铺场景" in default_profile["paragraph_rhythm"]
+    assert default_profile["closing_style"] == "明确结论或行动落点收束"
+    assert "具体、克制、有承接" in default_profile["value_constraints"]
+    assert "必须有情绪价值" in default_profile["value_constraints"]
+    assert "原则上删除场景描写" in default_profile["value_constraints"]
+    assert "不用场景托情绪" in default_profile["value_constraints"]
+    assert "场景铺陈" in default_profile["default_polish_instruction"]
+    assert "原则上删除场景描述" in default_profile["default_polish_instruction"]
+    assert "情绪空转" in default_profile["default_polish_instruction"]
+
+    jinwan_profile = next(profile for profile in profiles if profile["name"] == "今晚有语")
+    assert jinwan_profile["preset_key"] == "jinwan-youyu-answer"
+    assert jinwan_profile["is_active"] is False
+    assert jinwan_profile["target_word_count"] == 1500
+    assert "你应该" in jinwan_profile["forbidden_phrases"]
+    assert "给出答案" in jinwan_profile["value_constraints"]
+    assert "必须有情绪价值" in jinwan_profile["value_constraints"]
+    assert "每个判断都要给依据、情绪承接或行动落点" in jinwan_profile["value_constraints"]
+    assert "原则上删除场景描写" in jinwan_profile["value_constraints"]
+    assert "不含蓄收尾" in jinwan_profile["value_constraints"]
+    assert "不铺氛围" in jinwan_profile["paragraph_rhythm"]
+    assert "行动落点" in jinwan_profile["paragraph_rhythm"]
+    assert "原则上删除场景描写" in jinwan_profile["default_polish_instruction"]
+    assert "不写场景散文" in jinwan_profile["default_polish_instruction"]
+    assert "避免空转抒情" in jinwan_profile["default_polish_instruction"]
+
+
+def test_builtin_jinwan_youyu_preset_flows_through_project_generation(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("outline", payload))
+            return {"hook": "先说答案", "outline_body": "1. 开头点题\n2. 中段展开\n3. 结尾落点"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            return {"title": "答案先行的关系文", "body_markdown": "# 答案先行\n\n正文内容"}
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("assets", payload))
+            return {
+                "title_options": ["真正成熟的人，不再等别人来懂", "别再把人生遥控器交给别人"],
+                "cover_prompt": "一位女性夜晚独处，克制而坚定，横版构图",
+                "cover_copy": "真正的底气，来自自己",
+                "social_teaser": "把期待收回来，人才会稳下来。",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("publish_package", payload))
+            return {
+                "abstract": "这篇稿子直接回答读者为何总把安全感寄托在别人身上。",
+                "tags": ["女性成长", "关系边界"],
+                "editor_note": "主打直接给答案，适合今晚有语风格发布。",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    profiles_response = client.get("/api/tone-profiles")
+    assert profiles_response.status_code == 200
+    jinwan_profile = next(profile for profile in profiles_response.json() if profile["name"] == "今晚有语")
+
+    project_create_response = client.post(
+        "/api/topics/relationship-boundary-reset-playbook/create-project",
+        json={
+            "slug": "relationship-boundary-reset-jinwan-youyu",
+            "title": "今晚有语绑定风格项目",
+            "owner": "editorial",
+            "preferred_tone_profile_id": jinwan_profile["id"],
+        },
+    )
+    assert project_create_response.status_code == 201
+    created_project = project_create_response.json()
+    assert created_project["preferred_tone_profile_id"] == jinwan_profile["id"]
+    assert created_project["preferred_tone_profile_name"] == "今晚有语"
+
+    outline_response = client.post("/api/projects/relationship-boundary-reset-jinwan-youyu/generate-outline")
+    assert outline_response.status_code == 201
+    outline_payload = outline_response.json()
+    assert outline_payload["tone_profile_name"] == "今晚有语"
+
+    draft_response = client.post("/api/projects/relationship-boundary-reset-jinwan-youyu/generate-draft")
+    assert draft_response.status_code == 201
+    draft_payload = draft_response.json()
+    assert draft_payload["tone_profile_name"] == "今晚有语"
+
+    assets_response = client.post("/api/projects/relationship-boundary-reset-jinwan-youyu/generate-assets")
+    assert assets_response.status_code == 201
+    assets_payload = assets_response.json()
+    assert assets_payload["tone_profile_name"] == "今晚有语"
+
+    publish_package_response = client.post("/api/projects/relationship-boundary-reset-jinwan-youyu/build-publish-package")
+    assert publish_package_response.status_code == 201
+    publish_package_payload = publish_package_response.json()
+    assert publish_package_payload["tone_profile_name"] == "今晚有语"
+
+    for stage in ("outline", "draft", "assets", "publish_package"):
+        call_payload = next(payload for call_stage, payload in fake_generator.calls if call_stage == stage)
+        tone_profile = call_payload["tone_profile"]
+        assert tone_profile["name"] == "今晚有语"
+        assert tone_profile["preset_key"] == "jinwan-youyu-answer"
+        assert tone_profile["target_word_count"] == 1500
+        assert "给出答案" in tone_profile["value_constraints"]
 
 
 def test_project_detail_includes_outline_draft_assets_and_publish_slots() -> None:

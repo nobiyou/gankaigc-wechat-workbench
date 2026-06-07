@@ -68,6 +68,10 @@ from app.schemas.projects import (
 from app.services.creative_strategy import build_strategy_package
 from app.schemas.tone_profiles import ToneProfileItem, ToneProfileReorder, ToneProfileUpsert
 from app.services.prompt_templates import DEFAULT_DOMAIN_PROMPT_PACK, get_domain_prompt_pack
+from app.services.tone_profile_presets import (
+    DEFAULT_TONE_PROFILE_PRESET,
+    list_builtin_tone_profile_presets,
+)
 from app.schemas.tracked_articles import (
     TrackedArticleBatchEnrichResponse,
     TrackedArticleBatchEnrichResult,
@@ -192,14 +196,15 @@ PROJECT_SEEDS = [
 ]
 
 DEFAULT_TONE_PROFILE = {
-    "name": "女性成长克制陪伴风",
-    "opening_style": "从具体场景冷启动切入",
-    "paragraph_rhythm": "短段落，慢推进",
-    "closing_style": "留白式收束",
-    "forbidden_phrases": ["你必须", "立刻改变"],
-    "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
-    "target_word_count": 1400,
-    "default_polish_instruction": "请执行原创增强精修：先拆掉模板化开头和口号式结尾，重写场景入口、中段推进与收束方式，把抽象判断改成可感知的细节与动作，减少“一点、一下、一个、一种”这类重复量词节奏，避免同义替换式改写。",
+    "preset_key": DEFAULT_TONE_PROFILE_PRESET.preset_key,
+    "name": DEFAULT_TONE_PROFILE_PRESET.name,
+    "opening_style": DEFAULT_TONE_PROFILE_PRESET.opening_style,
+    "paragraph_rhythm": DEFAULT_TONE_PROFILE_PRESET.paragraph_rhythm,
+    "closing_style": DEFAULT_TONE_PROFILE_PRESET.closing_style,
+    "forbidden_phrases": DEFAULT_TONE_PROFILE_PRESET.forbidden_phrases,
+    "value_constraints": DEFAULT_TONE_PROFILE_PRESET.value_constraints,
+    "target_word_count": DEFAULT_TONE_PROFILE_PRESET.target_word_count,
+    "default_polish_instruction": DEFAULT_TONE_PROFILE_PRESET.default_polish_instruction,
 }
 
 
@@ -404,6 +409,14 @@ def _ensure_drafts_schema(connection: sqlite3.Connection) -> None:
 
 def _ensure_tone_profiles_schema(connection: sqlite3.Connection) -> None:
     columns = _get_table_columns(connection, "tone_profiles")
+    if "preset_key" not in columns:
+        connection.execute(
+            "ALTER TABLE tone_profiles ADD COLUMN preset_key TEXT DEFAULT NULL"
+        )
+    connection.execute(
+        "UPDATE tone_profiles SET preset_key = ? WHERE name = ? AND COALESCE(preset_key, '') = ''",
+        (DEFAULT_TONE_PROFILE["preset_key"], DEFAULT_TONE_PROFILE["name"]),
+    )
     if "is_active" not in columns:
         connection.execute(
             "ALTER TABLE tone_profiles ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0"
@@ -436,6 +449,66 @@ def _ensure_tone_profiles_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "UPDATE tone_profiles SET default_polish_instruction = ? WHERE COALESCE(default_polish_instruction, '') = ''",
             (DEFAULT_TONE_PROFILE["default_polish_instruction"],),
+        )
+    for preset in list_builtin_tone_profile_presets():
+        existing = connection.execute(
+            "SELECT id FROM tone_profiles WHERE preset_key = ? OR name = ? ORDER BY id ASC LIMIT 1",
+            (preset.preset_key, preset.name),
+        ).fetchone()
+        if existing:
+            connection.execute(
+                """
+                UPDATE tone_profiles
+                SET preset_key = ?,
+                    name = ?,
+                    opening_style = ?,
+                    paragraph_rhythm = ?,
+                    closing_style = ?,
+                    forbidden_phrases = ?,
+                    value_constraints = ?,
+                    target_word_count = ?,
+                    default_polish_instruction = ?
+                WHERE id = ?
+                """,
+                (
+                    preset.preset_key,
+                    preset.name,
+                    preset.opening_style,
+                    preset.paragraph_rhythm,
+                    preset.closing_style,
+                    json.dumps(preset.forbidden_phrases, ensure_ascii=False),
+                    preset.value_constraints,
+                    preset.target_word_count,
+                    preset.default_polish_instruction,
+                    existing["id"],
+                ),
+            )
+            continue
+        next_sort_order = int(
+            connection.execute(
+                "SELECT COALESCE(MAX(sort_order), 0) AS sort_order FROM tone_profiles"
+            ).fetchone()["sort_order"]
+        ) + 1
+        connection.execute(
+            """
+            INSERT INTO tone_profiles (
+                preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count, default_polish_instruction
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                preset.preset_key,
+                1 if preset.is_active else 0,
+                next_sort_order,
+                preset.name,
+                preset.opening_style,
+                preset.paragraph_rhythm,
+                preset.closing_style,
+                json.dumps(preset.forbidden_phrases, ensure_ascii=False),
+                preset.value_constraints,
+                preset.target_word_count,
+                preset.default_polish_instruction,
+            ),
         )
 
 
@@ -1027,6 +1100,7 @@ def initialize_store(reset: bool = False) -> None:
             """
             CREATE TABLE IF NOT EXISTS tone_profiles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                preset_key TEXT DEFAULT NULL,
                 is_active INTEGER NOT NULL DEFAULT 0,
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 name TEXT NOT NULL,
@@ -1129,26 +1203,28 @@ def initialize_store(reset: bool = False) -> None:
                 "UPDATE projects SET preferred_tone_profile_id = ? WHERE slug = ?",
                 (project["preferred_tone_profile_id"], project["slug"]),
             )
-        connection.execute(
-            """
-            INSERT INTO tone_profiles (
-                is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count, default_polish_instruction
+        for sort_order, preset in enumerate(list_builtin_tone_profile_presets(), start=1):
+            connection.execute(
+                """
+                INSERT INTO tone_profiles (
+                    preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count, default_polish_instruction
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    preset.preset_key,
+                    1 if preset.is_active else 0,
+                    sort_order,
+                    preset.name,
+                    preset.opening_style,
+                    preset.paragraph_rhythm,
+                    preset.closing_style,
+                    json.dumps(preset.forbidden_phrases, ensure_ascii=False),
+                    preset.value_constraints,
+                    preset.target_word_count,
+                    preset.default_polish_instruction,
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                1,
-                1,
-                DEFAULT_TONE_PROFILE["name"],
-                DEFAULT_TONE_PROFILE["opening_style"],
-                DEFAULT_TONE_PROFILE["paragraph_rhythm"],
-                DEFAULT_TONE_PROFILE["closing_style"],
-                json.dumps(DEFAULT_TONE_PROFILE["forbidden_phrases"], ensure_ascii=False),
-                DEFAULT_TONE_PROFILE["value_constraints"],
-                DEFAULT_TONE_PROFILE["target_word_count"],
-                DEFAULT_TONE_PROFILE["default_polish_instruction"],
-            ),
-        )
         connection.execute(
             "INSERT INTO app_meta (key, value) VALUES (?, ?)",
             ("seeded", json.dumps({"version": 1})),
@@ -1179,7 +1255,7 @@ def list_tone_profiles() -> list[ToneProfileItem]:
     with _get_connection() as connection:
         rows = connection.execute(
             """
-            SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+            SELECT id, preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
                 , default_polish_instruction
             FROM tone_profiles
             ORDER BY is_active DESC, sort_order ASC, id ASC
@@ -1198,11 +1274,12 @@ def create_tone_profile(payload: ToneProfileUpsert) -> ToneProfileItem:
         connection.execute(
             """
             INSERT INTO tone_profiles (
-                is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count, default_polish_instruction
+                preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count, default_polish_instruction
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                payload.preset_key,
                 0,
                 next_sort_order,
                 payload.name,
@@ -1219,7 +1296,7 @@ def create_tone_profile(payload: ToneProfileUpsert) -> ToneProfileItem:
         connection.commit()
         row = connection.execute(
             """
-            SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+            SELECT id, preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
                 , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
@@ -1241,10 +1318,11 @@ def update_tone_profile(profile_id: int, payload: ToneProfileUpsert) -> ToneProf
         connection.execute(
             """
             UPDATE tone_profiles
-            SET name = ?, opening_style = ?, paragraph_rhythm = ?, closing_style = ?, forbidden_phrases = ?, value_constraints = ?, target_word_count = ?, default_polish_instruction = ?
+            SET preset_key = ?, name = ?, opening_style = ?, paragraph_rhythm = ?, closing_style = ?, forbidden_phrases = ?, value_constraints = ?, target_word_count = ?, default_polish_instruction = ?
             WHERE id = ?
             """,
             (
+                payload.preset_key,
                 payload.name,
                 payload.opening_style,
                 payload.paragraph_rhythm,
@@ -1259,7 +1337,7 @@ def update_tone_profile(profile_id: int, payload: ToneProfileUpsert) -> ToneProf
         connection.commit()
         row = connection.execute(
             """
-            SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+            SELECT id, preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
                 , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
@@ -1286,7 +1364,7 @@ def activate_tone_profile(profile_id: int) -> ToneProfileItem:
         connection.commit()
         row = connection.execute(
             """
-            SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+            SELECT id, preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
                 , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
@@ -1300,7 +1378,7 @@ def get_active_tone_profile() -> ToneProfileItem:
     with _get_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+            SELECT id, preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
                 , default_polish_instruction
             FROM tone_profiles
             WHERE is_active = 1
@@ -1317,7 +1395,7 @@ def get_tone_profile_by_id(profile_id: int) -> ToneProfileItem | None:
     with _get_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+            SELECT id, preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
                 , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
@@ -1353,7 +1431,7 @@ def duplicate_tone_profile(profile_id: int) -> ToneProfileItem:
     with _get_connection() as connection:
         source_row = connection.execute(
             """
-            SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+            SELECT id, preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
                 , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
@@ -1371,11 +1449,12 @@ def duplicate_tone_profile(profile_id: int) -> ToneProfileItem:
         connection.execute(
             """
             INSERT INTO tone_profiles (
-                is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count, default_polish_instruction
+                preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count, default_polish_instruction
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                None,
                 0,
                 next_sort_order,
                 f"{source_row['name']} 副本",
@@ -1392,7 +1471,7 @@ def duplicate_tone_profile(profile_id: int) -> ToneProfileItem:
         connection.commit()
         row = connection.execute(
             """
-            SELECT id, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
+            SELECT id, preset_key, is_active, sort_order, name, opening_style, paragraph_rhythm, closing_style, forbidden_phrases, value_constraints, target_word_count
                 , default_polish_instruction
             FROM tone_profiles
             WHERE id = ?
@@ -4935,6 +5014,8 @@ def _collapse_short_judgment_residue(*, title: str, body_markdown: str) -> str:
 
     def _is_short_judgment_block(block: str) -> bool:
         normalized = block.strip()
+        if _looks_like_structure_heading(normalized):
+            return False
         return extract_short_judgment_paragraphs(normalized) == [normalized]
 
     def _short_judgment_count(items: list[str]) -> int:
@@ -5204,6 +5285,8 @@ def _collapse_short_long_cadence_residue(*, title: str, body_markdown: str) -> s
 
     def _is_short_judgment_block(block: str) -> bool:
         normalized = block.strip()
+        if _looks_like_structure_heading(normalized):
+            return False
         return extract_short_judgment_paragraphs(normalized) == [normalized]
 
     changed = False
@@ -5848,9 +5931,6 @@ def _should_retry_for_article_shell_cleanup(
     candidate_title: str,
     candidate_markdown: str,
 ) -> bool:
-    if _looks_like_over_smoothed_tracked_article_candidate(candidate_markdown):
-        return True
-
     candidate_summary = evaluate_ai_flavor_risk(title=candidate_title, body_markdown=candidate_markdown)
     source_paragraphs = _extract_non_heading_paragraphs(source_markdown)
     candidate_paragraphs = _extract_non_heading_paragraphs(candidate_markdown)
@@ -5864,6 +5944,14 @@ def _should_retry_for_article_shell_cleanup(
     burden, paragraph_count, _, _, _, shell_like_blocks, time_chain_leads = _article_shell_burden(candidate_markdown)
     source_heading_count = len(_extract_structure_headings(source_markdown))
     source_paragraph_count = len(source_paragraphs)
+    over_smoothed_shell_signal = (
+        _looks_like_over_smoothed_tracked_article_candidate(candidate_markdown)
+        and (
+            len(extract_short_judgment_paragraphs(candidate_markdown)) >= 2
+            or count_short_long_cadence_pairs(candidate_markdown) >= 2
+            or 7 <= paragraph_count <= 12
+        )
+    )
     shell_layout_hits = [
         hit
         for hit in candidate_summary.hits
@@ -5876,7 +5964,7 @@ def _should_retry_for_article_shell_cleanup(
         or repeated_run >= 3
         or generic_openers >= 1
         or time_chain_leads >= 4
-        or candidate_summary.score >= 10
+        or over_smoothed_shell_signal
     )
 
     if candidate_summary.score > 24 and not shell_layout_hits:
@@ -6250,6 +6338,12 @@ def _should_prefer_retried_ai_flavor_candidate(
     current_summary = evaluate_ai_flavor_risk(title=current_title, body_markdown=current_markdown)
     retried_summary = evaluate_ai_flavor_risk(title=retried_title, body_markdown=retried_markdown)
     tracked_article_mode = source_type == "tracked_article"
+    current_structure_headings = _extract_structure_headings(current_markdown)
+    if len(current_structure_headings) >= 2 and _find_missing_structure_headings(
+        source_markdown=current_markdown,
+        candidate_markdown=retried_markdown,
+    ):
+        return False
     current_over_smoothed = (
         tracked_article_mode and _looks_like_over_smoothed_tracked_article_candidate(current_markdown)
     )

@@ -28,6 +28,7 @@ function test(name: string, fn: () => void) {
 test("buildToneProfileFormState maps API tone profile into editable form values", () => {
   const form = buildToneProfileFormState({
     id: 7,
+    preset_key: "women-growth-classic",
     name: "克制陪伴风",
     opening_style: "冷启动场景切入",
     paragraph_rhythm: "短段落，慢推进",
@@ -40,6 +41,7 @@ test("buildToneProfileFormState maps API tone profile into editable form values"
 
   assert.deepEqual(form, {
     id: 7,
+    preset_key: "women-growth-classic",
     name: "克制陪伴风",
     opening_style: "冷启动场景切入",
     paragraph_rhythm: "短段落，慢推进",
@@ -54,6 +56,7 @@ test("buildToneProfileFormState maps API tone profile into editable form values"
 test("createToneProfileFormState prepares an empty draft with default target word count", () => {
   assert.deepEqual(createToneProfileFormState(), {
     id: 0,
+    preset_key: "",
     name: "",
     opening_style: "",
     paragraph_rhythm: "",
@@ -68,6 +71,7 @@ test("createToneProfileFormState prepares an empty draft with default target wor
 test("buildToneProfileUpdatePayload trims fields and splits forbidden phrases from mixed commas", () => {
   const payload = buildToneProfileUpdatePayload({
     id: 7,
+    preset_key: "jinwan-youyu-answer",
     name: "  克制陪伴风  ",
     opening_style: " 冷启动场景切入 ",
     paragraph_rhythm: " 短段落，慢推进 ",
@@ -79,6 +83,7 @@ test("buildToneProfileUpdatePayload trims fields and splits forbidden phrases fr
   });
 
   assert.deepEqual(payload, {
+    preset_key: "jinwan-youyu-answer",
     name: "克制陪伴风",
     opening_style: "冷启动场景切入",
     paragraph_rhythm: "短段落，慢推进",
@@ -95,6 +100,7 @@ test("buildToneProfileUpdatePayload rejects non-positive target word counts", ()
     () =>
       buildToneProfileUpdatePayload({
         id: 7,
+        preset_key: "",
         name: "克制陪伴风",
         opening_style: "冷启动场景切入",
         paragraph_rhythm: "短段落，慢推进",
@@ -112,6 +118,7 @@ test("pickEditableToneProfile prefers explicit selection and otherwise falls bac
   const profiles = [
     {
       id: 1,
+      preset_key: "women-growth-classic",
       name: "默认风格",
       opening_style: "场景切入",
       paragraph_rhythm: "短段落",
@@ -123,6 +130,7 @@ test("pickEditableToneProfile prefers explicit selection and otherwise falls bac
     },
     {
       id: 2,
+      preset_key: "custom",
       name: "纪实复盘风",
       opening_style: "对话开场",
       paragraph_rhythm: "中短段交错",
@@ -154,6 +162,7 @@ test("pickToneProfileSelectionAfterRemoval falls back to active profile then fir
   const profiles = [
     {
       id: 1,
+      preset_key: "women-growth-classic",
       name: "默认风格",
       opening_style: "场景切入",
       paragraph_rhythm: "短段落",
@@ -165,6 +174,7 @@ test("pickToneProfileSelectionAfterRemoval falls back to active profile then fir
     },
     {
       id: 2,
+      preset_key: "custom",
       name: "纪实复盘风",
       opening_style: "对话开场",
       paragraph_rhythm: "中短段交错",
@@ -197,6 +207,7 @@ test("getToneProfileSelectionLabel shows follow-global label and specific profil
     getToneProfileSelectionLabel(3, [
       {
         id: 3,
+        preset_key: "custom",
         name: "纪实复盘风",
         opening_style: "对话开场",
         paragraph_rhythm: "中短段交错",
@@ -222,6 +233,7 @@ test("buildToneProfileReorderIds swaps neighboring profiles when moving up or do
   const profiles = [
     {
       id: 1,
+      preset_key: "women-growth-classic",
       name: "默认风格",
       opening_style: "场景切入",
       paragraph_rhythm: "短段落",
@@ -234,6 +246,7 @@ test("buildToneProfileReorderIds swaps neighboring profiles when moving up or do
     },
     {
       id: 2,
+      preset_key: "custom",
       name: "纪实复盘风",
       opening_style: "对话开场",
       paragraph_rhythm: "中短段交错",
@@ -246,6 +259,7 @@ test("buildToneProfileReorderIds swaps neighboring profiles when moving up or do
     },
     {
       id: 3,
+      preset_key: "jinwan-youyu-answer",
       name: "轻陪伴风",
       opening_style: "情绪切入",
       paragraph_rhythm: "松弛短句",
@@ -268,6 +282,7 @@ test("sortToneProfiles follows backend sort_order instead of local insertion ord
   const profiles = [
     {
       id: 9,
+      preset_key: "custom",
       name: "第三个",
       opening_style: "A",
       paragraph_rhythm: "A",
@@ -280,6 +295,7 @@ test("sortToneProfiles follows backend sort_order instead of local insertion ord
     },
     {
       id: 7,
+      preset_key: "women-growth-classic",
       name: "第一个",
       opening_style: "B",
       paragraph_rhythm: "B",
@@ -292,6 +308,7 @@ test("sortToneProfiles follows backend sort_order instead of local insertion ord
     },
     {
       id: 8,
+      preset_key: "jinwan-youyu-answer",
       name: "第二个",
       opening_style: "C",
       paragraph_rhythm: "C",

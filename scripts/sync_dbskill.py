@@ -10,6 +10,62 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DBSKILL_ROOT = Path("E:/dev/dbskill")
 OUTPUT_PATH = REPO_ROOT / "generated" / "dbskill" / "tracked_article_rules.json"
 
+REQUIRED_SKILLS = (
+    "dbs-content",
+    "dbs-benchmark",
+    "dbs-ai-check",
+    "dbs-deconstruct",
+)
+OPTIONAL_SKILLS = (
+    "dbs-good-question",
+    "dbs-goal",
+    "dbs-decision",
+    "dbs-diagnosis",
+    "dbs-content-system",
+    "dbs-xhs-title",
+    "dbs-report",
+    "dbs-action",
+    "dbs-learning",
+    "dbs-slowisfast",
+    "dbs-hook",
+)
+
+LOCALIZED_RULE_REPLACEMENTS = {
+    "如果一句话还说不清楚，先退回到具体场景、动作和顺序，不要急着下结论。": (
+        "如果一句话还说不清楚，先退回到情绪发动机、读者处境和价值承接，"
+        "不要急着铺场景或下结论。"
+    ),
+    "不要只给概念命名，要让每个判断都落到具体用法、动作或关系变化上。": (
+        "不要只给概念命名，要让每个判断都落到情绪推进、关系变化或现实答案上。"
+    ),
+    "每一节都要能落到具体场景、动作或关系变化，不能只摆概念。": (
+        "每一节都要能落到情绪推进、关系变化或现实答案，不能只摆概念，也不能用场景描写凑篇幅。"
+    ),
+    "遇到匀速排比和整齐翻转时，优先把句子拉回动作、停顿和关系变化。": (
+        "遇到匀速排比和整齐翻转时，优先把句子拉回情绪命名、判断推进和关系后果。"
+    ),
+    "开头先给一个抓手：动作、界面、物件、空间距离或身体反应，先别下总判断。": (
+        "开头先给一个情绪发动机：终局问题、反常识判断、情绪命名或价值赦免，"
+        "不用生活场景冷启动。"
+    ),
+    "每次只保留一个最想强调的判断，其余判断埋回过程、动作和后果里。": (
+        "每次只保留一个最想强调的判断，其余判断埋回过程、情绪推进和现实后果里。"
+    ),
+    "不要段段收束、段段出金句，至少留一段只停在观察、动作或关系变化上。": (
+        "不要段段收束、段段出金句，至少留一段只推进观察、情绪命名或关系后果。"
+    ),
+    "少用固定连接词去硬撑顺序，让转折长在动作、停顿和后果里。": (
+        "少用固定连接词去硬撑顺序，让转折长在判断推进、情绪变化和现实后果里。"
+    ),
+    "结尾回到一个小动作、关系余波或现实阻力，不要祝福式收尾。": (
+        "结尾回到一个明确结论、关系余波或现实阻力，不要祝福式收尾，也不要另补小动作。"
+    ),
+    "大纲里的目标和段落职责都要能指向可观察动作，不要用“更好、更重要、更有价值”这类空转词充当推进。": (
+        "大纲里的目标和段落职责都要能指向可验证的情绪价值、关系变化或现实落点，"
+        "不要用“更好、更重要、更有价值”这类空转词充当推进。"
+    ),
+}
+
 
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -24,6 +80,7 @@ def _read_optional_text(path: Path) -> str:
 def _append_unique(lines: list[str], *values: str) -> None:
     for value in values:
         normalized = " ".join(str(value).split()).strip()
+        normalized = LOCALIZED_RULE_REPLACEMENTS.get(normalized, normalized)
         if normalized and normalized not in lines:
             lines.append(normalized)
 
@@ -32,17 +89,34 @@ def _contains_any(markdown: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in markdown for phrase in phrases)
 
 
+def _read_skill_texts(dbskill_root: Path) -> dict[str, str]:
+    skill_texts: dict[str, str] = {}
+    for skill_name in REQUIRED_SKILLS:
+        skill_texts[skill_name] = _read_text(dbskill_root / "skills" / skill_name / "SKILL.md")
+    for skill_name in OPTIONAL_SKILLS:
+        skill_texts[skill_name] = _read_optional_text(dbskill_root / "skills" / skill_name / "SKILL.md")
+    return skill_texts
+
+
 def build_tracked_article_rules(dbskill_root: Path) -> dict[str, Any]:
     readme = _read_text(dbskill_root / "README.md")
     version = _read_text(dbskill_root / "VERSION").strip()
-    content_skill = _read_text(dbskill_root / "skills" / "dbs-content" / "SKILL.md")
-    benchmark_skill = _read_text(dbskill_root / "skills" / "dbs-benchmark" / "SKILL.md")
-    ai_check_skill = _read_text(dbskill_root / "skills" / "dbs-ai-check" / "SKILL.md")
-    deconstruct_skill = _read_text(dbskill_root / "skills" / "dbs-deconstruct" / "SKILL.md")
-    good_question_skill = _read_optional_text(dbskill_root / "skills" / "dbs-good-question" / "SKILL.md")
-    goal_skill = _read_optional_text(dbskill_root / "skills" / "dbs-goal" / "SKILL.md")
-    decision_skill = _read_optional_text(dbskill_root / "skills" / "dbs-decision" / "SKILL.md")
-    diagnosis_skill = _read_optional_text(dbskill_root / "skills" / "dbs-diagnosis" / "SKILL.md")
+    skill_texts = _read_skill_texts(dbskill_root)
+    content_skill = skill_texts["dbs-content"]
+    benchmark_skill = skill_texts["dbs-benchmark"]
+    ai_check_skill = skill_texts["dbs-ai-check"]
+    deconstruct_skill = skill_texts["dbs-deconstruct"]
+    good_question_skill = skill_texts["dbs-good-question"]
+    goal_skill = skill_texts["dbs-goal"]
+    decision_skill = skill_texts["dbs-decision"]
+    diagnosis_skill = skill_texts["dbs-diagnosis"]
+    content_system_skill = skill_texts["dbs-content-system"]
+    xhs_title_skill = skill_texts["dbs-xhs-title"]
+    report_skill = skill_texts["dbs-report"]
+    action_skill = skill_texts["dbs-action"]
+    learning_skill = skill_texts["dbs-learning"]
+    slowisfast_skill = skill_texts["dbs-slowisfast"]
+    hook_skill = skill_texts["dbs-hook"]
 
     problem_constraints: list[str] = []
     problem_brief_steps: list[str] = []
@@ -131,6 +205,21 @@ def build_tracked_article_rules(dbskill_root: Path) -> dict[str, Any]:
             problem_brief_steps,
             "关键事实没核实、信息还不够时，先把断点、未知项和最小补充观察写清，不要用万能道理把空白补满。",
         )
+    if _contains_any(slowisfast_skill, ("摩擦是信息", "短期的容易就是长期的痛苦")):
+        _append_unique(
+            problem_constraints,
+            "不要急着追求一次性顺滑成稿；先保留能暴露问题的摩擦，确认读者真正卡住的位置。",
+        )
+    if _contains_any(action_skill, ("拖延是有目的的", "主动制造无知")):
+        _append_unique(
+            problem_constraints,
+            "不要把“不知道怎么写”直接当成信息不足，先判断是不是在回避真正要承担的表达选择。",
+        )
+    if _contains_any(content_system_skill, ("先审计，再建工程", "结构先于规模")):
+        _append_unique(
+            problem_brief_steps,
+            "先审计已有素材里真正可复用的内容单元，再决定要新增什么，不要为了完整感盲目扩写。",
+        )
 
     divergence_axes: list[str] = []
     divergence_checks: list[str] = []
@@ -215,6 +304,16 @@ def build_tracked_article_rules(dbskill_root: Path) -> dict[str, Any]:
         _append_unique(
             execution_checklist,
             "信息是否足够支撑当前判断；如果不够，是否已经明确未知项和最小补充动作。",
+        )
+    if _contains_any(slowisfast_skill, ("摩擦是信息", "资产是复利的基础")):
+        _append_unique(
+            execution_checklist,
+            "是否为了快速成稿抹掉了真正有信息量的摩擦、犹豫和失败反馈。",
+        )
+    if _contains_any(learning_skill, ("真实反馈", "调整下一篇的深度、角度和节奏")):
+        _append_unique(
+            execution_checklist,
+            "是否只沉淀经过真实反馈验证的写作经验，而不是把一次失败当成永久模板。",
         )
 
     outline_instructions: list[str] = []
@@ -382,6 +481,16 @@ def build_tracked_article_rules(dbskill_root: Path) -> dict[str, Any]:
             draft_self_checklist,
             "如果关键事实没核实或信息不够，宁可保留未知项，也不要靠万能判断把段落写满。",
         )
+    if _contains_any(hook_skill, ("内容完整性检查", "素材丰富度检查")):
+        _append_unique(
+            draft_self_checklist,
+            "开头如果只剩悬念、情绪词或漂亮句子，没有内容完整性和素材支撑，就不要保留。",
+        )
+    if _contains_any(slowisfast_skill, ("摩擦是信息", "短期的容易就是长期的痛苦")):
+        _append_unique(
+            draft_self_checklist,
+            "不要为了让文章更快变顺，把最能解释读者困境的摩擦和真实阻力删掉。",
+        )
 
     diagnosis_signals: list[str] = []
     if "写得太好、太光滑、太均匀" in ai_check_skill:
@@ -424,8 +533,42 @@ def build_tracked_article_rules(dbskill_root: Path) -> dict[str, Any]:
             diagnosis_signals,
             "如果关键事实没核实、信息明显不够，文本却直接给出完整答案，说明它在用确定感掩盖推理空洞。",
         )
+    if _contains_any(learning_skill, ("真实反馈", "调整下一篇的深度、角度和节奏")):
+        _append_unique(
+            diagnosis_signals,
+            "如果复盘没有区分真实反馈、作者偏好和一次性偶然结果，就不能沉淀成下一篇的规则。",
+        )
+
+    assets_instructions: list[str] = []
+    if _contains_any(xhs_title_skill, ("公式库", "解释为什么选这个公式", "Top 3 推荐")):
+        _append_unique(
+            assets_instructions,
+            "标题组可以参考公式意识，但不要只套标题公式；每个标题都要对应正文的信息增量、情绪入口或现实损失。",
+        )
+        _append_unique(
+            assets_instructions,
+            "同一篇至少给出认知冲突、损失提醒和现实答案三类标题角度，但不要小红书化夸张包装。",
+        )
+    if _contains_any(hook_skill, ("开头是内容的试用装", "好开头 = 话题 + Hook + 可信度")):
+        _append_unique(
+            assets_instructions,
+            "分发导语不是单独制造悬念，而是让读者马上看见话题、情绪价值和可信承接。",
+        )
+
+    publish_package_instructions: list[str] = []
+    if _contains_any(report_skill, ("用户主诉的演进", "已确认的结论", "已否决的方向")):
+        _append_unique(
+            publish_package_instructions,
+            "编辑备注要像小型复盘：写清这篇稿子的核心主诉、已确认结论、已否决方向和保留经验。",
+        )
+    if _contains_any(content_system_skill, ("原始素材不改写", "对象不是文件，而是内容单元")):
+        _append_unique(
+            publish_package_instructions,
+            "发布包只记录可复用的内容单元和经验，不把整篇原文或一次性场景描述当成长期资产。",
+        )
 
     origin = "dontbesilent2025/dbskill"
+    referenced_skills = [skill_name for skill_name, skill_text in skill_texts.items() if skill_text]
     readme_update_lines: list[str] = []
     for raw_line in readme.splitlines():
         line = " ".join(raw_line.split()).strip()
@@ -441,6 +584,7 @@ def build_tracked_article_rules(dbskill_root: Path) -> dict[str, Any]:
             "version": version,
             "origin": origin,
             "synced_at": None,
+            "referenced_skills": referenced_skills,
             "readme_signals": readme_update_lines,
         },
         "strategy": {
@@ -460,6 +604,12 @@ def build_tracked_article_rules(dbskill_root: Path) -> dict[str, Any]:
         },
         "diagnosis": {
             "signals": diagnosis_signals,
+        },
+        "assets": {
+            "extra_instructions": assets_instructions,
+        },
+        "publish_package": {
+            "extra_instructions": publish_package_instructions,
         },
     }
     return payload

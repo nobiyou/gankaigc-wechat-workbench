@@ -16,6 +16,8 @@ def test_dbskill_bridge_falls_back_to_embedded_defaults_when_generated_rules_mis
 
     assert rules["source"]["version"] == "embedded-default"
     assert any("先把事情搞清楚" in item for item in rules["strategy"]["problem_constraints"])
+    assert any("标题组可以参考公式意识" in item for item in rules["assets"]["extra_instructions"])
+    assert any("小型复盘" in item for item in rules["publish_package"]["extra_instructions"])
 
 
 def test_dbskill_bridge_reads_generated_rules_when_present(monkeypatch, tmp_path: Path) -> None:
@@ -39,6 +41,12 @@ def test_dbskill_bridge_reads_generated_rules_when_present(monkeypatch, tmp_path
                 "diagnosis": {
                     "signals": ["如果文本太光滑、太均匀，要怀疑它更像 AI 成稿。"],
                 },
+                "assets": {
+                    "extra_instructions": ["标题不要只套公式，要写清读者收益。"],
+                },
+                "publish_package": {
+                    "extra_instructions": ["编辑备注要写清已确认结论和已否决方向。"],
+                },
             },
             ensure_ascii=False,
         ),
@@ -56,6 +64,45 @@ def test_dbskill_bridge_reads_generated_rules_when_present(monkeypatch, tmp_path
     assert rules["draft"]["extra_instructions"] == ["不要把实操问题一路升维成更大的哲学判断。"]
     assert rules["draft"]["execution_protocol"] == ["先落动作，再带判断。"]
     assert rules["draft"]["self_checklist"] == ["删掉最后一段祝福后如果全文还成立，就不要补回去。"]
+    assert rules["assets"]["extra_instructions"] == ["标题不要只套公式，要写清读者收益。"]
+    assert rules["publish_package"]["extra_instructions"] == ["编辑备注要写清已确认结论和已否决方向。"]
+
+
+def test_dbskill_bridge_localizes_scene_first_generated_rules(monkeypatch, tmp_path: Path) -> None:
+    generated_path = tmp_path / "tracked_article_rules.json"
+    generated_path.write_text(
+        json.dumps(
+            {
+                "source": {"version": "2.12.0", "origin": "dontbesilent2025/dbskill"},
+                "strategy": {
+                    "problem_constraints": ["如果一句话还说不清楚，先退回到具体场景、动作和顺序，不要急着下结论。"],
+                },
+                "outline": {
+                    "extra_instructions": ["每一节都要能落到具体场景、动作或关系变化，不能只摆概念。"],
+                },
+                "draft": {
+                    "extra_instructions": ["遇到匀速排比和整齐翻转时，优先把句子拉回动作、停顿和关系变化。"],
+                    "execution_protocol": ["开头先给一个抓手：动作、界面、物件、空间距离或身体反应，先别下总判断。"],
+                    "self_checklist": ["结尾回到一个小动作、关系余波或现实阻力，不要祝福式收尾。"],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(dbskill_bridge, "GENERATED_RULES_PATH", generated_path)
+    dbskill_bridge.load_dbskill_tracked_article_rules.cache_clear()
+
+    rules = dbskill_bridge.load_dbskill_tracked_article_rules()
+
+    flattened = json.dumps(rules, ensure_ascii=False)
+    assert "具体场景、动作和顺序" not in flattened
+    assert "小动作、关系余波" not in flattened
+    assert "开头先给一个情绪发动机" in flattened
+    assert "不能用场景描写凑篇幅" in flattened
+    assert "不要另补小动作" in flattened
+
+    dbskill_bridge.load_dbskill_tracked_article_rules.cache_clear()
 
 
 def test_build_strategy_package_consumes_generated_dbskill_rules(monkeypatch, tmp_path: Path) -> None:
@@ -204,7 +251,7 @@ def test_build_strategy_package_adds_recomposition_recipe_for_shell_heavy_source
         created_at="2026-06-02T00:00:00Z",
     )
 
-    assert any("标题和开头都改成具体处境入口" in item for item in result.strategy_card.recomposition_recipe)
+    assert any("标题和开头都改成情绪发动机入口" in item for item in result.strategy_card.recomposition_recipe)
     assert any("正文默认不用分节小标题" in item for item in result.strategy_card.recomposition_recipe)
     assert any("最后一句不要写成“愿你 / 愿我们 / 希望你”式抚慰总结" in item for item in result.strategy_card.recomposition_recipe)
 
@@ -263,5 +310,6 @@ def test_build_strategy_package_keeps_internal_pressure_topic_out_of_boundary_cu
 
     assert "想开口又收回去" not in result.problem_brief.problem_statement_markdown
     assert "失望和误解" not in result.problem_brief.problem_statement_markdown
-    assert "身体变慢、情绪钝住或日常失序" in result.problem_brief.problem_statement_markdown
-    assert "一点点变慢" in result.strategy_card.body_shift
+    assert "生活接口的长期负荷" in result.problem_brief.problem_statement_markdown
+    assert "长期超负荷" in result.strategy_card.body_shift
+    assert "身体提醒" in result.strategy_card.body_shift

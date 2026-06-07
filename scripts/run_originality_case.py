@@ -98,6 +98,75 @@ def _normalize_ai_override_value(value: object) -> str | None:
     return text or None
 
 
+def _normalize_cli_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _resolve_preferred_tone_profile_id(
+    *,
+    args: argparse.Namespace,
+    backend: Mapping[str, Any] | None = None,
+) -> int | None:
+    explicit_id = getattr(args, "tone_profile_id", None)
+    if explicit_id is not None:
+        return int(explicit_id)
+
+    profile_name = _normalize_cli_text(getattr(args, "tone_profile_name", None))
+    if not profile_name:
+        return None
+
+    if backend is None:
+        if str(BACKEND_ROOT) not in sys.path:
+            sys.path.insert(0, str(BACKEND_ROOT))
+
+        from app.services.workbench import list_tone_profiles
+
+        backend = {
+            "list_tone_profiles": list_tone_profiles,
+        }
+
+    profiles = backend["list_tone_profiles"]()
+    for profile in profiles:
+        if getattr(profile, "name", None) == profile_name:
+            return int(profile.id)
+
+    raise RuntimeError(f"Tone profile not found: {profile_name}")
+
+
+def _describe_selected_tone_profile(
+    *,
+    profile_id: int | None,
+    backend: Mapping[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if profile_id is None:
+        return None
+
+    if backend is None:
+        if str(BACKEND_ROOT) not in sys.path:
+            sys.path.insert(0, str(BACKEND_ROOT))
+
+        from app.services.workbench import list_tone_profiles
+
+        backend = {
+            "list_tone_profiles": list_tone_profiles,
+        }
+
+    profiles = backend["list_tone_profiles"]()
+    for profile in profiles:
+        if int(getattr(profile, "id")) == int(profile_id):
+            preset_key = getattr(profile, "preset_key", None)
+            return {
+                "id": int(profile.id),
+                "name": getattr(profile, "name", None),
+                "preset_key": preset_key,
+                "is_builtin": bool(preset_key),
+            }
+    return {"id": int(profile_id)}
+
+
 def _collect_ai_override_env(args: argparse.Namespace) -> dict[str, str]:
     overrides: dict[str, str] = {}
     if getattr(args, "clear_openai_base_url", False):
@@ -2370,6 +2439,7 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         get_project_tone_profile,
         import_tracked_articles,
         initialize_store,
+        list_tone_profiles,
     )
 
     run_id = output_dir.name
@@ -2408,6 +2478,19 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
 
     try:
         initialize_store(reset=True)
+        tone_profile_backend = {
+            "list_tone_profiles": list_tone_profiles,
+        }
+        selected_tone_profile_id = _resolve_preferred_tone_profile_id(
+            args=args,
+            backend=tone_profile_backend,
+        )
+        selected_tone_profile = _describe_selected_tone_profile(
+            profile_id=selected_tone_profile_id,
+            backend=tone_profile_backend,
+        )
+        if selected_tone_profile is not None:
+            partial["selected_tone_profile"] = selected_tone_profile
         import_result = import_tracked_articles([article_payload], source_kind="manual")
         partial["import_result"] = import_result
 
@@ -2442,7 +2525,7 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
                 slug=project_slug,
                 title=args.project_title or topic.title,
                 owner=args.owner,
-                preferred_tone_profile_id=None,
+                preferred_tone_profile_id=selected_tone_profile_id,
                 domain_pack_key=None,
             ),
         )
@@ -2567,6 +2650,7 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         get_project_detail,
         initialize_store,
         import_tracked_articles,
+        list_tone_profiles,
     )
 
     run_id = output_dir.name
@@ -2611,6 +2695,19 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
 
     try:
         initialize_store(reset=True)
+        tone_profile_backend = {
+            "list_tone_profiles": list_tone_profiles,
+        }
+        selected_tone_profile_id = _resolve_preferred_tone_profile_id(
+            args=args,
+            backend=tone_profile_backend,
+        )
+        selected_tone_profile = _describe_selected_tone_profile(
+            profile_id=selected_tone_profile_id,
+            backend=tone_profile_backend,
+        )
+        if selected_tone_profile is not None:
+            partial["selected_tone_profile"] = selected_tone_profile
         import_result = import_tracked_articles([article_payload], source_kind="manual")
         partial["import_result"] = import_result
 
@@ -2645,7 +2742,7 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
                 slug=project_slug,
                 title=args.project_title or topic.title,
                 owner=args.owner,
-                preferred_tone_profile_id=None,
+                preferred_tone_profile_id=selected_tone_profile_id,
                 domain_pack_key=None,
             ),
         )
@@ -2708,6 +2805,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-title", default=None, help="Optional project title override for pipeline mode.")
     parser.add_argument("--source-name", default="manual-originality-check", help="Tracked article source label.")
     parser.add_argument("--owner", default="originality-check", help="Project owner for pipeline mode.")
+    parser.add_argument(
+        "--tone-profile-name",
+        default=None,
+        help="Optional tone profile name to bind on project creation, for example 今晚有语.",
+    )
+    parser.add_argument(
+        "--tone-profile-id",
+        type=int,
+        default=None,
+        help="Optional tone profile id to bind on project creation. Overrides --tone-profile-name when both are provided.",
+    )
     parser.add_argument("--openai-api-key", default=None, help="Optional OPENAI_API_KEY override for this run only.")
     parser.add_argument("--openai-base-url", default=None, help="Optional OPENAI_BASE_URL override for this run only.")
     parser.add_argument(

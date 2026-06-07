@@ -1842,6 +1842,24 @@ def test_export_prompts_only_mode_writes_prompt_bundles(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+    reuse_bundle = tmp_path / "reuse-result.json"
+    reuse_bundle.write_text(
+        json.dumps(
+            {
+                "topic": {
+                    "title": "别把日子过反了",
+                    "angle": "从身体、关系和生活排序被不断往后放的处境切入，直接写清推迟的代价。",
+                },
+                "tracked_article": {
+                    "summary": "围绕长期推迟导致生活排序失衡的参考文章。",
+                    "structure_notes": "以短小节推进身体、关系和幸福排序。",
+                    "tags": ["生活排序", "推迟"],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     completed = subprocess.run(
         [
@@ -1855,7 +1873,7 @@ def test_export_prompts_only_mode_writes_prompt_bundles(tmp_path: Path) -> None:
             "export-prompts-case",
             "--skip-enrich",
             "--reuse-bundle-json",
-            str(REPO_ROOT / "tmp" / "article-runs" / "replay-retry24-skip-auto-polish-custom-provider" / "result.json"),
+            str(reuse_bundle),
             "--reuse-topic-from-bundle",
             "--export-prompts-only",
         ],

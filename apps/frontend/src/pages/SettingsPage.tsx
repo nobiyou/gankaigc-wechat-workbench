@@ -593,7 +593,10 @@ export function SettingsPage({ section }: SettingsPageProps) {
                   >
                     <div className="settings-profile-card__header">
                       <h4>{profile.name}</h4>
-                      {profile.is_active ? <span className="workspace-pill">当前激活</span> : null}
+                      <div className="workspace-actions workspace-actions--row">
+                        {profile.preset_key ? <span className="workspace-pill">系统预置</span> : null}
+                        {profile.is_active ? <span className="workspace-pill">当前激活</span> : null}
+                      </div>
                     </div>
                     <p>{profile.opening_style}</p>
                     <div className="workspace-item__meta">

@@ -250,6 +250,7 @@ export type ToneProfileItem = {
   id: number;
   is_active: boolean;
   sort_order: number;
+  preset_key?: string | null;
   name: string;
   opening_style: string;
   paragraph_rhythm: string;

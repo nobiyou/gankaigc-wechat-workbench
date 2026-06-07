@@ -86,8 +86,8 @@ def test_build_tracked_article_rules_compiles_runtime_safe_lines(tmp_path: Path)
     assert rules["strategy"]["problem_constraints"] == [
         "问题说明书和策略卡先服务于诊断，不要一上来把处境包装成标准答案。",
         "先把事情搞清楚，再把事情说清楚；不要用空话代替真正的观察。",
-        "如果一句话还说不清楚，先退回到具体场景、动作和顺序，不要急着下结论。",
-        "不要只给概念命名，要让每个判断都落到具体用法、动作或关系变化上。",
+        "如果一句话还说不清楚，先退回到情绪发动机、读者处境和价值承接，不要急着铺场景或下结论。",
+        "不要只给概念命名，要让每个判断都落到情绪推进、关系变化或现实答案上。",
     ]
     assert rules["strategy"]["problem_brief_steps"] == []
     assert rules["strategy"]["divergence_axes"] == [
@@ -108,18 +108,18 @@ def test_build_tracked_article_rules_compiles_runtime_safe_lines(tmp_path: Path)
     ]
     assert rules["outline"]["extra_instructions"] == [
         "大纲先把事情讲清楚，再考虑怎么讲得更好看。",
-        "每一节都要能落到具体场景、动作或关系变化，不能只摆概念。",
+        "每一节都要能落到情绪推进、关系变化或现实答案，不能只摆概念，也不能用场景描写凑篇幅。",
         "不要把需要展开的生活问题写成标准答案式提纲。",
     ]
     assert rules["draft"]["extra_instructions"] == [
         "AI 味的高风险信号往往不是写得差，而是写得太光滑、太均匀、太像一次性完稿。",
-        "遇到匀速排比和整齐翻转时，优先把句子拉回动作、停顿和关系变化。",
+        "遇到匀速排比和整齐翻转时，优先把句子拉回情绪命名、判断推进和关系后果。",
         "允许局部停顿、犹豫和没完全说透的地方，不要把情绪修得过于平整。",
         "改写不是换同义词，更不是伪装成人类，而是把作者真正想说的话从模板里救出来。",
         "不要花太多篇幅包装一个已经说过的判断，优先继续推进处境和冲突。",
     ]
     assert rules["draft"]["execution_protocol"] == [
-        "每次只保留一个最想强调的判断，其余判断埋回过程、动作和后果里。",
+        "每次只保留一个最想强调的判断，其余判断埋回过程、情绪推进和现实后果里。",
     ]
     assert rules["draft"]["self_checklist"] == [
         "“不是 X 是 Y”这类翻转全篇最多保留 1 处，开头和结尾最好不要出现。",
@@ -140,7 +140,7 @@ def test_build_tracked_article_rules_compiles_runtime_safe_lines(tmp_path: Path)
         "diagnosis": rules["diagnosis"],
     }
     flattened = str(runtime_rules)
-    for blocked in ("触发方式", "你是 dontbesilent", "用户说", "/dbs-", "**", "→"):
+    for blocked in ("触发方式", "你是 dontbesilent", "用户说", "/dbs-", "**", "→", "具体场景、动作和顺序"):
         assert blocked not in flattened
 
 
@@ -248,7 +248,7 @@ def test_build_tracked_article_rules_extracts_goal_diagnosis_and_decision_constr
     assert "有没有把推测写成事实，或把阶段判断写成永久结论。" in rules["strategy"]["execution_checklist"]
     assert "事实前提是否已经核过；如果关键事实未确认，是否先写清断点而不是直接下满结论。" in rules["strategy"]["execution_checklist"]
     assert "信息是否足够支撑当前判断；如果不够，是否已经明确未知项和最小补充动作。" in rules["strategy"]["execution_checklist"]
-    assert "大纲里的目标和段落职责都要能指向可观察动作，不要用“更好、更重要、更有价值”这类空转词充当推进。" in rules["outline"]["extra_instructions"]
+    assert "大纲里的目标和段落职责都要能指向可验证的情绪价值、关系变化或现实落点，不要用“更好、更重要、更有价值”这类空转词充当推进。" in rules["outline"]["extra_instructions"]
     assert "如果关键事实还没核实或信息明显不足，大纲先把断点和未知项摆出来，不要直接排成三段式答案。" in rules["outline"]["extra_instructions"]
     assert "不要拿更高级的大词替换原来的空话；能写成动作、对象、结果和反馈的地方，就不要停在空转词上。" in rules["draft"]["extra_instructions"]
     assert "不要把尚未核实的推测写成已确认事实；允许保留待验证判断，不要把后见之明一次性灌满全文。" in rules["draft"]["extra_instructions"]
@@ -259,3 +259,55 @@ def test_build_tracked_article_rules_extracts_goal_diagnosis_and_decision_constr
     assert "如果大词删掉以后句子仍然成立，说明文本在用空转词冒充判断和目标。" in rules["diagnosis"]["signals"]
     assert "如果文本把推测写成事实，或把阶段判断写成永久真相，它更像模板论断，不像现场判断。" in rules["diagnosis"]["signals"]
     assert "如果关键事实没核实、信息明显不够，文本却直接给出完整答案，说明它在用确定感掩盖推理空洞。" in rules["diagnosis"]["signals"]
+
+
+def test_build_tracked_article_rules_extracts_complementary_skill_rules(tmp_path: Path) -> None:
+    script = _load_sync_dbskill_module()
+
+    _write_text(tmp_path / "README.md", "**最新更新：v2.14.2**\n")
+    _write_text(tmp_path / "VERSION", "2.14.2\n")
+    _write_text(tmp_path / "skills" / "dbs-content" / "SKILL.md", "# dbs-content\n1、把事情搞清楚；2、把事情说清楚。")
+    _write_text(tmp_path / "skills" / "dbs-benchmark" / "SKILL.md", "# dbs-benchmark\n### 信条 3：模仿的颗粒度决定模仿的质量")
+    _write_text(tmp_path / "skills" / "dbs-ai-check" / "SKILL.md", "# dbs-ai-check\nAI 写作的问题不是写得差，是写得太好、太光滑、太均匀。")
+    _write_text(tmp_path / "skills" / "dbs-deconstruct" / "SKILL.md", "# dbs-deconstruct\n如果你说不清楚一件事，你就不理解这件事。")
+    _write_text(
+        tmp_path / "skills" / "dbs-content-system" / "SKILL.md",
+        "# dbs-content-system\n### 原则 1：先审计，再建工程\n### 原则 2.5：结构先于规模\n### 原则 3：原始素材不改写，只复制副本\n### 原则 4：对象不是文件，而是内容单元",
+    )
+    _write_text(
+        tmp_path / "skills" / "dbs-xhs-title" / "SKILL.md",
+        "# dbs-xhs-title\n## 公式库速查表\n帮用户从 75 个公式中生成 Top 3 推荐，并解释为什么选这个公式。",
+    )
+    _write_text(
+        tmp_path / "skills" / "dbs-report" / "SKILL.md",
+        "# dbs-report\n## 一、用户主诉的演进\n## 二、已确认的结论\n## 三、已否决的方向",
+    )
+    _write_text(
+        tmp_path / "skills" / "dbs-action" / "SKILL.md",
+        "# dbs-action\n### 公理 1：拖延是有目的的\n### 公理 3：人们主动制造无知",
+    )
+    _write_text(
+        tmp_path / "skills" / "dbs-learning" / "SKILL.md",
+        "# dbs-learning\n根据用户在上一篇文章里的真实反馈，调整下一篇的深度、角度和节奏。",
+    )
+    _write_text(
+        tmp_path / "skills" / "dbs-slowisfast" / "SKILL.md",
+        "# dbs-slowisfast\n### 公理 1：摩擦是信息\n### 公理 3：资产是复利的基础",
+    )
+    _write_text(
+        tmp_path / "skills" / "dbs-hook" / "SKILL.md",
+        "# dbs-hook\n### 信条 1：开头是内容的试用装\n#### 2.1 内容完整性检查\n#### 2.2 素材丰富度检查",
+    )
+
+    rules = script.build_tracked_article_rules(tmp_path)
+
+    assert rules["source"]["version"] == "2.14.2"
+    assert "dbs-content-system" in rules["source"]["referenced_skills"]
+    assert "dbs-xhs-title" in rules["source"]["referenced_skills"]
+    assert "不要急着追求一次性顺滑成稿；先保留能暴露问题的摩擦，确认读者真正卡住的位置。" in rules["strategy"]["problem_constraints"]
+    assert "不要把“不知道怎么写”直接当成信息不足，先判断是不是在回避真正要承担的表达选择。" in rules["strategy"]["problem_constraints"]
+    assert "先审计已有素材里真正可复用的内容单元，再决定要新增什么，不要为了完整感盲目扩写。" in rules["strategy"]["problem_brief_steps"]
+    assert "开头如果只剩悬念、情绪词或漂亮句子，没有内容完整性和素材支撑，就不要保留。" in rules["draft"]["self_checklist"]
+    assert "如果复盘没有区分真实反馈、作者偏好和一次性偶然结果，就不能沉淀成下一篇的规则。" in rules["diagnosis"]["signals"]
+    assert "标题组可以参考公式意识，但不要只套标题公式；每个标题都要对应正文的信息增量、情绪入口或现实损失。" in rules["assets"]["extra_instructions"]
+    assert "编辑备注要像小型复盘：写清这篇稿子的核心主诉、已确认结论、已否决方向和保留经验。" in rules["publish_package"]["extra_instructions"]

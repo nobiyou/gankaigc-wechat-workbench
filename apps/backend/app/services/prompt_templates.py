@@ -4,8 +4,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import re
 
+from app.services.content_skills import build_content_skill_instructions
 from app.services.dbskill_bridge import get_dbskill_rule_lines, merge_unique_lines
 from app.schemas.settings import PromptTemplateSummary
+from app.services.tone_profile_presets import JINWAN_YOUYU_PRESET_KEY, resolve_tone_profile_preset_key
 
 
 @dataclass(frozen=True)
@@ -240,6 +242,72 @@ def render_tone_profile_section(tone_profile: Mapping[str, object] | None) -> st
         return ""
 
     return "风格要求：\n" + "\n".join(lines) + "\n"
+
+
+def _is_jinwan_youyu_style(tone_profile: Mapping[str, object] | None) -> bool:
+    return resolve_tone_profile_preset_key(tone_profile) == JINWAN_YOUYU_PRESET_KEY
+
+
+def _build_jinwan_youyu_stage_instructions(
+    *,
+    stage: str,
+    tone_profile: Mapping[str, object] | None,
+) -> str:
+    if not _is_jinwan_youyu_style(tone_profile):
+        return ""
+
+    if stage == "topic":
+        return (
+            "这篇内容采用“今晚有语”风格。"
+            "标题长度控制在 10 到 20 个字，必须带钩子，不能只是情绪陈述。"
+            "选题要直接点出读者最在意的问题、反差或答案入口。"
+            "先给答案，不要把结论藏到后面。"
+            "不要写成泛情绪、泛疗愈、泛人生感悟标题。"
+        )
+    if stage == "outline":
+        return (
+            "这篇内容采用“今晚有语”风格。"
+            "大纲按标准三段式组织：开头引出问题，中间展开判断，结尾直接落结论。"
+            "这不是低成本三段式，开头要点破真实问题，中段要给新观察，结尾要有明确答案。"
+            "中间部分展开 2 到 4 个论点，每个论点都要能挂具体处境、判断依据或行动落点。"
+            "总字数目标控制在 1200 到 1800 字。"
+            "不要写成清单攻略、步骤教程或逐条说教。"
+        )
+    if stage == "draft":
+        return (
+            "这篇内容采用“今晚有语”风格。"
+            "开头优先使用问句、引用或共鸣开场，尽快把读者代入她熟悉的处境。"
+            "不是让读者自己领悟，你要直接告诉她答案。"
+            "正文中段按“观点 + 例子 + 结论”推进，但不要写成机械分条。"
+            "每个观点都要多给一层判断依据、现实机制、情绪承接或行动落点，不能只重复标题情绪。"
+            "读者默认是 25 到 45 岁女性，语言要直接有力、温暖但有边界。"
+            "可以适度使用排比和对仗，但不要把句子排成整齐口号。"
+            "引用名人、影视台词或理论时，全篇最多 1 到 2 处；连续两篇不能用同一个人。"
+            "不要使用这些词：不禁、心想、暗想、默念、琢磨、纠结、暗自、默默。"
+            "少用“像……一样”“如同”“仿佛”“宛如”“好似”这类明喻。"
+            "避免“因为……所以……”“因此”“于是”“结果”这类显性因果串联。"
+            "删掉“总之”“说到底”“归根结底”“值得一提的是”“不可否认”“在当今社会”这类套话。"
+            "不要写“以后会好的”“明天又是新的一天”“一切都会过去”这类未来安慰句。"
+            "“不是A，是B”句式整篇最多使用 2 次。"
+            "破折号整篇最多使用 2 处。"
+            "不要写成逐条列举、逐项解释的导购式结构。"
+            "删掉没有它也不影响前后文的空段、虚段和泛感慨段。"
+            "结尾可以直接下结论、给温暖祝福、给行动落点或做简洁排比收束，但不要喊口号。"
+        )
+    if stage == "assets":
+        return (
+            "这篇内容采用“今晚有语”风格。"
+            "标题备选和导语要直接点破读者最在意的问题，给出明确判断或答案入口。"
+            "不要写成空泛抒情 teaser，不要只剩情绪氛围。"
+            "封面文案要短、准、有抓手，保留女性成长内容的力量感。"
+        )
+    if stage == "publish_package":
+        return (
+            "这篇内容采用“今晚有语”风格。"
+            "摘要、标签和编辑备注都要服务于“直接给答案”的发布表达。"
+            "编辑备注要直接给出这篇稿子的核心答案和发布抓手，不要写成模糊抒情总结。"
+        )
+    return ""
 
 
 def _render_outline_target_wording(tone_profile: Mapping[str, object] | None) -> str:
@@ -1088,6 +1156,11 @@ def _describe_structure_mode(structure_mode: str) -> tuple[str, str]:
             "单场景窄时窗推进",
             "前半篇尽量守住同一段时间和同一处境现场，不要均匀拆成几个并列观点段。",
         )
+    if structure_mode == "emotional_engine_direct":
+        return (
+            "情绪发动机直接推进",
+            "先抽出终局感、亏欠感、失去后的反省和价值赦免，再展开判断与现实答案；默认不铺生活场景。",
+        )
     if structure_mode == "scene_first_progression":
         return (
             "场景优先推进",
@@ -1130,6 +1203,20 @@ def _build_structure_mode_instructions(payload: Mapping[str, object], *, stage: 
                 "第一屏先落到能摸到的物件、界面、动作或身体反应，不要先下抽象判断。"
                 "结尾只收在一个更小的动作、余波或没完全处理完的现实阻力上，不要急着升华。"
             )
+    if structure_mode == "emotional_engine_direct":
+        if stage == "outline":
+            return (
+                "若策略包要求情绪发动机直接推进，大纲默认不规划场景段，"
+                "先拆终局感、亏欠感、失去后的反省、被允许的松绑和现实答案。"
+                "需要例证时只保留一句事实或引用，并并入判断段；不展开动作、物件、环境和氛围描写，也不单独保留动作残留段。"
+            )
+        if stage == "draft":
+            return (
+                "若策略包要求情绪发动机直接推进，正文不要用生活场景冷启动，"
+                "第一屏先给终局问题、反常识判断、情绪命名或价值赦免。"
+                "中段围绕亏欠自己、失去后才懂得拥有、被允许松绑这些情绪机制推进；"
+                "需要例证时只保留一句事实或引用，并并入判断段；不展开动作、物件、环境和氛围描写，也不单独保留动作残留段。"
+            )
     if structure_mode == "scene_first_progression":
         if stage == "outline":
             return "若策略包强调场景优先推进，大纲先让连续场景带路，再安排判断，不要直接平铺观点。"
@@ -1171,6 +1258,11 @@ def _should_use_compact_strategy_draft_mode(
 def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     tone_profile = payload.get("tone_profile")
     style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
+    preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
+        stage="outline",
+        tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
+    )
+    content_skill_instructions = build_content_skill_instructions(stage="outline")
     target_wording = _render_outline_target_wording(tone_profile if isinstance(tone_profile, Mapping) else None)
     reference_article_section = (
         ""
@@ -1191,6 +1283,8 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             task_brief="请基于给定选题，输出一个适合女性情感成长公众号的文章大纲。",
             domain_pack=payload.get("domain_pack"),
         )
+        + preset_stage_instructions
+        + content_skill_instructions
         + original_expression_instructions
         + humanizer_zh_review_instructions
         + "大纲只写段落职责和推进动作，不要把任何一段提前扩写成完整正文；每段尽量控制在 1 行。"
@@ -1219,6 +1313,11 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     source_type = _as_clean_text(payload.get("source_type")) or "trend"
     tone_profile = payload.get("tone_profile")
     style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
+    preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
+        stage="topic",
+        tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
+    )
+    content_skill_instructions = build_content_skill_instructions(stage="topic")
     pressure_guard_instructions = _build_tracked_article_pressure_guard_instructions(payload, stage="topic")
     if source_type == "tracked_article":
         source_prompt = (
@@ -1237,6 +1336,8 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
                 task_brief="请基于参考文章提炼出一个可直接立项的女性情感成长类原创选题。",
                 domain_pack=payload.get("domain_pack"),
             )
+            + preset_stage_instructions
+            + content_skill_instructions
             + "不要复述原标题，要重新组织成更适合继续创作的选题。"
             + "不要使用“不是A，而是B”或“不是A，只是B”这类对称判断句做选题标题。"
             + "不要把参考文章里的高频词直接放进标题主干，要改成新的具体处境、动作或情绪入口。"
@@ -1259,6 +1360,8 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
                 task_brief="请基于热点线索提炼成一个可直接立项的女性情感成长类选题。",
                 domain_pack=payload.get("domain_pack"),
             )
+            + preset_stage_instructions
+            + content_skill_instructions
             + "标题要像真实选题，不要写成平台标题党。"
             + "切入角度只写 1 句话，控制在 40 到 80 个汉字，不要扩成整段方案说明。"
         )
@@ -1287,6 +1390,11 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
     tone_profile = payload.get("tone_profile")
     style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
+    preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
+        stage="draft",
+        tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
+    )
+    content_skill_instructions = build_content_skill_instructions(stage="draft")
     target_wording = _render_draft_target_wording(tone_profile if isinstance(tone_profile, Mapping) else None)
     reference_article_section = (
         ""
@@ -1388,6 +1496,8 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             task_brief=task_brief,
             domain_pack=payload.get("domain_pack"),
         )
+        + preset_stage_instructions
+        + content_skill_instructions
         + original_expression_instructions
         + humanizer_zh_review_instructions
         + ai_flavor_risk_instructions
@@ -1424,6 +1534,12 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     draft = payload["draft"]
     tone_profile = payload.get("tone_profile")
     style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
+    preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
+        stage="assets",
+        tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
+    )
+    content_skill_instructions = build_content_skill_instructions(stage="assets")
+    dbskill_assets_instructions = "".join(get_dbskill_rule_lines("assets", "extra_instructions"))
     review_comment = _as_clean_text(payload.get("review_comment"))
     review_section = (
         f"\n审核修改意见：{review_comment}\n"
@@ -1437,6 +1553,9 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             task_brief="请围绕正文产出封面和分发素材。",
             domain_pack=payload.get("domain_pack"),
         )
+        + preset_stage_instructions
+        + content_skill_instructions
+        + dbskill_assets_instructions
         + "封面图提示词必须服务于 21:9 横版公众号头图。"
         + "禁止输出竖版、9:16、手机海报、竖构图或会导致上下裁切的画幅描述。",
         prompt=(
@@ -1516,6 +1635,12 @@ def build_cover_image_prompt(payload: Mapping[str, object]) -> str:
 def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     tone_profile = payload.get("tone_profile")
     style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
+    preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
+        stage="publish_package",
+        tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
+    )
+    content_skill_instructions = build_content_skill_instructions(stage="publish_package")
+    dbskill_publish_instructions = "".join(get_dbskill_rule_lines("publish_package", "extra_instructions"))
     review_comment = _as_clean_text(payload.get("review_comment"))
     review_section = (
         f"\n审核修改意见：{review_comment}\n"
@@ -1528,7 +1653,10 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
             role="发布编辑",
             task_brief="请基于正文和素材，为公众号发布环节输出摘要、标签和编辑备注。内容要简洁、可执行，不要空话。",
             domain_pack=payload.get("domain_pack"),
-        ),
+        )
+        + preset_stage_instructions
+        + content_skill_instructions
+        + dbskill_publish_instructions,
         prompt=(
             f"项目标题：{payload['project_title']}\n"
             f"{style_section}"

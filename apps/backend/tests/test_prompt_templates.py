@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from app.services import dbskill_bridge
+from app.services.content_skills import build_content_skill_instructions
 from app.services.prompt_templates import (
     build_assets_prompt,
     build_cover_image_prompt,
@@ -13,9 +14,11 @@ from app.services.prompt_templates import (
     build_topic_prompt,
     render_tone_profile_section,
 )
+from app.services.tone_profile_presets import JINWAN_YOUYU_PRESET_KEY
 
 
 TONE_PROFILE = {
+    "preset_key": None,
     "name": "女性成长克制陪伴风",
     "opening_style": "从具体场景冷启动切入",
     "paragraph_rhythm": "短段落，慢推进",
@@ -34,6 +37,18 @@ LONG_TRACKED_TOPIC_ANGLE = (
     "是否其实已经在透支关系和自己。"
 )
 
+JINWAN_YOUYU_TONE_PROFILE = {
+    "preset_key": JINWAN_YOUYU_PRESET_KEY,
+    "name": "今晚有语",
+    "opening_style": "问句、引用或共鸣开场，直接点破问题和答案入口",
+    "paragraph_rhythm": "标准三段式直接推进，中段围绕 2 到 4 个明确判断展开；每个判断都要给出处境、依据或行动落点，少铺氛围",
+    "closing_style": "直接结论或温暖祝福收束，给答案，不拖鸡汤尾音",
+    "forbidden_phrases": ["你应该", "总之", "在当今社会"],
+    "value_constraints": "面向25到45岁女性，直接有力，给出答案，温暖但不说教；必须带来信息增量或情绪价值，不含蓄收尾。",
+    "target_word_count": 1500,
+    "default_polish_instruction": "按今晚有语完整风格精修。",
+}
+
 
 def test_render_tone_profile_section_outputs_structured_style_lines() -> None:
     section = render_tone_profile_section(TONE_PROFILE)
@@ -45,6 +60,208 @@ def test_render_tone_profile_section_outputs_structured_style_lines() -> None:
     assert "收束方式：留白式收束" in section
     assert "禁用表达：你必须 / 立刻改变" in section
     assert "价值约束：不说教，不制造羞耻感，避免空泛鸡汤" in section
+
+
+def test_jinwan_youyu_style_injects_full_stage_rules_across_prompts() -> None:
+    topic_template = build_topic_prompt(
+        {
+            "source_type": "trend",
+            "trend_slug": "night-growth",
+            "trend_title": "真正成熟的人，不再把情绪交给别人",
+            "source": "manual",
+            "heat_score": 88,
+            "status": "screening",
+            "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
+        }
+    )
+    outline_template = build_outline_prompt(
+        {
+            "trend_title": "真正成熟的人，不再把情绪交给别人",
+            "topic_title": "真正有力量的人，都把人生主导权收回来了",
+            "topic_angle": "从总在等别人理解、等别人救场的处境切入，直接告诉读者答案是把遥控器收回来。",
+            "project_title": "今晚有语样稿",
+            "source_type": "manual",
+            "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
+        }
+    )
+    draft_template = build_draft_prompt(
+        {
+            "trend_title": "真正成熟的人，不再把情绪交给别人",
+            "topic_title": "真正有力量的人，都把人生主导权收回来了",
+            "topic_angle": "从总在等别人理解、等别人救场的处境切入，直接告诉读者答案是把遥控器收回来。",
+            "project_title": "今晚有语样稿",
+            "source_type": "manual",
+            "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
+            "outline": {
+                "hook": "你有没有过这种时刻，明明心里很委屈，却一直等别人先来懂你？",
+                "outline_body": "1. 先点破等待被理解的无力\n2. 讲清把人生交给别人的代价\n3. 直接给出把主导权收回来的答案",
+            },
+        }
+    )
+    assets_template = build_assets_prompt(
+        {
+            "trend_title": "真正成熟的人，不再把情绪交给别人",
+            "topic_title": "真正有力量的人，都把人生主导权收回来了",
+            "topic_angle": "从总在等别人理解、等别人救场的处境切入，直接告诉读者答案是把遥控器收回来。",
+            "project_title": "今晚有语样稿",
+            "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
+            "draft": {
+                "title": "真正有力量的人，都把人生主导权收回来了",
+                "body_markdown": "# 正文\n\n内容",
+            },
+        }
+    )
+    publish_template = build_publish_package_prompt(
+        {
+            "project_title": "今晚有语样稿",
+            "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
+            "draft": {
+                "title": "真正有力量的人，都把人生主导权收回来了",
+                "body_markdown": "# 正文\n\n内容",
+            },
+            "assets": {
+                "cover_copy": "别再等别人救场",
+                "social_teaser": "把人生遥控器收回来，你才会稳。",
+                "title_options": ["真正有力量的人，都把人生主导权收回来了"],
+            },
+        }
+    )
+
+    assert "标题长度控制在 10 到 20 个字" in topic_template.instructions
+    assert "必须带钩子，不能只是情绪陈述" in topic_template.instructions
+    assert "先给答案，不要把结论藏到后面" in topic_template.instructions
+
+    assert "按标准三段式组织" in outline_template.instructions
+    assert "这不是低成本三段式" in outline_template.instructions
+    assert "中间部分展开 2 到 4 个论点" in outline_template.instructions
+    assert "判断依据或行动落点" in outline_template.instructions
+    assert "总字数目标控制在 1200 到 1800 字" in outline_template.instructions
+    assert "大纲默认不规划场景描述" in outline_template.instructions
+    assert "先规划情绪发动机" in outline_template.instructions
+    assert "不展开环境、动作、物件和氛围描写" in outline_template.instructions
+
+    assert "开头优先使用问句、引用或共鸣开场" in draft_template.instructions
+    assert "不是让读者自己领悟，你要直接告诉她答案" in draft_template.instructions
+    assert "观点 + 例子 + 结论" in draft_template.instructions
+    assert "不能只重复标题情绪" in draft_template.instructions
+    assert "正文不需要含蓄，默认去掉场景描写" in draft_template.instructions
+    assert "正文都要让读者获得情绪价值" in draft_template.instructions
+    assert "不用生活场景冷启动" in draft_template.instructions
+    assert "需要例证时只保留一句事实或结果" in draft_template.instructions
+    assert "例证不能单独成段" in draft_template.instructions
+    assert "连续两篇不能用同一个人" in draft_template.instructions
+    assert "不要使用这些词：不禁、心想、暗想、默念、琢磨、纠结、暗自、默默" in draft_template.instructions
+    assert "少用“像……一样”“如同”“仿佛”“宛如”“好似”这类明喻" in draft_template.instructions
+    assert "“不是A，是B”句式整篇最多使用 2 次" in draft_template.instructions
+    assert "破折号整篇最多使用 2 处" in draft_template.instructions
+    assert "不要写成逐条列举、逐项解释的导购式结构" in draft_template.instructions
+
+    assert "导语要直接点破读者最在意的问题" in assets_template.instructions
+    assert "不要写成空泛抒情 teaser" in assets_template.instructions
+
+    assert "编辑备注要直接给出这篇稿子的核心答案和发布抓手" in publish_template.instructions
+    assert "不要写成模糊抒情总结" in publish_template.instructions
+
+
+def test_content_skills_define_platform_value_and_direct_scene_budget_rules() -> None:
+    topic_instructions = build_content_skill_instructions(stage="topic")
+    outline_instructions = build_content_skill_instructions(stage="outline")
+    draft_instructions = build_content_skill_instructions(stage="draft")
+    assets_instructions = build_content_skill_instructions(stage="assets")
+    publish_instructions = build_content_skill_instructions(stage="publish_package")
+
+    assert "平台鼓励具有丰富信息含量、信息增量或情绪价值的内容" in topic_instructions
+    assert "不管采用哪种风格，都必须明确给读者一层情绪价值" in topic_instructions
+    assert "不要生产疑似投机的低创作度内容" in topic_instructions
+    assert "表达要直接，不要含蓄绕弯" in topic_instructions
+    assert "大纲必须规划清楚每一段给读者新增什么" in outline_instructions
+    assert "原则上不规划场景段，先规划情绪发动机" in outline_instructions
+    assert "需要例证时只保留一句事实或结果" in outline_instructions
+    assert "结尾要明确结论、边界或行动落点，不要含蓄留白" in outline_instructions
+    assert "正文每个主要段落都要承担新的内容价值" in draft_instructions
+    assert "不管风格多直接或多克制，正文都要让读者获得情绪价值" in draft_instructions
+    assert "正文默认去掉场景描写" in draft_instructions
+    assert "不用生活场景冷启动" in draft_instructions
+    assert "不写“手机亮一下”“电梯门开了”这类独立动作残留" in draft_instructions
+    assert "不要连续多段写环境、动作、光线、房间、夜晚等氛围" in draft_instructions
+    assert "标题备选、封面文案和分发导语要准确呈现正文的信息增量或情绪价值" in assets_instructions
+    assert "马上知道自己会被理解、被提醒或获得一个现实出口" in assets_instructions
+    assert "不要用含蓄氛围、场景感文案或暧昧留白来包装正文" in assets_instructions
+    assert "发布摘要和编辑备注必须点明这篇稿子的核心信息增量或情绪价值" in publish_instructions
+    assert "提供的情绪承接是什么" in publish_instructions
+    assert "发布摘要、标签和编辑备注直接写清核心结论" in publish_instructions
+
+
+def test_content_skill_instructions_are_injected_across_public_account_prompts() -> None:
+    topic_template = build_topic_prompt(
+        {
+            "source_type": "trend",
+            "trend_slug": "night-growth",
+            "trend_title": "真正成熟的人，不再把情绪交给别人",
+            "source": "manual",
+            "heat_score": 88,
+            "status": "screening",
+            "tone_profile": TONE_PROFILE,
+        }
+    )
+    outline_template = build_outline_prompt(
+        {
+            "trend_title": "真正成熟的人，不再把情绪交给别人",
+            "topic_title": "把人生主导权收回来",
+            "topic_angle": "从总在等别人理解的处境切入，拆开把安全感交出去的代价。",
+            "project_title": "平台价值守门样稿",
+            "source_type": "manual",
+            "tone_profile": TONE_PROFILE,
+        }
+    )
+    draft_template = build_draft_prompt(
+        {
+            "trend_title": "真正成熟的人，不再把情绪交给别人",
+            "topic_title": "把人生主导权收回来",
+            "topic_angle": "从总在等别人理解的处境切入，拆开把安全感交出去的代价。",
+            "project_title": "平台价值守门样稿",
+            "source_type": "manual",
+            "tone_profile": TONE_PROFILE,
+            "outline": {
+                "hook": "她又一次等到凌晨，才发现自己一直在等别人先给答案。",
+                "outline_body": "1. 等待被理解的现场\n2. 把安全感交出去的代价\n3. 收回主导权的动作",
+            },
+        }
+    )
+    assets_template = build_assets_prompt(
+        {
+            "trend_title": "真正成熟的人，不再把情绪交给别人",
+            "topic_title": "把人生主导权收回来",
+            "topic_angle": "从总在等别人理解的处境切入，拆开把安全感交出去的代价。",
+            "project_title": "平台价值守门样稿",
+            "tone_profile": TONE_PROFILE,
+            "draft": {
+                "title": "把人生主导权收回来",
+                "body_markdown": "# 正文\n\n内容",
+            },
+        }
+    )
+    publish_template = build_publish_package_prompt(
+        {
+            "project_title": "平台价值守门样稿",
+            "tone_profile": TONE_PROFILE,
+            "draft": {
+                "title": "把人生主导权收回来",
+                "body_markdown": "# 正文\n\n内容",
+            },
+            "assets": {
+                "cover_copy": "别再等别人救场",
+                "social_teaser": "把安全感收回来。",
+                "title_options": ["把人生主导权收回来"],
+            },
+        }
+    )
+
+    assert build_content_skill_instructions(stage="topic") in topic_template.instructions
+    assert build_content_skill_instructions(stage="outline") in outline_template.instructions
+    assert build_content_skill_instructions(stage="draft") in draft_template.instructions
+    assert build_content_skill_instructions(stage="assets") in assets_template.instructions
+    assert build_content_skill_instructions(stage="publish_package") in publish_template.instructions
 
 
 def test_build_topic_prompt_includes_source_specific_context_and_style_section() -> None:
@@ -153,6 +370,61 @@ def test_outline_and_draft_prompts_consume_generated_dbskill_rules(monkeypatch, 
     assert "大纲先把事情讲清楚，再考虑怎么讲得更好看。" in outline_template.instructions
     assert "允许局部停顿、犹豫和没完全说透的地方，不要把情绪修得过于平整。" in draft_template.instructions
     assert "如果“不是 X 是 Y”密度过高，说明认知翻转正在替代真正的推进。" in draft_template.instructions
+
+    dbskill_bridge.load_dbskill_tracked_article_rules.cache_clear()
+
+
+def test_assets_and_publish_prompts_consume_generated_dbskill_rules(monkeypatch, tmp_path: Path) -> None:
+    generated_path = tmp_path / "tracked_article_rules.json"
+    generated_path.write_text(
+        json.dumps(
+            {
+                "source": {"version": "2.14.2", "origin": "dontbesilent2025/dbskill"},
+                "assets": {
+                    "extra_instructions": ["标题不要只套公式，要写清信息增量、情绪入口或现实损失。"],
+                },
+                "publish_package": {
+                    "extra_instructions": ["编辑备注要写清核心主诉、已确认结论、已否决方向和保留经验。"],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(dbskill_bridge, "GENERATED_RULES_PATH", generated_path)
+    dbskill_bridge.load_dbskill_tracked_article_rules.cache_clear()
+
+    assets_template = build_assets_prompt(
+        {
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "别等失去后才想起照顾自己",
+            "topic_angle": "从一生只有一次切入，提醒读者别把自己永远排到最后。",
+            "project_title": "善待自己稿",
+            "tone_profile": TONE_PROFILE,
+            "draft": {
+                "title": "别等失去后才想起照顾自己",
+                "body_markdown": "这一生最容易被推迟的，常常是自己。",
+            },
+        }
+    )
+    publish_template = build_publish_package_prompt(
+        {
+            "project_title": "善待自己稿",
+            "tone_profile": TONE_PROFILE,
+            "draft": {
+                "title": "别等失去后才想起照顾自己",
+                "body_markdown": "这一生最容易被推迟的，常常是自己。",
+            },
+            "assets": {
+                "cover_copy": "别把自己放到最后",
+                "social_teaser": "给总在硬撑的人一个出口。",
+                "title_options": ["别等失去后才想起照顾自己"],
+            },
+        }
+    )
+
+    assert "标题不要只套公式，要写清信息增量、情绪入口或现实损失。" in assets_template.instructions
+    assert "编辑备注要写清核心主诉、已确认结论、已否决方向和保留经验。" in publish_template.instructions
 
     dbskill_bridge.load_dbskill_tracked_article_rules.cache_clear()
 

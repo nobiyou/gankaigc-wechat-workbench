@@ -9,11 +9,48 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[4]
 GENERATED_RULES_PATH = REPO_ROOT / "generated" / "dbskill" / "tracked_article_rules.json"
 
+_LOCALIZED_RULE_REPLACEMENTS = {
+    "如果一句话还说不清楚，先退回到具体场景、动作和顺序，不要急着下结论。": (
+        "如果一句话还说不清楚，先退回到情绪发动机、读者处境和价值承接，"
+        "不要急着铺场景或下结论。"
+    ),
+    "不要只给概念命名，要让每个判断都落到具体用法、动作或关系变化上。": (
+        "不要只给概念命名，要让每个判断都落到情绪推进、关系变化或现实答案上。"
+    ),
+    "每一节都要能落到具体场景、动作或关系变化，不能只摆概念。": (
+        "每一节都要能落到情绪推进、关系变化或现实答案，不能只摆概念，也不能用场景描写凑篇幅。"
+    ),
+    "遇到匀速排比和整齐翻转时，优先把句子拉回动作、停顿和关系变化。": (
+        "遇到匀速排比和整齐翻转时，优先把句子拉回情绪命名、判断推进和关系后果。"
+    ),
+    "开头先给一个抓手：动作、界面、物件、空间距离或身体反应，先别下总判断。": (
+        "开头先给一个情绪发动机：终局问题、反常识判断、情绪命名或价值赦免，"
+        "不用生活场景冷启动。"
+    ),
+    "每次只保留一个最想强调的判断，其余判断埋回过程、动作和后果里。": (
+        "每次只保留一个最想强调的判断，其余判断埋回过程、情绪推进和现实后果里。"
+    ),
+    "不要段段收束、段段出金句，至少留一段只停在观察、动作或关系变化上。": (
+        "不要段段收束、段段出金句，至少留一段只推进观察、情绪命名或关系后果。"
+    ),
+    "少用固定连接词去硬撑顺序，让转折长在动作、停顿和后果里。": (
+        "少用固定连接词去硬撑顺序，让转折长在判断推进、情绪变化和现实后果里。"
+    ),
+    "结尾回到一个小动作、关系余波或现实阻力，不要祝福式收尾。": (
+        "结尾回到一个明确结论、关系余波或现实阻力，不要祝福式收尾，也不要另补小动作。"
+    ),
+    "大纲里的目标和段落职责都要能指向可观察动作，不要用“更好、更重要、更有价值”这类空转词充当推进。": (
+        "大纲里的目标和段落职责都要能指向可验证的情绪价值、关系变化或现实落点，"
+        "不要用“更好、更重要、更有价值”这类空转词充当推进。"
+    ),
+}
+
 _DEFAULT_TRACKED_ARTICLE_RULES: dict[str, Any] = {
     "source": {
         "version": "embedded-default",
         "origin": "repo-default",
         "synced_at": None,
+        "referenced_skills": [],
     },
     "strategy": {
         "problem_constraints": [
@@ -36,7 +73,7 @@ _DEFAULT_TRACKED_ARTICLE_RULES: dict[str, Any] = {
             "凡是还顺着原文先讲什么、后讲什么的地方，先重排观察路径，再写句子。",
         ],
         "execution_checklist": [
-            "问题说明书里是否已经把大词拆成可见动作、顺序或身体反应，而不是继续停在抽象概念上。",
+            "问题说明书里是否已经把大词拆成情绪发动机、读者处境或现实答案，而不是继续停在抽象概念上。",
             "对象、目标和关键冲突是否已经写清，能不能限制后文推理空间。",
             "有没有现实反馈入口；如果没有，就不要急着把文章修成过度确定的结论。",
         ],
@@ -44,7 +81,7 @@ _DEFAULT_TRACKED_ARTICLE_RULES: dict[str, Any] = {
     "outline": {
         "extra_instructions": [
             "大纲先解决“这件事到底是什么”，再考虑怎么把它包装得更好看。",
-            "如果开头只是一个抽象判断，说明事情还没有被真正搞清楚，先退回到动作和场景层。",
+            "如果开头只是一个抽象判断，说明事情还没有被真正搞清楚，先退回到情绪发动机和读者处境。",
             "开头先钉一个可观察现象或断点，再展开，不要一上来先讲大道理。",
             "至少保留一处明确冲突：行为和预期不一致、想说和没说出来不一致，或重要和紧急不一致。",
         ],
@@ -59,11 +96,11 @@ _DEFAULT_TRACKED_ARTICLE_RULES: dict[str, Any] = {
             "不要花太多篇幅包装一个已经说过的判断，优先继续推进处境和冲突。",
         ],
         "execution_protocol": [
-            "开头先给一个抓手：动作、界面、物件、空间距离或身体反应，先别下总判断。",
+            "开头先给一个情绪发动机：终局问题、反常识判断、情绪命名或价值赦免，不用生活场景冷启动。",
             "不要写平台化的“钩子 + 痛点 + 承诺”三件套开头，直接进入要解释的处境。",
-            "不要段段收束、段段出金句，至少留一段只停在观察、动作或关系变化上。",
-            "每次只保留一个最想强调的判断，其余判断埋回过程、动作和后果里。",
-            "结尾回到一个小动作、关系余波或现实阻力，不要祝福式收尾。",
+            "不要段段收束、段段出金句，至少留一段只推进观察、情绪命名或关系后果。",
+            "每次只保留一个最想强调的判断，其余判断埋回过程、情绪推进和现实后果里。",
+            "结尾回到一个明确结论、关系余波或现实阻力，不要祝福式收尾，也不要另补小动作。",
         ],
         "self_checklist": [
             "开头不要同时出现痛点放大、普遍判断和解决承诺这三件套。",
@@ -80,6 +117,16 @@ _DEFAULT_TRACKED_ARTICLE_RULES: dict[str, Any] = {
             "如果一篇稿子花很多篇幅包装一个已经说过的判断，它更像在做成稿，不像在推进问题。",
         ],
     },
+    "assets": {
+        "extra_instructions": [
+            "标题组可以参考公式意识，但不要只套标题公式；每个标题都要对应正文的信息增量、情绪入口或现实损失。",
+        ],
+    },
+    "publish_package": {
+        "extra_instructions": [
+            "编辑备注要像小型复盘：写清这篇稿子的核心主诉、已确认结论、已否决方向和保留经验。",
+        ],
+    },
 }
 
 
@@ -90,7 +137,8 @@ def _deepcopy_default_rules() -> dict[str, Any]:
 def _clean_line(value: object) -> str:
     if value is None:
         return ""
-    return str(value).strip()
+    line = str(value).strip()
+    return _LOCALIZED_RULE_REPLACEMENTS.get(line, line)
 
 
 def _normalize_rule_lines(value: object) -> list[str]:
@@ -136,6 +184,9 @@ def _normalize_rules(payload: object) -> dict[str, Any]:
                 value = _clean_line(source.get(key))
                 if value:
                     normalized_source[key] = value
+            referenced_skills = source.get("referenced_skills")
+            if isinstance(referenced_skills, list):
+                normalized_source["referenced_skills"] = _normalize_rule_lines(referenced_skills)
 
     _overlay_rule_section(
         normalized,
@@ -160,6 +211,18 @@ def _normalize_rules(payload: object) -> dict[str, Any]:
         payload,
         section="diagnosis",
         keys=("signals",),
+    )
+    _overlay_rule_section(
+        normalized,
+        payload,
+        section="assets",
+        keys=("extra_instructions",),
+    )
+    _overlay_rule_section(
+        normalized,
+        payload,
+        section="publish_package",
+        keys=("extra_instructions",),
     )
     return normalized
 
