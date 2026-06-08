@@ -174,6 +174,65 @@ _RELATIONSHIP_PRESSURE_GUARD_KEYWORDS = (
     "和好",
     "复合",
 )
+_NEGATED_RELATIONSHIP_PATTERNS = (
+    "不是关系修复",
+    "不是亲密关系",
+    "不是沟通修复",
+    "不是关系摊牌",
+    "不是关系摊牌或沟通修复",
+    "不是关系摊牌或关系修复",
+    "不是沟通修复主线",
+    "不是关系摊牌或沟通修复主线",
+    "不是关系摊牌或“怎么把话说清楚”的沟通修复主线",
+    "不是冷战",
+    "不是分手",
+)
+
+_GENERIC_TRACKED_ARTICLE_CUE_PREFIXES = (
+    "其实",
+    "人啊",
+    "你每天",
+    "人这一生",
+    "生活从来",
+    "生活，从来",
+    "平日里",
+    "我想",
+    "如果生活",
+)
+_GENERIC_TRACKED_ARTICLE_CUE_PHRASES = (
+    "这个世界上",
+    "真正的完美",
+    "所谓的完美人生",
+    "生活本身",
+    "真正的自己",
+    "一生仅此一回",
+    "一生，在一朝一夕",
+)
+_PRESSURE_BODY_CUE_KEYWORDS = (
+    "体检",
+    "身体",
+    "疲惫",
+    "耗尽",
+    "透析",
+    "尿毒症",
+    "褥疮",
+    "轮椅",
+    "电话",
+    "提醒",
+    "复查",
+    "休息",
+    "工作",
+    "家人",
+    "推迟",
+    "往后放",
+    "再撑",
+    "代价",
+    "后果",
+    "遗憾",
+    "自己",
+    "照顾好自己",
+    "自我照料",
+)
 
 
 def _infer_tracked_article_pressure_guard(payload: Mapping[str, object]) -> str:
@@ -199,7 +258,9 @@ def _infer_tracked_article_pressure_guard(payload: Mapping[str, object]) -> str:
         return ""
 
     internal_hits = sum(1 for keyword in _INTERNAL_PRESSURE_GUARD_KEYWORDS if keyword in corpus)
-    relationship_hits = sum(1 for keyword in _RELATIONSHIP_PRESSURE_GUARD_KEYWORDS if keyword in corpus)
+    negated_relationship_hits = sum(1 for pattern in _NEGATED_RELATIONSHIP_PATTERNS if pattern in corpus)
+    raw_relationship_hits = sum(1 for keyword in _RELATIONSHIP_PRESSURE_GUARD_KEYWORDS if keyword in corpus)
+    relationship_hits = max(0, raw_relationship_hits - negated_relationship_hits)
     if internal_hits >= 2 and relationship_hits == 0:
         return "internal_pressure"
     return ""
@@ -211,6 +272,36 @@ def _render_forbidden_phrases(value: object) -> str:
     items = [_as_clean_text(item) for item in value]
     items = [item for item in items if item]
     return " / ".join(items)
+
+
+def _split_text_sentences(text: str) -> list[str]:
+    return [sentence.strip() for sentence in re.split(r"[。！？!?；;\n]", text) if sentence.strip()]
+
+
+def _is_generic_tracked_article_cue(sentence: str) -> bool:
+    normalized = re.sub(r"\s+", "", sentence).strip()
+    if not normalized:
+        return True
+    if any(normalized.startswith(prefix) for prefix in _GENERIC_TRACKED_ARTICLE_CUE_PREFIXES):
+        return True
+    return any(phrase in normalized for phrase in _GENERIC_TRACKED_ARTICLE_CUE_PHRASES)
+
+
+def _score_tracked_article_pressure_cue(sentence: str) -> int:
+    score = 0
+    compact = re.sub(r"\s+", "", sentence)
+    for keyword in _PRESSURE_BODY_CUE_KEYWORDS:
+        if keyword in compact:
+            score += 2
+    if any(token in compact for token in ("后来", "直到", "迟早", "开始", "又")):
+        score += 1
+    if "“" in sentence or "\"" in sentence:
+        score += 1
+    if _is_generic_tracked_article_cue(sentence):
+        score -= 4
+    if len(compact) < 10:
+        score -= 2
+    return score
 
 
 def render_tone_profile_section(tone_profile: Mapping[str, object] | None) -> str:
@@ -260,8 +351,8 @@ def _build_jinwan_youyu_stage_instructions(
         return (
             "这篇内容采用“今晚有语”风格。"
             "标题长度控制在 10 到 20 个字，必须带钩子，不能只是情绪陈述。"
-            "选题要直接点出读者最在意的问题、反差或答案入口。"
-            "先给答案，不要把结论藏到后面。"
+            "选题要直接点出读者最在意的问题、反差或现实入口。"
+            "判断可以明确，但先把答案落在真实接口上，不要只剩抽象结论。"
             "不要写成泛情绪、泛疗愈、泛人生感悟标题。"
         )
     if stage == "outline":
@@ -277,7 +368,7 @@ def _build_jinwan_youyu_stage_instructions(
         return (
             "这篇内容采用“今晚有语”风格。"
             "开头优先使用问句、引用或共鸣开场，尽快把读者代入她熟悉的处境。"
-            "不是让读者自己领悟，你要直接告诉她答案。"
+            "不是让读者自己猜，你要直接把判断说出来，但要落在真实接口上。"
             "正文中段按“观点 + 例子 + 结论”推进，但不要写成机械分条。"
             "每个观点都要多给一层判断依据、现实机制、情绪承接或行动落点，不能只重复标题情绪。"
             "读者默认是 25 到 45 岁女性，语言要直接有力、温暖但有边界。"
@@ -292,7 +383,7 @@ def _build_jinwan_youyu_stage_instructions(
             "破折号整篇最多使用 2 处。"
             "不要写成逐条列举、逐项解释的导购式结构。"
             "删掉没有它也不影响前后文的空段、虚段和泛感慨段。"
-            "结尾可以直接下结论、给温暖祝福、给行动落点或做简洁排比收束，但不要喊口号。"
+            "结尾可以直接下结论、给温暖祝福、给行动落点或做简洁排比收束，但不要喊口号，也不要把答案写成空泛总结。"
         )
     if stage == "assets":
         return (
@@ -308,6 +399,88 @@ def _build_jinwan_youyu_stage_instructions(
             "编辑备注要直接给出这篇稿子的核心答案和发布抓手，不要写成模糊抒情总结。"
         )
     return ""
+
+
+def _build_jinwan_youyu_pressure_topic_tweak(
+    *,
+    stage: str,
+    payload: Mapping[str, object],
+) -> str:
+    if _as_clean_text(payload.get("source_type")) != "tracked_article":
+        return ""
+
+    topic_angle = _as_clean_text(payload.get("topic_angle"))
+    topic_title = _as_clean_text(payload.get("topic_title"))
+    corpus = " ".join([topic_title, topic_angle, _as_clean_text(payload.get("summary")), _as_clean_text(payload.get("structure_notes"))])
+    pressure_signals = (
+        "推迟",
+        "往后放",
+        "等有空",
+        "体检",
+        "身体",
+        "疲惫",
+        "耗尽",
+        "生活排序",
+        "自我照料",
+    )
+    if not any(signal in corpus for signal in pressure_signals):
+        return ""
+
+    if stage == "topic":
+        return (
+            "这类题材不要把答案直接抽成概念词，标题先抓住一个现实接口、后果或身体信号。"
+            "可以直接，但不要先把结论写成空泛判断句。"
+        )
+    if stage == "outline":
+        return (
+            "这类题材的大纲先压住一个现实接口或身体提醒，再展开判断；不要把问题先写成通用讲解稿。"
+        )
+    if stage == "draft":
+        return (
+            "这类题材的正文先落一个现实接口、后果或身体信号，再给判断和落点；不要让开头和收束都先端出空泛答案。"
+        )
+    if stage == "assets":
+        return (
+            "这类题材的标题备选、导语和封面文案都要先抓现实接口或身体信号，不要只剩抽象答案句。"
+        )
+    if stage == "publish_package":
+        return (
+            "这类题材的摘要和编辑备注先写现实接口、后果或身体信号，再写结论，不要只剩抽象总结。"
+        )
+    return ""
+
+
+def _extract_tracked_article_body_cues(
+    payload: Mapping[str, object],
+    *,
+    max_items: int = 3,
+) -> list[str]:
+    body_markdown = _as_clean_text(payload.get("body_markdown"))
+    if not body_markdown:
+        return []
+
+    candidates: list[tuple[int, str]] = []
+    for sentence in _split_text_sentences(body_markdown):
+        normalized = re.sub(r"\s+", " ", sentence).strip(" -#>*")
+        if not normalized:
+            continue
+        truncated = _truncate_text(normalized, max_length=64)
+        score = _score_tracked_article_pressure_cue(truncated)
+        if score <= 0:
+            continue
+        candidates.append((score, truncated))
+
+    if not candidates:
+        return []
+
+    selected: list[str] = []
+    for _, sentence in sorted(candidates, key=lambda item: (-item[0], len(item[1]))):
+        if sentence in selected:
+            continue
+        selected.append(sentence)
+        if len(selected) >= max_items:
+            break
+    return selected
 
 
 def _render_outline_target_wording(tone_profile: Mapping[str, object] | None) -> str:
@@ -489,12 +662,14 @@ def _build_tracked_article_pressure_guard_instructions(payload: Mapping[str, obj
             "如果参考文章重心是自我消耗、心绪整理、生活排序失衡、健康透支或身体提醒，"
             "不要把选题收窄成亲密关系摊牌、情侣冷战、深夜等回复或“怎么把话说清楚”的沟通修复主线。"
             "标题和切入角度优先围绕身体提醒、生活次序、工作/家人/自我照料的接口重建，不要让对话对象取代原文真正的压力来源。"
+            "不要把标题写成先给结论的空泛判断句，尽量先落到一个真实接口、后果或身体信号上。"
         )
     if stage == "outline":
         return (
             "如果参考文章重心是自我消耗、心绪整理或生活排序失衡，大纲不要自动改写成亲密关系冲突处理流程。"
             "即便出现他人，也只把他当成压力接口之一，不要让“深夜等回复 / 当晚说清楚 / 第二天再沟通”变成主线。"
             "优先把压力点落在身体提醒、生活排序、工作节奏、家人回应或自我照料被推迟的地方。"
+            "不要把大纲写成通用讲解稿，答案也要落回一个真实接口、后果或身体信号。"
         )
     if stage == "draft":
         return (
@@ -502,6 +677,7 @@ def _build_tracked_article_pressure_guard_instructions(payload: Mapping[str, obj
             "即便出现他人，也只把他当成压力接口之一，不要把伴侣/对话对象写成唯一主场景。"
             "后半篇不要长篇回顾关系前史，不要写成“深夜卡住 -> 回想过去 -> 第二天沟通 -> 关系缓和”的完整修复弧线。"
             "优先把代价写在身体提醒、生活排序、家人回应、工作节奏或自我照料被推迟的地方。"
+            "不要先端出抽象人生答案，先把一个现实接口、后果或身体信号讲明白，再给判断和行动落点。"
         )
     return ""
 
@@ -1160,6 +1336,11 @@ def _describe_structure_mode(structure_mode: str) -> tuple[str, str]:
             "碎片回环观察推进",
             "围绕同一个问题串起 2 到 4 个现实接口，让每个碎片承担不同压力；不要压成单主角完整短篇，也不要平均拆成对称分论点。",
         )
+    if structure_mode == "pressure_interface_direct":
+        return (
+            "压力接口直推",
+            "先压住一个已经开始出代价的现实接口或身体提醒，再沿着触发、当场反应和后续影响推进，不先抛终局判断，也不补万能答案。",
+        )
     if structure_mode == "single_window_scene":
         return (
             "单场景窄时窗推进",
@@ -1211,6 +1392,20 @@ def _build_structure_mode_instructions(payload: Mapping[str, object], *, stage: 
                 "不要平均分成几个对称分论点。"
                 "第一屏先落到能摸到的物件、界面、动作或身体反应，不要先下抽象判断。"
                 "结尾只收在一个更小的动作、余波或没完全处理完的现实阻力上，不要急着升华。"
+            )
+    if structure_mode == "pressure_interface_direct":
+        if stage == "outline":
+            return (
+                "若策略包要求压力接口直推，大纲先压住一个已经开始出代价的现实接口或身体提醒，"
+                "再顺着触发、当场反应和后续影响往前推。"
+                "不要先把问题抬成终局感、价值赦免或整篇总论。"
+            )
+        if stage == "draft":
+            return (
+                "若策略包要求压力接口直推，正文第一屏先给一个真实接口、后果或身体提醒，"
+                "不要先抛终局问题、反常识判断或价值赦免。"
+                "中段围绕哪件事先被往后放、当时怎么处理、后来又留下什么代价推进；"
+                "判断尽量压回事实和反应里，不要排成成熟讲解稿。"
             )
     if structure_mode == "emotional_engine_direct":
         if stage == "outline":
@@ -1271,6 +1466,7 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         stage="outline",
         tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
     )
+    pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="outline", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="outline")
     target_wording = _render_outline_target_wording(tone_profile if isinstance(tone_profile, Mapping) else None)
     reference_article_section = (
@@ -1293,6 +1489,7 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             domain_pack=payload.get("domain_pack"),
         )
         + preset_stage_instructions
+        + pressure_topic_tweak
         + content_skill_instructions
         + original_expression_instructions
         + humanizer_zh_review_instructions
@@ -1326,9 +1523,19 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         stage="topic",
         tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
     )
+    pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="topic", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="topic")
     pressure_guard_instructions = _build_tracked_article_pressure_guard_instructions(payload, stage="topic")
     if source_type == "tracked_article":
+        body_cues = _extract_tracked_article_body_cues(payload)
+        body_cue_section = ""
+        if body_cues:
+            cue_lines = "\n".join(f"- {cue}" for cue in body_cues)
+            body_cue_section = (
+                "参考文章正文抓手候选：\n"
+                f"{cue_lines}\n"
+                "优先围绕这些现实接口、身体提醒或代价线索重组新选题，不要再把它们抹平成抽象人生判断。\n"
+            )
         source_prompt = (
             f"来源类型：{source_type}\n"
             f"参考文章 slug：{payload['source_ref_slug']}\n"
@@ -1338,6 +1545,7 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             f"摘要：{payload['summary']}\n"
             f"结构备注：{payload['structure_notes']}\n"
             f"标签：{' / '.join(payload.get('tags') or []) or '无'}\n"
+            f"{body_cue_section}"
         )
         instructions = (
             build_stage_instructions(
@@ -1346,6 +1554,7 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
                 domain_pack=payload.get("domain_pack"),
             )
             + preset_stage_instructions
+            + pressure_topic_tweak
             + content_skill_instructions
             + "不要复述原标题，要重新组织成更适合继续创作的选题。"
             + "不要使用“不是A，而是B”或“不是A，只是B”这类对称判断句做选题标题。"
@@ -1353,6 +1562,7 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             + "不要沿用参考文章默认的矛盾顺序或段落重心，要重新换一个更适合继续原创扩写的组织焦点。"
             + "标题和切入角度至少要同时改掉原标题骨架、观察视角和情绪推进顺序中的两项。"
             + "切入角度只写 1 句话，控制在 40 到 80 个汉字，不要扩成整段方案说明。"
+            + "如果参考文章正文里已经出现可用的现实接口、身体提醒、延迟代价或被反复往后放的动作，优先拿这些抓手重新组织选题，不要只围着摘要里的大道理换说法。"
             + pressure_guard_instructions
         )
     else:
@@ -1403,6 +1613,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         stage="draft",
         tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
     )
+    pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="draft", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="draft")
     target_wording = _render_draft_target_wording(tone_profile if isinstance(tone_profile, Mapping) else None)
     reference_article_section = (
@@ -1506,6 +1717,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             domain_pack=payload.get("domain_pack"),
         )
         + preset_stage_instructions
+        + pressure_topic_tweak
         + content_skill_instructions
         + original_expression_instructions
         + humanizer_zh_review_instructions
@@ -1547,6 +1759,7 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         stage="assets",
         tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
     )
+    pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="assets", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="assets")
     dbskill_assets_instructions = "".join(get_dbskill_rule_lines("assets", "extra_instructions"))
     review_comment = _as_clean_text(payload.get("review_comment"))
@@ -1563,6 +1776,7 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             domain_pack=payload.get("domain_pack"),
         )
         + preset_stage_instructions
+        + pressure_topic_tweak
         + content_skill_instructions
         + dbskill_assets_instructions
         + "封面图提示词必须服务于 21:9 横版公众号头图。"
@@ -1648,6 +1862,7 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
         stage="publish_package",
         tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
     )
+    pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="publish_package", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="publish_package")
     dbskill_publish_instructions = "".join(get_dbskill_rule_lines("publish_package", "extra_instructions"))
     review_comment = _as_clean_text(payload.get("review_comment"))
@@ -1664,6 +1879,7 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
             domain_pack=payload.get("domain_pack"),
         )
         + preset_stage_instructions
+        + pressure_topic_tweak
         + content_skill_instructions
         + dbskill_publish_instructions,
         prompt=(

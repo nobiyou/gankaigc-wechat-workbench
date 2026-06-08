@@ -2018,6 +2018,66 @@ def test_export_prompts_only_mode_uses_compare_bundle_fallback_seed(tmp_path: Pa
     assert "别把日子过反了" in result["topic_seed"]["angle"]
 
 
+def test_export_prompts_only_mode_skips_metadata_enrichment_when_reuse_bundle_has_tracked_article(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    script = _load_run_originality_case_module()
+    source_file = tmp_path / "source.md"
+    source_file.write_text("# 别把日子过反了\n\n很多重要的事，就是这样被顺手往后放。", encoding="utf-8")
+    reuse_bundle = tmp_path / "reuse-result.json"
+    reuse_bundle.write_text(
+        json.dumps(
+            {
+                "topic": {
+                    "title": "别把日子过反了",
+                    "angle": "从身体、关系和生活排序被不断往后放的处境切入，直接写清推迟的代价。",
+                },
+                "tracked_article": {
+                    "summary": "围绕长期推迟导致生活排序失衡的参考文章。",
+                    "structure_notes": "以短小节推进身体、关系和幸福排序。",
+                    "tags": ["生活排序", "推迟"],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    calls: list[str] = []
+    from app.services import workbench as workbench_module
+
+    monkeypatch.setattr(
+        workbench_module,
+        "enrich_tracked_article_metadata",
+        lambda _slug: calls.append("enrich") or (_ for _ in ()).throw(AssertionError("should not enrich")),
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT_PATH),
+            "--input-file",
+            str(source_file),
+            "--output-root",
+            str(tmp_path / "runs"),
+            "--label",
+            "export-prompts-skip-enrich-with-reuse-bundle",
+            "--reuse-bundle-json",
+            str(reuse_bundle),
+            "--reuse-topic-from-bundle",
+            "--export-prompts-only",
+        ],
+    )
+
+    assert script.main() == 0
+    result_path = next((tmp_path / "runs").rglob("result.json"))
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result["status"] == "done"
+    assert calls == []
+
+
 def test_candidate_rank_tuple_prefers_lower_original_ai_flavor_when_cleaned_scores_tie() -> None:
     script = _load_run_originality_case_module()
 
