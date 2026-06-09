@@ -2265,3 +2265,25 @@ def test_rank_candidates_mode_records_ranking_policy_and_best_candidate(tmp_path
     assert [candidate["label"] for candidate in result["candidates"]] == ["better", "worse"]
     assert result["best_candidate"]["label"] == "better"
     assert result["best_candidate"]["rank_key"][:2] == [0.0, 8.0]
+
+
+def test_safe_print_json_swallows_stdout_oserror(capsys) -> None:
+    script = _load_run_originality_case_module()
+
+    class BrokenStdout:
+        def write(self, _text: str) -> int:
+            raise OSError(22, "Invalid argument")
+
+        def flush(self) -> None:
+            return None
+
+    original_stdout = sys.stdout
+    try:
+        sys.stdout = BrokenStdout()
+        script._safe_print_json({"status": "done"})
+    finally:
+        sys.stdout = original_stdout
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""

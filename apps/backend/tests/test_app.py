@@ -425,9 +425,9 @@ def test_generate_topic_from_trend_uses_ai_and_persists(monkeypatch) -> None:
     assert call_payload["heat_score"] == 92
     assert call_payload["status"] == "screening"
     assert call_payload["tone_profile"]["name"] == "女性成长克制陪伴风"
-    assert "直接问题、终局问题或判断切入" in call_payload["tone_profile"]["opening_style"]
+    assert "直接问题、现实接口或判断切入" in call_payload["tone_profile"]["opening_style"]
     assert "不用生活场景冷启动" in call_payload["tone_profile"]["opening_style"]
-    assert "不铺场景" in call_payload["tone_profile"]["paragraph_rhythm"]
+    assert "不靠整段场景铺陈" in call_payload["tone_profile"]["paragraph_rhythm"]
     assert call_payload["tone_profile"]["closing_style"] == "明确结论或行动落点收束"
     assert call_payload["tone_profile"]["forbidden_phrases"] == ["你必须", "立刻改变"]
     assert "具体、克制、有承接" in call_payload["tone_profile"]["value_constraints"]
@@ -455,6 +455,7 @@ def test_generate_topic_from_tracked_article_uses_ai_and_persists(monkeypatch) -
             "url": "https://example.com/slow-repair-template",
             "author": "北岛",
             "summary": "从关系修复案例提炼表达顺序。",
+            "body_markdown": "她那天没有继续解释，只是先停下来接住那一下失望。\n\n第二天才重新整理要说的话。",
             "structure_notes": "案例开头 + 情绪拆解 + 动作建议。",
             "tags": ["表达修复", "关系修复"],
         },
@@ -485,8 +486,177 @@ def test_generate_topic_from_tracked_article_uses_ai_and_persists(monkeypatch) -
     assert call_payload["article_title"] == "真正让关系缓回来，不是解释，是先接住那一下失望"
     assert call_payload["author"] == "北岛"
     assert call_payload["summary"] == "从关系修复案例提炼表达顺序。"
+    assert call_payload["body_markdown"] == "她那天没有继续解释，只是先停下来接住那一下失望。\n\n第二天才重新整理要说的话。"
     assert call_payload["structure_notes"] == "案例开头 + 情绪拆解 + 动作建议。"
     assert call_payload["tags"] == ["表达修复", "关系修复"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_abstract_internal_pressure_angle_with_body_cues(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总把自己排到最后的人，迟早要为失序的生活付账",
+                "angle": "从“总能再撑一下”的自我调度入手，拆开很多女性怎样在工作、家人和体面之间持续撤掉自我照料，直到身体和情绪一起追债。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "pressure-chain-notes",
+            "source_name": "手动录入",
+            "title": "善待自己，好好爱自己",
+            "url": "https://example.com/pressure-chain-notes",
+            "author": "未知",
+            "summary": "文章重点是人生遗憾、内耗、自我照料缺位和身体代价，不是关系修复。",
+            "body_markdown": (
+                "后来得了尿毒症，又开始怀念当初长褥疮的时候。\n\n"
+                "又过了一些年，要透析，清醒的时间很少，便又开始怀念起刚得尿毒症的时候。"
+            ),
+            "structure_notes": "从遗憾反思和内耗进入，再落到身体代价、自我照料和生活排序。",
+            "tags": ["自我关照", "人生遗憾", "自我照料", "生活排序"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/pressure-chain-notes/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "从尿毒症到透析，身体到底替你扛了多少"
+    assert "尿毒症" in payload["angle"]
+    assert "透析" in payload["angle"]
+    assert "求救信号" in payload["angle"]
+    assert "不先抛人生答案" in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_internal_pressure_angle_even_with_relationship_noise_tags(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "身体先发出的那些钝感，往往不是累一阵就会过去",
+                "angle": "从很多女性在关系、工作和体面之间不断撤掉自我照料写起，解释身体和情绪为什么会一起追债。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "pressure-chain-noisy-tags",
+            "source_name": "手动录入",
+            "title": "总把自己放最后的人，身体会替你记账",
+            "url": "https://example.com/pressure-chain-noisy-tags",
+            "author": "未知",
+            "summary": "文章重点是内耗、身体代价和生活排序失衡，不在亲密关系沟通里打转，也不要写成冷战复合流程。",
+            "body_markdown": (
+                "她先把体检往后改，又把回家吃饭这件事往后推。\n\n"
+                "后来整个人越来越钝，连一句解释都懒得说。"
+            ),
+            "structure_notes": "从日常顺延和身体变钝切入，再落到自我照料缺位。",
+            "tags": ["身体提醒", "关系修复", "生活排序"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/pressure-chain-noisy-tags/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "身体先发出的那些钝感，往往不是累一阵就会过去"
+    assert "体检" in payload["angle"] or "回家吃饭" in payload["angle"] or "越来越钝" in payload["angle"]
+    assert "不先抛人生答案" in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_abstract_internal_pressure_title_with_daily_interface(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总把自己放最后的人，生活为什么会慢慢失序",
+                "angle": "从很多人总把自己往后放这件事切入，解释生活排序为什么总会越来越乱。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "pressure-daily-interface-title",
+            "source_name": "手动录入",
+            "title": "别再把自己往后拖",
+            "url": "https://example.com/pressure-daily-interface-title",
+            "author": "未知",
+            "summary": "文章重点是身体代价和生活排序，不是关系修复。",
+            "body_markdown": (
+                "她先把体检往后改，又把回家吃饭这件事往后推。\n\n"
+                "后来整个人越来越钝，连一句解释都懒得说。"
+            ),
+            "structure_notes": "从顺延动作和身体变钝切入，再落到自我照料缺位。",
+            "tags": ["身体提醒", "生活排序"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/pressure-daily-interface-title/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "那次体检被你改到第几回了"
+    assert "体检" in payload["angle"] or "回家吃饭" in payload["angle"] or "越来越钝" in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_abstract_internal_pressure_title_to_review_sheet_interface(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总把休息和复查排在最后的人，最后会怀念那个“只是有点累”的自己",
+                "angle": "从人总把自己的求救信号压后这件事切入，解释为什么很多人会一路拖到更重的代价。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "pressure-review-sheet-title",
+            "source_name": "手动录入",
+            "title": "善待自己，好好爱自己",
+            "url": "https://example.com/pressure-review-sheet-title",
+            "author": "未知",
+            "summary": "文章重点是自我照料缺位和身体代价，不是人生感悟空话。",
+            "body_markdown": (
+                "复查提醒弹出来，你顺手划掉。\n\n"
+                "那句“建议复查”没有消失，只是又被往后放了一次。"
+            ),
+            "structure_notes": "从复查提醒和延后动作切入，再落到身体代价。",
+            "tags": ["身体提醒", "自我照料"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/pressure-review-sheet-title/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "那张“建议复查”的单子，被你压了多久"
+    assert "求救信号" in payload["angle"]
 
 
 def test_tracked_articles_can_be_created_listed_and_turned_into_topics() -> None:
@@ -1543,16 +1713,16 @@ def test_builtin_tone_profiles_include_jinwan_youyu_preset() -> None:
     default_profile = next(profile for profile in profiles if profile["name"] == "女性成长克制陪伴风")
     assert default_profile["preset_key"] == "women-growth-classic"
     assert default_profile["is_active"] is True
-    assert "直接问题、终局问题或判断切入" in default_profile["opening_style"]
+    assert "直接问题、现实接口或判断切入" in default_profile["opening_style"]
     assert "不用生活场景冷启动" in default_profile["opening_style"]
-    assert "不铺场景" in default_profile["paragraph_rhythm"]
+    assert "不靠整段场景铺陈" in default_profile["paragraph_rhythm"]
     assert default_profile["closing_style"] == "明确结论或行动落点收束"
     assert "具体、克制、有承接" in default_profile["value_constraints"]
     assert "必须有情绪价值" in default_profile["value_constraints"]
-    assert "原则上删除场景描写" in default_profile["value_constraints"]
-    assert "不用场景托情绪" in default_profile["value_constraints"]
+    assert "不要靠环境、动作、物件和氛围凑篇幅" in default_profile["value_constraints"]
+    assert "不用整段空场景托情绪" in default_profile["value_constraints"]
     assert "场景铺陈" in default_profile["default_polish_instruction"]
-    assert "原则上删除场景描述" in default_profile["default_polish_instruction"]
+    assert "不要保留整段场景描述" in default_profile["default_polish_instruction"]
     assert "情绪空转" in default_profile["default_polish_instruction"]
 
     jinwan_profile = next(profile for profile in profiles if profile["name"] == "今晚有语")
@@ -1563,12 +1733,14 @@ def test_builtin_tone_profiles_include_jinwan_youyu_preset() -> None:
     assert "给出答案" in jinwan_profile["value_constraints"]
     assert "必须有情绪价值" in jinwan_profile["value_constraints"]
     assert "每个判断都要给依据、情绪承接或行动落点" in jinwan_profile["value_constraints"]
-    assert "原则上删除场景描写" in jinwan_profile["value_constraints"]
+    assert "不要靠大段场景描写托情绪" in jinwan_profile["value_constraints"]
     assert "不含蓄收尾" in jinwan_profile["value_constraints"]
-    assert "不铺氛围" in jinwan_profile["paragraph_rhythm"]
+    assert "直接问题、现实接口或一句共鸣判断切入" in jinwan_profile["opening_style"]
+    assert "不靠整段氛围铺陈" in jinwan_profile["paragraph_rhythm"]
     assert "行动落点" in jinwan_profile["paragraph_rhythm"]
-    assert "原则上删除场景描写" in jinwan_profile["default_polish_instruction"]
-    assert "不写场景散文" in jinwan_profile["default_polish_instruction"]
+    assert "开头用直接问题、现实接口或一句共鸣判断迅速点题" in jinwan_profile["default_polish_instruction"]
+    assert "不要保留大段场景描写" in jinwan_profile["default_polish_instruction"]
+    assert "不要写成场景散文" in jinwan_profile["default_polish_instruction"]
     assert "避免空转抒情" in jinwan_profile["default_polish_instruction"]
 
 
@@ -3108,6 +3280,72 @@ def test_maybe_auto_polish_ai_flavor_draft_output_skips_tracked_article_low_risk
     assert result_markdown == "tracked raw"
 
 
+def test_maybe_auto_polish_ai_flavor_draft_output_does_not_short_circuit_low_score_tracked_article_opening_explainer_shell(
+    monkeypatch,
+) -> None:
+    summary = SimpleNamespace(
+        score=18,
+        level="低",
+        hits=["命中：开头讲稿式先答后证 2/3"],
+        suggestions=[
+            "建议：开头不要先用“你以为……吗 / 有一类……”替读者分类下定义，直接把现实接口、后果或身体信号顶上来，再把判断慢一点递出来。"
+        ],
+    )
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", lambda **_: summary)
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False)
+    monkeypatch.setattr(workbench, "_should_prefer_retried_candidate_after_cleanup_preview", lambda **_: True)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_structure_drift", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_over_smoothing", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_article_shell_cleanup", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_remaining_ai_flavor", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_final_ai_flavor_cleanup", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        uses_custom_base_url = False
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(payload)
+            return {"title": "polished title", "body_markdown": "polished raw"}
+
+    fake_generator = FakeGenerator()
+
+    result_markdown, result_title = workbench._maybe_auto_polish_ai_flavor_draft_output(
+        title="tracked title",
+        body_markdown="tracked raw",
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+            "reference_article_body_markdown": "reference raw",
+            "reference_article_title": "reference title",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction=None,
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=fake_generator,
+    )
+
+    assert result_title == "polished title"
+    assert result_markdown == "polished raw"
+    assert len(fake_generator.calls) == 1
+    assert "开头不要先用“你以为……吗 / 有一类……”替读者分类下定义" in str(
+        fake_generator.calls[0]["polish_instruction"]
+    )
+
+
 def test_maybe_auto_polish_ai_flavor_draft_output_skips_tracked_article_fragment_chain_candidate(
     monkeypatch,
 ) -> None:
@@ -4596,6 +4834,29 @@ def test_remaining_ai_flavor_retry_triggers_for_moderate_score_heavy_not_ab_resi
     )
 
 
+def test_remaining_ai_flavor_retry_triggers_for_internal_pressure_explainer_shell_without_not_ab_residue() -> None:
+    source_body = (
+        "# 等到身体先报警，才发现自己一直排在最后\n\n"
+        "体检提醒亮起时，她先划掉页面，想着这周忙完再说。\n\n"
+        "那阵子她照常回消息、照常交东西，也照常把饭和觉往后挪。\n\n"
+        "真正先被拖走的，不是待办，而是她自己。"
+    )
+    candidate_body = (
+        "# 等到身体先报警，才发现自己一直排在最后\n\n"
+        "你以为自己只是累吗？有一类疲惫，休息一天也缓不过来。别人一有需要，你立刻接住；轮到自己的睡眠、情绪、体检和那顿该好好吃的饭，你总能往后再挪一点。\n\n"
+        "它一开始并不惊人，甚至很像负责。工作临时加项，你先改；家里有人要你搭把手，你先去；关系里气氛不对，你先安抚。短时间里，事情被处理了，场面也稳住了，后面留下来的，是睡眠被切碎，身体信号被拖延，情绪越来越晚才轮到被照顾。\n\n"
+        "成年人的生活里，最会抢位置的，几乎都是紧急的东西。消息要回，节点要赶，孩子和父母的问题要接，伴侣的情绪也需要回应。你的需要通常没有那么大的声量，它不敲门，只是在肩颈发紧、经期紊乱、胃口变差、耐心变短时提醒你。\n\n"
+        "很多亏空，不是一天形成的。你只是一次次把那句“我现在也不太行”压回去，久了，身体和情绪就先替你停下来。"
+    )
+
+    assert workbench._should_retry_for_remaining_ai_flavor(
+        source_title="等到身体先报警，才发现自己一直排在最后",
+        source_markdown=source_body,
+        candidate_title="等到身体先报警，才发现自己一直排在最后",
+        candidate_markdown=candidate_body,
+    )
+
+
 def test_remaining_ai_flavor_retry_triggers_for_short_judgment_cadence_residue() -> None:
     source_body = (
         "# 她后来没再把真心话都留到夜里\n\n"
@@ -4643,6 +4904,28 @@ def test_remaining_ai_flavor_retry_triggers_for_embedded_banner_residue() -> Non
         source_title="别把日子过反了",
         source_markdown=source_body,
         candidate_title="别把日子过反了",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_remaining_ai_flavor_retry_triggers_for_explainer_shell_residue_only() -> None:
+    candidate_body = (
+        "# 等到身体先报警，才发现自己一直排在最后\n\n"
+        "体检单上多了一行红字，你盯着下周那场会，想的还是能不能照常开。情绪忽然失控那次，你也没把它当回事，只当自己这阵子没休息好。连休息都变成任务的人，最容易把“累”理解成忙，把“撑不住”理解成自己还不够能扛。成年后的很多疲惫，起点往往更早：你已经习惯了，谁都可以排在你前面，只有你自己，总往后挪。\n\n"
+        "这个顺序，不是一夜之间改掉的。通常是从很小的地方开始。消息先回，工作先交，家里的事先补上，朋友的请求先答应。轮到自己，复查可以下周再去，饭晚一点吃也行，睡眠先欠着，衣服鞋子还能将就。外面给你的反馈很直接，回得快、做得多、顶得住，就会被夸靠谱、懂事、顾全大局。照顾自己没那么立刻，少休一次，不会马上出大事；少吃一顿，也还能撑完今天。人就是在这种“暂时没问题”里，把自己一点点放到了最后。\n\n"
+        "最难受的地方还不在忙。忙有时是阶段性的，过去就过去了。真正消耗人的，是你慢慢默认了：自己的不舒服可以先放一放，自己的需要可以再等等，自己的委屈没那么要紧。这个默认，会把人训练得很麻木。你明明已经发烧，还在改方案；经期疼得站不久，还在说没事；一句话已经冒犯了你，你先顾的是别把气氛弄僵。你一次次退后，不全是善良，也夹着一种很深的熟悉感：只要我还能扛，我就先扛。久了，连你自己都开始把这件事当成理所当然。\n\n"
+        "很多女人的亏欠感，就是在这里长出来的。你总觉得自己还不够好，休息像偷懒，拒绝像亏待别人，花时间在自己身上，还要先补一句“我最近真的有点累”。这背后常常是一种价值感绑定：你把自己有没有用，看得比自己舒不舒服更重要。别人需要你，你会有存在感；轮到你需要被照顾，第一反应却常常是收回去。你怕麻烦人，怕显得矫情，怕一停下来，别人会失望。可身体不会配合这套逻辑。它只会在你长期忽略它的时候，用失眠、暴躁、心慌、内耗把账一点点送回来。\n\n"
+        "人往往要等到真出问题，才承认自己丢了东西。请假住院那几天，你会忽然发现，少了你，很多事也还能转；一段一直靠你兜底的关系，一旦你不再提供情绪劳动，对方未必真会站出来接住你。那一刻你才看清，过去那些被你牺牲掉的睡眠、体力、兴趣、体面，都是从自己身上硬扣出去的。失去感会疼，疼也有用。它逼你承认，你早就欠了自己很多。\n\n"
+        "还有一种失衡，表面看很小，拖久了最伤。医生让你三个月后复查，你拖成了八个月；牙疼一阵一阵，你总说过两天再去；心里已经很压抑了，还是把假期让给“更重要的安排”；一段关系里你总负责理解、安抚、兜底，轮到你难受，对方只回一句“你别想太多”。这些都容易被归进“小事不算事”。可小事重复得够久，就会改写一个人对自己的态度。你会越来越难分清，自己到底是在体谅别人，还是已经习惯亏待自己。\n\n"
+        "把自己往前放，不用等到辞职、搬家、彻底翻篇那种大动作。成年人的止损，常常先从顺序改起。身体不舒服，就先去看；已经累到说话带火气，就先停一停；不属于你的额外责任，少接一点；能晚回的消息，晚回；周末留半天给自己，不拿来补所有人的需求。关键在于让自己看见：我的事也有名字，我的感受也占位置。我可以照顾人，也可以先照顾我自己。\n\n"
+        "这件事刚开始，常常会有阻力。你会不习惯，会想把刚留出来的时间再让出去，会在拒绝别人之后冒出一点歉意。这不代表你做错了，只是旧顺序还在往回拽。你以前总把自己垫在最下面，大家都站稳了，只有你一直悬着。现在只是把那块垫子抽回来一点，让自己能落地。\n\n"
+        "成年后最该补上的，是别再拿自己垫底。先去复查，先把晚饭吃完，先把那句“这次我来不了”发出去。做一件就够了。你会慢慢认出来，善待自己不是附加项，它本来就该在你的生活里面。"
+    )
+
+    assert workbench._should_retry_for_remaining_ai_flavor(
+        source_title="善待自己，好好爱自己",
+        source_markdown="原文",
+        candidate_title="等到身体先报警，才发现自己一直排在最后",
         candidate_markdown=candidate_body,
     )
 
@@ -4885,6 +5168,7 @@ def test_build_initial_draft_candidate_result_reverts_cleanup_that_over_smooths_
     monkeypatch.setattr(workbench, "_collapse_over_segmented_shell_residue", lambda **kwargs: kwargs["body_markdown"])
     monkeypatch.setattr(workbench, "_collapse_light_segmented_shell_residue", lambda **kwargs: kwargs["body_markdown"])
     monkeypatch.setattr(workbench, "_soften_structural_ladder_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_direct_address_lecture_residue", lambda **kwargs: kwargs["body_markdown"])
     monkeypatch.setattr(workbench, "_soften_not_ab_residue", lambda **kwargs: kwargs["body_markdown"])
     monkeypatch.setattr(workbench, "_soften_connector_residue", lambda **kwargs: kwargs["body_markdown"])
     monkeypatch.setattr(
@@ -4912,6 +5196,112 @@ def test_build_initial_draft_candidate_result_reverts_cleanup_that_over_smooths_
     assert result.body_markdown == source_body
     assert result.cleanup_applied is False
     assert result.cleanup_changed_steps == 0
+
+
+def test_build_initial_draft_candidate_result_applies_direct_address_lecture_cleanup(
+    monkeypatch,
+) -> None:
+    source_body = "lecture raw"
+
+    monkeypatch.setattr(workbench, "_collapse_short_judgment_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_time_chain_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_embedded_banner_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(
+        workbench,
+        "_collapse_leading_short_long_cadence_residue",
+        lambda **kwargs: kwargs["body_markdown"],
+        raising=False,
+    )
+    monkeypatch.setattr(workbench, "_collapse_short_long_cadence_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_over_segmented_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_collapse_light_segmented_shell_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_structural_ladder_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_direct_address_lecture_residue", lambda **kwargs: "lecture cleaned")
+    monkeypatch.setattr(workbench, "_soften_not_ab_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(workbench, "_soften_connector_residue", lambda **kwargs: kwargs["body_markdown"])
+    monkeypatch.setattr(
+        workbench,
+        "_prefer_less_smoothed_tracked_article_variant",
+        lambda **kwargs: (kwargs["preferred_markdown"], kwargs["preferred_title"]),
+    )
+
+    result = workbench._build_initial_draft_candidate_result(
+        title="原稿",
+        body_markdown=source_body,
+        source_type="tracked_article",
+    )
+
+    assert result.reference_body_markdown == source_body
+    assert result.body_markdown == "lecture cleaned"
+    assert result.cleanup_applied is True
+    assert result.cleanup_changed_steps == 1
+
+
+def test_collapse_explanatory_bridge_residue_merges_short_bridge_into_process_block() -> None:
+    markdown = (
+        "# 标题\n\n"
+        "包底那张单子还在，纸边已经卷了。\n\n"
+        "更磨人的是，人会慢慢适应这种状态。\n\n"
+        "复查往后放，休息往后放，规律吃药往后放，连“不舒服”本身都往后放。表面上日子还在照常走，工作没停，家里那摊事也没停。"
+    )
+
+    collapsed = workbench._collapse_explanatory_bridge_residue(
+        title="标题",
+        body_markdown=markdown,
+    )
+
+    assert "更磨人的是，人会慢慢适应这种状态。\n\n" not in collapsed
+    assert "更磨人的是，人会慢慢适应这种状态，复查往后放" in collapsed
+
+
+def test_soften_not_ab_residue_breaks_symmetric_answer_shell() -> None:
+    markdown = "不是轻视身体，是没有空位处理后果。"
+
+    softened = workbench._soften_not_ab_residue(
+        title="标题",
+        body_markdown=markdown,
+    )
+
+    assert "不是轻视身体，是没有空位处理后果" not in softened
+    assert "没有空位处理后果" in softened
+    assert "真要把它算成轻视身体，反而把事情说浅了" in softened
+
+
+def test_prefer_less_smoothed_tracked_article_variant_keeps_cleanup_that_clears_lecture_lines(
+    monkeypatch,
+) -> None:
+    fallback_body = "fallback lecture shell"
+    preferred_body = "preferred smooth but lecture-free"
+
+    monkeypatch.setattr(
+        workbench,
+        "_looks_like_over_smoothed_tracked_article_candidate",
+        lambda markdown: markdown == preferred_body,
+    )
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        if body_markdown == fallback_body:
+            return SimpleNamespace(
+                score=18,
+                level="低",
+                hits=["命中：第二人称讲解台词偏显眼 x5"],
+                suggestions=[],
+            )
+        if body_markdown == preferred_body:
+            return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
+        raise AssertionError(body_markdown)
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    chosen_markdown, chosen_title = workbench._prefer_less_smoothed_tracked_article_variant(
+        preferred_title="preferred",
+        preferred_markdown=preferred_body,
+        fallback_title="fallback",
+        fallback_markdown=fallback_body,
+    )
+
+    assert chosen_markdown == preferred_body
+    assert chosen_title == "preferred"
 
 
 def test_final_ai_flavor_cleanup_triggers_for_low_score_residue() -> None:
@@ -4952,6 +5342,22 @@ def test_final_ai_flavor_cleanup_triggers_for_four_not_ab_only_residue() -> None
 
     assert workbench._should_retry_for_final_ai_flavor_cleanup(
         candidate_title="关系卡住的本质：意愿有、懂方法、但无能量",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_final_ai_flavor_cleanup_triggers_for_five_not_ab_only_residue() -> None:
+    candidate_body = (
+        "# 那张化验单上的箭头，你别再替它找理由了\n\n"
+        "体检单上有箭头，脚踝开始肿，早上起床脸发胀，伤口比以前好得慢。身体最开始给的，不是轰动性的警报，是一串很容易被日常吞掉的小信号。\n\n"
+        "医生建议复查，先看手机里的日程表。上午请假要跟同事协调，下午老人要去复诊，孩子晚上还要辅导作业。最常见的卡点不是不知道要重视，是知道，但排不进去。\n\n"
+        "很多女人一生病，先担心的是别给别人添麻烦。她会把“去确认”改成“再观察观察”，把“该休息”改成“我还能扛”。前面省下来的，不是时间，是眼前那点不愿面对的慌。\n\n"
+        "很多恶化，看着突然，过程并不突然。不是某一天毫无征兆地变坏，是前面每次都有提醒，每次都被让给了更紧急的事。\n\n"
+        "当然，具体病情要交给医生判断。这里要说的不是制造恐慌，是别替明显的提醒找太多生活化的解释。"
+    )
+
+    assert workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="那张化验单上的箭头，你别再替它找理由了",
         candidate_markdown=candidate_body,
     )
 
@@ -5308,6 +5714,47 @@ def test_collapse_light_segmented_shell_residue_merges_adjacent_scene_shell_bloc
     assert after_summary.score <= before_summary.score
 
 
+def test_collapse_light_segmented_shell_residue_merges_dense_explainer_shell_blocks() -> None:
+    candidate_body = (
+        "# 等到话越来越少，很多亏欠已经落在自己身上了\n\n"
+        "消息看见了，不想回；别人多问两句，胸口就发闷；明明没出什么大事，人却像被抽掉了反应。你已经很久没把自己放进日程里，身体和情绪先替你停了下来。很多人以为，生活失序会先出现在大地方，工作垮掉了，关系闹僵了，体检单亮红灯了。真到那一步，往往已经拖了很久。更早出现的，是话变短，记性变差，耐心越来越薄，坐着也像在赶路。你还在照常开会、回家、处理孩子的事、接住家里的安排，外面看不出太大问题，里面已经开始发钝。\n\n"
+        "这份发钝最容易被误解。旁人会说你只是最近太累，休息两天就好；你自己也会拿“先把今天过完”压过去。可很多亏空，根本不是两天形成的。饭总在后面吃，觉总往后挪，不舒服先忍，体检改下个月，情绪等忙完再整理。每次都只是往后推一点，推到最后，被挪走的就是你自己。\n\n"
+        "先出问题的，常常是睡眠和吃饭。它们最容易牺牲，也最容易被轻视。少睡一晚，第二天确实还能出门；午饭凑合过去，下午也还能撑着做事。可身体不会按你的待办表运行。睡眠一碎，注意力先散；吃饭长期凑合，反应就会慢，火气却更快。别人第二句话说完了，你前面那句还没接稳；流程临时改动，整天节奏都乱；孩子多问两遍，语气先硬起来。与其说是你突然不会好好说话，不如说是你已经没多少余量了。\n\n"
+        "手机界面还亮着，消息一排排挂在那里。先点掉，又退出来。\n\n"
+        "这种状态磨人的地方，不在于事情有多大，在于它会慢慢改写关系。最亲近的人，最先接住的未必是你的辛苦，往往是你的走神、敷衍、不耐烦。你也会难受，会怪自己，觉得连好好回应都做不到。可愧疚一上来，人常常更想赶紧把眼前应付完，更舍不得停。前面没补上的觉，没吃完整的那顿饭，没说出口的委屈，最后都会绕回来，落到关系里。\n\n"
+        "还有个信号，很多女人太熟了，熟到不把它当回事：不想说话。与其说是没感受，不如说是连把感受翻出来都嫌费力。解释很累，沟通很慢，别人问“怎么了”，你回“没事”；让你选，你说“都行”；轮到你开口，反而退后。外人容易把这看成懂事、稳定、不添麻烦。可安静也分很多种。有一种安静，是人已经快没电了，连表达自己都嫌重。\n\n"
+        "很多人总在失去后才承认，原来早就不对了。病倒一场，才肯承认身体不是机器；关系冷下去，才看见自己很久没认真听人说话；崩一次，才把那些旧信号对上号：懒得回消息，话越来越短，记性变差，对原本喜欢的事提不起劲。这些都不是突然发生的，它们早就在提醒，只是提醒不够响，不像工作催办那样立刻找上门。\n\n"
+        "真正卡住人的，是紧急和重要的顺序被拧反了。工作上的临时需求、家里的突发状况、孩子的作业、父母的安排，都有当场反馈，你处理了，事情就往前走；你停下来，麻烦马上堆着看你。照顾自己没有这种即时催促。少睡一晚，表面没塌；情绪不整理，会也照开，饭也能继续做。久了，人会越来越擅长维持外面的秩序，越来越迟钝于里面的失衡。家里看着没乱，工作也还推得动，只有你自己一点点散掉。\n\n"
+        "更难的是，很多人会把这叫成“我还行”“我再撑撑”。这几个字很硬，也很危险。撑住不等于没代价。你做事开始反复确认，效率却没高多少；别人一句普通的话，你听着都刺；忙了整天，晚上躺下却没完成感。连身体给出的信号也被压成背景音：累了不敢停，烦了不敢说，不舒服先忍，想休息先内疚。拖久了，人会连自己的需要都认不准。谁着急，哪件事不能出错，哪个时间点必须出现，你都知道；你缺觉，缺安静，缺半小时不被打断，反而总排到最后。\n\n"
+        "到这里，最该补的不是更强的执行力，也不是再学几条时间管理。先把一件事认下来：照顾自己，不该是忙完以后才轮到的奖励，它本来就是日常秩序的一部分。睡觉要往前放，吃饭要往前放，身体已经发出的信号要往前放。那句“我现在没力气，晚点再说”，也该被允许出现。\n\n"
+        "变慢、变钝、变得不想说话的时候，就别再拿“还能撑”安慰自己了。把无效熬夜停掉，把那顿饭完整吃完，把原本准备硬接的请求往后放。日子能不能重新稳住，往往就从这里开始。不是先把所有人都安顿好，才轮得到你，是你先别继续亏欠自己。"
+    )
+
+    before_burden = workbench._article_shell_burden(candidate_body)
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="等到话越来越少，很多亏欠已经落在自己身上了",
+        body_markdown=candidate_body,
+    )
+
+    collapsed = workbench._collapse_light_segmented_shell_residue(
+        title="等到话越来越少，很多亏欠已经落在自己身上了",
+        body_markdown=candidate_body,
+    )
+
+    after_burden = workbench._article_shell_burden(collapsed)
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="等到话越来越少，很多亏欠已经落在自己身上了",
+        body_markdown=collapsed,
+    )
+
+    assert collapsed != candidate_body
+    assert after_burden[1] <= before_burden[1] - 1
+    assert after_burden[0] < before_burden[0]
+    assert after_summary.score <= before_summary.score
+    assert "这份发钝最容易被误解。旁人会说你只是最近太累" in collapsed
+    assert "手机界面还亮着，消息一排排挂在那里。先点掉，又退出来。这种状态磨人的地方" in collapsed
+
+
 def test_soften_structural_ladder_residue_breaks_orderly_ladder_shell() -> None:
     candidate_body = (
         "关系里的缺席，也不是某天忽然形成的。先是把见面改成改天。后来电话变成文字。再后来，长回复缩成表情，解释缩成“最近有点忙”。聊天框里的未读红点越来越多，她收藏过几条想认真回的话，后来也没再点开。"
@@ -5355,7 +5802,8 @@ def test_soften_not_ab_residue_rewrites_balanced_reversal_shell() -> None:
     )
 
     assert softened != candidate_body
-    assert "与其说是故意藏着不说，不如说是她真的一时不知道从哪里讲起" in softened
+    assert "她真的一时不知道从哪里讲起" in softened
+    assert "先说成故意藏着不说，反而太轻了" in softened
     assert after_summary.score < before_summary.score
     assert not any("不是A，是B" in hit for hit in after_summary.hits)
 
@@ -5383,11 +5831,115 @@ def test_soften_not_ab_residue_rewrites_three_residual_reversals() -> None:
     )
 
     assert softened != candidate_body
-    assert "与其说是因为她真的觉得自己没事，不如说是“我最近不太对劲”这句话一旦说出口" in softened
-    assert "与其说是体贴，不如说是脑子已经不想再做选择" in softened
-    assert "与其说是她没发现，不如说是她发现了也不敢认" in softened
+    assert "“我最近不太对劲”这句话一旦说出口" in softened
+    assert "真要把它当成没事，后面那点拖延和硬撑反而更难解释" in softened
+    assert "脑子已经不想再做选择" in softened
+    assert "先说成体贴，反而太轻了" in softened
+    assert "她发现了也不敢认" in softened
+    assert "真要这么说，也把事情说浅了" in softened
+    assert "只是更容易先被人拿来安慰自己" not in softened
     assert after_summary.score < before_summary.score
     assert not any("不是A，是B" in hit for hit in after_summary.hits)
+
+
+def test_soften_not_ab_residue_keeps_long_right_clause_without_mass_producing_rebound_tails() -> None:
+    candidate_body = (
+        "不是突然一下到了重症那一步，而是把请假难、孩子的事、工作节点、家里老人、这个月不能停，排在自己前面。\n\n"
+        "不是没感觉，而是请假要解释，家里要重新协调，工作要有人接。\n\n"
+        "不是病名本身，而是前面明明有过好几次能停下来的机会。"
+    )
+
+    softened = workbench._soften_not_ab_residue(
+        title="把复查一拖再拖的人，生活会慢慢缩到只剩先扛着",
+        body_markdown=candidate_body,
+    )
+
+    assert "不是突然一下到了重症那一步" not in softened
+    assert "把请假难、孩子的事、工作节点、家里老人、这个月不能停，排在自己前面" in softened
+    assert "请假要解释，家里要重新协调，工作要有人接" in softened
+    assert softened.count("反而把事情说浅了") <= 1
+    assert "真要把它算成突然一下到了重症那一步" not in softened
+    assert "真要把它算成没感觉" not in softened
+    assert "真要把它算成病名本身" not in softened
+
+
+def test_strip_rebound_explainer_tail_residue_removes_repeated_rebound_tails() -> None:
+    candidate_body = (
+        "# 复查一拖再拖，身体就会替你把账记到后面\n\n"
+        "鞋变紧了，先当盐吃多了。总觉得虚，就归到工作太满。吃不下饭，也拿天气热压过去。解释一顺手，复查就更容易往后拖。拖久了，最先被拖钝的还判断力。真要把它算成病情这两个字，反而把事情说浅了。人会慢慢分不清，什么是熬两天就能缓过来的累，什么已经到了该停下来的程度。\n\n"
+        "等到尿毒症，会怀念曾经只是浮肿和乏力；等到透析，又会怀念刚查出尿毒症的时候。人每一次都觉得还能往后让一让。真要把它算成完全没被提醒过，前面有过好几个路口，只，反而把事情说浅了。让到最后，代价就整段压过来了。\n\n"
+        "抽屉里的那张单子，今天拿不拿出来，差别很大。很多更重的代价，并从这类看上去还能往后放的小事，一点点追到账上。真要把它算成突然落下来的，都，反而把事情说浅了。"
+    )
+
+    cleaned = workbench._strip_rebound_explainer_tail_residue(
+        title="复查一拖再拖，身体就会替你把账记到后面",
+        body_markdown=candidate_body,
+    )
+
+    assert "真要把它算成病情这两个字" not in cleaned
+    assert "真要把它算成完全没被提醒过" not in cleaned
+    assert "真要把它算成突然落下来的" not in cleaned
+    assert "只，" not in cleaned
+    assert "都，" not in cleaned
+    assert "人会慢慢分不清" in cleaned
+    assert "让到最后，代价就整段压过来了" in cleaned
+    assert "很多更重的代价" in cleaned
+
+
+def test_strip_orphaned_rebound_tail_residue_removes_broken_tail_fragments() -> None:
+    candidate_body = (
+        "# 那张没去复查的单子，通常比诊断书更早知道你扛不住了\n\n"
+        "它，你已经收到了提醒，但生活里没有给自己留处理提醒的位置。它代表的，反而把事情说浅了。"
+        "你可以把很多人很多事安排进去，却没有把自己的复查、睡觉、吃饭、休息排进同等优先级。"
+    )
+
+    cleaned = workbench._strip_orphaned_rebound_tail_residue(
+        title="那张没去复查的单子，通常比诊断书更早知道你扛不住了",
+        body_markdown=candidate_body,
+    )
+
+    assert "它代表的，反而把事情说浅了" not in cleaned
+    assert "它，你已经收到了提醒" not in cleaned
+    assert "你已经收到了提醒，但生活里没有给自己留处理提醒的位置" in cleaned
+    assert "你可以把很多人很多事安排进去" in cleaned
+
+
+def test_soften_direct_address_lecture_residue_rewrites_low_score_lecture_shell() -> None:
+    candidate_body = (
+        "# 等到话越来越少，很多亏欠已经落在自己身上了\n\n"
+        "你有没有过这种阶段：消息看见了，不想回；别人多问两句，胸口就发闷；明明没出什么大事，人却像被抽掉了反应。答案我先直接告诉你，这通常不是懒，也不是你忽然变脆弱了。更常见的情况是，你已经很久没把自己放进日程里，身体和情绪先替你停了下来。\n\n"
+        "手机界面还亮着，消息一排排挂在那里。\n\n"
+        "你看见了，也知道该回谁，先点掉，又退出来。\n\n"
+        "如果你这段时间已经开始变慢、变钝、变得不想说话，就别再拿“还能撑”安慰自己了。先把自己算进去。"
+    )
+
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="等到话越来越少，很多亏欠已经落在自己身上了",
+        body_markdown=candidate_body,
+    )
+
+    softened = workbench._soften_direct_address_lecture_residue(
+        title="等到话越来越少，很多亏欠已经落在自己身上了",
+        body_markdown=candidate_body,
+    )
+
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="等到话越来越少，很多亏欠已经落在自己身上了",
+        body_markdown=softened,
+    )
+
+    assert softened != candidate_body
+    assert "你有没有过这种阶段" not in softened
+    assert "答案我先直接告诉你" not in softened
+    assert "你看见了，也知道该回谁" not in softened
+    assert "如果你这段时间已经开始" not in softened
+    assert "\n\n先点掉，又退出来。" not in softened
+    assert "变慢、变钝、变得不想说话的时候" in softened
+    assert "不是……而是" not in softened
+    assert after_summary.score < before_summary.score
+    assert not any("第二人称讲解台词偏显眼" in hit for hit in after_summary.hits)
+    assert not any("不是A，是B" in hit for hit in after_summary.hits)
+    assert not any("解释连接词偏多" in hit for hit in after_summary.hits)
 
 
 def test_soften_connector_residue_clears_minor_explanatory_connector_shell() -> None:
@@ -5432,6 +5984,57 @@ def test_final_ai_flavor_cleanup_triggers_for_embedded_banner_residue() -> None:
 
     assert workbench._should_retry_for_final_ai_flavor_cleanup(
         candidate_title="别把日子过反了",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_final_ai_flavor_cleanup_triggers_for_explainer_shell_residue_only() -> None:
+    candidate_body = (
+        "# 等到身体先报警，才发现自己一直排在最后\n\n"
+        "体检单上多了一行红字，你盯着下周那场会，想的还是能不能照常开。情绪忽然失控那次，你也没把它当回事，只当自己这阵子没休息好。连休息都变成任务的人，最容易把“累”理解成忙，把“撑不住”理解成自己还不够能扛。成年后的很多疲惫，起点往往更早：你已经习惯了，谁都可以排在你前面，只有你自己，总往后挪。\n\n"
+        "这个顺序，不是一夜之间改掉的。通常是从很小的地方开始。消息先回，工作先交，家里的事先补上，朋友的请求先答应。轮到自己，复查可以下周再去，饭晚一点吃也行，睡眠先欠着，衣服鞋子还能将就。外面给你的反馈很直接，回得快、做得多、顶得住，就会被夸靠谱、懂事、顾全大局。照顾自己没那么立刻，少休一次，不会马上出大事；少吃一顿，也还能撑完今天。人就是在这种“暂时没问题”里，把自己一点点放到了最后。\n\n"
+        "最难受的地方还不在忙。忙有时是阶段性的，过去就过去了。真正消耗人的，是你慢慢默认了：自己的不舒服可以先放一放，自己的需要可以再等等，自己的委屈没那么要紧。这个默认，会把人训练得很麻木。你明明已经发烧，还在改方案；经期疼得站不久，还在说没事；一句话已经冒犯了你，你先顾的是别把气氛弄僵。你一次次退后，不全是善良，也夹着一种很深的熟悉感：只要我还能扛，我就先扛。久了，连你自己都开始把这件事当成理所当然。\n\n"
+        "很多女人的亏欠感，就是在这里长出来的。你总觉得自己还不够好，休息像偷懒，拒绝像亏待别人，花时间在自己身上，还要先补一句“我最近真的有点累”。这背后常常是一种价值感绑定：你把自己有没有用，看得比自己舒不舒服更重要。别人需要你，你会有存在感；轮到你需要被照顾，第一反应却常常是收回去。你怕麻烦人，怕显得矫情，怕一停下来，别人会失望。可身体不会配合这套逻辑。它只会在你长期忽略它的时候，用失眠、暴躁、心慌、内耗把账一点点送回来。\n\n"
+        "人往往要等到真出问题，才承认自己丢了东西。请假住院那几天，你会忽然发现，少了你，很多事也还能转；一段一直靠你兜底的关系，一旦你不再提供情绪劳动，对方未必真会站出来接住你。那一刻你才看清，过去那些被你牺牲掉的睡眠、体力、兴趣、体面，都是从自己身上硬扣出去的。失去感会疼，疼也有用。它逼你承认，你早就欠了自己很多。\n\n"
+        "还有一种失衡，表面看很小，拖久了最伤。医生让你三个月后复查，你拖成了八个月；牙疼一阵一阵，你总说过两天再去；心里已经很压抑了，还是把假期让给“更重要的安排”；一段关系里你总负责理解、安抚、兜底，轮到你难受，对方只回一句“你别想太多”。这些都容易被归进“小事不算事”。可小事重复得够久，就会改写一个人对自己的态度。你会越来越难分清，自己到底是在体谅别人，还是已经习惯亏待自己。\n\n"
+        "把自己往前放，不用等到辞职、搬家、彻底翻篇那种大动作。成年人的止损，常常先从顺序改起。身体不舒服，就先去看；已经累到说话带火气，就先停一停；不属于你的额外责任，少接一点；能晚回的消息，晚回；周末留半天给自己，不拿来补所有人的需求。关键在于让自己看见：我的事也有名字，我的感受也占位置。我可以照顾人，也可以先照顾我自己。\n\n"
+        "这件事刚开始，常常会有阻力。你会不习惯，会想把刚留出来的时间再让出去，会在拒绝别人之后冒出一点歉意。这不代表你做错了，只是旧顺序还在往回拽。你以前总把自己垫在最下面，大家都站稳了，只有你一直悬着。现在只是把那块垫子抽回来一点，让自己能落地。\n\n"
+        "成年后最该补上的，是别再拿自己垫底。先去复查，先把晚饭吃完，先把那句“这次我来不了”发出去。做一件就够了。你会慢慢认出来，善待自己不是附加项，它本来就该在你的生活里面。"
+    )
+
+    assert workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="等到身体先报警，才发现自己一直排在最后",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_final_ai_flavor_cleanup_triggers_for_lecture_line_residue_only() -> None:
+    candidate_body = (
+        "# 等到话越来越少，很多亏欠已经落在自己身上了\n\n"
+        "你有没有过这种阶段：消息看见了，不想回；别人多问两句，胸口就发闷；明明没出什么大事，人却像被抽掉了反应。答案我先直接告诉你，这通常不是懒，也不是你忽然变脆弱了。更常见的情况是，你已经很久没把自己放进日程里，身体和情绪先替你停了下来。\n\n"
+        "这份发钝最容易被误解。旁人会说你只是最近太累，休息两天就好；你自己也会拿“先把今天过完”压过去。可很多亏空，根本不是两天形成的。饭总在后面吃，觉总往后挪，不舒服先忍，体检改下个月，情绪等忙完再整理。每次都只是往后推一点，推到最后，被挪走的就是你自己。\n\n"
+        "手机界面还亮着，消息一排排挂在那里。\n\n"
+        "你看见了，也知道该回谁，先点掉，又退出来。\n\n"
+        "如果你这段时间已经开始变慢、变钝、变得不想说话，就别再拿“还能撑”安慰自己了。先把自己算进去。"
+    )
+
+    assert workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="等到话越来越少，很多亏欠已经落在自己身上了",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_final_ai_flavor_cleanup_triggers_for_opening_explainer_shell_only() -> None:
+    candidate_body = (
+        "# 等到身体先报警，才发现自己一直排在最后\n\n"
+        "你以为自己只是累吗？有一类疲惫，休息一天也缓不过来。别人一有需要，你立刻接住；轮到自己的睡眠、情绪、体检和那顿该好好吃的饭，你总能往后再挪一点。\n\n"
+        "它一开始并不惊人，甚至很像负责。工作临时加项，你先改；家里有人要你搭把手，你先去；关系里气氛不对，你先安抚。短时间里，事情被处理了，场面也稳住了，后面留下来的，是睡眠被切碎，身体信号被拖延，情绪越来越晚才轮到被照顾。\n\n"
+        "成年人的生活里，最会抢位置的，几乎都是紧急的东西。消息要回，节点要赶，孩子和父母的问题要接，伴侣的情绪也需要回应。你的需要通常没有那么大的声量，它不敲门，只是在肩颈发紧、经期紊乱、胃口变差、耐心变短时提醒你。\n\n"
+        "很多亏空，不是一天形成的。你只是一次次把那句“我现在也不太行”压回去，久了，身体和情绪就先替你停下来。"
+    )
+
+    assert workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="等到身体先报警，才发现自己一直排在最后",
         candidate_markdown=candidate_body,
     )
 

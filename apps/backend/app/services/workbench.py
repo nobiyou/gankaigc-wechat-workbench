@@ -40,6 +40,8 @@ from app.services.ai_flavor import (
     extract_generic_reflective_openers,
     extract_isolated_quote_paragraphs,
     extract_not_ab_skeletons,
+    extract_orphaned_rebound_tails,
+    extract_rebound_explainer_tails,
     extract_short_judgment_paragraphs,
 )
 from app.schemas.projects import (
@@ -68,6 +70,10 @@ from app.schemas.projects import (
 from app.services.creative_strategy import build_strategy_package
 from app.schemas.tone_profiles import ToneProfileItem, ToneProfileReorder, ToneProfileUpsert
 from app.services.prompt_templates import DEFAULT_DOMAIN_PROMPT_PACK, get_domain_prompt_pack
+from app.services.prompt_templates import (
+    _extract_tracked_article_body_cues,
+    _infer_tracked_article_pressure_guard,
+)
 from app.services.tone_profile_presets import (
     DEFAULT_TONE_PROFILE_PRESET,
     list_builtin_tone_profile_presets,
@@ -218,6 +224,47 @@ class _InitialDraftCandidateResult:
     cleanup_changed_steps: int
 
 
+def _apply_initial_draft_candidate_cleanups(
+    *,
+    title: str,
+    body_markdown: str,
+    source_type: str,
+) -> tuple[str, int]:
+    current_body = body_markdown
+    changed_steps = 0
+
+    cleanup_fns = [_collapse_short_judgment_residue]
+    if source_type == "tracked_article":
+        cleanup_fns.extend(
+            (
+                _collapse_time_chain_shell_residue,
+                _collapse_embedded_banner_shell_residue,
+                _collapse_explanatory_bridge_residue,
+                _collapse_leading_short_long_cadence_residue,
+                _collapse_short_long_cadence_residue,
+                _soften_structural_ladder_residue,
+                _soften_direct_address_lecture_residue,
+                _collapse_over_segmented_shell_residue,
+                _collapse_light_segmented_shell_residue,
+                _soften_not_ab_residue,
+                _strip_rebound_explainer_tail_residue,
+                _strip_orphaned_rebound_tail_residue,
+                _soften_connector_residue,
+            )
+        )
+
+    for cleanup_fn in cleanup_fns:
+        collapsed_body = cleanup_fn(
+            title=title,
+            body_markdown=current_body,
+        )
+        if collapsed_body != current_body:
+            changed_steps += 1
+        current_body = collapsed_body
+
+    return current_body, changed_steps
+
+
 def _build_initial_draft_candidate_result(
     *,
     title: str,
@@ -226,37 +273,13 @@ def _build_initial_draft_candidate_result(
 ) -> _InitialDraftCandidateResult:
     reference_title = title
     reference_body_markdown = body_markdown
-    current_body = body_markdown
-    changed_steps = 0
-
-    collapsed_body = _collapse_short_judgment_residue(
+    current_body, changed_steps = _apply_initial_draft_candidate_cleanups(
         title=title,
-        body_markdown=current_body,
+        body_markdown=body_markdown,
+        source_type=source_type,
     )
-    if collapsed_body != current_body:
-        changed_steps += 1
-    current_body = collapsed_body
 
     if source_type == "tracked_article":
-        for cleanup_fn in (
-            _collapse_time_chain_shell_residue,
-            _collapse_embedded_banner_shell_residue,
-            _collapse_leading_short_long_cadence_residue,
-            _collapse_short_long_cadence_residue,
-            _collapse_over_segmented_shell_residue,
-            _collapse_light_segmented_shell_residue,
-            _soften_structural_ladder_residue,
-            _soften_not_ab_residue,
-            _soften_connector_residue,
-        ):
-            collapsed_body = cleanup_fn(
-                title=title,
-                body_markdown=current_body,
-            )
-            if collapsed_body != current_body:
-                changed_steps += 1
-            current_body = collapsed_body
-
         stabilized_body, _ = _prefer_less_smoothed_tracked_article_variant(
             preferred_title=title,
             preferred_markdown=current_body,
@@ -2276,6 +2299,197 @@ def _normalize_tracked_article_tags(tags: object) -> list[str]:
     return normalized
 
 
+_ABSTRACT_PRESSURE_TOPIC_ANGLE_TOKENS = (
+    "自我调度",
+    "很多女性",
+    "很多人",
+    "怎样",
+    "如何",
+    "持续撤掉",
+    "直到身体和情绪",
+    "体面之间",
+    "自我照料",
+    "生活顺序",
+    "身体和情绪",
+    "一起追债",
+)
+
+_ABSTRACT_PRESSURE_TOPIC_TITLE_TOKENS = (
+    "开始怀念",
+    "病本身",
+    "复查一再改期的人",
+    "总把自己",
+    "总把休息",
+    "排在最后",
+    "排到最后",
+    "放最后",
+    "迟早",
+    "怀念那个",
+    "只是有点累",
+    "失序的生活",
+    "善待自己",
+    "好好爱自己",
+    "人生",
+    "遗憾",
+    "拖得太晚",
+    "内耗",
+    "生活排序",
+    "自我照料",
+    "自我关照",
+)
+
+_PRESSURE_TOPIC_TITLE_INTERFACE_TOKENS = (
+    "体检",
+    "复查",
+    "尿毒症",
+    "褥疮",
+    "透析",
+    "轮椅",
+    "没力气",
+    "不想回",
+    "改期",
+    "往后推",
+    "往后改",
+    "钝",
+    "吃饭",
+    "睡",
+    "提醒",
+    "信号",
+)
+
+
+def _compact_pressure_topic_cue(sentence: str) -> str:
+    compact = re.sub(r"\s+", "", sentence).strip("。！？!?；;")
+    if not compact:
+        return ""
+    compact = re.sub(r"^(后来|几年后|又过了一些年|又过了几年|又过些年|前两年|当初|刚得|要|便|又开始|开始)", "", compact)
+    compact = re.sub(r"^(得了|长了)", "", compact)
+    compact = re.sub(r"^(又|再|便)", "", compact)
+    compact = compact.lstrip("，,、")
+    return compact
+
+
+def _should_rewrite_pressure_topic_angle(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> bool:
+    if _infer_tracked_article_pressure_guard(payload) != "internal_pressure":
+        return False
+    angle = str(ai_result.get("angle") or "").strip()
+    if not angle:
+        return False
+    if any(token in angle for token in ("体检", "尿毒症", "褥疮", "透析", "轮椅", "身体提醒", "身体信号", "没回", "改期")):
+        return False
+    return any(token in angle for token in _ABSTRACT_PRESSURE_TOPIC_ANGLE_TOKENS)
+
+
+def _should_rewrite_pressure_topic_title(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> bool:
+    if _infer_tracked_article_pressure_guard(payload) != "internal_pressure":
+        return False
+    title = str(ai_result.get("title") or "").strip()
+    if not title:
+        return False
+    if any(token in title for token in _ABSTRACT_PRESSURE_TOPIC_TITLE_TOKENS):
+        return True
+    if any(token in title for token in _PRESSURE_TOPIC_TITLE_INTERFACE_TOKENS):
+        return False
+    return False
+
+
+def _summarize_pressure_topic_title_cue(sentence: str) -> str:
+    compact = _compact_pressure_topic_cue(sentence)
+    if not compact:
+        return ""
+    if "透析" in compact:
+        return "透析"
+    if "尿毒症" in compact:
+        return "尿毒症"
+    if "长褥疮" in compact:
+        return "长褥疮"
+    if "轮椅" in compact:
+        return "坐上轮椅"
+    if "体检" in compact and any(token in compact for token in ("改", "推", "拖", "往后")):
+        return "体检一改再改"
+    if "复查" in compact and any(token in compact for token in ("改", "推", "拖", "往后")):
+        return "复查一拖再拖"
+    if "回家吃饭" in compact and any(token in compact for token in ("改", "推", "拖", "往后")):
+        return "回家吃饭也往后推"
+    if "越来越钝" in compact or "变钝" in compact:
+        return "整个人越来越钝"
+    if "不想回" in compact or "懒得回" in compact:
+        return "连消息都不想回"
+    if "没力气" in compact:
+        return "已经没力气回应"
+    if "睡" in compact and any(token in compact for token in ("改", "推", "拖", "晚", "欠")):
+        return "连睡觉都往后拖"
+    return compact[:10]
+
+
+def _select_pressure_topic_rewrite_cues(body_cues: list[str]) -> list[str]:
+    summarized_cues: list[str] = []
+    for cue in body_cues:
+        summarized = _summarize_pressure_topic_title_cue(cue)
+        if summarized and summarized not in summarized_cues:
+            summarized_cues.append(summarized)
+    if len(summarized_cues) <= 1:
+        return summarized_cues
+    return [summarized_cues[0], summarized_cues[-1]]
+
+
+def _rewrite_pressure_topic_title(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> str:
+    original_title = str(ai_result.get("title") or "").strip()
+    body_cues = _extract_tracked_article_body_cues(payload)
+    if not body_cues:
+        return original_title
+
+    summarized_cues = _select_pressure_topic_rewrite_cues(body_cues)
+    if not summarized_cues:
+        return original_title
+
+    primary = summarized_cues[0]
+    secondary = summarized_cues[1] if len(summarized_cues) > 1 else ""
+    if primary and secondary:
+        if primary == "复查一拖再拖":
+            return "那张“建议复查”的单子，被你压了多久"
+        if primary == "体检一改再改":
+            return "那次体检被你改到第几回了"
+        if primary == "回家吃饭也往后推":
+            return "连回家吃饭都在往后推的时候，人已经累成什么样了"
+        if primary == "连睡觉都往后拖":
+            return "连睡觉都要往后拖的时候，人已经撑到哪一步了"
+        if any(token in {primary, secondary} for token in ("透析", "尿毒症", "长褥疮", "坐上轮椅")):
+            return f"从{primary}到{secondary}，身体到底替你扛了多少"
+        if secondary in ("整个人越来越钝", "连消息都不想回", "已经没力气回应"):
+            return f"{primary}之后，人为什么会变成{secondary}"
+        return f"{primary}之后，很多事为什么会越拖越重"
+    if primary:
+        if any(token in primary for token in ("体检", "复查", "透析", "尿毒症", "褥疮", "轮椅")):
+            if primary == "复查一拖再拖":
+                return "那张“建议复查”的单子，被你压了多久"
+            if primary == "体检一改再改":
+                return "那次体检被你改到第几回了"
+            return f"当{primary}开始反复出现时，你到底还想往后拖多久"
+        if any(token in primary for token in ("不想回", "吃饭", "睡", "没力气", "越来越钝")):
+            return f"当{primary}时，人已经在失去什么"
+        return f"{primary}开始冒头以后，很多代价就已经上路了"
+    return original_title
+
+
+def _rewrite_pressure_topic_angle(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> dict[str, str]:
+    title = str(ai_result.get("title") or "").strip()
+    body_cues = _extract_tracked_article_body_cues(payload)
+    if not body_cues:
+        return {"title": title, "angle": str(ai_result.get("angle") or "").strip()}
+
+    summarized_cues = _select_pressure_topic_rewrite_cues(body_cues)
+    primary = summarized_cues[0] if summarized_cues else ""
+    secondary = summarized_cues[1] if len(summarized_cues) > 1 else ""
+    if primary and secondary:
+        angle = f"从{primary}一路拖到{secondary}的身体代价链切入，写人为什么总把自己的求救信号继续压后，不先抛人生答案。"
+    elif primary:
+        angle = f"从{primary}这种已经冒头的身体代价切入，写人为什么总把这样的求救信号继续压后，不先抛人生答案。"
+    else:
+        angle = str(ai_result.get("angle") or "").strip()
+    return {"title": title, "angle": angle}
+
+
 def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
     with _get_connection() as connection:
         row = _get_tracked_article_row_by_slug(connection, article_slug)
@@ -2658,19 +2872,26 @@ def generate_topic_from_tracked_article(article_slug: str) -> TopicItem:
             (article_slug, f"{article_slug}-ai-topic-%"),
         ).fetchone()
         slug = f"{article_slug}-ai-topic-{int(current['total']) + 1}"
-        ai_result = get_ai_generator().generate_topic(
-            {
-                "source_type": "tracked_article",
-                "source_ref_slug": article["slug"],
-                "source_name": _normalize_tracked_article_source_name(str(article["source_name"])),
-                "article_title": article["title"],
-                "author": article["author"],
-                "summary": article["summary"],
-                "structure_notes": article["structure_notes"],
-                "tags": json.loads(str(article["tags"])),
-                "tone_profile": tone_profile.model_dump(),
+        topic_payload = {
+            "source_type": "tracked_article",
+            "source_ref_slug": article["slug"],
+            "source_name": _normalize_tracked_article_source_name(str(article["source_name"])),
+            "article_title": article["title"],
+            "author": article["author"],
+            "summary": article["summary"],
+            "body_markdown": article["body_markdown"],
+            "structure_notes": article["structure_notes"],
+            "tags": json.loads(str(article["tags"])),
+            "tone_profile": tone_profile.model_dump(),
+        }
+        ai_result = get_ai_generator().generate_topic(topic_payload)
+        if _should_rewrite_pressure_topic_title(topic_payload, ai_result):
+            ai_result = {
+                "title": _rewrite_pressure_topic_title(topic_payload, ai_result),
+                "angle": str(ai_result.get("angle") or "").strip(),
             }
-        )
+        if _should_rewrite_pressure_topic_angle(topic_payload, ai_result):
+            ai_result = _rewrite_pressure_topic_angle(topic_payload, ai_result)
         connection.execute(
             """
             INSERT INTO topics (slug, trend_slug, source_type, source_ref_slug, title, angle, status)
@@ -4393,80 +4614,11 @@ def _finalize_initial_draft_candidate(
     def _finish(body: str, current_title: str) -> _InitialDraftCandidateResult:
         reference_title = current_title
         reference_body_markdown = body
-        current_body = body
-        changed_steps = 0
-
-        collapsed_body = _collapse_short_judgment_residue(
+        current_body, changed_steps = _apply_initial_draft_candidate_cleanups(
             title=current_title,
-            body_markdown=current_body,
+            body_markdown=body,
+            source_type=str(project["source_type"]),
         )
-        if collapsed_body != current_body:
-            changed_steps += 1
-        current_body = collapsed_body
-        if str(project["source_type"]) == "tracked_article":
-            collapsed_body = _collapse_time_chain_shell_residue(
-                title=current_title,
-                body_markdown=current_body,
-            )
-            if collapsed_body != current_body:
-                changed_steps += 1
-            current_body = collapsed_body
-            collapsed_body = _collapse_embedded_banner_shell_residue(
-                title=current_title,
-                body_markdown=current_body,
-            )
-            if collapsed_body != current_body:
-                changed_steps += 1
-            current_body = collapsed_body
-            collapsed_body = _collapse_leading_short_long_cadence_residue(
-                title=current_title,
-                body_markdown=current_body,
-            )
-            if collapsed_body != current_body:
-                changed_steps += 1
-            current_body = collapsed_body
-            collapsed_body = _collapse_short_long_cadence_residue(
-                title=current_title,
-                body_markdown=current_body,
-            )
-            if collapsed_body != current_body:
-                changed_steps += 1
-            current_body = collapsed_body
-            collapsed_body = _collapse_over_segmented_shell_residue(
-                title=current_title,
-                body_markdown=current_body,
-            )
-            if collapsed_body != current_body:
-                changed_steps += 1
-            current_body = collapsed_body
-            collapsed_body = _collapse_light_segmented_shell_residue(
-                title=current_title,
-                body_markdown=current_body,
-            )
-            if collapsed_body != current_body:
-                changed_steps += 1
-            current_body = collapsed_body
-            collapsed_body = _soften_structural_ladder_residue(
-                title=current_title,
-                body_markdown=current_body,
-            )
-            if collapsed_body != current_body:
-                changed_steps += 1
-            current_body = collapsed_body
-            collapsed_body = _soften_not_ab_residue(
-                title=current_title,
-                body_markdown=current_body,
-            )
-            if collapsed_body != current_body:
-                changed_steps += 1
-            current_body = collapsed_body
-            collapsed_body = _soften_connector_residue(
-                title=current_title,
-                body_markdown=current_body,
-            )
-            if collapsed_body != current_body:
-                changed_steps += 1
-            current_body = collapsed_body
         return _InitialDraftCandidateResult(
             title=current_title,
             body_markdown=current_body,
@@ -4823,6 +4975,14 @@ def _prefer_less_smoothed_tracked_article_variant(
         title=preferred_title,
         body_markdown=preferred_markdown,
     )
+    fallback_lecture_hits = [
+        hit for hit in fallback_summary.hits if "第二人称讲解台词偏显眼" in hit
+    ]
+    preferred_lecture_hits = [
+        hit for hit in preferred_summary.hits if "第二人称讲解台词偏显眼" in hit
+    ]
+    if fallback_lecture_hits and not preferred_lecture_hits and preferred_summary.score <= fallback_summary.score:
+        return preferred_markdown, preferred_title
     if fallback_summary.score <= max(26, preferred_summary.score + 12):
         return fallback_markdown, fallback_title
     return preferred_markdown, preferred_title
@@ -4867,18 +5027,32 @@ def _should_retry_for_remaining_ai_flavor(
     residual_not_ab = extract_not_ab_skeletons(candidate_markdown)
     residual_openers = extract_generic_reflective_openers(candidate_markdown)
     residual_cliches = extract_growth_cliches(candidate_markdown)
+    residual_rebound_tails = extract_rebound_explainer_tails(candidate_markdown)
     residual_short_judgments = extract_short_judgment_paragraphs(candidate_markdown)
     residual_cadence_pairs = count_short_long_cadence_pairs(candidate_markdown)
     residual_embedded_banners = extract_embedded_banner_paragraphs(candidate_markdown)
     residual_quote_paragraphs = extract_isolated_quote_paragraphs(candidate_markdown)
     residual_explanatory_paragraphs = extract_explanatory_bridge_paragraphs(candidate_markdown)
+    explainer_shell_hits = [
+        hit
+        for hit in candidate_summary.hits
+        if "第二人称整篇讲解密度偏高" in hit or "中长段整篇过于齐整" in hit
+    ]
+    opening_explainer_hits = [
+        hit for hit in candidate_summary.hits if "开头讲稿式先答后证" in hit
+    ]
     if candidate_summary.score < 20:
+        if opening_explainer_hits and candidate_summary.score >= 16:
+            return True
+        if len(explainer_shell_hits) >= 2 and candidate_summary.score >= 28:
+            return True
         return False
     if len(candidate_summary.hits) < 2:
         if (
             not residual_not_ab
             and len(residual_openers) < 2
             and not residual_cliches
+            and not residual_rebound_tails
             and len(residual_short_judgments) < 3
             and residual_cadence_pairs < 2
             and len(residual_embedded_banners) < 2
@@ -4886,7 +5060,17 @@ def _should_retry_for_remaining_ai_flavor(
             and len(residual_explanatory_paragraphs) < 2
         ):
             return False
+    if len(explainer_shell_hits) >= 2 and candidate_summary.score >= 28:
+        return True
+    if (
+        any("第二人称讲理腔偏重" in hit for hit in candidate_summary.hits)
+        and any("中长段标准讲理排布" in hit for hit in candidate_summary.hits)
+        and candidate_summary.score >= 26
+    ):
+        return True
     if len(residual_not_ab) >= 4:
+        return True
+    if len(residual_rebound_tails) >= 2:
         return True
     if len(residual_short_judgments) >= 4:
         return True
@@ -4898,7 +5082,7 @@ def _should_retry_for_remaining_ai_flavor(
         return True
     if source_summary.score >= 45:
         return True
-    if (residual_not_ab or len(residual_openers) >= 2 or residual_cliches) and (
+    if (residual_not_ab or len(residual_openers) >= 2 or residual_cliches or residual_rebound_tails) and (
         candidate_summary.score >= 20 and candidate_summary.score >= source_summary.score + 8
     ):
         return True
@@ -4926,6 +5110,7 @@ def _should_retry_for_final_ai_flavor_cleanup(
     residual_not_ab = extract_not_ab_skeletons(candidate_markdown)
     residual_openers = extract_generic_reflective_openers(candidate_markdown)
     residual_cliches = extract_growth_cliches(candidate_markdown)
+    residual_rebound_tails = extract_rebound_explainer_tails(candidate_markdown)
     residual_short_judgments = extract_short_judgment_paragraphs(candidate_markdown)
     residual_cadence_pairs = count_short_long_cadence_pairs(candidate_markdown)
     residual_embedded_banners = extract_embedded_banner_paragraphs(candidate_markdown)
@@ -4935,8 +5120,43 @@ def _should_retry_for_final_ai_flavor_cleanup(
     repeated_explanatory_paragraphs = (
         len(residual_explanatory_paragraphs) if len(residual_explanatory_paragraphs) >= 2 else 0
     )
-    residual_total = len(residual_not_ab) + len(residual_openers) + len(residual_cliches)
+    residual_total = len(residual_not_ab) + len(residual_openers) + len(residual_cliches) + len(residual_rebound_tails)
     residual_shape_total = residual_total + repeated_quote_paragraphs + repeated_explanatory_paragraphs
+    explainer_shell_hits = [
+        hit
+        for hit in candidate_summary.hits
+        if "第二人称整篇讲解密度偏高" in hit or "中长段整篇过于齐整" in hit
+    ]
+    opening_explainer_hits = [
+        hit for hit in candidate_summary.hits if "开头讲稿式先答后证" in hit
+    ]
+    lecture_line_hits = [
+        hit for hit in candidate_summary.hits if "第二人称讲解台词偏显眼" in hit
+    ]
+    explainer_shell_only_residue = (
+        len(explainer_shell_hits) >= 2
+        and residual_shape_total == 0
+        and len(residual_short_judgments) <= 1
+        and residual_cadence_pairs == 0
+        and len(residual_embedded_banners) == 0
+        and candidate_summary.score >= 28
+    )
+    lecture_line_only_residue = (
+        bool(lecture_line_hits)
+        and residual_shape_total == 0
+        and len(residual_short_judgments) <= 2
+        and residual_cadence_pairs == 0
+        and len(residual_embedded_banners) == 0
+        and candidate_summary.score >= 16
+    )
+    opening_explainer_only_residue = (
+        bool(opening_explainer_hits)
+        and residual_shape_total == 0
+        and len(residual_short_judgments) <= 1
+        and residual_cadence_pairs == 0
+        and len(residual_embedded_banners) == 0
+        and candidate_summary.score >= 16
+    )
     connector_only_residue = (
         residual_shape_total == 0
         and not residual_short_judgments
@@ -4957,25 +5177,41 @@ def _should_retry_for_final_ai_flavor_cleanup(
         and len(residual_not_ab) == 4
         and not residual_openers
         and not residual_cliches
+        and not residual_rebound_tails
         and candidate_summary.score <= 42
+    )
+    allow_five_not_ab_only = (
+        residual_total == 5
+        and len(residual_not_ab) == 5
+        and not residual_openers
+        and not residual_cliches
+        and not residual_rebound_tails
+        and candidate_summary.score <= 36
     )
 
     if candidate_summary.score > 50:
         return False
+    if explainer_shell_only_residue:
+        return True
+    if lecture_line_only_residue:
+        return True
+    if opening_explainer_only_residue:
+        return True
     if connector_only_residue or minor_residue_only:
         return False
     if (
         residual_shape_total == 0
+        and len(residual_rebound_tails) == 0
         and len(residual_short_judgments) < 2
         and residual_cadence_pairs == 0
         and len(residual_embedded_banners) == 0
     ):
         return False
-    if residual_shape_total > 3 and not allow_four_not_ab_only:
+    if residual_shape_total > 3 and not (allow_four_not_ab_only or allow_five_not_ab_only):
         return False
-    if len(residual_not_ab) > 3 and not allow_four_not_ab_only:
+    if len(residual_not_ab) > 3 and not (allow_four_not_ab_only or allow_five_not_ab_only):
         return False
-    if len(residual_openers) > 2 or len(residual_cliches) > 2:
+    if len(residual_openers) > 2 or len(residual_cliches) > 2 or len(residual_rebound_tails) > 4:
         return False
     if len(residual_short_judgments) > 4 or residual_cadence_pairs > 2:
         return False
@@ -5225,6 +5461,109 @@ def _collapse_embedded_banner_shell_residue(*, title: str, body_markdown: str) -
 
     collapsed_burden = _article_shell_burden(collapsed_markdown)
     if collapsed_burden[0] >= original_burden[0]:
+        return body_markdown
+
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    collapsed_summary = evaluate_ai_flavor_risk(title=title, body_markdown=collapsed_markdown)
+    if collapsed_summary.score > original_summary.score:
+        return body_markdown
+
+    return collapsed_markdown
+
+
+def _collapse_explanatory_bridge_residue(*, title: str, body_markdown: str) -> str:
+    original_explanatory = extract_explanatory_bridge_paragraphs(body_markdown)
+    original_bridging = extract_bridging_summary_paragraphs(body_markdown)
+    bridge_lead_pattern = re.compile(
+        r"^(?:更磨人的是|更麻烦的是|麻烦就在这里|难受的地方就在这儿|这也是为什么|问题也常常从这里变重|这种顺手往后放)",
+        re.UNICODE,
+    )
+
+    def _count_lead_style_bridges(items: list[str]) -> int:
+        count = 0
+        for block in items:
+            normalized = block.strip()
+            compact = len(re.sub(r"\s+", "", normalized))
+            sentences = len([item for item in re.split(r"[。！？!?；;\n]", normalized) if item.strip()])
+            if compact <= 34 and sentences == 1 and bridge_lead_pattern.match(normalized.rstrip("。！？!?；;")) is not None:
+                count += 1
+        return count
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    if len(body_blocks) < 3:
+        return body_markdown
+
+    lead_hits = _count_lead_style_bridges(body_blocks)
+
+    if len(original_explanatory) + len(original_bridging) + lead_hits < 1:
+        return body_markdown
+
+    def _compact_len(block: str) -> int:
+        return len(re.sub(r"\s+", "", block.strip()))
+
+    def _is_bridge_block(block: str) -> bool:
+        normalized = block.strip()
+        if not normalized or _looks_like_structure_heading(normalized):
+            return False
+        sample = f"# 标题\n\n{normalized}"
+        if (
+            extract_explanatory_bridge_paragraphs(sample) == [normalized]
+            or extract_bridging_summary_paragraphs(sample) == [normalized]
+            or extract_short_judgment_paragraphs(sample) == [normalized]
+        ):
+            return True
+        compact = _compact_len(normalized)
+        sentences = len([item for item in re.split(r"[。！？!?；;\n]", normalized) if item.strip()])
+        return compact <= 34 and sentences == 1 and bridge_lead_pattern.match(normalized.rstrip("。！？!?；;")) is not None
+
+    changed = False
+    index = 0
+    while index < len(body_blocks):
+        current = body_blocks[index].strip()
+        if not _is_bridge_block(current):
+            index += 1
+            continue
+
+        merged = False
+        if index + 1 < len(body_blocks) and _compact_len(body_blocks[index + 1]) >= 36:
+            body_blocks[index] = current.rstrip("。！？!?；;") + "，" + body_blocks[index + 1].lstrip()
+            del body_blocks[index + 1]
+            merged = True
+        elif index > 0 and _compact_len(body_blocks[index - 1]) >= 24:
+            body_blocks[index - 1] = body_blocks[index - 1].rstrip() + current
+            del body_blocks[index]
+            index -= 1
+            merged = True
+
+        if not merged:
+            index += 1
+            continue
+
+        changed = True
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_blocks = ([heading_block] if heading_block else []) + body_blocks
+    collapsed_markdown = "\n\n".join(rebuilt_blocks)
+
+    collapsed_explanatory = extract_explanatory_bridge_paragraphs(collapsed_markdown)
+    collapsed_bridging = extract_bridging_summary_paragraphs(collapsed_markdown)
+    collapsed_lead_hits = _count_lead_style_bridges(body_blocks)
+    if (
+        len(collapsed_explanatory) + len(collapsed_bridging) + collapsed_lead_hits
+        >= len(original_explanatory) + len(original_bridging) + lead_hits
+    ):
         return body_markdown
 
     original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
@@ -5539,7 +5878,12 @@ def _collapse_over_segmented_shell_residue(*, title: str, body_markdown: str) ->
 
 def _collapse_light_segmented_shell_residue(*, title: str, body_markdown: str) -> str:
     original_burden = _article_shell_burden(body_markdown)
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    dense_explainer_shell = any("整篇解释壳偏密" in hit for hit in original_summary.hits)
     if original_burden[0] < 5 or original_burden[1] < 12:
+        if not (dense_explainer_shell and original_burden[1] >= 10):
+            return body_markdown
+    elif original_burden[1] < 12 and not dense_explainer_shell:
         return body_markdown
 
     blocks = _split_markdown_blocks(body_markdown)
@@ -5556,7 +5900,6 @@ def _collapse_light_segmented_shell_residue(*, title: str, body_markdown: str) -
     if len(body_blocks) < 6:
         return body_markdown
 
-    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
     current_blocks = body_blocks[:]
     current_burden = original_burden
     current_summary = original_summary
@@ -5629,6 +5972,22 @@ def _collapse_light_segmented_shell_residue(*, title: str, body_markdown: str) -
 
         sentences = _sentence_count(normalized)
         return 2 <= sentences <= 5
+
+    def _is_dense_explainer_block(block: str) -> bool:
+        normalized = block.strip()
+        compact = _compact_len(normalized)
+        if not 90 <= compact <= 240:
+            return False
+        if _looks_like_structure_heading(normalized):
+            return False
+        first_sentence = _first_sentence(normalized)
+        first_len = _compact_len(first_sentence.rstrip("。！？!?；;"))
+        if not 8 <= first_len <= 32:
+            return False
+        if normalized.count("；") + normalized.count(";") < 1:
+            return False
+        sentences = _sentence_count(normalized)
+        return 3 <= sentences <= 7
 
     for _ in range(4):
         best_candidate: tuple[int, list[str], tuple[int, int, int, int, int, int, int], object] | None = None
@@ -5705,6 +6064,44 @@ def _collapse_light_segmented_shell_residue(*, title: str, body_markdown: str) -
                 if best_candidate is None or value > best_candidate[0]:
                     best_candidate = (value, candidate_blocks, candidate_burden, candidate_summary)
 
+        if dense_explainer_shell:
+            for index in range(len(current_blocks) - 1):
+                left_block = current_blocks[index].strip()
+                right_block = current_blocks[index + 1].strip()
+                if not _is_dense_explainer_block(left_block) or not _is_dense_explainer_block(right_block):
+                    continue
+
+                left_len = _compact_len(left_block)
+                right_len = _compact_len(right_block)
+                combined_len = left_len + right_len
+                if combined_len < 180 or combined_len > 360:
+                    continue
+
+                candidate_blocks = current_blocks[:]
+                candidate_blocks[index] = candidate_blocks[index].rstrip() + candidate_blocks[index + 1].lstrip()
+                del candidate_blocks[index + 1]
+
+                candidate_markdown = "\n\n".join(([heading_block] if heading_block else []) + candidate_blocks)
+                candidate_burden = _article_shell_burden(candidate_markdown)
+                candidate_summary = evaluate_ai_flavor_risk(title=title, body_markdown=candidate_markdown)
+
+                if candidate_summary.score > current_summary.score:
+                    continue
+                if candidate_burden[0] > current_burden[0] or candidate_burden[1] >= current_burden[1]:
+                    continue
+
+                value = (current_summary.score - candidate_summary.score) * 1000
+                value += (current_burden[0] - candidate_burden[0]) * 120
+                value += (current_burden[1] - candidate_burden[1]) * 40
+                value += max(0, 26 - abs(combined_len - 260) // 10)
+                if candidate_burden[5] < current_burden[5]:
+                    value += 60
+                if candidate_summary.score == current_summary.score:
+                    value += 30
+
+                if best_candidate is None or value > best_candidate[0]:
+                    best_candidate = (value, candidate_blocks, candidate_burden, candidate_summary)
+
         if current_burden[1] >= 14 and current_burden[5] >= 8:
             for index in range(len(current_blocks) - 1):
                 left_block = current_blocks[index].strip()
@@ -5748,7 +6145,7 @@ def _collapse_light_segmented_shell_residue(*, title: str, body_markdown: str) -
 
         _, current_blocks, current_burden, current_summary = best_candidate
         changed = True
-        if current_burden[1] <= 12:
+        if current_burden[1] <= (10 if dense_explainer_shell else 12):
             break
 
     if not changed:
@@ -5789,17 +6186,153 @@ def _soften_structural_ladder_residue(*, title: str, body_markdown: str) -> str:
     return softened_markdown
 
 
+def _soften_direct_address_lecture_residue(*, title: str, body_markdown: str) -> str:
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    if original_summary.score > 20:
+        return body_markdown
+    original_lecture_hits = [
+        hit for hit in original_summary.hits if "第二人称讲解台词偏显眼" in hit
+    ]
+    if not original_lecture_hits:
+        return body_markdown
+    if any("不是A，是B" in hit for hit in original_summary.hits):
+        return body_markdown
+    if any("解释连接词偏多" in hit for hit in original_summary.hits):
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    if not body_blocks:
+        return body_markdown
+
+    question_prefix_pattern = re.compile(r"^你有没有过这种阶段[：:，,]?\s*", re.UNICODE)
+    answer_prefix_pattern = re.compile(r"^答案我先(?:直接)?告诉你[，,]?\s*", re.UNICODE)
+    if_you_pattern = re.compile(r"^如果你这段时间已经开始", re.UNICODE)
+    remove_sentence_patterns = (
+        re.compile(r"答案我先(?:直接)?告诉你[，,]?[^。！？!?]*[。！？!?]?", re.UNICODE),
+        re.compile(r"你不需要先倒下，才有资格停[。！？!?]?", re.UNICODE),
+    )
+    scene_line_pattern = re.compile(r"^你看见了，也知道该回谁[，,]", re.UNICODE)
+    compact_len = lambda value: len(re.sub(r"\s+", "", value))
+
+    changed = False
+    softened_blocks: list[str] = []
+    for block in body_blocks:
+        normalized = block.strip()
+        softened_block = normalized
+
+        softened_block = question_prefix_pattern.sub("", softened_block)
+        softened_block = answer_prefix_pattern.sub("", softened_block)
+        for pattern in remove_sentence_patterns:
+            softened_block = pattern.sub("", softened_block)
+        softened_block = scene_line_pattern.sub("", softened_block)
+        if if_you_pattern.match(softened_block):
+            softened_block = if_you_pattern.sub("已经开始", softened_block)
+
+        softened_block = re.sub(r"(^|[。！？!?；;])\s*更常见的情况是[，,]?", lambda match: match.group(1), softened_block)
+        softened_block = re.sub(r"(^|[。！？!?；;])\s*这通常不是[^。！？!?]*[。！？!?]?", lambda match: match.group(1), softened_block)
+        softened_block = re.sub(r"(^|[。！？!?；;])\s*这就是为什么[，,]?", lambda match: match.group(1), softened_block)
+        softened_block = re.sub(r"(^|[。！？!?；;])\s*就别再拿“还能撑”安慰自己了[。！？!?]?", lambda match: match.group(1), softened_block)
+        softened_block = re.sub(r"(^|[。！？!?；;])\s*先把自己算进去[。！？!?]?", lambda match: match.group(1), softened_block)
+        softened_block = re.sub(r"(^|[。！？!?；;])\s*它们早就在提醒[，,]?", lambda match: match.group(1), softened_block)
+        softened_block = re.sub(r"^已经开始([^，。！？!?]{6,40})，", lambda match: f"{match.group(1)}的时候，", softened_block)
+
+        softened_block = re.sub(r"[，,]{2,}", "，", softened_block)
+        softened_block = re.sub(r"[。！？!?；;]{2,}", "。", softened_block)
+        softened_block = re.sub(r"([。！？!?；;，,])\s*[。！？!?；;，,]+", r"\1", softened_block)
+        softened_block = re.sub(r"\s+", " ", softened_block).strip(" ，,")
+        softened_block = re.sub(r"^[；;，,]", "", softened_block).strip()
+        if softened_block and softened_block[-1] not in "。！？!?":
+            softened_block += "。"
+
+        if not softened_block:
+            continue
+        if (
+            softened_blocks
+            and compact_len(softened_block) <= 16
+            and compact_len(normalized) > compact_len(softened_block)
+            and not _looks_like_structure_heading(softened_block)
+        ):
+            softened_blocks[-1] = softened_blocks[-1].rstrip() + softened_block
+            changed = True
+            continue
+        if softened_block != normalized:
+            changed = True
+        softened_blocks.append(softened_block)
+
+    if not changed:
+        return body_markdown
+
+    softened_markdown = "\n\n".join(([heading_block] if heading_block else []) + softened_blocks)
+    softened_summary = evaluate_ai_flavor_risk(title=title, body_markdown=softened_markdown)
+    softened_lecture_hits = [
+        hit for hit in softened_summary.hits if "第二人称讲解台词偏显眼" in hit
+    ]
+    if softened_summary.score > original_summary.score:
+        return body_markdown
+    if softened_summary.score == original_summary.score and softened_lecture_hits:
+        return body_markdown
+    if any("不是A，是B" in hit for hit in softened_summary.hits):
+        return body_markdown
+    if any("解释连接词偏多" in hit for hit in softened_summary.hits):
+        return body_markdown
+
+    return softened_markdown
+
+
 def _soften_not_ab_residue(*, title: str, body_markdown: str) -> str:
     original_not_ab = extract_not_ab_skeletons(body_markdown)
     if not original_not_ab or len(original_not_ab) > 3:
         return body_markdown
 
-    pattern = re.compile(r"不是([^，。；\n]{1,20})[，,、]?\s*而?是([^，。；\n]{1,30})", re.UNICODE)
+    pattern = re.compile(r"不是(.{1,24}?)[，,、]?\s*(?:而?是)([^。；\n]{1,80})", re.UNICODE)
     if not pattern.search(body_markdown):
         return body_markdown
 
+    def _normalize_not_ab_left_fragment(text: str) -> str:
+        normalized = text.strip()
+        normalized = re.sub(r"^(因为|只是|就只是|并不是因为)", "", normalized).strip()
+        normalized = re.sub(r"而$", "", normalized).strip()
+        normalized = re.sub(r"^(她|他|你|我)(?=真的|没|不|总|还|先)", "", normalized).strip()
+        return normalized
+
+    def _build_not_ab_tail(left: str) -> str:
+        normalized = _normalize_not_ab_left_fragment(left)
+        if not normalized:
+            return ""
+        if normalized.startswith(("突然一下到了重症那一步", "最近没休息好", "病名本身", "不爱自己", "没感觉")):
+            return ""
+        if normalized.startswith(("故意", "刻意", "体贴", "逞强", "嘴硬")):
+            return f"先说成{normalized}，反而太轻了"
+        if normalized.startswith(("没发现", "不知道", "不在意", "不想管")):
+            return f"真要这么说，也把事情说浅了"
+        if normalized.startswith(("真的觉得自己没事", "觉得自己没事", "没事")):
+            return "真要把它当成没事，后面那点拖延和硬撑反而更难解释"
+        if normalized.startswith(("不爱惜自己", "不重视健康", "不重视自己")):
+            return f"把它直接说成{normalized}，也把真实处境写窄了"
+        if normalized.startswith(("故意藏着不说", "藏着不说")):
+            return "真要说她是在藏，反而把那一下卡住写轻了"
+        return f"真要把它算成{normalized}，反而把事情说浅了"
+
+    def _rewrite_not_ab(match: re.Match[str]) -> str:
+        left = match.group(1).strip()
+        right = match.group(2).strip()
+        tail = _build_not_ab_tail(left)
+        if right.startswith("因为"):
+            return f"{right}。{tail}" if tail else right
+        return f"{right}。{tail}" if tail else right
+
     softened_markdown = pattern.sub(
-        lambda match: f"与其说是{match.group(1).strip()}，不如说是{match.group(2).strip()}",
+        _rewrite_not_ab,
         body_markdown,
     )
     if softened_markdown == body_markdown:
@@ -5811,6 +6344,108 @@ def _soften_not_ab_residue(*, title: str, body_markdown: str) -> str:
         return body_markdown
 
     return softened_markdown
+
+
+def _strip_rebound_explainer_tail_residue(*, title: str, body_markdown: str) -> str:
+    original_tails = extract_rebound_explainer_tails(body_markdown)
+    if len(original_tails) < 2:
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    tail_pattern = re.compile(
+        r"(?:^|[。！？!?])\s*(真要把它(?:算成|当成)[^。！？!?；;\n]{0,24}(?:反而把事情说浅了|后面那点拖延和硬撑反而更难解释)|真要这么说(?:，)?也把事情说浅了|先说成[^。！？!?；;\n]{0,18}反而太轻了|把它直接说成[^。！？!?；;\n]{0,18}也把真实处境写窄了|真要说她是在藏(?:，)?反而把那一下卡住写轻了)(?:。|$)",
+        re.UNICODE,
+    )
+
+    changed = False
+    cleaned_blocks: list[str] = []
+    for block in body_blocks:
+        normalized = block.strip()
+        cleaned = tail_pattern.sub("。", normalized)
+        cleaned = re.sub(r"([。！？!?])\s*([。！？!?])+", r"\1", cleaned)
+        cleaned = re.sub(r"(^|[。！？!?；;，,])\s*只，", r"\1", cleaned)
+        cleaned = re.sub(r"(^|[。！？!?；;，,])\s*都，", r"\1", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        cleaned = cleaned.strip("，,；; ")
+        cleaned = re.sub(r"^[。！？!?]+", "", cleaned).strip()
+        cleaned = re.sub(r"[，,]\s*(?=$)", "", cleaned)
+        if cleaned and cleaned[-1] not in "。！？!?":
+            cleaned += "。"
+        if cleaned != normalized:
+            changed = True
+        if cleaned:
+            cleaned_blocks.append(cleaned)
+
+    if not changed:
+        return body_markdown
+
+    cleaned_markdown = "\n\n".join(([heading_block] if heading_block else []) + cleaned_blocks)
+    cleaned_summary = evaluate_ai_flavor_risk(title=title, body_markdown=cleaned_markdown)
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    if cleaned_summary.score > original_summary.score:
+        return body_markdown
+
+    return cleaned_markdown
+
+
+def _strip_orphaned_rebound_tail_residue(*, title: str, body_markdown: str) -> str:
+    orphaned_tails = extract_orphaned_rebound_tails(body_markdown)
+    if not orphaned_tails:
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    orphaned_pattern = re.compile(
+        r"(?:^|[。！？!?])\s*(?:它代表的，反而把事情说浅了|后面那点拖延和硬撑反而更难解释|也把事情说浅了)(?:。|$)",
+        re.UNICODE,
+    )
+
+    changed = False
+    cleaned_blocks: list[str] = []
+    for block in body_blocks:
+        normalized = block.strip()
+        cleaned = orphaned_pattern.sub("。", normalized)
+        cleaned = re.sub(r"(^|[。！？!?；;，,])\s*它，", r"\1", cleaned)
+        cleaned = re.sub(r"([。！？!?])\s*([。！？!?])+", r"\1", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        cleaned = cleaned.strip("，,；; ")
+        cleaned = re.sub(r"^[。！？!?]+", "", cleaned).strip()
+        if cleaned and cleaned[-1] not in "。！？!?":
+            cleaned += "。"
+        if cleaned != normalized:
+            changed = True
+        if cleaned:
+            cleaned_blocks.append(cleaned)
+
+    if not changed:
+        return body_markdown
+
+    cleaned_markdown = "\n\n".join(([heading_block] if heading_block else []) + cleaned_blocks)
+    cleaned_summary = evaluate_ai_flavor_risk(title=title, body_markdown=cleaned_markdown)
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    if cleaned_summary.score > original_summary.score:
+        return body_markdown
+
+    return cleaned_markdown
 
 
 def _soften_connector_residue(*, title: str, body_markdown: str) -> str:
@@ -6026,6 +6661,15 @@ def _build_remaining_ai_flavor_retry_instruction(
     if suggestion_summary:
         retry_notes.append(f"{suggestion_summary}。")
 
+    if any("开头讲稿式先答后证" in hit for hit in candidate_summary.hits):
+        retry_notes.append("开头不要再先替读者分类、下定义、给答案，再回头举例说明；直接从原稿里已经有的现实接口、动作后果或身体信号起笔。")
+    if any("第二人称讲理腔偏重" in hit for hit in candidate_summary.hits):
+        retry_notes.append("开头不要再用“你以为自己只是累吗”“有一类……”这种先分类、先替读者解释的讲稿起手，直接把现实接口、动作后果或身体反应顶上来。")
+    if any("中长段标准讲理排布" in hit for hit in candidate_summary.hits):
+        retry_notes.append("至少把前两段里的一个整段讲理解说段拆掉，改成同段里先发生动作、停顿、代价或身体反应，再让判断慢一点出来。")
+    if any("第二人称整篇讲解密度偏高" in hit for hit in candidate_summary.hits):
+        retry_notes.append("前两段不要连续对“你”讲理，至少抽掉两句第二人称解释，换成事实、后果、关系变化或身体信号自己说话。")
+
     residual_not_ab = _format_retry_examples(extract_not_ab_skeletons(candidate_markdown))
     if residual_not_ab:
         retry_notes.append(f"这次必须直接拆掉这些“不是……而是……”骨架：{' / '.join(residual_not_ab)}。")
@@ -6037,6 +6681,10 @@ def _build_remaining_ai_flavor_retry_instruction(
     residual_cliches = _format_retry_examples(extract_growth_cliches(candidate_markdown), max_length=16)
     if residual_cliches:
         retry_notes.append(f"这些套话不要再保留：{' / '.join(residual_cliches)}。")
+
+    residual_rebound_tails = _format_retry_examples(extract_rebound_explainer_tails(candidate_markdown), max_items=4, max_length=26)
+    if residual_rebound_tails:
+        retry_notes.append(f"这些回头补解释的尾句要直接拆掉：{' / '.join(residual_rebound_tails)}。")
 
     residual_short_judgments = _format_retry_examples(extract_short_judgment_paragraphs(candidate_markdown), max_items=4, max_length=18)
     if residual_short_judgments:
@@ -6084,6 +6732,7 @@ def _build_remaining_ai_flavor_retry_instruction(
     retry_notes.append("不要把开头第一屏和各小节首段统一扩成新的氛围场景或散文式环境描写，优先沿用原稿已有的人物、案例、判断或并列例子起笔。")
     retry_notes.append("如果原稿本来是议论推进或并列展开，就继续保留这种推进方式，不要每一节都先铺场景再总结。")
     retry_notes.append("分析型或并列展开的段落，宁可直接写状态、动作后果、身体反应和关系变化，也不要再用新的“不是……而是……”对照句补解释。")
+    retry_notes.append("如果情绪价值已经落在判断、动作后果或身体反应里，就直接推进，不要额外补一段没有信息增量的场景或气氛。")
     retry_notes.append("如果某个短段只是为了敲一下、点一下、提醒一下，优先并回相邻段落，不要再把这类短段写成固定节拍。")
     retry_notes.append("不要把一句消息、对话、短信或引用写成反复出现的展示段；如果全文只留一处且确实承担现场感，可以保留。")
     retry_notes.append("不要把“解释也来得很快：……”这类独立解释短段写成固定排版习惯；如果全文只留一处且确实承担心理跳转，可以保留。")
@@ -6117,6 +6766,10 @@ def _build_final_ai_flavor_cleanup_instruction(
     residual_cliches = _format_retry_examples(extract_growth_cliches(candidate_markdown), max_length=16)
     if residual_cliches:
         retry_notes.append(f"把这些残留套话改掉：{' / '.join(residual_cliches)}。")
+
+    residual_rebound_tails = _format_retry_examples(extract_rebound_explainer_tails(candidate_markdown), max_items=4, max_length=26)
+    if residual_rebound_tails:
+        retry_notes.append(f"把这些回头补解释的尾句直接拆掉：{' / '.join(residual_rebound_tails)}。")
 
     residual_short_judgments = _format_retry_examples(extract_short_judgment_paragraphs(candidate_markdown), max_items=4, max_length=18)
     if residual_short_judgments:
@@ -6158,6 +6811,22 @@ def _build_final_ai_flavor_cleanup_instruction(
     if any("“一”字节奏偏密" in hit for hit in candidate_summary.hits):
         retry_notes.append("如果这几句里还反复出现“一下 / 一遍 / 一个 / 一种”这类写法，替换一半以上的一字量词起手，改成更具体的动作、物件或时间推进。")
 
+    if any("第二人称讲解台词偏显眼" in hit for hit in candidate_summary.hits):
+        retry_notes.append("把“你有没有过这种阶段”“答案我先告诉你”“如果你这段时间已经开始”这类讲解台词拆掉，改成状态、动作后果或关系变化先发生。")
+        retry_notes.append("改这些句子时，不要换成“不是……而是……”或“其实 / 所以”解释链，也不要补成新的标准答案句。")
+
+    if any("开头讲稿式先答后证" in hit for hit in candidate_summary.hits):
+        retry_notes.append("如果开头还在先替读者分类、下定义、给答案，就只改那一两句：先把现实接口、后果或身体信号顶上来，不要继续先讲理。")
+    if any("第二人称整篇讲解密度偏高" in hit for hit in candidate_summary.hits):
+        retry_notes.append("如果这几句还在连续对“你”解释，就把至少两句改成由事实、后果、身体反应或关系变化自己说话，不要句句都在教读者理解自己。")
+    if any("第二人称讲理腔偏重" in hit for hit in candidate_summary.hits):
+        retry_notes.append("把还在先替读者分类、下定义、解释原因的句子拆掉，尤其不要保留“你以为自己只是累吗”“有一类……”这种讲稿式起手。")
+    if any("中长段标准讲理排布" in hit for hit in candidate_summary.hits):
+        retry_notes.append("如果前两段还像一段判断、一段解释的标准答案壳，就只改其中一两句：让现实接口、代价或身体反应先顶上来，不要继续先讲道理。")
+
+    if any("中长段整篇过于齐整" in hit for hit in candidate_summary.hits):
+        retry_notes.append("如果这些段落还像标准答案壳，就只挑一到两段下手：合并一段、拆短一段，打破整篇一段一层、句句讲满的排布。")
+
     heading_anchors = _extract_structure_heading_anchors(source_markdown)
     if heading_anchors:
         retry_notes.append(
@@ -6168,6 +6837,7 @@ def _build_final_ai_flavor_cleanup_instruction(
 
     retry_notes.append("不要新增新的环境描写、人物、病症、道具、支线或总结段。")
     retry_notes.append("如果需要改句，优先把判断改成当前段落里已经存在的动作、处境、顺序或关系，不要补新的总括句。")
+    retry_notes.append("如果情绪价值已经成立，就不要为了润色再补没有信息增量的场景壳。")
     retry_notes.append("不要把一句消息、对话、短信或引用写成反复出现的展示段，也不要把独立解释短段写成固定排版习惯。")
     retry_notes.append("清理完之后，不要再保留新的“不是……而是/是……”骨架，也不要补新的“我们总以为”“很多时候”“说到底”起手。")
     return base_instruction.strip() + " " + "".join(retry_notes)
@@ -6822,6 +7492,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
 
     summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
     is_tracked_article = str(project["source_type"]) == "tracked_article"
+    has_opening_explainer_shell = any("开头讲稿式先答后证" in hit for hit in summary.hits)
     tracked_shell_source_title = title
     tracked_shell_source_markdown = body_markdown
     if is_tracked_article:
@@ -6839,7 +7510,9 @@ def _maybe_auto_polish_ai_flavor_draft_output(
             candidate_markdown=body_markdown,
         )
     )
-    if summary.level == "低" and not needs_tracked_shell_cleanup:
+    if summary.level == "低" and not needs_tracked_shell_cleanup and not (
+        is_tracked_article and has_opening_explainer_shell
+    ):
         return body_markdown, title
 
     uses_custom_base_url = bool(getattr(generator, "uses_custom_base_url", False))

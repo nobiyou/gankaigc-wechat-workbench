@@ -9,6 +9,8 @@ from app.services.ai_flavor import (
     extract_embedded_banner_paragraphs,
     extract_isolated_quote_paragraphs,
     extract_not_ab_skeletons,
+    extract_orphaned_rebound_tails,
+    extract_rebound_explainer_tails,
     extract_bridging_summary_paragraphs,
 )
 
@@ -58,6 +60,106 @@ def test_evaluate_ai_flavor_risk_flags_explainer_wechat_ai_cadence() -> None:
     assert "降低第二人称密度" in instruction
 
 
+def test_evaluate_ai_flavor_risk_flags_balanced_second_person_answer_shells() -> None:
+    summary = evaluate_ai_flavor_risk(
+        title="等到身体先报警，才发现自己一直排在最后",
+        body_markdown=(
+            "体检单上多了一行红字，你盯着下周那场会，想的还是能不能照常开。情绪忽然失控那次，你也没把它当回事，只当自己这阵子没休息好。连休息都变成任务的人，最容易把“累”理解成忙，把“撑不住”理解成自己还不够能扛。成年后的很多疲惫，起点往往更早：你已经习惯了，谁都可以排在你前面，只有你自己，总往后挪。\n\n"
+            "这个顺序，不是一夜之间改掉的。通常是从很小的地方开始。消息先回，工作先交，家里的事先补上，朋友的请求先答应。轮到自己，复查可以下周再去，饭晚一点吃也行，睡眠先欠着，衣服鞋子还能将就。外面给你的反馈很直接，回得快、做得多、顶得住，就会被夸靠谱、懂事、顾全大局。照顾自己没那么立刻，少休一次，不会马上出大事；少吃一顿，也还能撑完今天。人就是在这种“暂时没问题”里，把自己一点点放到了最后。\n\n"
+            "最难受的地方还不在忙。忙有时是阶段性的，过去就过去了。真正消耗人的，是你慢慢默认了：自己的不舒服可以先放一放，自己的需要可以再等等，自己的委屈没那么要紧。这个默认，会把人训练得很麻木。你明明已经发烧，还在改方案；经期疼得站不久，还在说没事；一句话已经冒犯了你，你先顾的是别把气氛弄僵。你一次次退后，不全是善良，也夹着一种很深的熟悉感：只要我还能扛，我就先扛。久了，连你自己都开始把这件事当成理所当然。\n\n"
+            "很多女人的亏欠感，就是在这里长出来的。你总觉得自己还不够好，休息像偷懒，拒绝像亏待别人，花时间在自己身上，还要先补一句“我最近真的有点累”。这背后常常是一种价值感绑定：你把自己有没有用，看得比自己舒不舒服更重要。别人需要你，你会有存在感；轮到你需要被照顾，第一反应却常常是收回去。你怕麻烦人，怕显得矫情，怕一停下来，别人会失望。可身体不会配合这套逻辑。它只会在你长期忽略它的时候，用失眠、暴躁、心慌、内耗把账一点点送回来。\n\n"
+            "人往往要等到真出问题，才承认自己丢了东西。请假住院那几天，你会忽然发现，少了你，很多事也还能转；一段一直靠你兜底的关系，一旦你不再提供情绪劳动，对方未必真会站出来接住你。那一刻你才看清，过去那些被你牺牲掉的睡眠、体力、兴趣、体面，都是从自己身上硬扣出去的。失去感会疼，疼也有用。它逼你承认，你早就欠了自己很多。\n\n"
+            "还有一种失衡，表面看很小，拖久了最伤。医生让你三个月后复查，你拖成了八个月；牙疼一阵一阵，你总说过两天再去；心里已经很压抑了，还是把假期让给“更重要的安排”；一段关系里你总负责理解、安抚、兜底，轮到你难受，对方只回一句“你别想太多”。这些都容易被归进“小事不算事”。可小事重复得够久，就会改写一个人对自己的态度。你会越来越难分清，自己到底是在体谅别人，还是已经习惯亏待自己。\n\n"
+            "把自己往前放，不用等到辞职、搬家、彻底翻篇那种大动作。成年人的止损，常常先从顺序改起。身体不舒服，就先去看；已经累到说话带火气，就先停一停；不属于你的额外责任，少接一点；能晚回的消息，晚回；周末留半天给自己，不拿来补所有人的需求。关键在于让自己看见：我的事也有名字，我的感受也占位置。我可以照顾人，也可以先照顾我自己。\n\n"
+            "这件事刚开始，常常会有阻力。你会不习惯，会想把刚留出来的时间再让出去，会在拒绝别人之后冒出一点歉意。这不代表你做错了，只是旧顺序还在往回拽。你以前总把自己垫在最下面，大家都站稳了，只有你一直悬着。现在只是把那块垫子抽回来一点，让自己能落地。\n\n"
+            "成年后最该补上的，是别再拿自己垫底。先去复查，先把晚饭吃完，先把那句“这次我来不了”发出去。做一件就够了。你会慢慢认出来，善待自己不是附加项，它本来就该在你的生活里面。"
+        ),
+    )
+
+    assert summary.level == "中"
+    assert summary.score >= 30
+    assert any("第二人称整篇讲解密度偏高" in hit for hit in summary.hits)
+    assert any("中长段整篇过于齐整" in hit for hit in summary.hits)
+
+    instruction = build_ai_flavor_polish_instruction(summary, compact=True)
+    assert "降低整篇第二人称讲解密度" in instruction
+    assert "标准答案壳" in instruction
+
+
+def test_evaluate_ai_flavor_risk_flags_explicit_second_person_lecture_lines() -> None:
+    summary = evaluate_ai_flavor_risk(
+        title="等到话越来越少，很多亏欠已经落在自己身上了",
+        body_markdown=(
+            "你有没有过这种阶段：消息看见了，不想回；别人多问两句，胸口就发闷；明明没出什么大事，人却像被抽掉了反应。答案我先直接告诉你，这通常不是懒，也不是你忽然变脆弱了。更常见的情况是，你已经很久没把自己放进日程里，身体和情绪先替你停了下来。\n\n"
+            "手机界面还亮着，消息一排排挂在那里。\n\n"
+            "你看见了，也知道该回谁，先点掉，又退出来。\n\n"
+            "如果你这段时间已经开始变慢、变钝、变得不想说话，就别再拿“还能撑”安慰自己了。先把自己算进去。"
+        ),
+    )
+
+    assert any("第二人称讲解台词偏显眼" in hit for hit in summary.hits)
+
+    instruction = build_ai_flavor_polish_instruction(summary, compact=True)
+    assert "你有没有过这种阶段 / 答案我先告诉你 / 如果你已经" in instruction
+    assert "不要换成“不是……而是……”或“其实 / 所以”解释链" in instruction
+
+
+def test_evaluate_ai_flavor_risk_flags_vague_attribution_and_signposting() -> None:
+    summary = evaluate_ai_flavor_risk(
+        title="总说自己还能撑的人，往往最晚承认身体已经在追债",
+        body_markdown=(
+            "先说结论，很多人不是不知道自己累，而是习惯先把累往后放。有人说，成年人都这样，忙完这一阵自然会好；专家指出，长期疲惫的人最容易忽略身体最早的提醒。\n\n"
+            "接下来我们来看，问题为什么会越拖越重。她先把复查往后改，后来把晚饭和睡觉也一起往后推。很多人都会这样解释自己：先把手头这些事做完，等有空了再说。\n\n"
+            "真正的问题是，身体不会按这套说法配合。提醒轻的时候被压过去，后面就只能用更重的后果继续敲门。"
+        ),
+    )
+
+    assert any("模糊归因偏多" in hit for hit in summary.hits)
+    assert any("宣布式结构路标偏多" in hit for hit in summary.hits)
+
+    instruction = build_ai_flavor_polish_instruction(summary, compact=True)
+    assert "模糊归因拆掉" in instruction
+    assert "宣布式路标" in instruction
+
+
+def test_evaluate_ai_flavor_risk_flags_dense_explainer_shell_even_without_explicit_lecture_lines() -> None:
+    summary = evaluate_ai_flavor_risk(
+        title="等到话越来越少，很多亏欠已经落在自己身上了",
+        body_markdown=(
+            "消息看见了，不想回；别人多问两句，胸口就发闷；明明没出什么大事，人却像被抽掉了反应。你已经很久没把自己放进日程里，身体和情绪先替你停了下来。很多人以为，生活失序会先出现在大地方，工作垮掉了，关系闹僵了，体检单亮红灯了。真到那一步，往往已经拖了很久。更早出现的，是话变短，记性变差，耐心越来越薄，坐着也像在赶路。\n\n"
+            "这份发钝最容易被误解。旁人会说你只是最近太累，休息两天就好；你自己也会拿“先把今天过完”压过去。可很多亏空，根本不是两天形成的。饭总在后面吃，觉总往后挪，不舒服先忍，体检改下个月，情绪等忙完再整理。每次都只是往后推一点，推到最后，被挪走的就是你自己。\n\n"
+            "先出问题的，常常是睡眠和吃饭。它们最容易牺牲，也最容易被轻视。少睡一晚，第二天确实还能出门；午饭凑合过去，下午也还能撑着做事。可身体不会按你的待办表运行。睡眠一碎，注意力先散；吃饭长期凑合，反应就会慢，火气却更快。别人第二句话说完了，你前面那句还没接稳；流程临时改动，整天节奏都乱；孩子多问两遍，语气先硬起来。\n\n"
+            "这种状态磨人的地方，不在于事情有多大，在于它会慢慢改写关系。最亲近的人，最先接住的未必是你的辛苦，往往是你的走神、敷衍、不耐烦。你也会难受，会怪自己，觉得连好好回应都做不到。可愧疚一上来，人常常更想赶紧把眼前应付完，更舍不得停。前面没补上的觉，没吃完整的那顿饭，没说出口的委屈，最后都会绕回来，落到关系里。\n\n"
+            "很多人总在失去后才承认，原来早就不对了。病倒一场，才肯承认身体不是机器；关系冷下去，才看见自己很久没认真听人说话；崩一次，才把那些旧信号对上号：懒得回消息，话越来越短，记性变差，对原本喜欢的事提不起劲。这些都不是突然发生的，它们早就在提醒，只是提醒不够响，不像工作催办那样立刻找上门。\n\n"
+            "真正卡住人的，是紧急和重要的顺序被拧反了。工作上的临时需求、家里的突发状况、孩子的作业、父母的安排，都有当场反馈，你处理了，事情就往前走；你停下来，麻烦马上堆着看你。照顾自己没有这种即时催促。少睡一晚，表面没塌；情绪不整理，会也照开，饭也能继续做。久了，人会越来越擅长维持外面的秩序，越来越迟钝于里面的失衡。\n\n"
+            "更难的是，很多人会把这叫成“我还行”“我再撑撑”。这几个字很硬，也很危险。撑住不等于没代价。你做事开始反复确认，效率却没高多少；别人一句普通的话，你听着都刺；忙了整天，晚上躺下却没完成感。连身体给出的信号也被压成背景音：累了不敢停，烦了不敢说，不舒服先忍，想休息先内疚。拖久了，人会连自己的需要都认不准。\n\n"
+            "到这里，最该补的不是更强的执行力，也不是再学几条时间管理。先把一件事认下来：照顾自己，不该是忙完以后才轮到的奖励，它本来就是日常秩序的一部分。睡觉要往前放，吃饭要往前放，身体已经发出的信号要往前放。那句“我现在没力气，晚点再说”，也该被允许出现。\n\n"
+            "变慢、变钝、变得不想说话的时候，就别再拿“还能撑”安慰自己了。把无效熬夜停掉，把那顿饭完整吃完，把原本准备硬接的请求往后放。日子能不能重新稳住，往往就从这里开始。不是先把所有人都安顿好，才轮得到你，是你先别继续亏欠自己。"
+        ),
+    )
+
+    assert any("整篇解释壳偏密" in hit for hit in summary.hits)
+
+    instruction = build_ai_flavor_polish_instruction(summary, compact=True)
+    assert "至少合并 2 到 4 段" in instruction
+
+
+def test_evaluate_ai_flavor_risk_flags_opening_explainer_shell_in_short_window() -> None:
+    summary = evaluate_ai_flavor_risk(
+        title="等到身体先报警，才发现自己一直排在最后",
+        body_markdown=(
+            "你以为自己只是累吗？有一类疲惫，休息一天也缓不过来。别人一有需要，你立刻接住；轮到自己的睡眠、情绪、体检和那顿该好好吃的饭，你总能往后再挪一点。\n\n"
+            "它一开始并不惊人，甚至很像负责。工作临时加项，你先改；家里有人要你搭把手，你先去；关系里气氛不对，你先安抚。短时间里，事情被处理了，场面也稳住了，后面留下来的，是睡眠被切碎，身体信号被拖延，情绪越来越晚才轮到被照顾。\n\n"
+            "成年人的生活里，最会抢位置的，几乎都是紧急的东西。消息要回，节点要赶，孩子和父母的问题要接，伴侣的情绪也需要回应。你的需要通常没有那么大的声量，它不敲门，只是在肩颈发紧、经期紊乱、胃口变差、耐心变短时提醒你。\n\n"
+            "很多亏空，不是一天形成的。你只是一次次把那句“我现在也不太行”压回去，久了，身体和情绪就先替你停下来。"
+        ),
+    )
+
+    assert any("开头讲稿式先答后证" in hit for hit in summary.hits)
+    instruction = build_ai_flavor_polish_instruction(summary, compact=True)
+    assert "不要先用“你以为……吗 / 有一类……”替读者分类下定义" in instruction
+
+
 def test_evaluate_ai_flavor_risk_flags_wishful_ending_slogans() -> None:
     summary = evaluate_ai_flavor_risk(
         title="别把日子过反了",
@@ -69,6 +171,20 @@ def test_evaluate_ai_flavor_risk_flags_wishful_ending_slogans() -> None:
     )
 
     assert any("结尾口号感" in hit for hit in summary.hits)
+
+
+def test_evaluate_ai_flavor_risk_flags_abstract_answer_shell_title() -> None:
+    summary = evaluate_ai_flavor_risk(
+        title="总把自己放最后的人，生活为什么会慢慢失序",
+        body_markdown=(
+            "# 标题\n\n"
+            "她先把体检往后改，又把回家吃饭这件事往后推。后来整个人越来越钝，连一句解释都懒得说。"
+        ),
+    )
+
+    assert any("标题抽象答案壳" in hit for hit in summary.hits)
+    instruction = build_ai_flavor_polish_instruction(summary, compact=True)
+    assert "标题先落一个现实接口、后果或身体信号" in instruction
 
 
 def test_extract_generic_reflective_openers_returns_paragraph_level_hits() -> None:
@@ -123,6 +239,62 @@ def test_extract_not_ab_skeletons_dedupes_sentence_bones() -> None:
         "不是你不想停下来，而是你总觉得还能再撑一阵",
         "不是记忆，是那种“以后再说”的底气",
     ]
+
+
+def test_extract_rebound_explainer_tails_finds_repeated_cleanup_like_tails() -> None:
+    tails = extract_rebound_explainer_tails(
+        "真要把它算成最近没休息好，反而把事情说浅了。"
+        "真要这么说，也把事情说浅了。"
+        "先说成体贴，反而太轻了。"
+    )
+
+    assert tails == [
+        "真要把它算成最近没休息好，反而把事情说浅了",
+        "真要这么说，也把事情说浅了",
+        "先说成体贴，反而太轻了",
+    ]
+
+
+def test_evaluate_ai_flavor_risk_flags_rebound_explainer_tails() -> None:
+    summary = evaluate_ai_flavor_risk(
+        title="把复查一拖再拖的人，生活会慢慢缩到只剩先扛着",
+        body_markdown=(
+            "脸有点肿，嘴上说的是下周再去。真要把它算成最近没休息好，反而把事情说浅了。\n\n"
+            "请假要解释，工作要有人接。真要把它算成没感觉，反而把事情说浅了。\n\n"
+            "她太会把自己排到最后。真要把它算成不爱自己，反而把事情说浅了。"
+        ),
+    )
+
+    assert any("回钩解释尾句偏多" in hit for hit in summary.hits)
+    assert any("删掉反复出现的“真要把它算成……" in suggestion for suggestion in summary.suggestions)
+
+
+def test_extract_orphaned_rebound_tails_finds_broken_cleanup_residue() -> None:
+    tails = extract_orphaned_rebound_tails(
+        "它代表的，反而把事情说浅了。"
+        "后面那点拖延和硬撑反而更难解释。"
+        "也把事情说浅了。"
+    )
+
+    assert tails == [
+        "它代表的，反而把事情说浅了",
+        "后面那点拖延和硬撑反而更难解释",
+        "也把事情说浅了",
+    ]
+
+
+def test_evaluate_ai_flavor_risk_flags_orphaned_rebound_tails() -> None:
+    summary = evaluate_ai_flavor_risk(
+        title="那张没去复查的单子，通常比诊断书更早知道你扛不住了",
+        body_markdown=(
+            "它，你已经收到了提醒，但生活里没有给自己留处理提醒的位置。"
+            "它代表的，反而把事情说浅了。"
+            "你可以把很多人很多事安排进去，却没有把自己的复查排进去。"
+        ),
+    )
+
+    assert any("断裂回钩尾句" in hit for hit in summary.hits)
+    assert any("被拆断后单独残留的回钩尾句" in suggestion for suggestion in summary.suggestions)
 
 
 def test_extract_growth_cliches_finds_retry_targets() -> None:

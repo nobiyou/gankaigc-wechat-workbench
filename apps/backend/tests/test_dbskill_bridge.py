@@ -98,7 +98,7 @@ def test_dbskill_bridge_localizes_scene_first_generated_rules(monkeypatch, tmp_p
     flattened = json.dumps(rules, ensure_ascii=False)
     assert "具体场景、动作和顺序" not in flattened
     assert "小动作、关系余波" not in flattened
-    assert "开头先给一个情绪发动机" in flattened
+    assert "开头先给一个现实抓手" in flattened
     assert "不能用场景描写凑篇幅" in flattened
     assert "不要另补小动作" in flattened
 
@@ -251,7 +251,7 @@ def test_build_strategy_package_adds_recomposition_recipe_for_shell_heavy_source
         created_at="2026-06-02T00:00:00Z",
     )
 
-    assert any("标题和开头都改成情绪发动机入口" in item for item in result.strategy_card.recomposition_recipe)
+    assert any("标题和开头都换成新的现实入口" in item for item in result.strategy_card.recomposition_recipe)
     assert any("正文默认不用分节小标题" in item for item in result.strategy_card.recomposition_recipe)
     assert any("最后一句不要写成“愿你 / 愿我们 / 希望你”式抚慰总结" in item for item in result.strategy_card.recomposition_recipe)
 
@@ -313,3 +313,210 @@ def test_build_strategy_package_keeps_internal_pressure_topic_out_of_boundary_cu
     assert "生活接口的长期负荷" in result.problem_brief.problem_statement_markdown
     assert "长期超负荷" in result.strategy_card.body_shift
     assert "身体提醒" in result.strategy_card.body_shift
+
+
+def test_build_strategy_package_uses_pressure_interface_mode_for_shell_heavy_internal_pressure_source() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": "善待自己，好好爱自己",
+            "topic_angle": "从总把休息、体检和身体提醒往后放的人写起，解释生活顺序怎样慢慢失衡。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "善待自己，好好爱自己",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "",
+            "reference_article_structure_notes": "",
+            "reference_article_body_markdown": (
+                "# 善待自己，好好爱自己\n\n"
+                "花儿谢了，还有再开的时候。\n\n"
+                "很多人总以为，最大的遗憾是没赚到更多的钱。\n\n"
+                "真正卡住人的，是一路太匆忙，却没有照顾好自己。\n\n"
+                "如果生活没有净土，那我们可以选择静心。\n\n"
+                "所以，善待自己，好好爱自己。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-07T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "pressure_interface_direct"
+    assert "现实接口" in result.strategy_card.opening_move or "身体提醒" in result.strategy_card.opening_move
+    assert "压力链" in result.strategy_card.body_shift
+    assert "万能答案" in result.strategy_card.ending_move or "祝福式收束" in result.strategy_card.ending_move
+
+
+def test_build_strategy_package_uses_pressure_interface_mode_when_summary_rules_out_relationship_mainline() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": "身体先发出的那些钝感，往往不是累一阵就会过去",
+            "topic_angle": "从很多女性在关系、工作和体面之间不断撤掉自我照料写起，解释身体和情绪为什么会一起追债。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "总把自己放最后的人，身体会替你记账",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章重点是内耗、身体代价和生活排序失衡，不在亲密关系沟通里打转，也不要写成冷战复合流程。",
+            "reference_article_structure_notes": "从日常顺延和身体变钝切入，再落到自我照料缺位。",
+            "reference_article_body_markdown": "# 总把自己放最后的人，身体会替你记账\n\n她先把体检往后改，又把回家吃饭这件事往后推。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-08T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "pressure_interface_direct"
+    assert "开始出代价" in result.strategy_card.opening_move
+    assert "身体提醒" in result.strategy_card.opening_move or "接口" in result.strategy_card.opening_move
+
+
+def test_build_strategy_package_uses_pressure_interface_mode_for_body_consequence_chain_source() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": "总把自己排到最后的人，迟早要为失序的生活付账",
+            "topic_angle": "从“总能再撑一下”的自我调度入手，拆开很多女性怎样在工作、家人和体面之间持续撤掉自我照料，直到身体和情绪一起追债。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "善待自己，好好爱自己",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "",
+            "reference_article_structure_notes": "",
+            "reference_article_body_markdown": (
+                "# 善待自己，好好爱自己\n\n"
+                "后来得了尿毒症，又开始怀念当初长褥疮的时候。\n\n"
+                "又过了一些年，要透析，清醒的时间很少，便又开始怀念起刚得尿毒症的时候。\n\n"
+                "是这一生，走得太过匆忙，太过疲累，一路跌跌撞撞地前行，却没有照顾好自己。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-08T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "pressure_interface_direct"
+    assert "尿毒症" in result.strategy_card.opening_move
+    assert "褥疮" in result.strategy_card.body_shift or "尿毒症" in result.strategy_card.body_shift
+    assert "代价链" in result.strategy_card.body_shift or "追到账上" in result.strategy_card.body_shift
+
+
+def test_build_strategy_package_does_not_amplify_long_pressure_title_into_problem_brief() -> None:
+    long_title = "总把休息和复查排在最后的人，最后会怀念那个“只是有点累”的自己"
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": long_title,
+            "topic_angle": "从尿毒症一路拖到透析的身体代价链切入，写人为什么总把自己的求救信号继续压后，不先抛人生答案。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "善待自己，好好爱自己",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "",
+            "reference_article_structure_notes": "",
+            "reference_article_body_markdown": (
+                "# 善待自己，好好爱自己\n\n"
+                "后来得了尿毒症，又开始怀念当初长褥疮的时候。\n\n"
+                "又过了一些年，要透析，清醒的时间很少，便又开始怀念起刚得尿毒症的时候。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-09T00:00:00Z",
+    )
+
+    assert result.problem_brief.clarified_problem.startswith("真正需要被看见的")
+    assert long_title not in result.problem_brief.clarified_problem
+    assert "尿毒症" in result.problem_brief.clarified_problem
+    assert "透析" in result.problem_brief.clarified_problem
+    assert long_title not in result.problem_brief.feedback_entry
+    assert "先顾自己" in result.problem_brief.feedback_entry
+    assert "越觉得" not in result.problem_brief.feedback_entry
+    assert "这篇稿子要解释的，是为什么 `得了尿毒症` 这类提醒已经冒头了" in result.problem_brief.problem_statement_markdown
+
+
+def test_build_strategy_package_keeps_pressure_problem_statement_off_title_echo_for_rerun_g_shape() -> None:
+    long_title = "从尿毒症到透析，身体到底替你扛了多少"
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": long_title,
+            "topic_angle": "从“还能扛”到复查拖延、休息推后，很多女人都是在身体每次更坏一点时，才承认上一个阶段其实已经在提醒自己该停了。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "善待自己，好好爱自己",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "",
+            "reference_article_structure_notes": "",
+            "reference_article_body_markdown": (
+                "# 善待自己，好好爱自己\n\n"
+                "后来得了尿毒症，又开始怀念当初长褥疮的时候。\n\n"
+                "又过了一些年，要透析，清醒的时间很少，便又开始怀念起刚得尿毒症的时候。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-09T00:00:00Z",
+    )
+
+    assert "身体判断一次次往后推" in result.problem_brief.observed_phenomenon
+    assert "复查、休息和自我判断怎样被一再往后推" in result.problem_brief.problem_statement_markdown
+    assert "要讲清的，是 `从尿毒症到透析，身体到底替你扛了多少` 为什么会慢慢发生" not in result.problem_brief.problem_statement_markdown
+    assert "最后连该不该停下来都越来越判断不准" in result.problem_brief.feedback_entry
+
+
+def test_build_strategy_package_keeps_medical_pressure_strategy_when_angle_drifts_to_self_stabilizing() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": "从尿毒症到透析，身体到底替你扛了多少",
+            "topic_angle": "拆开一种常见自我消耗：很多女人不是突然垮掉，而是在每次恶化后才后知后觉地怀念上一个还能撑的阶段。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "善待自己，好好爱自己",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章重点是一路硬撑、忽略身体提醒，最后才意识到自己把照顾自己这件事放到了最后。",
+            "reference_article_structure_notes": "",
+            "reference_article_body_markdown": (
+                "# 善待自己，好好爱自己\n\n"
+                "后来得了尿毒症，又开始怀念当初长褥疮的时候。\n\n"
+                "又过了一些年，要透析，清醒的时间很少，便又开始怀念起刚得尿毒症的时候。\n\n"
+                "是这一生，走得太过匆忙，太过疲累，一路跌跌撞撞地前行，却没有照顾好自己。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-09T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "pressure_interface_direct"
+    assert result.problem_brief.target_reader_situation == "总把休息、体检、吃饭、回复和自己顺手往后挪的人"
+    assert "越想稳住自己越累" not in result.problem_brief.writing_goal
+    assert "认出自己已经在透支什么" in result.problem_brief.writing_goal
+    assert result.problem_brief.clarified_problem.startswith("真正需要被看见的，是 `得了尿毒症`")
+    assert "总把该先顾自己的事拖到更后面" in result.problem_brief.feedback_entry
+    assert "并且能从 `" not in result.problem_brief.feedback_entry
+    assert "复查、休息和自我判断是怎样被一再压后的" in result.problem_brief.problem_statement_markdown
+    assert "从总想把自己绷住的日常代价切入" not in result.problem_brief.problem_statement_markdown
+
+
+def test_build_strategy_package_keeps_relationship_repair_summary_on_emotional_engine_mode() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": "真正让关系缓回来，不是解释，是先接住那一下失望",
+            "topic_angle": "从冲突过后最容易失控的解释冲动写起，拆开关系修复为什么总输在顺序。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "真正让关系缓回来，不是解释，是先接住那一下失望",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章重点是关系修复和表达顺序，不是输在不会说，而是输在没先接住失望。",
+            "reference_article_structure_notes": "先回到失望现场，再拆修复顺序和表达动作。",
+            "reference_article_body_markdown": "# 真正让关系缓回来，不是解释，是先接住那一下失望\n\n她那天没有继续解释，只是先停下来接住那一下失望。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-08T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "emotional_engine_direct"

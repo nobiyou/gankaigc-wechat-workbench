@@ -7,7 +7,15 @@ import re
 from app.services.content_skills import build_content_skill_instructions
 from app.services.dbskill_bridge import get_dbskill_rule_lines, merge_unique_lines
 from app.schemas.settings import PromptTemplateSummary
-from app.services.tone_profile_presets import JINWAN_YOUYU_PRESET_KEY, resolve_tone_profile_preset_key
+from app.services.tone_profile_presets import (
+    JINWAN_YOUYU_INTERNAL_PRESSURE_CLOSING_STYLE,
+    JINWAN_YOUYU_INTERNAL_PRESSURE_OPENING_STYLE,
+    JINWAN_YOUYU_INTERNAL_PRESSURE_PARAGRAPH_RHYTHM,
+    JINWAN_YOUYU_INTERNAL_PRESSURE_POLISH,
+    JINWAN_YOUYU_INTERNAL_PRESSURE_VALUE_CONSTRAINTS,
+    JINWAN_YOUYU_PRESET_KEY,
+    resolve_tone_profile_preset_key,
+)
 
 
 @dataclass(frozen=True)
@@ -187,6 +195,19 @@ _NEGATED_RELATIONSHIP_PATTERNS = (
     "不是冷战",
     "不是分手",
 )
+_RELATIONSHIP_NEGATION_PREFIXES = (
+    "不是",
+    "不写",
+    "不要写成",
+    "不要变成",
+    "不要落成",
+    "不要收窄成",
+    "别写成",
+    "别变成",
+    "别落成",
+    "不在",
+)
+_RELATIONSHIP_KEYWORD_PATTERN = "|".join(re.escape(keyword) for keyword in _RELATIONSHIP_PRESSURE_GUARD_KEYWORDS)
 
 _GENERIC_TRACKED_ARTICLE_CUE_PREFIXES = (
     "其实",
@@ -248,19 +269,25 @@ def _infer_tracked_article_pressure_guard(payload: Mapping[str, object]) -> str:
         payload.get("reference_article_structure_notes"),
     ]
     tag_values = [payload.get("tags"), payload.get("reference_article_tags")]
-    corpus_parts = [_as_clean_text(value) for value in fields if _as_clean_text(value)]
+    field_corpus_parts = [_as_clean_text(value) for value in fields if _as_clean_text(value)]
+    tag_corpus_parts: list[str] = []
     for tag_value in tag_values:
         if isinstance(tag_value, list):
-            corpus_parts.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
+            tag_corpus_parts.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
 
-    corpus = " ".join(corpus_parts)
+    field_corpus = " ".join(field_corpus_parts)
+    tag_corpus = " ".join(tag_corpus_parts)
+    corpus = " ".join(part for part in (field_corpus, tag_corpus) if part)
     if not corpus:
         return ""
 
     internal_hits = sum(1 for keyword in _INTERNAL_PRESSURE_GUARD_KEYWORDS if keyword in corpus)
-    negated_relationship_hits = sum(1 for pattern in _NEGATED_RELATIONSHIP_PATTERNS if pattern in corpus)
-    raw_relationship_hits = sum(1 for keyword in _RELATIONSHIP_PRESSURE_GUARD_KEYWORDS if keyword in corpus)
-    relationship_hits = max(0, raw_relationship_hits - negated_relationship_hits)
+    relationship_field_corpus, field_has_negated_relationship_clause = _strip_negated_relationship_spans(field_corpus)
+    relationship_hits = sum(1 for keyword in _RELATIONSHIP_PRESSURE_GUARD_KEYWORDS if keyword in relationship_field_corpus)
+    if relationship_hits == 0 and not field_has_negated_relationship_clause:
+        relationship_hits = sum(1 for keyword in _RELATIONSHIP_PRESSURE_GUARD_KEYWORDS if keyword in tag_corpus)
+    elif relationship_hits > 0:
+        relationship_hits += sum(1 for keyword in _RELATIONSHIP_PRESSURE_GUARD_KEYWORDS if keyword in tag_corpus)
     if internal_hits >= 2 and relationship_hits == 0:
         return "internal_pressure"
     return ""
@@ -276,6 +303,35 @@ def _render_forbidden_phrases(value: object) -> str:
 
 def _split_text_sentences(text: str) -> list[str]:
     return [sentence.strip() for sentence in re.split(r"[。！？!?；;\n]", text) if sentence.strip()]
+
+
+def _find_negated_relationship_clause_start(sentence: str) -> int | None:
+    candidates: list[int] = []
+    for pattern in _NEGATED_RELATIONSHIP_PATTERNS:
+        index = sentence.find(pattern)
+        if index >= 0:
+            candidates.append(index)
+    for prefix in _RELATIONSHIP_NEGATION_PREFIXES:
+        match = re.search(rf"{re.escape(prefix)}.{{0,16}}(?:{_RELATIONSHIP_KEYWORD_PATTERN})", sentence)
+        if match:
+            candidates.append(match.start())
+    return min(candidates) if candidates else None
+
+
+def _strip_negated_relationship_spans(text: str) -> tuple[str, bool]:
+    kept_sentences: list[str] = []
+    has_negated_clause = False
+    for sentence in _split_text_sentences(text):
+        normalized = re.sub(r"\s+", "", sentence)
+        if not normalized:
+            continue
+        clause_start = _find_negated_relationship_clause_start(normalized)
+        if clause_start is not None:
+            has_negated_clause = True
+            normalized = normalized[:clause_start]
+        if normalized:
+            kept_sentences.append(normalized)
+    return "".join(kept_sentences), has_negated_clause
 
 
 def _is_generic_tracked_article_cue(sentence: str) -> bool:
@@ -339,10 +395,95 @@ def _is_jinwan_youyu_style(tone_profile: Mapping[str, object] | None) -> bool:
     return resolve_tone_profile_preset_key(tone_profile) == JINWAN_YOUYU_PRESET_KEY
 
 
+def _should_apply_jinwan_youyu_internal_pressure_overrides(
+    *,
+    tone_profile: Mapping[str, object] | None,
+    payload: Mapping[str, object] | None,
+) -> bool:
+    return bool(
+        payload
+        and _is_jinwan_youyu_style(tone_profile)
+        and _infer_tracked_article_pressure_guard(payload) == "internal_pressure"
+    )
+
+
+def _merge_tone_profile_text(base: str, extra: str) -> str:
+    base_text = base.strip()
+    extra_text = extra.strip()
+    if not base_text:
+        return extra_text
+    if not extra_text:
+        return base_text
+    if extra_text in base_text:
+        return base_text
+    if base_text.endswith(("。", "；")):
+        return f"{base_text}{extra_text}"
+    return f"{base_text}；{extra_text}"
+
+
+def _build_effective_tone_profile(
+    tone_profile: Mapping[str, object] | None,
+    *,
+    payload: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    if not tone_profile:
+        return tone_profile
+    if not _should_apply_jinwan_youyu_internal_pressure_overrides(
+        tone_profile=tone_profile,
+        payload=payload,
+    ):
+        return tone_profile
+
+    effective = dict(tone_profile)
+    effective["opening_style"] = JINWAN_YOUYU_INTERNAL_PRESSURE_OPENING_STYLE
+    effective["paragraph_rhythm"] = JINWAN_YOUYU_INTERNAL_PRESSURE_PARAGRAPH_RHYTHM
+    effective["closing_style"] = JINWAN_YOUYU_INTERNAL_PRESSURE_CLOSING_STYLE
+    effective["value_constraints"] = _merge_tone_profile_text(
+        _as_clean_text(tone_profile.get("value_constraints")),
+        JINWAN_YOUYU_INTERNAL_PRESSURE_VALUE_CONSTRAINTS,
+    )
+    effective["default_polish_instruction"] = _merge_tone_profile_text(
+        _as_clean_text(tone_profile.get("default_polish_instruction")),
+        JINWAN_YOUYU_INTERNAL_PRESSURE_POLISH,
+    )
+    return effective
+
+
+def _harmonize_polish_instruction_for_effective_tone_profile(
+    polish_instruction: str,
+    *,
+    tone_profile: Mapping[str, object] | None,
+    payload: Mapping[str, object] | None,
+) -> str:
+    normalized = polish_instruction.strip()
+    if not normalized:
+        return normalized
+    if not _should_apply_jinwan_youyu_internal_pressure_overrides(
+        tone_profile=tone_profile,
+        payload=payload,
+    ):
+        return normalized
+
+    harmonized = normalized.replace(
+        "开头用问句、引用或共鸣迅速点题，",
+        "开头先落一个现实接口、后果或身体信号，不要先用问句、引用或共鸣替读者下定义，",
+    )
+    harmonized = harmonized.replace(
+        "开头用直接问题、现实接口或一句共鸣判断迅速点题，",
+        "开头先落一个现实接口、后果或身体信号，不要先用问句、引用或共鸣替读者下定义，",
+    )
+    harmonized = harmonized.replace(
+        "开头优先使用问句、引用或共鸣开场，尽快把读者代入她熟悉的处境。",
+        "开头先落一个现实接口、后果或身体信号，不要先用问句、引用或共鸣替读者下定义。",
+    )
+    return _merge_tone_profile_text(harmonized, JINWAN_YOUYU_INTERNAL_PRESSURE_POLISH)
+
+
 def _build_jinwan_youyu_stage_instructions(
     *,
     stage: str,
     tone_profile: Mapping[str, object] | None,
+    payload: Mapping[str, object] | None = None,
 ) -> str:
     if not _is_jinwan_youyu_style(tone_profile):
         return ""
@@ -365,9 +506,34 @@ def _build_jinwan_youyu_stage_instructions(
             "不要写成清单攻略、步骤教程或逐条说教。"
         )
     if stage == "draft":
+        if _should_apply_jinwan_youyu_internal_pressure_overrides(
+            tone_profile=tone_profile,
+            payload=payload,
+        ):
+            return (
+                "这篇内容采用“今晚有语”风格。"
+                "开头先落一个现实接口、后果或身体信号，不要先用问句、引用或共鸣替读者下定义。"
+                "判断可以直接，但不要一上来就把答案说成空泛结论，要让读者先认出自己正在付出的代价。"
+                "正文中段按“现实接口 + 判断推进 + 行动落点”展开，但不要写成机械分条。"
+                "每个判断都要多给一层判断依据、现实机制、情绪承接或行动落点，不能只重复标题情绪。"
+                "读者默认是 25 到 45 岁女性，语言要直接有力、温暖但有边界。"
+                "可以适度使用排比和对仗，但不要把句子排成整齐口号。"
+                "引用名人、影视台词或理论时，全篇最多 1 到 2 处；连续两篇不能用同一个人。"
+                "不要使用这些词：不禁、心想、暗想、默念、琢磨、纠结、暗自、默默。"
+                "少用“像……一样”“如同”“仿佛”“宛如”“好似”这类明喻。"
+                "避免“因为……所以……”“因此”“于是”“结果”这类显性因果串联。"
+                "删掉“总之”“说到底”“归根结底”“值得一提的是”“不可否认”“在当今社会”这类套话。"
+                "不要写“以后会好的”“明天又是新的一天”“一切都会过去”这类未来安慰句。"
+                "“不是A，是B”句式整篇最多使用 2 次。"
+                "破折号整篇最多使用 2 处。"
+                "不要写成逐条列举、逐项解释的导购式结构。"
+                "删掉没有它也不影响前后文的空段、虚段和泛感慨段。"
+                "结尾优先落在一个现实动作、后果余波或轻微决定上，不要把答案写成空泛总结。"
+            )
         return (
             "这篇内容采用“今晚有语”风格。"
-            "开头优先使用问句、引用或共鸣开场，尽快把读者代入她熟悉的处境。"
+            "开头优先用直接问题、现实接口或一句共鸣判断切入，尽快把问题和答案入口一起顶出来。"
+            "不要只靠空问句、空引用或泛共鸣占住开头位置。"
             "不是让读者自己猜，你要直接把判断说出来，但要落在真实接口上。"
             "正文中段按“观点 + 例子 + 结论”推进，但不要写成机械分条。"
             "每个观点都要多给一层判断依据、现实机制、情绪承接或行动落点，不能只重复标题情绪。"
@@ -663,6 +829,7 @@ def _build_tracked_article_pressure_guard_instructions(payload: Mapping[str, obj
             "不要把选题收窄成亲密关系摊牌、情侣冷战、深夜等回复或“怎么把话说清楚”的沟通修复主线。"
             "标题和切入角度优先围绕身体提醒、生活次序、工作/家人/自我照料的接口重建，不要让对话对象取代原文真正的压力来源。"
             "不要把标题写成先给结论的空泛判断句，尽量先落到一个真实接口、后果或身体信号上。"
+            "像体检改期、复查拖延、整个人越来越钝、连消息都不想回这类接口，比“人生遗憾”“生活失序”更适合放进标题。"
         )
     if stage == "outline":
         return (
@@ -678,6 +845,9 @@ def _build_tracked_article_pressure_guard_instructions(payload: Mapping[str, obj
             "后半篇不要长篇回顾关系前史，不要写成“深夜卡住 -> 回想过去 -> 第二天沟通 -> 关系缓和”的完整修复弧线。"
             "优先把代价写在身体提醒、生活排序、家人回应、工作节奏或自我照料被推迟的地方。"
             "不要先端出抽象人生答案，先把一个现实接口、后果或身体信号讲明白，再给判断和行动落点。"
+            "开头不要写成“你有没有过这种阶段”“你以为自己只是累吗”“人啊，总是这样”这类先分类、先下定义再讲理的讲稿起手。"
+            "前两段至少有一段只让现实接口、动作后果或身体反应自己说话，不要连续两段都在对“你”解释为什么会这样。"
+            "如果情绪价值已经落在判断、后果或身体反应里，就直接推进，不必先补一段没有信息增量的氛围场景。"
         )
     return ""
 
@@ -800,6 +970,7 @@ def _build_humanizer_zh_review_instructions(*, stage: str, compact: bool = False
             return (
                 "删掉“说到底”“归根结底”“某种程度上”“很多时候”这类填充短语，让动作和事实直接顶上来。"
                 "能写两项就不要硬凑三项并列；不要用模糊归因和宏大意义替代具体处境。"
+                "少写“先说结论”“接下来我们来看”“真正的问题是”这类结构路标。"
                 "如果一句话太像现成金句，就拆回动作、场景或后果，不要单独抬成结论段。"
             )
         return "".join(
@@ -807,6 +978,7 @@ def _build_humanizer_zh_review_instructions(*, stage: str, compact: bool = False
                 "删掉“说到底”“归根结底”“某种程度上”“很多时候”这类填充短语，让动作、事实和后果直接出现，不要先垫一个万能过渡再说正题。",
                 "能写两项就不要硬凑三项并列；如果一句话里只是为了显得完整才排出三个近义判断，优先删掉最像装饰的那一项。",
                 "不要用“有人说”“有人认为”“专家指出”“很多人都会”这类模糊归因替代具体处境，能落回人物动作、对话、时间节点和现实反馈时，就不要拿抽象权威兜底。",
+                "不要频繁宣布写作动作，比如“先说结论”“接下来我们来看”“真正的问题是”“说句实话”；少解释你要怎么讲，多直接把事实和后果推上来。",
                 "不要把普通处境硬拔成时代缩影、重要转折或更宏大的意义，先把这一个人、这一个动作、这一次延迟写清楚。",
                 "如果一句话读起来像现成金句或适合被单独截图传播，优先把它拆回动作、场景、反应或后果，不要单独抬成结论段。",
             ]
@@ -821,6 +993,7 @@ def _build_localized_ai_flavor_risk_instructions(*, compact: bool = False) -> st
         return (
             "静默排查中文公众号高风险 AI 味：不要匀速排比、段段收束、万能抒情、教程分步、连续短判断或过度解释。"
             "额外排查解释型公众号 AI 腔：不要写“答案先放这儿”“更麻烦的地方在这儿”“有一类……”这类讲解台词。"
+            "不要频繁写“先说结论”“接下来我们来看”“真正的问题是”这类结构路标，也不要用“有人说”“专家指出”偷懒兜底。"
             "如果某处太像一次性写完的标准成稿，优先删总括、降结论、改成过程或普通动作。"
             + compact_signals
         )
@@ -831,6 +1004,8 @@ def _build_localized_ai_flavor_risk_instructions(*, compact: bool = False) -> st
         "句式节奏风险，避免同一种量词、连接词和判断句反复起手；"
         "段落节拍风险，避免“短句点一下 + 下一段长解释”反复交替，避免每段都解释到位；"
         "解释型公众号 AI 腔风险，避免“答案先放这儿”“更麻烦的地方在这儿”“有一类……”这类讲解台词，降低第二人称讲理密度；"
+        "结构路标风险，避免“先说结论”“接下来我们来看”“真正的问题是”“说句实话”这类先宣布写作动作的路标句；"
+        "模糊归因风险，避免“有人说”“有人认为”“专家指出”“很多人都会”这类泛泛权威和空归因；"
         "机制空心风险，不要只给情绪结论，要交代触发、反应和后续影响之间怎么连起来；"
         "抽象空话风险，把感受落到动作、物件、空间、声音和身体反应上；"
         "抽象机制标签风险，少抛“次序失衡”“自我亏欠”“长期透支”这类概念，改写成具体压力、代价和反应；"
@@ -879,6 +1054,7 @@ def _build_wechat_public_account_draft_instructions(*, compact: bool = False) ->
             "正文要像真实公众号作者现场写出来的稿子，不要像一次性生成的标准范文。"
             "少写万能道理，多写日常接口、局部机制和现实阻力，不要把每段都补成完整示范。"
             "不要用“答案先放这儿”“更麻烦的地方在这儿”“你也不用”这类讲解台词。"
+            "如果情绪价值已经在判断、后果或身体反应里，就直接推进，不要额外补一段没有信息增量的氛围场景。"
             "不要连续宣布观点，不要系统性补氛围场景，也不要机械扩句增肥。"
             "如果正文不是从场景起笔，就沿着判断、人物或案例入口继续推进，不必强行每段先铺画面。"
             "段落可以有长有短，但不要切成一排匀称小段。"
@@ -894,7 +1070,9 @@ def _build_wechat_public_account_draft_instructions(*, compact: bool = False) ->
         "把“为什么会这样”拆成触发、反应和后续影响，少写悬空的人生判断。"
         "不要写成解释型公众号 AI 腔：开头不要“你以为……吗”，中段不要“答案先放这儿”“更麻烦的地方在这儿”，后段不要“你也不用把这理解成……”。"
         "降低第二人称讲理密度，能换成作者判断、局部事实或更短承接时，不要连续对“你”解释。"
+        "开头如果已经有现实接口、后果或身体信号，就直接从那里推进，不要先用“你以为自己只是累吗”“有一类……”这类分类讲稿替读者总结。"
         "少抛“次序失衡”“自我亏欠”“长期透支”这类抽象机制标签，让压力、代价和身体反应自己说明问题。"
+        "如果情绪价值已经落在判断、动作后果或身体反应里，就不要额外补大段没有信息增量的氛围场景。"
         "不要每段都写成“判断 + 解释 + 小结”，也不要让 8 到 14 个中长段看起来像同一套讲理模板。"
         "不要把每个判断都解释透，留一点空白给读者自己接上。"
         "不要为了显得成熟顺滑，给每一段都补“很多时候”“说到底”“人总是这样”这类总括过渡句。"
@@ -1081,6 +1259,12 @@ def _truncate_text(text: str, *, max_length: int = 72) -> str:
     return normalized[:max_length].rstrip() + "..."
 
 
+def _normalize_clarified_problem(text: str) -> str:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    normalized = re.sub(r"^(这篇文章|这篇稿子)要解释[，,:：]?\s*", "", normalized)
+    return normalized.strip()
+
+
 def _extract_outline_anchor_lines(outline_body: str, *, max_items: int = 6, max_length: int = 42) -> list[str]:
     anchors: list[str] = []
     for raw_line in outline_body.splitlines():
@@ -1182,7 +1366,7 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
     if not isinstance(problem_brief, Mapping) or not isinstance(strategy_card, Mapping):
         return ""
 
-    clarified_problem = _as_clean_text(problem_brief.get("clarified_problem"))
+    clarified_problem = _normalize_clarified_problem(_as_clean_text(problem_brief.get("clarified_problem")))
     observed_phenomenon = _as_clean_text(problem_brief.get("observed_phenomenon"))
     writing_goal = _as_clean_text(problem_brief.get("writing_goal"))
     target_reader_situation = _as_clean_text(problem_brief.get("target_reader_situation"))
@@ -1460,15 +1644,21 @@ def _should_use_compact_strategy_draft_mode(
 
 
 def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
-    tone_profile = payload.get("tone_profile")
-    style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
+    raw_tone_profile = payload.get("tone_profile")
+    tone_profile = (
+        _build_effective_tone_profile(raw_tone_profile, payload=payload)
+        if isinstance(raw_tone_profile, Mapping)
+        else None
+    )
+    style_section = render_tone_profile_section(tone_profile)
     preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
         stage="outline",
-        tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
+        tone_profile=tone_profile,
+        payload=payload,
     )
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="outline", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="outline")
-    target_wording = _render_outline_target_wording(tone_profile if isinstance(tone_profile, Mapping) else None)
+    target_wording = _render_outline_target_wording(tone_profile)
     reference_article_section = (
         ""
         if _has_strategy_package(payload)
@@ -1517,11 +1707,17 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
 
 def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     source_type = _as_clean_text(payload.get("source_type")) or "trend"
-    tone_profile = payload.get("tone_profile")
-    style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
+    raw_tone_profile = payload.get("tone_profile")
+    tone_profile = (
+        _build_effective_tone_profile(raw_tone_profile, payload=payload)
+        if isinstance(raw_tone_profile, Mapping)
+        else None
+    )
+    style_section = render_tone_profile_section(tone_profile)
     preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
         stage="topic",
-        tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
+        tone_profile=tone_profile,
+        payload=payload,
     )
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="topic", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="topic")
@@ -1600,22 +1796,33 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
 def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     outline = payload["outline"]
     review_comment = _as_clean_text(payload.get("review_comment"))
-    polish_instruction = _as_clean_text(payload.get("polish_instruction"))
+    raw_polish_instruction = _as_clean_text(payload.get("polish_instruction"))
     current_draft = payload.get("draft")
-    is_polish_mode = bool(polish_instruction and isinstance(current_draft, Mapping))
+    is_polish_mode = bool(raw_polish_instruction and isinstance(current_draft, Mapping))
     compact_strategy_mode = _should_use_compact_strategy_draft_mode(
         payload,
         is_polish_mode=is_polish_mode,
     )
-    tone_profile = payload.get("tone_profile")
-    style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
+    raw_tone_profile = payload.get("tone_profile")
+    tone_profile = (
+        _build_effective_tone_profile(raw_tone_profile, payload=payload)
+        if isinstance(raw_tone_profile, Mapping)
+        else None
+    )
+    polish_instruction = _harmonize_polish_instruction_for_effective_tone_profile(
+        raw_polish_instruction,
+        tone_profile=tone_profile,
+        payload=payload,
+    )
+    style_section = render_tone_profile_section(tone_profile)
     preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
         stage="draft",
-        tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
+        tone_profile=tone_profile,
+        payload=payload,
     )
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="draft", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="draft")
-    target_wording = _render_draft_target_wording(tone_profile if isinstance(tone_profile, Mapping) else None)
+    target_wording = _render_draft_target_wording(tone_profile)
     reference_article_section = (
         ""
         if _has_strategy_package(payload)
@@ -1753,11 +1960,17 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
 
 def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     draft = payload["draft"]
-    tone_profile = payload.get("tone_profile")
-    style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
+    raw_tone_profile = payload.get("tone_profile")
+    tone_profile = (
+        _build_effective_tone_profile(raw_tone_profile, payload=payload)
+        if isinstance(raw_tone_profile, Mapping)
+        else None
+    )
+    style_section = render_tone_profile_section(tone_profile)
     preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
         stage="assets",
-        tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
+        tone_profile=tone_profile,
+        payload=payload,
     )
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="assets", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="assets")
@@ -1856,11 +2069,17 @@ def build_cover_image_prompt(payload: Mapping[str, object]) -> str:
 
 
 def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplate:
-    tone_profile = payload.get("tone_profile")
-    style_section = render_tone_profile_section(tone_profile if isinstance(tone_profile, Mapping) else None)
+    raw_tone_profile = payload.get("tone_profile")
+    tone_profile = (
+        _build_effective_tone_profile(raw_tone_profile, payload=payload)
+        if isinstance(raw_tone_profile, Mapping)
+        else None
+    )
+    style_section = render_tone_profile_section(tone_profile)
     preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
         stage="publish_package",
-        tone_profile=tone_profile if isinstance(tone_profile, Mapping) else None,
+        tone_profile=tone_profile,
+        payload=payload,
     )
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="publish_package", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="publish_package")

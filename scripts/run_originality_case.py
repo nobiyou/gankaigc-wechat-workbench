@@ -44,6 +44,13 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _safe_print_json(payload: Mapping[str, Any]) -> None:
+    try:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    except OSError:
+        return
+
+
 def _configure_utf8_stdio() -> None:
     for stream_name in ("stdout", "stderr"):
         stream = getattr(sys, stream_name, None)
@@ -931,6 +938,19 @@ def _build_tracked_article_seed(
     if tags:
         seed["tags"] = tags
     return seed
+
+
+def _should_skip_tracked_article_enrichment(
+    *,
+    args: argparse.Namespace,
+    reuse_bundle_payload: Mapping[str, Any] | None,
+) -> bool:
+    if getattr(args, "skip_enrich", False):
+        return True
+    if not isinstance(reuse_bundle_payload, Mapping):
+        return False
+    tracked_article = reuse_bundle_payload.get("tracked_article")
+    return isinstance(tracked_article, Mapping)
 
 
 def _extract_reuse_strategy_card(
@@ -2494,7 +2514,7 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         import_result = import_tracked_articles([article_payload], source_kind="manual")
         partial["import_result"] = import_result
 
-        if not args.skip_enrich:
+        if not _should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload):
             enriched = enrich_tracked_article_metadata(article_slug)
             partial["tracked_article"] = enriched.model_dump()
         else:
@@ -2607,13 +2627,13 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         }
         partial["status"] = "done"
         _write_json(result_path, partial)
-        print(json.dumps(partial, ensure_ascii=False, indent=2))
+        _safe_print_json(partial)
         return 0
     except Exception as exc:  # pragma: no cover - exercised by live runs
         partial["status"] = "failed"
         partial["error"] = {"message": str(exc), "traceback": traceback.format_exc()}
         _write_json(result_path, partial)
-        print(json.dumps(partial, ensure_ascii=False, indent=2))
+        _safe_print_json(partial)
         return 1
 
 
@@ -2711,7 +2731,7 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         import_result = import_tracked_articles([article_payload], source_kind="manual")
         partial["import_result"] = import_result
 
-        if not args.skip_enrich:
+        if not _should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload):
             enriched = enrich_tracked_article_metadata(article_slug)
             partial["tracked_article"] = enriched.model_dump()
         else:
@@ -2783,13 +2803,13 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
             partial["external_detector"] = detector_report
         partial["status"] = "done"
         _write_json(result_path, partial)
-        print(json.dumps(partial, ensure_ascii=False, indent=2))
+        _safe_print_json(partial)
         return 0
     except Exception as exc:  # pragma: no cover - exercised by live runs
         partial["status"] = "failed"
         partial["error"] = {"message": str(exc), "traceback": traceback.format_exc()}
         _write_json(result_path, partial)
-        print(json.dumps(partial, ensure_ascii=False, indent=2))
+        _safe_print_json(partial)
         return 1
 
 

@@ -13,6 +13,14 @@ class AiFlavorRiskSummary:
 
 
 _NOT_AB_PATTERN = re.compile(r"不是[^，。；\n]{1,20}[，,、]?\s*而?是[^，。；\n]{1,20}", re.UNICODE)
+_REBOUND_EXPLAINER_TAIL_PATTERN = re.compile(
+    r"(?:真要把它(?:算成|当成)[^。！？!?；;\n]{0,24}(?:反而把事情说浅了|后面那点拖延和硬撑反而更难解释)|真要这么说(?:，)?也把事情说浅了|先说成[^。！？!?；;\n]{0,18}反而太轻了|把它直接说成[^。！？!?；;\n]{0,18}也把真实处境写窄了|真要说她是在藏(?:，)?反而把那一下卡住写轻了)",
+    re.UNICODE,
+)
+_ORPHANED_REBOUND_TAIL_PATTERN = re.compile(
+    r"(?:它代表的，反而把事情说浅了|后面那点拖延和硬撑反而更难解释|也把事情说浅了)",
+    re.UNICODE,
+)
 _GENERIC_REFLECTIVE_OPENING_PATTERN = re.compile(
     r"^(?:很多时候|很多遗憾(?:都不是)?|说到底(?:[，,、:]?\s*)?|人总是这样|人很容易|我们总(?:习惯说|以为|觉得)|可生活(?:偏偏|最残酷的真相是)|真正的幸福|人生最大的遗憾|世间最痛的事|更常见的是|最磨人的(?:地方|时候)(?:在这里)?|事情常常(?:就是)?这样|身体的提醒(?:通常)?不响亮)",
     re.UNICODE,
@@ -57,8 +65,24 @@ _DIRECT_ADDRESS_EXPLAINER_PATTERN = re.compile(
     r"(?:你以为|有一类[^。！？!?；;\n]{0,18}|你已经太久|答案先放这儿|更麻烦的地方在这儿|你也不用|如果你已经|先别再拿|你只是不再|你总能|你会把|你拿出去|你把自己|你先把自己)",
     re.UNICODE,
 )
+_DIRECT_ADDRESS_LECTURE_PATTERN = re.compile(
+    r"(?:你有没有过这种阶段|答案我先(?:直接)?告诉你|如果你这段时间已经开始|你不需要先倒下，才有资格停|你看见了，也知道该回谁)",
+    re.UNICODE,
+)
+_VAGUE_ATTRIBUTION_PATTERN = re.compile(
+    r"(?:有人说|有人认为|很多人(?:都会|以为|觉得|总说)|专家(?:指出|认为|提醒)|观察者(?:指出|认为)|不少人(?:会|都)说|有些人(?:会|总)说)",
+    re.UNICODE,
+)
+_SIGNPOSTING_ANNOUNCEMENT_PATTERN = re.compile(
+    r"^(?:先说结论|先把(?:答案|结论)放这[儿里]|接下来(?:我们)?(?:就)?(?:来看|说|聊)|下面(?:我们)?(?:就)?(?:来看|说|聊)|这里(?:先)?要说的是|真正的问题是|真正要紧的是|说白了|老实说|坦白讲|说句实话|先别急着)",
+    re.UNICODE,
+)
 _ABSTRACT_MECHANISM_LABEL_PATTERN = re.compile(
     r"(?:次序失衡|这套模式|自我忽略|长期撤掉|优先权|自我亏欠|生活次序|固定位置|长期取消|长期透支|边界|外部倒计时)",
+    re.UNICODE,
+)
+_ABSTRACT_ANSWER_TITLE_PATTERN = re.compile(
+    r"(?:总把自己[^。！？!?；;\n]{0,14}(?:放最后|排到最后)|善待自己|好好爱自己|人生(?:最大的)?遗憾|生活为什么会慢慢失序|迟早要为[^。！？!?；;\n]{0,12}付账|人为什么总把自己[^。！？!?；;\n]{0,10}(?:往后放|压后|放最后))",
     re.UNICODE,
 )
 _TIME_CHAIN_PREFIXES = (
@@ -163,6 +187,16 @@ def extract_not_ab_skeletons(markdown: str) -> list[str]:
 
 def extract_growth_cliches(markdown: str) -> list[str]:
     matches = [match.group(0).strip() for match in _CLICHE_PATTERN.finditer(markdown)]
+    return _dedupe_preserve_order(matches)
+
+
+def extract_rebound_explainer_tails(markdown: str) -> list[str]:
+    matches = [match.group(0).strip() for match in _REBOUND_EXPLAINER_TAIL_PATTERN.finditer(markdown)]
+    return _dedupe_preserve_order(matches)
+
+
+def extract_orphaned_rebound_tails(markdown: str) -> list[str]:
+    matches = [match.group(0).strip() for match in _ORPHANED_REBOUND_TAIL_PATTERN.finditer(markdown)]
     return _dedupe_preserve_order(matches)
 
 
@@ -378,6 +412,28 @@ def _extract_direct_address_explainer_markers(markdown: str) -> list[str]:
     return _dedupe_preserve_order(matches)
 
 
+def _extract_direct_address_lecture_markers(markdown: str) -> list[str]:
+    matches = [match.group(0).strip() for match in _DIRECT_ADDRESS_LECTURE_PATTERN.finditer(markdown)]
+    return _dedupe_preserve_order(matches)
+
+
+def _extract_vague_attributions(markdown: str) -> list[str]:
+    matches = [match.group(0).strip() for match in _VAGUE_ATTRIBUTION_PATTERN.finditer(markdown)]
+    return _dedupe_preserve_order(matches)
+
+
+def _extract_signposting_announcements(markdown: str) -> list[str]:
+    matches: list[str] = []
+    for paragraph in _extract_paragraphs(markdown):
+        first_sentence = re.split(r"[。！？!?；;\n]", paragraph.strip(), maxsplit=1)[0].strip()
+        if not first_sentence:
+            continue
+        match = _SIGNPOSTING_ANNOUNCEMENT_PATTERN.match(first_sentence)
+        if match:
+            matches.append(match.group(0).strip().rstrip("，,：:"))
+    return _dedupe_preserve_order(matches)
+
+
 def _extract_abstract_mechanism_labels(markdown: str) -> list[str]:
     matches = [match.group(0).strip() for match in _ABSTRACT_MECHANISM_LABEL_PATTERN.finditer(markdown)]
     return _dedupe_preserve_order(matches)
@@ -394,6 +450,62 @@ def _count_standard_explainer_paragraphs(markdown: str) -> tuple[int, int]:
     return (standard_count, len(paragraphs))
 
 
+def _count_balanced_answer_shell_paragraphs(markdown: str) -> tuple[int, int]:
+    paragraphs = _extract_paragraphs(markdown)
+    shell_count = 0
+    for paragraph in paragraphs:
+        compact_length = len(_compact_text(paragraph))
+        sentence_count = len(_extract_sentences(paragraph))
+        if 80 <= compact_length <= 220 and 5 <= sentence_count <= 10:
+            shell_count += 1
+    return (shell_count, len(paragraphs))
+
+
+def _count_opening_explainer_shell_paragraphs(markdown: str) -> tuple[int, int, int, int, bool]:
+    paragraphs = _extract_paragraphs(markdown)[:3]
+    if not paragraphs:
+        return (0, 0, 0, 0, False)
+
+    shell_count = 0
+    second_person_mentions = 0
+    direct_address_matches = 0
+    for paragraph in paragraphs:
+        compact_length = len(_compact_text(paragraph))
+        sentence_count = len(_extract_sentences(paragraph))
+        paragraph_second_person_mentions = _compact_text(paragraph).count("你")
+        paragraph_direct_address_matches = len(_DIRECT_ADDRESS_EXPLAINER_PATTERN.findall(paragraph)) + len(
+            _DIRECT_ADDRESS_LECTURE_PATTERN.findall(paragraph)
+        )
+        second_person_mentions += paragraph_second_person_mentions
+        direct_address_matches += paragraph_direct_address_matches
+        if (
+            70 <= compact_length <= 260
+            and 2 <= sentence_count <= 6
+            and (
+                paragraph_direct_address_matches >= 2
+                or (paragraph_direct_address_matches >= 1 and paragraph_second_person_mentions >= 2)
+                or paragraph_second_person_mentions >= 4
+            )
+        ):
+            shell_count += 1
+
+    first_paragraph = paragraphs[0].strip()
+    first_paragraph_questionish = first_paragraph.startswith(("你以为", "你有没有", "如果你", "有一类")) or (
+        "答案先放这儿" in first_paragraph or "答案我先" in first_paragraph
+    )
+    return (
+        shell_count,
+        len(paragraphs),
+        second_person_mentions,
+        direct_address_matches,
+        first_paragraph_questionish,
+    )
+
+
+def _count_second_person_mentions(markdown: str) -> int:
+    return _compact_text(markdown).count("你")
+
+
 def evaluate_ai_flavor_risk(*, title: str, body_markdown: str) -> AiFlavorRiskSummary:
     hits: list[str] = []
     suggestions: list[str] = []
@@ -404,6 +516,18 @@ def evaluate_ai_flavor_risk(*, title: str, body_markdown: str) -> AiFlavorRiskSu
         hits.append(f"命中：不是A，是B x{not_ab_count}")
         suggestions.append("建议：把整齐反转句拆成一个具体场景和一个延迟出现的判断。")
         score += min(30, not_ab_count * 12)
+
+    rebound_explainer_tails = extract_rebound_explainer_tails(body_markdown)
+    if len(rebound_explainer_tails) >= 2:
+        hits.append(f"命中：回钩解释尾句偏多 x{len(rebound_explainer_tails)}")
+        suggestions.append("建议：删掉反复出现的“真要把它算成……/真要这么说……”回钩句，直接把后果、动作或未说尽的部分留在原句里。")
+        score += min(18, 8 + (len(rebound_explainer_tails) - 2) * 4)
+
+    orphaned_rebound_tails = extract_orphaned_rebound_tails(body_markdown)
+    if orphaned_rebound_tails:
+        hits.append(f"命中：断裂回钩尾句 x{len(orphaned_rebound_tails)}")
+        suggestions.append("建议：删掉被拆断后单独残留的回钩尾句，把前后句直接接回原段。")
+        score += min(12, 6 + (len(orphaned_rebound_tails) - 1) * 3)
 
     step_count = _count_pattern_matches(body_markdown, re.compile(r"第[一二三四五六七八九十]+步", re.UNICODE))
     if step_count > 0:
@@ -467,6 +591,42 @@ def evaluate_ai_flavor_risk(*, title: str, body_markdown: str) -> AiFlavorRiskSu
         suggestions.append("建议：删掉“答案先放这儿”“更麻烦的地方在这儿”“你也不用”这类讲解台词，降低第二人称密度。")
         score += min(26, 16 + (len(direct_address_markers) - 4) * 2)
 
+    direct_address_lecture_markers = _extract_direct_address_lecture_markers(body_markdown)
+    if len(direct_address_lecture_markers) >= 2:
+        hits.append(f"命中：第二人称讲解台词偏显眼 x{len(direct_address_lecture_markers)}")
+        suggestions.append("建议：把“你有没有过这种阶段”“答案我先告诉你”这类讲解台词改成事实、状态或后果先发生。")
+        score += min(18, 10 + (len(direct_address_lecture_markers) - 2) * 4)
+
+    vague_attributions = _extract_vague_attributions(body_markdown)
+    if len(vague_attributions) >= 2:
+        hits.append(f"命中：模糊归因偏多 x{len(vague_attributions)}")
+        suggestions.append("建议：少写“有人说”“专家指出”“很多人都会”，能落到具体动作、反馈和已知事实时就不要拿模糊权威兜底。")
+        score += min(18, 10 + (len(vague_attributions) - 2) * 4)
+
+    signposting_announcements = _extract_signposting_announcements(body_markdown)
+    if len(signposting_announcements) >= 2:
+        hits.append(f"命中：宣布式结构路标偏多 x{len(signposting_announcements)}")
+        suggestions.append("建议：少写“先说结论”“接下来我们来看”“真正的问题是”这类宣布动作，直接把事实、处境和后果顶上来。")
+        score += min(18, 10 + (len(signposting_announcements) - 2) * 4)
+
+    (
+        opening_explainer_shell_blocks,
+        opening_explainer_paragraph_count,
+        opening_second_person_mentions,
+        opening_direct_address_matches,
+        first_paragraph_questionish,
+    ) = _count_opening_explainer_shell_paragraphs(body_markdown)
+    if (
+        3 <= len(paragraphs) <= 6
+        and opening_explainer_paragraph_count >= 3
+        and opening_explainer_shell_blocks >= 2
+        and opening_second_person_mentions >= 6
+        and (opening_direct_address_matches >= 3 or first_paragraph_questionish)
+    ):
+        hits.append(f"命中：开头讲稿式先答后证 {opening_explainer_shell_blocks}/{opening_explainer_paragraph_count}")
+        suggestions.append("建议：开头不要先替读者分类下定义，先让现实接口、后果或身体信号发生，再把判断慢一点递出来。")
+        score += 18
+
     abstract_labels = _extract_abstract_mechanism_labels(body_markdown)
     if len(abstract_labels) >= 5:
         hits.append(f"命中：抽象机制标签密集 x{len(abstract_labels)}")
@@ -481,6 +641,37 @@ def evaluate_ai_flavor_risk(*, title: str, body_markdown: str) -> AiFlavorRiskSu
     ):
         hits.append(f"命中：中长段标准讲理排布 {standard_explainer_blocks}/{explainer_paragraph_count}")
         suggestions.append("建议：不要每段都写成“判断 + 解释 + 小结”，打散段落长度和职责，保留局部未说满。")
+        score += 18
+
+    balanced_shell_blocks, balanced_shell_paragraph_count = _count_balanced_answer_shell_paragraphs(body_markdown)
+    second_person_mentions = _count_second_person_mentions(body_markdown)
+    semicolon_breaks = body_markdown.count("；") + body_markdown.count(";")
+    if (
+        7 <= balanced_shell_paragraph_count <= 10
+        and balanced_shell_blocks / max(1, balanced_shell_paragraph_count) >= 0.75
+        and second_person_mentions >= 30
+    ):
+        hits.append(f"命中：第二人称整篇讲解密度偏高 x{second_person_mentions}")
+        suggestions.append("建议：降低整篇对“你”的连续解释密度，留几段改由事实、后果或关系变化自己说话。")
+        score += 16
+
+    if (
+        7 <= balanced_shell_paragraph_count <= 10
+        and balanced_shell_blocks / max(1, balanced_shell_paragraph_count) >= 0.75
+        and semicolon_breaks >= 6
+    ):
+        hits.append(f"命中：中长段整篇过于齐整 {balanced_shell_blocks}/{balanced_shell_paragraph_count}")
+        suggestions.append("建议：不要连续用七到十个完整中长段把同一条判断讲满，至少拆掉一两段完整壳，保留轻重不匀的段落节拍。")
+        score += 14
+
+    if (
+        9 <= paragraph_count <= 14
+        and shell_like_blocks >= max(7, paragraph_count - 2)
+        and (second_person_mentions >= 16 or semicolon_breaks >= 8)
+        and (balanced_shell_blocks >= 6 or standard_explainer_blocks >= 5)
+    ):
+        hits.append(f"命中：整篇解释壳偏密 {shell_like_blocks}/{paragraph_count}")
+        suggestions.append("建议：不要把整篇拆成十来个完整解释段顺着讲，至少合并 2 到 4 段，让几个判断段并回后面的具体过程。")
         score += 18
 
     bridging_summary_paragraphs = extract_bridging_summary_paragraphs(body_markdown)
@@ -529,6 +720,11 @@ def evaluate_ai_flavor_risk(*, title: str, body_markdown: str) -> AiFlavorRiskSu
         suggestions.append("建议：标题少用对称判断，优先写具体处境或情绪入口。")
         score += 16
 
+    if _ABSTRACT_ANSWER_TITLE_PATTERN.search(title):
+        hits.append("命中：标题抽象答案壳")
+        suggestions.append("建议：标题先落到一个现实接口、后果或身体信号，不要先给人生判断。")
+        score += 14
+
     cliche_count = _count_pattern_matches(body_markdown, _CLICHE_PATTERN)
     if cliche_count > 0:
         hits.append(f"命中：万能成长套话 x{cliche_count}")
@@ -563,6 +759,8 @@ def build_ai_flavor_polish_instruction(summary: AiFlavorRiskSummary, *, compact:
         actions: list[str] = []
         if any("不是A，是B" in hit for hit in summary.hits):
             actions.append("删掉全部“不是A，而是B / 不是不……只是……”骨架，改成具体处境、动作或停顿。")
+        if any("回钩解释尾句偏多" in hit for hit in summary.hits):
+            actions.append("删掉反复回头补的“真要把它算成……/真要这么说……”尾句，直接让后果、动作和未说尽的部分留在原句里。")
         if any("单句敲钟段偏多" in hit for hit in summary.hits):
             actions.append("把独立短判断段压到最多 2 处，至少合并 3 个短段回前后过程段。")
         if any("短句敲钟后接长解释的固定节拍" in hit for hit in summary.hits):
@@ -589,14 +787,30 @@ def build_ai_flavor_polish_instruction(summary: AiFlavorRiskSummary, *, compact:
             actions.append("打散连续“她 / 你 / 我”起段，改用动作、物件、时间点或环境先起句。")
         if any("标题判断句模板" in hit for hit in summary.hits):
             actions.append("标题改成具体处境入口，不要用宽泛判断句。")
+        if any("标题抽象答案壳" in hit for hit in summary.hits):
+            actions.append("标题先落一个现实接口、后果或身体信号，不要先抛人生答案句。")
         if any("先是后来再后来的整齐梳理" in hit for hit in summary.hits):
             actions.append("拆开“先是……后来……再后来……”这种整齐梳理链，保留更自然的时间推进。")
         if any("第二人称讲理腔偏重" in hit for hit in summary.hits):
             actions.append("删掉“答案先放这儿 / 更麻烦的地方在这儿 / 你也不用”这类讲解台词，降低第二人称密度，改成作者自己的判断、局部事实或更短的承接。")
+        if any("第二人称讲解台词偏显眼" in hit for hit in summary.hits):
+            actions.append("把“你有没有过这种阶段 / 答案我先告诉你 / 如果你已经……”这类讲解台词拆掉，改成状态、动作后果或关系变化先发生，不要换成“不是……而是……”或“其实 / 所以”解释链。")
+        if any("模糊归因偏多" in hit for hit in summary.hits):
+            actions.append("把“有人说 / 专家指出 / 很多人都会”这类模糊归因拆掉，能落到已知动作、现实反馈和具体后果时，就不要再拿泛泛权威兜底。")
+        if any("宣布式结构路标偏多" in hit for hit in summary.hits):
+            actions.append("删掉“先说结论 / 接下来我们来看 / 真正的问题是 / 说句实话”这类宣布式路标，直接把事实、处境和后果推到句首。")
+        if any("开头讲稿式先答后证" in hit for hit in summary.hits):
+            actions.append("开头不要先用“你以为……吗 / 有一类……”替读者分类下定义，直接把现实接口、后果或身体信号顶上来，再把判断慢一点递出来。")
         if any("抽象机制标签密集" in hit for hit in summary.hits):
             actions.append("把“次序失衡 / 自我亏欠 / 长期透支”这类抽象标签改成具体压力、选择代价或身体反应，不要先抛概念再解释。")
         if any("中长段标准讲理排布" in hit for hit in summary.hits):
             actions.append("不要每段都写成“判断 + 解释 + 小结”，至少合并两处、截短两处，保留局部没有说满的停顿。")
+        if any("第二人称整篇讲解密度偏高" in hit for hit in summary.hits):
+            actions.append("降低整篇第二人称讲解密度，至少留两段改由事实、后果或关系变化自己说话，不要句句都对“你”解释。")
+        if any("中长段整篇过于齐整" in hit for hit in summary.hits):
+            actions.append("不要连续用完整中长段把同一条判断讲满，至少拆短一段、合并一段，打破整篇一段一层的标准答案壳。")
+        if any("整篇解释壳偏密" in hit for hit in summary.hits):
+            actions.append("不要把正文拆成十来个完整解释段顺着讲，至少合并 2 到 4 段，把段首判断并回后面的动作、反应和后果。")
         if not actions:
             actions.append("优先删掉最像模板成稿的判断段，把判断压回现有动作、场景和反应里。")
         action_block = " ".join(f"{index + 1}. {action}" for index, action in enumerate(actions))
@@ -628,8 +842,11 @@ def build_ai_flavor_polish_instruction(summary: AiFlavorRiskSummary, *, compact:
         "不要单独起一段宣布“更麻烦的是”“有些代价是延迟出现的”“关系里的缺席”这类观点，把它并回前后过程段。"
         "不要在长段开头先补“这条线常常就是这么出来的”“关系也是这样淡下去的”“真正磨人的，往往……”这类总括句，再往下接一整段解释。"
         "删掉“答案先放这儿”“更麻烦的地方在这儿”“你也不用”这类讲解台词，降低第二人称讲理密度。"
+        "把“你有没有过这种阶段”“答案我先告诉你”“如果你这段时间已经开始”这类讲解台词改成状态、动作后果或关系变化先发生，不要换成“不是……而是……”或“其实 / 所以”解释链。"
         "不要先抛“次序失衡”“自我亏欠”“长期透支”这类抽象机制标签再解释，改成具体压力、代价或身体反应。"
         "不要每段都写成“判断 + 解释 + 小结”，至少让一部分段落只承接动作、关系变化或未说完的余波。"
+        "如果整篇都在对“你”讲解，至少留两段改由事实、后果或关系变化自己说话。"
+        "不要连续用七到十个完整中长段把同一条判断讲满，至少拆短一段、合并一段，打破一段一层的标准答案壳。"
         "不要把一句消息、对话或引用单独切成一个展示段这种做法写成固定排版习惯；如果全文只有一处且确实能增强现场感，可以保留。"
         "不要单独起一个只负责解释的短段这种做法写成固定排版习惯；如果全文只有一处且能保住当场心理跳转，可以保留。"
         "打散连续“她……她……她……”或“你……你……你……”起段，优先让动作、物件、时间节点或环境先起句。"

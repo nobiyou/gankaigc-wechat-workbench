@@ -949,6 +949,7 @@ def test_generate_topic_supports_tracked_article_payload(monkeypatch) -> None:
             "article_title": "听到伴侣说话就烦，不是你讨厌他，也不是你脾气不好，而是你忽略了这个危机",
             "author": "一凡一尘",
             "summary": "很多人认为对伴侣没耐心就是感情变淡了，其实并不全是对的。",
+            "body_markdown": "她不是突然没耐心，只是先把自己的疲惫往后放了太久。",
             "structure_notes": "Imported from WeChat MP article list; structure notes pending review.",
             "tags": ["wechat-mp"],
             "tone_profile": {
@@ -965,6 +966,7 @@ def test_generate_topic_supports_tracked_article_payload(monkeypatch) -> None:
     assert "参考文章标题：听到伴侣说话就烦" in captured["prompt"]
     assert "来源账号：未知公众号" in captured["prompt"]
     assert "风格档案：女性成长克制陪伴风" in captured["prompt"]
+    assert "参考文章正文抓手候选：" in captured["prompt"]
 
 
 def test_generate_outline_prompt_includes_reference_article_guardrails(monkeypatch) -> None:
