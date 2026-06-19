@@ -293,6 +293,28 @@ function formatDiagnosisRisk(value: string): string {
   return value;
 }
 
+function formatQualityAction(value: string): string {
+  if (value === "reduce_ai_fingerprint") {
+    return "优先降低 AI 指纹";
+  }
+  if (value === "strengthen_opening_and_progression") {
+    return "优先加强开头与推进";
+  }
+  if (value === "increase_scene_specificity") {
+    return "优先补强场景细节";
+  }
+  if (value === "strengthen_viewpoint_clarity") {
+    return "优先收紧观点表达";
+  }
+  if (value === "rewrite_ending") {
+    return "优先重写结尾";
+  }
+  if (value === "reference_isolation_polish") {
+    return "优先执行参考文隔离精修";
+  }
+  return value;
+}
+
 function buildDraftDiagnosisSummaryLines(report: DraftDiagnosisReport): string[] {
   const upstreamFindings = report.upstream_findings.slice(0, 3).join(" / ");
   const downstreamFindings = report.downstream_findings.slice(0, 4).join(" / ");
@@ -314,10 +336,10 @@ function buildDraftDiagnosisSummaryLines(report: DraftDiagnosisReport): string[]
 function buildDraftQualitySummaryLines(summary: NonNullable<ProjectDetail["draft_quality_summary"]>): string[] {
   return [
     `草稿版本：v${summary.draft_version}${summary.diagnosis_version ? ` · 诊断 v${summary.diagnosis_version}` : ""}`,
-    `参考文隔离风险：${summary.reference_risk_level} / ${summary.reference_risk_score}`,
-    `AI 指纹风险：${summary.ai_fingerprint_level}`,
-    `AI味启发式：${summary.ai_flavor_level} / ${summary.ai_flavor_score}`,
-    summary.recommended_next_action ? `推荐动作：${summary.recommended_next_action}` : null,
+    `参考文隔离风险：${formatDiagnosisRisk(summary.reference_risk_level)} / ${summary.reference_risk_score}`,
+    `AI 指纹风险：${formatDiagnosisRisk(summary.ai_fingerprint_level)}`,
+    `AI味启发式：${formatDiagnosisRisk(summary.ai_flavor_level)} / ${summary.ai_flavor_score}`,
+    summary.recommended_next_action ? `推荐动作：${formatQualityAction(summary.recommended_next_action)}` : null,
     ...summary.key_findings.slice(0, 4).map((item) => `发现：${item}`),
   ].filter((line): line is string => Boolean(line));
 }

@@ -474,9 +474,9 @@ test("buildWorkbenchPreview renders draft quality summary in publish preview", (
   const summaryBlock = preview?.blocks.find((block) => block.key === "publish-draft-quality-summary");
   assert.equal(summaryBlock?.label, "综合质量摘要");
   assert.equal(summaryBlock?.content.includes("草稿版本：v1 · 诊断 v2"), true);
-  assert.equal(summaryBlock?.content.includes("参考文隔离风险：medium / 42"), true);
-  assert.equal(summaryBlock?.content.includes("AI味启发式：medium / 38"), true);
-  assert.equal(summaryBlock?.content.includes("推荐动作：reduce_ai_fingerprint"), true);
+  assert.equal(summaryBlock?.content.includes("参考文隔离风险：中 / 42"), true);
+  assert.equal(summaryBlock?.content.includes("AI味启发式：中 / 38"), true);
+  assert.equal(summaryBlock?.content.includes("推荐动作：优先降低 AI 指纹"), true);
   assert.equal(summaryBlock?.content.includes("发现：解释连接词偏多 x5"), true);
 });
 
