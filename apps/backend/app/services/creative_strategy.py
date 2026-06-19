@@ -12,6 +12,243 @@ from app.schemas.creative_workflow import (
 from app.services.dbskill_bridge import get_dbskill_rule_lines, merge_unique_lines
 
 
+_PRESSURE_TOPIC_HARD_SIGNALS = (
+    "体检",
+    "复查",
+    "透析",
+    "尿毒症",
+    "褥疮",
+    "轮椅",
+    "身体提醒",
+    "身体信号",
+    "求救信号",
+)
+_PRESSURE_TOPIC_BODY_SIGNALS = (
+    "身体",
+    "休息",
+    "自我照料",
+    "照顾自己",
+    "生活排序",
+    "生活接口",
+    "身体代价",
+    "情绪",
+)
+_PRESSURE_TOPIC_INTERFACE_SIGNALS = (
+    "推迟",
+    "往后放",
+    "压后",
+    "等有空",
+    "等忙完",
+    "拖延",
+    "推后",
+    "往后推",
+    "往后排",
+    "顺延",
+    "还能扛",
+    "该停了",
+    "撤掉",
+)
+_PRESSURE_TOPIC_CONSEQUENCE_SIGNALS = (
+    "胃口变差",
+    "作息发乱",
+    "没耐心",
+    "负荷",
+    "疲惫",
+    "耗尽",
+    "撑住",
+    "稳住",
+    "倦怠",
+    "报警",
+    "代价链",
+    "坏一点",
+    "失衡",
+    "追债",
+)
+_PRESSURE_REFERENCE_HARD_SIGNALS = (
+    "尿毒症",
+    "褥疮",
+    "透析",
+    "轮椅",
+    "体检",
+    "复查",
+    "身体提醒",
+    "身体信号",
+    "求救信号",
+)
+_PRESSURE_REFERENCE_SOFT_SIGNALS = (
+    "身体",
+    "疲惫",
+    "耗尽",
+    "报警",
+    "推迟",
+    "往后放",
+    "照顾好自己",
+    "自我照料",
+    "休息",
+    "工作",
+    "家人",
+    "失衡",
+)
+_PRESSURE_REFERENCE_CONSEQUENCE_MARKERS = ("后来", "又开始", "直到", "迟早", "怀念")
+_EMOTIONAL_RELEASE_REFERENCE_KEYWORDS = (
+    "放下",
+    "放手",
+    "知足",
+    "珍惜",
+    "珍惜当下",
+    "幸福",
+    "幸福是什么",
+    "别无所求",
+    "不再强求",
+    "强求",
+    "执念",
+    "得不到",
+    "不甘心",
+    "停止拉扯",
+)
+_BROAD_EMOTIONAL_RELEASE_STRATEGY_KEYWORDS = (
+    "幸福",
+    "放下",
+    "放手",
+    "知足",
+    "珍惜",
+    "拥有",
+    "得不到",
+    "不甘心",
+    "强求",
+    "执念",
+    "拉扯",
+    "继续投入",
+    "投入",
+    "停下",
+    "松手",
+    "舍不得",
+    "腾出位置",
+    "心力",
+)
+_BROAD_EMOTIONAL_RELEASE_THESIS_MARKERS = (
+    "幸福",
+    "放下",
+    "放手",
+    "知足",
+    "珍惜",
+    "拥有",
+    "误认成",
+    "还有希望",
+    "更接近幸福",
+    "停下也是一种保护",
+    "眼前拥有",
+    "已经拥有",
+    "放手不是失去",
+    "不再强求",
+    "别无所求",
+)
+_EVERYDAY_WARMTH_RETURN_ACHIEVEMENT_KEYWORDS = (
+    "大事",
+    "轰轰烈烈",
+    "出人头地",
+    "改变世界",
+    "赚大钱",
+    "住大房子",
+    "大公司",
+    "大名声",
+    "成就",
+    "成就叙事",
+    "宏大叙事",
+    "远大抱负",
+    "高楼大厦",
+    "灯火辉煌",
+)
+_EVERYDAY_WARMTH_RETURN_DAILY_KEYWORDS = (
+    "人间烟火",
+    "陪在爱的人身边",
+    "陪爱人",
+    "做了一顿晚饭",
+    "接孩子",
+    "一家老小",
+    "热汤",
+    "夜灯",
+    "晚安",
+    "父母",
+    "爱人",
+    "孩子",
+    "回家",
+    "小事",
+    "微小",
+    "细碎",
+    "日常瞬间",
+    "平淡的日常",
+    "陪伴",
+    "细水长流",
+)
+_EVERYDAY_WARMTH_RETURN_THESIS_MARKERS = (
+    "最重要的事",
+    "祛魅",
+    "才属于你我",
+    "才是我们的一生",
+    "把“大事”放一放",
+    "把“小事”捡起来",
+    "被“宏大”绑架",
+    "被“微小”治愈",
+)
+_RELATIONSHIP_AFTERCARE_CONFLICT_KEYWORDS = (
+    "吵架",
+    "争吵",
+    "争执",
+    "冷暴力",
+    "冷战",
+    "赌气",
+    "闹完",
+    "吵完",
+    "失望",
+    "委屈",
+    "误解",
+    "不理不睬",
+    "情绪发酵",
+    "针锋相对",
+)
+_RELATIONSHIP_AFTERCARE_REPAIR_KEYWORDS = (
+    "修复",
+    "沟通",
+    "接住",
+    "回来",
+    "主动解决",
+    "达成共识",
+    "和好",
+    "继续走下去",
+    "温柔以待",
+    "妥协",
+    "理解",
+    "包容",
+    "顺序",
+    "回归理性",
+)
+_RELATIONSHIP_AFTERCARE_RELATIONSHIP_KEYWORDS = (
+    "关系",
+    "爱不爱",
+    "爱意",
+    "两个人",
+    "伴侣",
+    "婚姻",
+    "亲密",
+    "安全感",
+)
+_RELATIONSHIP_AFTERCARE_THESIS_MARKERS = (
+    "吵架后的态度",
+    "检验爱情的试金石",
+    "真正爱你的人",
+    "不舍得让你一个人在坏情绪里",
+    "不曾对你冷暴力",
+    "用爱修复争吵中留下的伤口",
+    "不是永远不吵架",
+    "争吵以后还想要继续走下去",
+    "谁先冷下来谁就算懂事",
+    "回避修复",
+    "回避税",
+)
+_SUPPORTIVE_HEALTHY_BODY_MARKERS = ("健康的身体", "爱你的家人", "三两好友", "一碗热饭")
+
+
 def _read_project_value(project: Mapping[str, object], key: str, default: str = "") -> str:
     try:
         value = project[key]
@@ -20,6 +257,10 @@ def _read_project_value(project: Mapping[str, object], key: str, default: str = 
     if value is None:
         return default
     return str(value)
+
+
+def _count_keyword_hits(text: str, keywords: tuple[str, ...]) -> int:
+    return sum(1 for keyword in keywords if keyword in text)
 
 
 def build_strategy_package(
@@ -97,6 +338,7 @@ def build_strategy_package(
     )
     point_of_view = _build_point_of_view(
         topic_angle,
+        topic_title=topic_title,
         primary_pressure_cue=primary_pressure_cue,
         structure_mode=structure_mode,
     )
@@ -141,6 +383,8 @@ def build_strategy_package(
         "不要复用不是A而是B的对称判断句",
         "不要沿用参考文章的开头对象、推进顺序和结尾判断",
     ]
+    if structure_mode == "relationship_aftercare":
+        expression_constraints.append("少写“真正伤人的不是……”或“关系不是输在……而是输在……”这类整齐翻转句。")
     expression_constraints = merge_unique_lines(
         expression_constraints,
         _build_reference_shell_expression_constraints(reference_shell_signals),
@@ -301,46 +545,19 @@ def _has_pressure_interface_topic(topic_angle: str) -> bool:
     normalized = topic_angle.strip()
     if not normalized:
         return False
-    keywords = (
-        "推迟",
-        "往后放",
-        "压后",
-        "等有空",
-        "等忙完",
-        "胃口变差",
-        "作息发乱",
-        "没耐心",
-        "负荷",
-        "疲惫",
-        "撑住",
-        "稳住",
-        "倦怠",
-        "报警",
-        "耗尽",
-        "身体提醒",
-        "求救信号",
-        "代价链",
-        "拖延",
-        "推后",
-        "往后推",
-        "往后排",
-        "顺延",
-        "还能扛",
-        "该停了",
-        "坏一点",
-        "失衡",
-        "复查",
-        "透析",
-        "尿毒症",
-        "体检",
-        "休息",
-        "照顾自己",
+    hard_hits = _count_keyword_hits(normalized, _PRESSURE_TOPIC_HARD_SIGNALS)
+    body_hits = _count_keyword_hits(normalized, _PRESSURE_TOPIC_BODY_SIGNALS)
+    interface_hits = _count_keyword_hits(normalized, _PRESSURE_TOPIC_INTERFACE_SIGNALS)
+    consequence_hits = _count_keyword_hits(normalized, _PRESSURE_TOPIC_CONSEQUENCE_SIGNALS)
+    return hard_hits >= 1 or (body_hits >= 1 and (interface_hits >= 1 or consequence_hits >= 1)) or (
+        interface_hits >= 1 and consequence_hits >= 1
     )
-    return any(keyword in normalized for keyword in keywords)
 
 
 def _uses_pressure_interface_mode(*, topic_angle: str, structure_mode: str = "") -> bool:
-    return structure_mode == "pressure_interface_direct" or _has_pressure_interface_topic(topic_angle)
+    if structure_mode:
+        return structure_mode == "pressure_interface_direct"
+    return _has_pressure_interface_topic(topic_angle)
 
 
 def _has_pressure_interface_summary(reference_summary: str) -> bool:
@@ -377,50 +594,83 @@ def _has_pressure_interface_reference(reference_body_markdown: str) -> bool:
     normalized = reference_body_markdown.strip()
     if not normalized:
         return False
-    keywords = (
-        "尿毒症",
-        "褥疮",
-        "透析",
-        "轮椅",
-        "体检",
-        "身体",
-        "疲惫",
-        "耗尽",
-        "报警",
-        "推迟",
-        "往后放",
-        "照顾好自己",
-        "自我照料",
-        "工作",
-        "家人",
+    hard_hits = _count_keyword_hits(normalized, _PRESSURE_REFERENCE_HARD_SIGNALS)
+    soft_hits = _count_keyword_hits(normalized, _PRESSURE_REFERENCE_SOFT_SIGNALS)
+    consequence_hits = _count_keyword_hits(normalized, _PRESSURE_REFERENCE_CONSEQUENCE_MARKERS)
+    supportive_hits = _count_keyword_hits(normalized, _SUPPORTIVE_HEALTHY_BODY_MARKERS)
+    if supportive_hits >= 2 and hard_hits == 0 and consequence_hits == 0:
+        return False
+    return hard_hits >= 2 or (hard_hits >= 1 and consequence_hits >= 1) or (
+        hard_hits == 0 and soft_hits >= 3 and consequence_hits >= 2 and not _has_emotional_release_reference(normalized)
     )
-    hit_count = sum(1 for keyword in keywords if keyword in normalized)
-    consequence_markers = sum(1 for marker in ("后来", "又开始", "直到", "迟早", "怀念") if marker in normalized)
-    return hit_count >= 2 and consequence_markers >= 1
+
+
+def _has_emotional_release_reference(*parts: str) -> bool:
+    corpus = " ".join(part.strip() for part in parts if part and part.strip())
+    if not corpus:
+        return False
+    keyword_hits = _count_keyword_hits(corpus, _EMOTIONAL_RELEASE_REFERENCE_KEYWORDS)
+    hard_pressure_hits = _count_keyword_hits(corpus, _PRESSURE_REFERENCE_HARD_SIGNALS)
+    return keyword_hits >= 3 and hard_pressure_hits == 0
+
+
+def _has_everyday_warmth_return_reference(*parts: str) -> bool:
+    corpus = " ".join(part.strip() for part in parts if part and part.strip())
+    if not corpus:
+        return False
+    achievement_hits = _count_keyword_hits(corpus, _EVERYDAY_WARMTH_RETURN_ACHIEVEMENT_KEYWORDS)
+    daily_hits = _count_keyword_hits(corpus, _EVERYDAY_WARMTH_RETURN_DAILY_KEYWORDS)
+    thesis_hits = _count_keyword_hits(corpus, _EVERYDAY_WARMTH_RETURN_THESIS_MARKERS)
+    return achievement_hits >= 2 and daily_hits >= 3 and thesis_hits >= 1
+
+
+def _has_relationship_aftercare_reference(*parts: str) -> bool:
+    corpus = " ".join(part.strip() for part in parts if part and part.strip())
+    if not corpus:
+        return False
+    conflict_hits = _count_keyword_hits(corpus, _RELATIONSHIP_AFTERCARE_CONFLICT_KEYWORDS)
+    repair_hits = _count_keyword_hits(corpus, _RELATIONSHIP_AFTERCARE_REPAIR_KEYWORDS)
+    relationship_hits = _count_keyword_hits(corpus, _RELATIONSHIP_AFTERCARE_RELATIONSHIP_KEYWORDS)
+    thesis_hits = _count_keyword_hits(corpus, _RELATIONSHIP_AFTERCARE_THESIS_MARKERS)
+    hard_pressure_hits = _count_keyword_hits(corpus, _PRESSURE_REFERENCE_HARD_SIGNALS)
+    return (
+        relationship_hits >= 1
+        and conflict_hits >= 1
+        and repair_hits >= 2
+        and (thesis_hits >= 1 or conflict_hits >= 2)
+        and hard_pressure_hits == 0
+    )
+
+
+def _uses_broad_emotional_release_mode(*, topic_title: str = "", topic_angle: str, structure_mode: str = "") -> bool:
+    if structure_mode != "emotional_engine_direct":
+        return False
+    corpus = " ".join(part.strip() for part in (topic_title, topic_angle) if part and part.strip())
+    if not corpus:
+        return False
+    if _count_keyword_hits(corpus, _PRESSURE_REFERENCE_HARD_SIGNALS) > 0:
+        return False
+    if any(marker in corpus for marker in ("边界", "开口", "修复", "冷战", "复合", "关系缓回来")):
+        return False
+    if _has_emotional_release_reference(corpus):
+        return True
+    keyword_hits = _count_keyword_hits(corpus, _BROAD_EMOTIONAL_RELEASE_STRATEGY_KEYWORDS)
+    thesis_hits = _count_keyword_hits(corpus, _BROAD_EMOTIONAL_RELEASE_THESIS_MARKERS)
+    return keyword_hits >= 2 and thesis_hits >= 1
+
+
+def _uses_everyday_warmth_return_mode(*, topic_title: str = "", topic_angle: str, structure_mode: str = "") -> bool:
+    return structure_mode == "everyday_warmth_return"
+
+
+def _uses_relationship_aftercare_mode(*, topic_title: str = "", topic_angle: str, structure_mode: str = "") -> bool:
+    return structure_mode == "relationship_aftercare"
 
 
 def _extract_pressure_reference_cues(reference_body_markdown: str, *, max_items: int = 3) -> list[str]:
     if not reference_body_markdown.strip():
         return []
 
-    keywords = (
-        "尿毒症",
-        "褥疮",
-        "透析",
-        "轮椅",
-        "体检",
-        "身体",
-        "疲惫",
-        "耗尽",
-        "报警",
-        "推迟",
-        "往后放",
-        "照顾好自己",
-        "自我照料",
-        "工作",
-        "家人",
-        "怀念",
-    )
     generic_prefixes = ("其实", "人啊", "你每天", "人这一生", "生活从来", "生活，从来", "平日里", "我想", "如果生活")
     generic_phrases = ("这个世界上", "真正的完美", "所谓的完美人生", "生活本身", "真正的自己")
 
@@ -435,16 +685,25 @@ def _extract_pressure_reference_cues(reference_body_markdown: str, *, max_items:
                 continue
             if any(phrase in compact for phrase in generic_phrases):
                 continue
-            keyword_hits = sum(1 for keyword in keywords if keyword in compact)
-            consequence_hits = sum(1 for marker in ("后来", "又开始", "直到", "迟早", "怀念") if marker in compact)
-            if keyword_hits == 0:
+            hard_hits = _count_keyword_hits(compact, _PRESSURE_REFERENCE_HARD_SIGNALS)
+            soft_hits = _count_keyword_hits(compact, _PRESSURE_REFERENCE_SOFT_SIGNALS)
+            consequence_hits = _count_keyword_hits(compact, _PRESSURE_REFERENCE_CONSEQUENCE_MARKERS)
+            if (
+                "健康的身体" in compact
+                and hard_hits == 0
+                and not any(marker in compact for marker in ("改", "拖", "推", "往后", "报警", "提醒", "怀念", "后来", "直到"))
+            ):
                 continue
-            if consequence_hits == 0 and keyword_hits < 2:
+            if _has_emotional_release_reference(compact) and hard_hits == 0:
+                continue
+            if hard_hits == 0 and soft_hits == 0:
+                continue
+            if hard_hits == 0 and (soft_hits < 2 or consequence_hits == 0):
                 continue
             sentence = compact
             if len(sentence) > 42:
                 sentence = sentence[:42].rstrip() + "..."
-            score = keyword_hits * 2 + consequence_hits
+            score = hard_hits * 3 + soft_hits + consequence_hits
             cues.append((score, sentence))
 
     selected: list[str] = []
@@ -473,6 +732,12 @@ def _compact_pressure_reference_cue(cue: str) -> str:
 def _build_reader_situation(topic_title: str, topic_angle: str, *, structure_mode: str = "") -> str:
     if _uses_pressure_interface_mode(topic_angle=topic_angle, structure_mode=structure_mode):
         return "总把休息、体检、吃饭、回复和自己顺手往后挪的人"
+    if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "一路追着更大的目标往前跑，后来才发现真正重要的东西一直在身边的人"
+    if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "每次吵完都要自己消化情绪、把日子接回去的人"
+    if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人"
     if "边界" in topic_angle:
         return "在关系里想解释，却越来越不想开口的人"
     if "情绪" in topic_angle:
@@ -490,10 +755,16 @@ def _build_core_conflict(
     secondary_pressure_cue: str = "",
     structure_mode: str = "",
 ) -> str:
-    if primary_pressure_cue and secondary_pressure_cue:
+    if primary_pressure_cue and secondary_pressure_cue and _uses_pressure_interface_mode(topic_angle=topic_angle, structure_mode=structure_mode):
         return f"越觉得 `{primary_pressure_cue}` 还能再拖一拖，后面就越容易一路追到 `{secondary_pressure_cue}` 这种更重的代价。"
     if primary_pressure_cue and _uses_pressure_interface_mode(topic_angle=topic_angle, structure_mode=structure_mode):
         return f"越觉得 `{primary_pressure_cue}` 还能先压一压，后面越容易把身体和生活一起拖乱。"
+    if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "越把重要感押在更大的目标上，越容易在一路往前赶的时候，错过那些真正托住自己的陪伴和日常。"
+    if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "冲突本身未必会让关系散掉，可如果每次吵完都只有一方在善后，安全感就会被一点点磨掉。"
+    if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "越舍不得停下，越容易把继续消耗误认成认真，最后连眼前真正重要的东西也一起忽略掉。"
     if "边界" in topic_angle:
         return "越想被理解，越容易把真正想说的话咽回去。"
     if "情绪" in topic_angle:
@@ -525,6 +796,12 @@ def _build_observed_phenomenon(
         if primary_pressure_cue:
             return f"`{primary_pressure_cue}` 这种信号已经冒出来了，人却还在把该停下来的那一步继续往后拖。"
         return "很多事会被一次次往后顺延，顺延久了，连该不该停下来都会慢慢判断不准"
+    if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "很多人一路追着更大的目标往前跑，等真正慢下来以后，才突然看见那些最普通的陪伴和日常，原来才是最难被替代的部分"
+    if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "很多关系表面还能照常过下去，可每次争执后的安抚、解释和修复都落在同一个人身上，久了连开口都变得很累"
+    if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "很多人把继续投入误认成还有希望，等到心力、睡眠和眼前拥有的东西一起被透支，才发现自己一直没舍得停下来"
     if source_mode == "tracked_article":
         if "推迟" in topic_angle or "往后放" in topic_angle or "等有空再说" in topic_angle:
             return "很多事会被一次次往后顺延，顺延久了，生活的轻重顺序也会慢慢倒过来"
@@ -555,6 +832,12 @@ def _normalize_topic_angle(*, topic_angle: str, topic_title: str, source_mode: s
     if not normalized:
         return "未显式提供"
     if source_mode != "tracked_article":
+        return normalized
+    if structure_mode == "everyday_warmth_return":
+        return normalized
+    if structure_mode == "relationship_aftercare":
+        return normalized
+    if structure_mode == "emotional_engine_direct":
         return normalized
     if structure_mode == "pressure_interface_direct":
         joined = f"{topic_title} {normalized}"
@@ -596,6 +879,12 @@ def _build_writing_goal(
         if primary_pressure_cue:
             return f"把 `{primary_pressure_cue}` 这种信号为什么会越压越重讲清楚，让读者先认出自己已经在透支什么。"
         return "把那些被顺手往后挪开的接口怎样一步步堆出代价讲清楚，让读者先认出自己已经在透支什么。"
+    if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "把人为什么总把重要感押在更大的目标上讲清楚，也把人慢下来以后，为什么反而会被最普通的陪伴和日常重新托住讲清楚。"
+    if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "把为什么吵架不可怕、吵完以后没人回来接住你才最伤人讲清楚，让读者看见一段关系的分量其实藏在善后态度里。"
+    if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "把人为什么会把继续投入误认成还有希望讲清楚，让读者看见停下不是认输，而是把心力收回来。"
     if "边界" in topic_angle:
         return "把“为什么越想解释越说不出口”讲清楚，让读者看到那种长期失望后的收缩，不再把它误认成矫情。"
     if "情绪" in topic_angle:
@@ -646,6 +935,12 @@ def _build_clarified_problem(
                 f"人却还在把它往后顺延，最后让{observed_phenomenon}慢慢变成日常。"
             )
         return f"真正需要被看见的，是{observed_phenomenon}背后那些被顺手往后挪开的接口，怎样一点点把压力和失衡堆了出来。"
+    if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "真正需要被看见的，不是人该不该追求更大的目标，而是为什么很多人要等到慢下来甚至差点错过的时候，才重新承认那些微小陪伴和普通日常才是生活的底座。"
+    if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "真正需要被看见的，是为什么一次次争执之后，总是只有一方在回收情绪、重建秩序，关系也就从这里开始慢慢失温。"
+    if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "真正需要被看见的，不是人人都懂却做不到的道理，而是人为什么明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。"
     return f"{topic_title}真正需要被看见的，是{observed_phenomenon}里一点点累积出来的压力和失衡。"
 
 
@@ -670,6 +965,21 @@ def _build_feedback_entry(
             f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
             f"也会顺着{anchor}看到，自己为什么总把该先顾自己的事拖到更后面，"
             f"{consequence}。"
+        )
+    if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return (
+            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            "也会重新看见，那些不起眼的小事和普通陪伴，并不是附属品，而是自己这些年最该护住的生活底座。"
+        )
+    if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return (
+            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            "也会认出，关系发冷常常就是从每次架后都没人回来接住她开始的。"
+        )
+    if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return (
+            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            "也会意识到自己不是离幸福太远，而是一直把不肯停下误认成更接近幸福。"
         )
     return (
         f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
@@ -714,6 +1024,12 @@ def _build_problem_explanation(
                 "人还是会把该停下来的那一步继续往后推。"
             )
         return f"这篇稿子要解释的，是为什么{observed_phenomenon}会一遍遍重演。"
+    if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "这篇稿子要解释的，是为什么很多人明明已经拥有最重要的陪伴和日常，却总要在一路往前赶、差点错过之后，才承认它们才是生活里最难替代的部分。"
+    if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "这篇稿子要解释的，是为什么在有些关系里，架一吵完，总是同一个人先把话咽回去、把日常接回去，久了以后先退掉的往往是安全感和表达欲。"
+    if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "这篇稿子要解释的，是为什么人明明已经被拖得很累了，还是会把继续投入误认成更接近幸福。"
     return f"这篇稿子要解释的，是为什么{observed_phenomenon}会一遍遍重演，读者真正卡住的那一步到底在哪。"
 
 
@@ -726,11 +1042,17 @@ def _build_unknowns(*, topic_angle: str, source_mode: str, tracked_article_scene
     return unknowns
 
 
-def _build_point_of_view(topic_angle: str, *, primary_pressure_cue: str = "", structure_mode: str = "") -> str:
+def _build_point_of_view(topic_angle: str, *, topic_title: str = "", primary_pressure_cue: str = "", structure_mode: str = "") -> str:
     if _uses_pressure_interface_mode(topic_angle=topic_angle, structure_mode=structure_mode):
         if primary_pressure_cue:
             return f"不急着端出答案，先把 `{primary_pressure_cue}` 这种信号为什么会被一路压后讲清楚。"
         return "不急着端出答案，先把人是怎么一步步把自己往后放讲清楚。"
+    if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "不急着把文章写成健康告诫或人生箴言，先把那些被高估的大事为什么会慢慢祛魅、普通陪伴为什么反而更重要讲清楚。"
+    if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "不急着给争吵贴对错，先把吵完以后谁在善后、谁在回避、谁愿不愿意回来修复讲清楚。"
+    if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "不急着讲知足、放下或清醒的大道理，先把人为什么明明很累却还是不肯松手讲清楚。"
     if "边界" in topic_angle:
         return "不教训，不站高位，只把话为什么越想说越说不出来讲清楚。"
     if "情绪" in topic_angle:
@@ -754,6 +1076,12 @@ def _build_conflict_frame(
         if primary_pressure_cue:
             return f"很多失序，都是从 `{primary_pressure_cue}` 这种已经冒头的信号被继续压过去开始堆出来的。"
         return "很多失序，都是从那些被反复往后挪开的接口开始堆出来的。"
+    if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "真正让人后知后觉的，不是没做成更大的事，而是一路忙着往前赶的时候，把最能托住自己的日常和陪伴慢慢放轻了。"
+    if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "一段关系会慢慢变冷，常常是因为争执过后，总是同一个人留在原地处理沉默、试探气氛，再把情绪和日常接回去。"
+    if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "真正把人困住的，不是没有答案，而是总把舍不得放手误认成还有希望。"
     if "边界" in topic_angle:
         return "真正把关系拖住的，是一次次想开口又收回去。"
     if "情绪" in topic_angle:
@@ -776,8 +1104,14 @@ def _build_emotional_path(
         if cue:
             return f"先让读者认出 `{cue}` 这种已经在出代价的信号，再看类似接口怎样一点点堆出更大的失序。"
         return "先让读者认出哪些事被顺手往后挪，再看这些小接口怎样一点点堆出更大的代价。"
+    if structure_mode == "everyday_warmth_return":
+        return "先认出人为什么总把重要感押在更大的目标上，再看那些普通陪伴和细小日常，是怎样在慢下来以后重新显出分量的。"
+    if structure_mode == "relationship_aftercare":
+        return "先认出每次吵完最累的地方，其实落在后面那段总要自己把日常接回去的善后，再看人怎样从还想沟通，慢慢退到不想再开口。"
     if structure_mode == "fragment_chain_observation":
         return "先让不同接口里的压力互相照见，再慢慢显出真正被牺牲掉的部分。"
+    if _uses_broad_emotional_release_mode(topic_angle=topic_angle, structure_mode=structure_mode):
+        return "先认出自己一直在和得不到的东西拉扯，再看为什么人总要等到透支之后才愿意停下。"
     if "边界" in topic_angle:
         return "先认出话为什么总咽回去，再看误解和退缩是怎么积起来的。"
     if "情绪" in topic_angle:
@@ -800,7 +1134,13 @@ def _build_opening_move(
         if cue:
             return f"开头先落 `{cue}` 这种已经开始出代价的接口或身体后果，不要先抛终局问题或价值赦免。"
         return "开头先落一个已经开始出代价的接口：被改期的体检、没吃完的饭、没回的消息，或突然发钝的身体提醒；不要先抛终局问题或价值赦免。"
+    if structure_mode == "everyday_warmth_return":
+        return "开头先点破“更大的事未必更重要”这种误认，再用一顿晚饭、一次接孩子、陪父母走一段路这类普通日常托住判断；不要铺成长场景。"
+    if structure_mode == "relationship_aftercare":
+        return "开头先落一个吵完之后还得照常上班、做饭、回消息，但胸口还紧着的小接口，不要先抽象讲“爱不爱”或“成熟关系”。"
     if structure_mode == "emotional_engine_direct":
+        if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+            return "开头不要整段生活场景冷启动，先用一句会让人停一下的误认判断把读者拉进来；需要细节时，只留一个能挂住“继续投入”或“不肯松手”的小接口。"
         return "开头不要整段生活场景冷启动，先用终局问题、反常识判断、情绪命名或价值赦免把读者拉进来；需要细节时，只留能挂住判断的一个小接口。"
     if structure_mode == "fragment_chain_observation":
         if "推迟" in topic_angle or "往后放" in topic_angle or "等有空再说" in topic_angle:
@@ -835,7 +1175,13 @@ def _build_body_shift(
         if cues:
             return f"中段沿着 `{cues[0]}` 这条代价线推进：哪件事先被顺手往后挪，当时怎么处理，后面又留下什么新的失序。"
         return "中段沿着 1 到 2 条压力链推进：哪件事先被顺手往后挪，当时怎么处理，后面又留下什么代价、误差或新的失序。"
+    if structure_mode == "everyday_warmth_return":
+        return "中段先拆成就、体面、宏大目标为什么会在某个阶段突然祛魅，再把普通陪伴、微小日常和被重新看见的关系分量接回来，不要把篇幅重新压回身体提醒追债。"
+    if structure_mode == "relationship_aftercare":
+        return "中段先写每次吵完谁先把话咽回去、谁先恢复正常、谁先试探气氛，再写长期单人善后怎样让表达欲、期待感和安全感一点点退掉。"
     if structure_mode == "emotional_engine_direct":
+        if _uses_broad_emotional_release_mode(topic_angle=topic_angle, structure_mode=structure_mode):
+            return "中段先拆情绪发动机：人为什么会把继续投入误认成还有希望，又为什么总要等到失去之后才看见已经拥有的部分。"
         return "中段先拆情绪发动机：人为什么总在失去后才懂得拥有，又为什么会把照顾自己放到最后。"
     if structure_mode == "fragment_chain_observation":
         return "中段围绕同一个问题串起 2 到 4 个现实接口，让每个碎片各自承担不同压力：有人际回应，有身体提醒，也有被往后挪开的日常动作，不要平均写成并列分论点。"
@@ -851,7 +1197,13 @@ def _build_body_shift(
 def _build_ending_move(topic_angle: str, structure_mode: str) -> str:
     if structure_mode == "pressure_interface_direct":
         return "结尾回到一个还没完全处理完的普通接口或轻微决定，不抛万能答案，也不写祝福式收束。"
+    if structure_mode == "everyday_warmth_return":
+        return "结尾回到一个很小的陪伴动作或普通决定上，让分量自然落下来，不要写成身体告诫、口号总结或祝福式收束。"
+    if structure_mode == "relationship_aftercare":
+        return "结尾回到一个还没被接住的小动作、沉默或没等来的回应上，不要写成万能关系鸡汤。"
     if structure_mode == "emotional_engine_direct":
+        if _uses_broad_emotional_release_mode(topic_angle=topic_angle, structure_mode=structure_mode):
+            return "结尾给读者一个明确的价值赦免和现实答案：停下来不是失去，是把心力收回来。"
         return "结尾给读者一个明确的价值赦免和现实答案：不必再把自己排到最后。"
     if structure_mode == "fragment_chain_observation":
         return "结尾回到其中一个还没完全处理完的小动作或未回的接口，停在那里，不要写成总结清单、三连问或温柔祝福。"
@@ -911,9 +1263,36 @@ def _build_structure_mode(
     normalized = topic_angle.strip()
     if source_mode == "tracked_article":
         shell_signals = _extract_reference_shell_signals(reference_body_markdown)
+        reference_has_pressure = _has_pressure_interface_summary(reference_summary) or _has_pressure_interface_reference(
+            reference_body_markdown
+        )
+        reference_is_everyday_warmth_return = _has_everyday_warmth_return_reference(
+            normalized,
+            tracked_article_scene,
+            reference_summary,
+            reference_body_markdown,
+        )
+        reference_is_relationship_aftercare = _has_relationship_aftercare_reference(
+            normalized,
+            tracked_article_scene,
+            reference_summary,
+            reference_body_markdown,
+        )
+        reference_is_emotional_release = _has_emotional_release_reference(
+            normalized,
+            tracked_article_scene,
+            reference_summary,
+            reference_body_markdown,
+        )
         if _has_fragment_chain_source(reference_body_markdown):
             return "fragment_chain_observation"
-        if _has_pressure_interface_topic(normalized) or _has_pressure_interface_summary(reference_summary) or _has_pressure_interface_reference(reference_body_markdown) or any(
+        if reference_is_everyday_warmth_return:
+            return "everyday_warmth_return"
+        if reference_is_relationship_aftercare:
+            return "relationship_aftercare"
+        if reference_is_emotional_release and not reference_has_pressure:
+            return "emotional_engine_direct"
+        if _has_pressure_interface_topic(normalized) or reference_has_pressure or any(
             signal in shell_signals
             for signal in (
                 "abstract_reflection_opening",
@@ -952,6 +1331,16 @@ def _describe_structure_mode(structure_mode: str) -> tuple[str, str]:
         return (
             "碎片回环观察推进",
             "围绕同一个问题串起 2 到 4 个现实接口，让每个碎片承担不同压力，不要压成单主角完整短篇，也不要平均拆成对称分论点。",
+        )
+    if structure_mode == "everyday_warmth_return":
+        return (
+            "日常价值回归推进",
+            "先拆更大目标为什么会祛魅，再把普通陪伴和细小日常的分量接回来；手术、停下来或身体受挫只承担转折证据，不抢主线。",
+        )
+    if structure_mode == "relationship_aftercare":
+        return (
+            "争吵后善后推进",
+            "先守住争执过后的空白、沉默或回避接口，再顺着谁先把话咽回去、谁先恢复正常、谁先把场面接回去推进，让安全感变薄这件事从动作里自己显出来。",
         )
     if structure_mode == "pressure_interface_direct":
         return (
@@ -1000,6 +1389,14 @@ def _build_recomposition_recipe(
             "前半篇先守住一个已经开始出代价的接口：被改期的体检、没回的消息、被压后的身体提醒，不要立刻抬成整篇总论。",
             "中段沿着 1 到 2 条压力链推进：哪件事先被往后放、当时怎样处理、后来又留下什么新的失序或代价。",
             "需要判断时，把判断压回事实、后果和当场反应里，不要排成“先摆现象，再补道理，再给答案”的成熟讲解稿。",
+            ending_step,
+        ]
+    elif structure_mode == "relationship_aftercare":
+        recipe = [
+            opening_step,
+            "前半篇先守住一次吵完之后的空白、沉默或回避接口，不要立刻抬成“爱不爱”的整篇总论。",
+            "中段沿着“谁先把话咽回去 / 谁先恢复正常 / 谁先试探气氛 / 谁把情绪和日常接回去”这条关系代价线推进。",
+            "少写“真正伤人的不是……”或“关系不是输在……而是输在……”这类整齐翻转句，判断要压回动作、回避、回应顺序和后续失温里自己长出来。",
             ending_step,
         ]
     elif structure_mode == "single_window_scene":
@@ -1058,6 +1455,8 @@ def _build_divergence_axes(*, source_mode: str, structure_mode: str) -> list[str
         axes.append("不要把原创距离理解成换场景，必须换情绪发动机、判断顺序和价值赦免方式")
     if structure_mode == "pressure_interface_direct":
         axes.append("不要把普通接口重新抬成终局问题、人生总结或价值赦免台词，要让代价从过程里自己长出来")
+    if structure_mode == "relationship_aftercare":
+        axes.append("不要把关系修复文改写成泛内耗、自我成长或单人稳情绪稿，主线必须留在吵后谁来善后和谁在回避修复")
     if source_mode == "tracked_article":
         axes.append("判断句的措辞和情绪转折不能复用参考文章现成表达")
         axes = merge_unique_lines(
@@ -1105,6 +1504,10 @@ def _build_execution_checklist(*, structure_mode: str, reference_shell_signals: 
                 "是否先压住一个已经开始出代价的接口，再沿着触发、反应和后果推进，而不是一上来就宣布终局道理。",
             ]
             if structure_mode == "pressure_interface_direct"
+            else [
+                "是否先守住吵后空白、沉默或回避接口，再推进谁先把话咽回去、谁先恢复正常、谁在善后，而不是滑成泛自我成长结论或整齐翻转句。",
+            ]
+            if structure_mode == "relationship_aftercare"
             else [
                 "是否避开了整段空场景铺陈，同时保留了 1 到 2 个能挂住判断的真实接口，而不是把事实全蒸发成抽象判断。",
             ]

@@ -6,6 +6,13 @@ from pathlib import Path
 from app.services import dbskill_bridge
 from app.services.content_skills import build_content_skill_instructions
 from app.services.prompt_templates import (
+    _extract_tracked_article_body_cues,
+    _extract_tracked_article_emotional_cues,
+    _extract_tracked_article_topic_cues,
+    _infer_tracked_article_pressure_guard,
+    _has_broad_emotional_release_focus,
+    _has_everyday_warmth_return_focus,
+    _has_relationship_aftercare_focus,
     build_assets_prompt,
     build_cover_image_prompt,
     build_draft_prompt,
@@ -41,7 +48,7 @@ JINWAN_YOUYU_TONE_PROFILE = {
     "preset_key": JINWAN_YOUYU_PRESET_KEY,
     "name": "今晚有语",
     "opening_style": "直接问题、现实接口或一句共鸣判断切入，直接点破问题和答案入口",
-    "paragraph_rhythm": "标准三段式直接推进，中段围绕 2 到 4 个明确判断展开；每个判断都要给出处境、依据或行动落点，少铺氛围",
+    "paragraph_rhythm": "标准三段式直接推进，中段围绕 2 到 4 个明确判断展开；多数段落以 1 到 3 句为主，遇到动作变化、转折或落点就拆段；每个判断都要给出处境、依据或行动落点，少铺氛围",
     "closing_style": "直接结论或温暖祝福收束，给答案，不拖鸡汤尾音",
     "forbidden_phrases": ["你应该", "总之", "在当今社会"],
     "value_constraints": "面向25到45岁女性，直接有力，给出答案，温暖但不说教；必须带来信息增量或情绪价值，不含蓄收尾。",
@@ -452,7 +459,7 @@ def test_build_draft_prompt_includes_uniformity_break_rules() -> None:
 
     assert "不要把全文磨成同一种克制、平稳、过度完整的成熟散文腔" in draft_template.instructions
     assert "不要把正文写成段落数刚好、段段职责单一、每段都像只负责一个结论的完整成稿" in draft_template.instructions
-    assert "如果全文已经被切成很多匀称小段，优先合并成更长的自然段" in draft_template.instructions
+    assert "只有在全文真的被切成很多同职责匀称小段时，才合并相邻段落" in draft_template.instructions
     assert "避免连续多段都围绕同一个主语匀速起手" in draft_template.instructions
     assert "至少安排一段只呈现对话、动作残留、物件或环境声" in draft_template.instructions
     assert "至少安排一处说到一半又收回去、改口、停住或自我修正的表达" in draft_template.instructions
@@ -704,6 +711,34 @@ def test_build_draft_prompt_adds_internal_pressure_guard_for_tracked_article() -
     assert "如果情绪价值已经落在判断、后果或身体反应里，就直接推进，不必先补一段没有信息增量的氛围场景。" in template.instructions
 
 
+def test_build_draft_prompt_adds_relationship_aftercare_guard_for_quarrel_repair_article() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "每次闹完都要你自己消化，这段关系已经在交“回避税”",
+            "topic_angle": "把反复争执后“谁先冷下来谁就算懂事”的处境拆开，写清长期由一方自我消化、另一方回避修复时，亲密关系会怎样慢慢失去安全感。",
+            "project_title": "一个人到底爱不爱你，吵一架就知道了",
+            "source_type": "tracked_article",
+            "tone_profile": TONE_PROFILE,
+            "reference_article_title": "一个人到底爱不爱你，吵一架就知道了",
+            "reference_article_summary": "文章把“爱不爱”放到争吵后的具体表现里观察：关键不在是否会吵，而在对方有没有主动沟通、安顿情绪、推动关系修复。",
+            "reference_article_body_markdown": (
+                "激烈地争吵过后，有人选择冷暴力，不理不睬，任由情绪发酵；有人选择及时妥协，回归理性，让爱化解矛盾。\n\n"
+                "吵架后的态度，便是检验爱情的试金石。\n\n"
+                "毕竟好的关系，不是永远不吵架，而是争吵以后还想要继续走下去。"
+            ),
+            "reference_article_structure_notes": "先看争执后的态度，再拆冷暴力和主动修复怎样把关系带向不同结果。",
+            "reference_article_tags": ["亲密关系", "吵架后态度", "冷暴力", "关系修复"],
+            "outline": {"hook": "吵完架，最累的常常不是当场，而是后面那段还得自己把日子接回去的时间。"},
+        }
+    )
+
+    assert "正文不要自动改写成泛内耗、自我扛住、单人稳情绪或生活排序失衡主线。" in template.instructions
+    assert "重点要落在：吵完以后谁回来沟通、谁把情绪和日常接回去" in template.instructions
+    assert "整齐翻转句" in template.instructions
+    assert "不要用“先把自己排回前面”这类泛自我成长结论收束。" in template.instructions
+
+
 def test_build_topic_prompt_does_not_add_internal_pressure_guard_for_real_relationship_repair_article() -> None:
     template = build_topic_prompt(
         {
@@ -721,6 +756,384 @@ def test_build_topic_prompt_does_not_add_internal_pressure_guard_for_real_relati
     )
 
     assert "不要把选题收窄成亲密关系摊牌" not in template.instructions
+
+
+def test_build_topic_prompt_adds_relationship_aftercare_guard_for_quarrel_repair_article() -> None:
+    template = build_topic_prompt(
+        {
+            "source_type": "tracked_article",
+            "source_ref_slug": "wechat-mp-demo-quarrel-repair",
+            "source_name": "手动录入",
+            "article_title": "一个人到底爱不爱你，吵一架就知道了",
+            "author": "未知",
+            "summary": "文章把“爱不爱”放到争吵后的具体表现里观察：关键不在是否会吵，而在对方有没有主动沟通、安顿情绪、推动关系修复。",
+            "body_markdown": (
+                "激烈地争吵过后，有人选择冷暴力，不理不睬，任由情绪发酵；有人选择及时妥协，回归理性，让爱化解矛盾。\n\n"
+                "吵架后的态度，便是检验爱情的试金石。\n\n"
+                "毕竟好的关系，不是永远不吵架，而是争吵以后还想要继续走下去。"
+            ),
+            "structure_notes": "先看争执后的态度，再拆冷暴力和主动修复怎样把关系带向不同结果。",
+            "tags": ["亲密关系", "吵架后态度", "冷暴力", "关系修复"],
+            "tone_profile": TONE_PROFILE,
+        }
+    )
+
+    assert "不要把选题改写成泛内耗、自我稳住、生活排序失衡或抽象人生感悟。" in template.instructions
+    assert "争执过后为什么总是没人回来修复" in template.instructions
+    assert "切入角度尽量用直述句，不要写成“不是……而是……”式对照句。" in template.instructions
+    assert "不要把标题写成“这段关系已经在……”式整句判决" in template.instructions
+
+
+def test_tracked_article_pressure_guard_does_not_misclassify_happiness_release_article() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "幸福是什么",
+        "summary": "文章把幸福的定义从“不断获得”转向“适时放下”，重点讨论人在关系和目标里因不甘心而持续强求的自我消耗。核心判断是，幸福未必来自追到更多，而更可能来自停止拉扯、看见眼前已经拥有的部分。",
+        "body_markdown": (
+            "幸福是什么？我们总以为，幸福是“得到”：得到爱，得到钱，得到想要的一切。后来才懂，幸福其实是“放下”：放下强求，放下执念，放下那些得不到的东西。\n\n"
+            "别再盯着自己没有的东西了，转过头，看看你拥有的。你无忧、无虑、无病、无灾，你有健康的身体，爱你的家人，三两好友，一碗热饭。\n\n"
+            "愿你学会“不再强求”的放下，也学会“别无所求”的知足。"
+        ),
+        "structure_notes": "开头用“幸福是得到还是放下”的反差提问切入，中段转到“强求只会消耗自己”，结尾回收到“放手不是失去，而是腾出位置”。",
+        "tags": ["幸福认知", "停止强求", "关系执念", "自我消耗", "珍惜当下"],
+    }
+
+    assert _infer_tracked_article_pressure_guard(payload) == ""
+
+
+def test_extract_tracked_article_body_cues_skips_supportive_healthy_body_sentence() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "body_markdown": (
+            "我们都曾在“强求”里，耗尽了自己，以为努力争取，就能得到幸福。\n\n"
+            "你无忧、无虑、无病、无灾，你有健康的身体，爱你的家人，三两好友，一碗热饭。\n\n"
+            "把自己困在“不甘心”的牢笼里，一遍遍问：“为什么我付出了，却得不到？”"
+        ),
+    }
+
+    cues = _extract_tracked_article_body_cues(payload)
+
+    assert "你无忧、无虑、无病、无灾，你有健康的身体，爱你的家人，三两好友，一碗热饭" not in cues
+
+
+def test_broad_emotional_release_focus_detects_happiness_release_article() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "幸福是什么",
+        "summary": "文章把幸福的定义从“不断获得”转向“适时放下”，重点讨论人在关系和目标里因不甘心而持续强求的自我消耗。",
+        "body_markdown": (
+            "幸福是什么？我们总以为，幸福是“得到”。后来才懂，幸福其实是“放下”。\n\n"
+            "可真正的幸福，恰恰是该结束的时候，不再强求，该珍惜的时候，别无所求。\n\n"
+            "亲爱的，该放手的，就放手，那不是失去，是腾出位置。"
+        ),
+        "structure_notes": "开头从幸福定义反差切入，中段拆强求的代价，结尾回到珍惜已有和知足。",
+        "tags": ["幸福认知", "停止强求", "珍惜当下"],
+    }
+
+    assert _has_broad_emotional_release_focus(payload) is True
+
+
+def test_broad_emotional_release_focus_detects_hidden_reference_strategy_payload() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "reference_article_hidden": True,
+        "topic_title": "你以为幸福是得到，后来才懂有些幸福叫放下",
+        "topic_angle": "从人为什么总把幸福误解成继续争取切入，写我们怎样在强求和不甘心里耗尽自己，又怎样在放手后重新看见已经拥有的部分。",
+        "problem_brief": {
+            "raw_goal": "你以为幸福是得到，后来才懂有些幸福叫放下",
+            "clarified_problem": "真正需要被看见的，不是人人都懂却做不到的道理，而是人为什么明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。",
+            "observed_phenomenon": "很多人把继续投入误认成还有希望，等到心力、睡眠和眼前拥有的东西一起被透支，才发现自己一直没舍得停下来",
+            "writing_goal": "把人为什么会把继续投入误认成还有希望讲清楚，让读者看见停下不是认输，而是把心力收回来。",
+            "target_reader_situation": "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人",
+            "core_conflict": "越舍不得停下，越容易把继续消耗误认成认真，最后连眼前真正重要的东西也一起忽略掉。",
+            "feedback_entry": "读者会意识到自己不是离幸福太远，而是一直把不肯停下误认成更接近幸福。",
+        },
+        "strategy_card": {
+            "reader_situation": "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人",
+            "point_of_view": "不急着讲知足、放下或清醒的大道理，先把人为什么明明很累却还是不肯松手讲清楚。",
+            "conflict_frame": "真正把人困住的，不是没有答案，而是总把舍不得放手误认成还有希望。",
+            "emotional_path": "先认出自己一直在和得不到的东西拉扯，再看为什么人总要等到透支之后才愿意停下。",
+            "opening_move": "开头不要整段生活场景冷启动，先用一句会让人停一下的误认判断把读者拉进来。",
+            "body_shift": "中段先拆情绪发动机：人为什么会把继续投入误认成还有希望，又为什么总要等到失去之后才看见已经拥有的部分。",
+            "ending_move": "结尾给读者一个明确的价值赦免和现实答案：停下来不是失去，是把心力收回来。",
+            "benchmark_summary": "只借原文对应的生活压力类型和情绪发动机，不借原文标题、首段场景、推进顺序和结尾动作。",
+        },
+    }
+
+    assert _has_broad_emotional_release_focus(payload) is True
+
+
+def test_everyday_warmth_return_focus_detects_small_things_article() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "一生最重要的事，不是大事",
+        "summary": "文章把“做大事”的社会期待，与人在身体受挫、生活放慢后重新确认的日常幸福放在一起比较，核心判断是：真正支撑一个人生活感受的，往往不是成就叙事，而是陪伴、相处和被看见的细碎时刻。",
+        "body_markdown": (
+            "年轻时，我们都想改变世界，觉得人生一定要轰轰烈烈，要做大事，要出人头地。可走过半生，才发现，这世界再喧嚣，最重要的事，不过是活在人间烟火里，陪在爱的人身边。\n\n"
+            "那一刻，他突然觉得，那些拼了命追求的大事，好像瞬间祛魅了。\n\n"
+            "其实，真正让人眼眶发热的，可能从来不是升职加薪、远大抱负，而是这些不起眼的、细碎的、平淡的日常瞬间。宏大叙事属于时代，属于历史书，而一碗热汤、一盏夜灯、一句晚安，才属于你我。\n\n"
+            "我们很渺小，改变不了世界，但我们可以改变一个人的心情。让爱人笑一下，让孩子开心一下，让父母安心一下。见面、拥抱、吃饭、散步、晒太阳，这些微小的事堆叠起来，才是我们的一生。"
+        ),
+        "structure_notes": "开头先摆出追逐成就的大命题，再借慢下来后的家庭陪伴完成价值转向，结尾落到从宏大目标转向日常陪伴。",
+        "tags": ["日常治愈", "家庭陪伴", "价值重估"],
+    }
+
+    assert _has_everyday_warmth_return_focus(payload) is True
+    assert _infer_tracked_article_pressure_guard(payload) == ""
+
+
+def test_relationship_aftercare_focus_detects_quarrel_repair_article() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "一个人到底爱不爱你，吵一架就知道了",
+        "summary": "文章把“爱不爱”放到争吵后的具体表现里观察：关键不在是否会吵，而在对方有没有主动沟通、安顿情绪、推动关系修复。",
+        "body_markdown": (
+            "激烈地争吵过后，有人选择冷暴力，不理不睬，任由情绪发酵；有人选择及时妥协，回归理性，让爱化解矛盾。\n\n"
+            "吵架后的态度，便是检验爱情的试金石。\n\n"
+            "人生在世，遇到一个吵完架还对你温柔以待的人不容易。毕竟好的关系，不是永远不吵架，而是争吵以后还想要继续走下去。"
+        ),
+        "structure_notes": "先看争执后的态度，再拆冷暴力和主动修复怎样把关系带向不同结果。",
+        "tags": ["亲密关系", "吵架后态度", "冷暴力", "关系修复"],
+    }
+
+    assert _has_relationship_aftercare_focus(payload) is True
+    assert _infer_tracked_article_pressure_guard(payload) == ""
+
+
+def test_extract_tracked_article_topic_cues_prioritizes_relationship_aftercare_thesis() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "一个人到底爱不爱你，吵一架就知道了",
+        "summary": "文章把“爱不爱”放到争吵后的具体表现里观察：关键不在是否会吵，而在对方有没有主动沟通、安顿情绪、推动关系修复。",
+        "body_markdown": (
+            "激烈地争吵过后，有人选择冷暴力，不理不睬，任由情绪发酵；有人选择及时妥协，回归理性，让爱化解矛盾。\n\n"
+            "吵架后的态度，便是检验爱情的试金石。\n\n"
+            "人生在世，遇到一个吵完架还对你温柔以待的人不容易。毕竟好的关系，不是永远不吵架，而是争吵以后还想要继续走下去。"
+        ),
+        "structure_notes": "先看争执后的态度，再拆冷暴力和主动修复怎样把关系带向不同结果。",
+        "tags": ["亲密关系", "吵架后态度", "冷暴力", "关系修复"],
+    }
+
+    topic_cues = _extract_tracked_article_topic_cues(payload)
+
+    assert any("冷暴力" in cue or "吵架后的态度" in cue or "继续走下去" in cue for cue in topic_cues)
+
+
+def test_extract_tracked_article_topic_cues_prioritizes_everyday_warmth_return_thesis() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "一生最重要的事，不是大事",
+        "summary": "文章把“做大事”的社会期待，与人在身体受挫、生活放慢后重新确认的日常幸福放在一起比较。",
+        "body_markdown": (
+            "朋友是上市公司的高管，最近因为身体不舒服做了个手术，在家休养。\n\n"
+            "那一刻，他突然觉得，那些拼了命追求的大事，好像瞬间祛魅了。\n\n"
+            "其实，真正让人眼眶发热的，可能从来不是升职加薪、远大抱负，而是这些不起眼的、细碎的、平淡的日常瞬间。宏大叙事属于时代，属于历史书，而一碗热汤、一盏夜灯、一句晚安，才属于你我。"
+        ),
+        "structure_notes": "从成就追逐转向日常陪伴的价值重估。",
+        "tags": ["日常治愈", "家庭陪伴", "价值重估"],
+    }
+
+    topic_cues = _extract_tracked_article_topic_cues(payload)
+
+    assert any("大事" in cue or "宏大叙事" in cue or "日常瞬间" in cue for cue in topic_cues)
+    assert all("手术" not in cue for cue in topic_cues[:1])
+
+
+def test_extract_tracked_article_topic_cues_prioritizes_broad_emotional_release_thesis_over_relationship_example() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "幸福是什么",
+        "summary": "文章把幸福的定义从“不断获得”转向“适时放下”，重点讨论人在关系和目标里因不甘心而持续强求的自我消耗。",
+        "body_markdown": (
+            "明明一段关系已经烂了，你还死死抓着不放，安慰自己“再坚持一下就好了”。\n\n"
+            "可真正的幸福，恰恰是该结束的时候，不再强求，该珍惜的时候，别无所求。\n\n"
+            "亲爱的，该放手的，就放手，那不是失去，是腾出位置。"
+        ),
+        "structure_notes": "开头从幸福定义反差切入，中段拆强求的代价，结尾回到珍惜已有和知足。",
+        "tags": ["幸福认知", "停止强求", "关系执念", "珍惜当下"],
+    }
+
+    topic_cues = _extract_tracked_article_topic_cues(payload)
+    emotional_cues = _extract_tracked_article_emotional_cues(payload)
+
+    assert topic_cues == emotional_cues
+    assert any("真正的幸福" in cue or "不再强求" in cue for cue in topic_cues)
+    assert all("关系已经烂了" not in cue for cue in topic_cues)
+
+
+def test_build_outline_prompt_includes_broad_emotional_release_guard() -> None:
+    template = build_outline_prompt(
+        {
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "你以为幸福是得到，后来才懂有些幸福叫放下",
+            "topic_angle": "从人为什么总把幸福误解成继续争取切入，写我们怎样在强求和不甘心里耗尽自己，又怎样在放手后重新看见已经拥有的部分。",
+            "project_title": "幸福是什么",
+            "source_type": "tracked_article",
+            "tone_profile": TONE_PROFILE,
+            "article_title": "幸福是什么",
+            "author": "未知",
+            "source_name": "手动录入",
+            "summary": "文章把幸福的定义从“不断获得”转向“适时放下”，重点讨论人在关系和目标里因不甘心而持续强求的自我消耗。",
+            "body_markdown": (
+                "幸福是什么？我们总以为，幸福是“得到”。后来才懂，幸福其实是“放下”。\n\n"
+                "明明一段关系已经烂了，你还死死抓着不放。\n\n"
+                "可真正的幸福，恰恰是该结束的时候，不再强求，该珍惜的时候，别无所求。"
+            ),
+            "structure_notes": "开头从幸福定义反差切入，中段拆强求的代价，结尾回到珍惜已有和知足。",
+            "tags": ["幸福认知", "停止强求", "珍惜当下"],
+        }
+    )
+
+    assert "大纲不要自动缩成坏关系止损手册或单一关系复盘。" in template.instructions
+    assert "不要把整篇大纲压成“等回复 / 看聊天框 / 一段关系怎么收场”这类单一样本" in template.instructions
+    assert "开头钩子不要只拿聊天框、消息提醒、对方回没回来做唯一现实接口" in template.instructions
+
+
+def test_build_outline_prompt_keeps_broad_emotional_release_guard_when_reference_is_hidden() -> None:
+    template = build_outline_prompt(
+        {
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "你以为幸福是得到，后来才懂有些幸福叫放下",
+            "topic_angle": "从人为什么总把幸福误解成继续争取切入，写我们怎样在强求和不甘心里耗尽自己，又怎样在放手后重新看见已经拥有的部分。",
+            "project_title": "幸福是什么",
+            "source_type": "tracked_article",
+            "reference_article_hidden": True,
+            "tone_profile": TONE_PROFILE,
+            "problem_brief": {
+                "raw_goal": "你以为幸福是得到，后来才懂有些幸福叫放下",
+                "clarified_problem": "真正需要被看见的，不是人人都懂却做不到的道理，而是人为什么明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。",
+                "observed_phenomenon": "很多人把继续投入误认成还有希望，等到心力、睡眠和眼前拥有的东西一起被透支，才发现自己一直没舍得停下来",
+                "writing_goal": "把人为什么会把继续投入误认成还有希望讲清楚，让读者看见停下不是认输，而是把心力收回来。",
+                "target_reader_situation": "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人",
+                "core_conflict": "越舍不得停下，越容易把继续消耗误认成认真，最后连眼前真正重要的东西也一起忽略掉。",
+                "constraints": ["不要写成口号文"],
+                "feedback_entry": "读者会意识到自己不是离幸福太远，而是一直把不肯停下误认成更接近幸福。",
+            },
+            "strategy_card": {
+                "reader_situation": "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人",
+                "point_of_view": "不急着讲知足、放下或清醒的大道理，先把人为什么明明很累却还是不肯松手讲清楚。",
+                "conflict_frame": "真正把人困住的，不是没有答案，而是总把舍不得放手误认成还有希望。",
+                "emotional_path": "先认出自己一直在和得不到的东西拉扯，再看为什么人总要等到透支之后才愿意停下。",
+                "structure_mode": "emotional_engine_direct",
+                "opening_move": "开头不要整段生活场景冷启动，先用一句会让人停一下的误认判断把读者拉进来。",
+                "body_shift": "中段先拆情绪发动机：人为什么会把继续投入误认成还有希望，又为什么总要等到失去之后才看见已经拥有的部分。",
+                "ending_move": "结尾给读者一个明确的价值赦免和现实答案：停下来不是失去，是把心力收回来。",
+                "expression_constraints": ["不要用口号式收尾"],
+                "divergence_axes": ["标题骨架要换成新的现实入口或处境入口"],
+                "execution_checklist": ["标题是否已经换成新的现实入口，而不是复述题眼。"],
+                "benchmark_summary": "只借原文对应的生活压力类型和情绪发动机，不借原文标题、首段场景、推进顺序和结尾动作。",
+            },
+        }
+    )
+
+    assert "大纲不要自动缩成坏关系止损手册或单一关系复盘。" in template.instructions
+    assert "至少要给关系之外的生活代价或已拥有部分留出段落职责。" in template.instructions
+    assert "前两段里至少有一段主职责必须落在关系之外的生活秩序、身体代价或已经拥有却被忽略的部分" in template.instructions
+
+
+def test_build_draft_prompt_includes_broad_emotional_release_guard() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "你以为幸福是得到，后来才懂有些幸福叫放下",
+            "topic_angle": "从人为什么总把幸福误解成继续争取切入，写我们怎样在强求和不甘心里耗尽自己，又怎样在放手后重新看见已经拥有的部分。",
+            "project_title": "幸福是什么",
+            "source_type": "tracked_article",
+            "tone_profile": TONE_PROFILE,
+            "article_title": "幸福是什么",
+            "author": "未知",
+            "source_name": "手动录入",
+            "summary": "文章把幸福的定义从“不断获得”转向“适时放下”，重点讨论人在关系和目标里因不甘心而持续强求的自我消耗。",
+            "body_markdown": (
+                "幸福是什么？我们总以为，幸福是“得到”。后来才懂，幸福其实是“放下”。\n\n"
+                "明明一段关系已经烂了，你还死死抓着不放。\n\n"
+                "可真正的幸福，恰恰是该结束的时候，不再强求，该珍惜的时候，别无所求。"
+            ),
+            "structure_notes": "开头从幸福定义反差切入，中段拆强求的代价，结尾回到珍惜已有和知足。",
+            "tags": ["幸福认知", "停止强求", "珍惜当下"],
+            "problem_brief": {
+                "clarified_problem": "真正需要被看见的，不是人人都懂却做不到的道理，而是人为什么明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。",
+                "observed_phenomenon": "很多人把继续投入误认成还有希望，等到心力、睡眠和眼前拥有的东西一起被透支，才发现自己一直没舍得停下来",
+                "writing_goal": "把人为什么会把继续投入误认成还有希望讲清楚，让读者看见停下不是认输，而是把心力收回来。",
+                "target_reader_situation": "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人",
+                "core_conflict": "越舍不得停下，越容易把继续消耗误认成认真，最后连眼前真正重要的东西也一起忽略掉。",
+                "constraints": ["不要写成口号文"],
+                "feedback_entry": "读者会意识到自己不是离幸福太远，而是一直把不肯停下误认成更接近幸福。",
+            },
+            "strategy_card": {
+                "reader_situation": "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人",
+                "point_of_view": "不急着讲知足、放下或清醒的大道理，先把人为什么明明很累却还是不肯松手讲清楚。",
+                "conflict_frame": "真正把人困住的，不是没有答案，而是总把舍不得放手误认成还有希望。",
+                "emotional_path": "先认出自己一直在和得不到的东西拉扯，再看为什么人总要等到透支之后才愿意停下。",
+                "structure_mode": "emotional_engine_direct",
+                "opening_move": "开头不要整段生活场景冷启动，先用一句会让人停一下的误认判断把读者拉进来。",
+                "body_shift": "中段先拆情绪发动机：人为什么会把继续投入误认成还有希望，又为什么总要等到失去之后才看见已经拥有的部分。",
+                "ending_move": "结尾给读者一个明确的价值赦免和现实答案：停下来不是失去，是把心力收回来。",
+                "expression_constraints": ["不要用口号式收尾"],
+                "divergence_axes": ["标题骨架要换成新的现实入口或处境入口"],
+                "execution_checklist": ["标题是否已经换成新的现实入口，而不是复述题眼。"],
+                "benchmark_summary": "只借原文对应的生活压力类型和情绪发动机，不借原文标题、首段场景、推进顺序和结尾动作。",
+            },
+            "benchmarks": [],
+            "outline": {
+                "hook": "你以为自己还在争取，其实很多东西已经先被你拿去垫这场拉扯。",
+                "outline_body": "1. 误认从哪里开始\n2. 拉扯怎样搬空日常\n3. 为什么总要失去后才看见拥有\n4. 停下不是认输",
+            },
+        }
+    )
+
+    assert "正文不要自动收窄成坏关系止损、分手复盘或单一关系博弈。" in template.instructions
+    assert "不要把正文压成聊天框、等回复、试探态度这一类单一关系等待戏" in template.instructions
+    assert "至少留一段专门写“人原本已经拥有、后来却在拉扯中慢慢忽略掉的东西”" in template.instructions
+    assert "开头第一屏不要只剩消息框、对话框、回没回这类关系界面" in template.instructions
+
+
+def test_build_draft_prompt_keeps_broad_emotional_release_guard_when_reference_is_hidden() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "你以为幸福是得到，后来才懂有些幸福叫放下",
+            "topic_angle": "从人为什么总把幸福误解成继续争取切入，写我们怎样在强求和不甘心里耗尽自己，又怎样在放手后重新看见已经拥有的部分。",
+            "project_title": "幸福是什么",
+            "source_type": "tracked_article",
+            "reference_article_hidden": True,
+            "tone_profile": TONE_PROFILE,
+            "outline": {
+                "hook": "你以为自己还在争取，其实很多东西已经先被你拿去垫这场拉扯。",
+                "outline_body": "1. 误认从哪里开始\n2. 拉扯怎样搬空日常\n3. 为什么总要失去后才看见拥有\n4. 停下不是认输",
+            },
+            "problem_brief": {
+                "raw_goal": "你以为幸福是得到，后来才懂有些幸福叫放下",
+                "clarified_problem": "真正需要被看见的，不是人人都懂却做不到的道理，而是人为什么明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。",
+                "observed_phenomenon": "很多人把继续投入误认成还有希望，等到心力、睡眠和眼前拥有的东西一起被透支，才发现自己一直没舍得停下来",
+                "writing_goal": "把人为什么会把继续投入误认成还有希望讲清楚，让读者看见停下不是认输，而是把心力收回来。",
+                "target_reader_situation": "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人",
+                "core_conflict": "越舍不得停下，越容易把继续消耗误认成认真，最后连眼前真正重要的东西也一起忽略掉。",
+                "constraints": ["不要写成口号文"],
+                "feedback_entry": "读者会意识到自己不是离幸福太远，而是一直把不肯停下误认成更接近幸福。",
+            },
+            "strategy_card": {
+                "reader_situation": "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人",
+                "point_of_view": "不急着讲知足、放下或清醒的大道理，先把人为什么明明很累却还是不肯松手讲清楚。",
+                "conflict_frame": "真正把人困住的，不是没有答案，而是总把舍不得放手误认成还有希望。",
+                "emotional_path": "先认出自己一直在和得不到的东西拉扯，再看为什么人总要等到透支之后才愿意停下。",
+                "structure_mode": "emotional_engine_direct",
+                "opening_move": "开头不要整段生活场景冷启动，先用一句会让人停一下的误认判断把读者拉进来。",
+                "body_shift": "中段先拆情绪发动机：人为什么会把继续投入误认成还有希望，又为什么总要等到失去之后才看见已经拥有的部分。",
+                "ending_move": "结尾给读者一个明确的价值赦免和现实答案：停下来不是失去，是把心力收回来。",
+                "expression_constraints": ["不要用口号式收尾"],
+                "divergence_axes": ["标题骨架要换成新的现实入口或处境入口"],
+                "execution_checklist": ["标题是否已经换成新的现实入口，而不是复述题眼。"],
+                "benchmark_summary": "只借原文对应的生活压力类型和情绪发动机，不借原文标题、首段场景、推进顺序和结尾动作。",
+            },
+            "benchmarks": [],
+        }
+    )
+
+    assert "正文不要自动收窄成坏关系止损、分手复盘或单一关系博弈。" in template.instructions
+    assert "不要把正文压成聊天框、等回复、试探态度这一类单一关系等待戏" in template.instructions
+    assert "后文必须把代价写回睡眠、注意力、生活节奏、朋友家人或已经拥有却被忽略的部分。" in template.instructions
+    assert "正文至少要有两段不以消息、回复、对方、关系这些词为主抓手" in template.instructions
 
 
 def test_build_assets_prompt_includes_style_and_review_feedback() -> None:
@@ -1120,7 +1533,7 @@ def test_build_draft_prompt_uses_full_strategy_payload_by_default_for_tracked_ar
         {
             "trend_title": "参考文章 / 手动录入",
             "topic_title": "总把自己往后放的人，生活为什么会慢慢失序",
-            "topic_angle": LONG_TRACKED_TOPIC_ANGLE,
+            "topic_angle": "从人为什么总把幸福误认成继续争取切入，写清放手以后才重新看见已拥有的那部分安稳。",
             "project_title": "别把日子过反了",
             "source_type": "tracked_article",
             "tone_profile": TONE_PROFILE,
@@ -1180,7 +1593,7 @@ def test_build_draft_prompt_compacts_tracked_article_polish_payload() -> None:
         {
             "trend_title": "参考文章 / 手动录入",
             "topic_title": "总说等忙完这一阵，却开始看见身体发出的提醒",
-            "topic_angle": LONG_TRACKED_TOPIC_ANGLE,
+            "topic_angle": "从人为什么总把幸福误认成继续争取切入，写清放手以后才重新看见已拥有的那部分安稳。",
             "project_title": "别把日子过反了",
             "source_type": "tracked_article",
             "tone_profile": TONE_PROFILE,
@@ -1239,6 +1652,50 @@ def test_build_draft_prompt_compacts_tracked_article_polish_payload() -> None:
     assert "优先做窄修：只调整局部判断句、过顺的连接、过满的结尾和少数模板化句子。" in template.instructions
     assert len(template.instructions) < 5200
     assert len(template.prompt) < 3600
+
+
+def test_build_draft_prompt_uses_timeout_recovery_mode_for_tracked_article() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "幸福不是继续强求，而是看见自己已经拥有的东西",
+            "topic_angle": "从人为什么总把幸福误认成继续争取切入，写清放手以后才重新看见已拥有的那部分安稳。",
+            "project_title": "幸福是什么",
+            "source_type": "tracked_article",
+            "tone_profile": TONE_PROFILE,
+            "compact_strategy_mode": True,
+            "timeout_recovery_mode": True,
+            "reference_article_title": "幸福是什么",
+            "reference_article_author": "北岛",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "幸福不是一味得到，而是学会放下执念，重新看见已经拥有的部分。",
+            "reference_article_body_markdown": (
+                "别再追问幸福是什么了。真正的幸福，不是继续强求得不到的东西，"
+                "而是该结束的时候放下，该珍惜的时候看见自己已经拥有的部分。"
+            ),
+            "reference_article_structure_notes": "总论 + 关系例子 + 目标例子 + 回到已拥有",
+            "reference_article_tags": ["幸福", "放下", "珍惜已有"],
+            "outline": {
+                "hook": "她把消息框关掉以后，才看见晚饭已经凉了。",
+                "outline_body": (
+                    "1. 先写一个已经拥有却被顺手忽略的现实抓手。\n"
+                    "2. 解释人为什么总把幸福误认成继续争取。\n"
+                    "3. 把代价写回生活秩序、身体和已经拥有的人。\n"
+                    "4. 收在放手以后终于空出来的那一下。"
+                ),
+            },
+        }
+    )
+
+    assert "草稿超时救援模式" in template.instructions
+    assert "不要先铺一段没有信息增量的氛围场景" in template.instructions
+    assert "不要缩成单一坏关系复盘" in template.instructions
+    assert "参考文章来源线索" in template.prompt
+    assert "创作策略包（执行摘要）：" not in template.prompt
+    assert "参考文章已经在选题和大纲阶段被消化" not in template.instructions
+    assert "不要把幸福写成输赢、诚意、沉没成本或关系谈判问题" in template.instructions
+    assert len(template.instructions) < 2600
+    assert len(template.prompt) < 2200
 
 
 def test_outline_prompt_hides_reference_article_copy_surface_after_topic_stage() -> None:
@@ -1452,7 +1909,7 @@ def test_jinwan_youyu_internal_pressure_overrides_opening_style_in_prompt_sectio
     )
 
     assert "开篇方式：如果题材是自我消耗、生活排序失衡、健康透支或身体提醒，开头先落到一个真实接口、后果或身体信号，不要先写成空泛答案句；可以直接，但不要把答案先钉死在抽象判断上。" in template.prompt
-    assert "段落节奏：先用真实接口带路，再给判断与落点；中段可以明确，但不要一上来就写成通用讲解稿，每段都要能让读者认出自己当下正在经历的那一下。" in template.prompt
+    assert "段落节奏：先用真实接口带路，再给判断与落点；多数段落以 1 到 3 句为主，中段可以明确，但不要一上来就写成通用讲解稿，也不要把几层意思压成一个长段；每段都要能让读者认出自己当下正在经历的那一下。" in template.prompt
     assert "收束方式：收束时优先落在一个现实动作、后果余波或轻微决定上，可以给判断，但不要把结尾写成已经讲完题的标准答案。" in template.prompt
 
 
@@ -1553,6 +2010,8 @@ def test_draft_prompt_includes_anti_ai_flavor_guardrails() -> None:
     assert "结构路标风险" in template.instructions
     assert "模糊归因风险" in template.instructions
     assert "不要每段都写成“判断 + 解释 + 小结”" in template.instructions
+    assert "多数段落以 1 到 3 句为主" in template.instructions
+    assert "不要为了反模板，把现象、动作、解释和后果全压进一个大长段" in template.instructions
     assert "抽象空话风险" in template.instructions
     assert "过度解释风险" in template.instructions
     assert "结尾口号风险" in template.instructions

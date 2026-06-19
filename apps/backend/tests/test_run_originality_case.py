@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import re
+import tempfile
 import subprocess
 import sys
 from pathlib import Path
@@ -118,7 +119,18 @@ def test_probe_ai_text_routes_collects_route_status_from_backend_mapping() -> No
 
     class FakeSummary:
         def model_dump(self) -> dict[str, object]:
-            return {"model": "gpt-5-mini", "base_url": "https://proxy.example/v1"}
+            return {
+                "model": "gpt-5-mini",
+                "base_url": "https://proxy.example/v1",
+                "image_model": "gpt-image-2",
+                "image_base_url": "https://proxy.example/v1",
+                "image_api_key_configured": True,
+                "image_request_timeout_seconds": 12.0,
+                "image_uses_dedicated_config": False,
+                "api_key_configured": True,
+                "reasoning_effort": "medium",
+                "request_timeout_seconds": 12.0,
+            }
 
     payload = script._probe_ai_text_routes(
         {
@@ -1438,6 +1450,56 @@ def test_apply_current_compare_cleanups_reports_structural_residue() -> None:
     assert original_residue["short_long_cadence_pairs"] >= cleaned_residue["short_long_cadence_pairs"]
 
 
+def test_apply_current_compare_cleanups_reflows_quote_examples_and_tail_fragments() -> None:
+    script = _load_run_originality_case_module()
+
+    draft_markdown = (
+        "# 标题\n\n"
+        "很多人的收口，几次认真开口，换来轻飘飘的回应。真要把它算成突然发生的。，反而把事情说浅了；"
+        "是明明在说委屈，对方只盯着语气；是你把边界提出来，场面立刻变得尴尬，最后还是你先圆回来。\n\n"
+        "比如：“刚才那样说，我不舒服。”。\n\n"
+        "“这件事我做不到。”。\n\n"
+        "“这个问题你得回应我。”。\n\n"
+        "发出去，先停在这里。"
+    )
+
+    cleaned_markdown, cleanup = script._apply_current_compare_cleanups(
+        title="标题",
+        draft_markdown=draft_markdown,
+    )
+
+    changed_steps = [step["name"] for step in cleanup["steps"] if step["changed"]]
+    assert "strip_orphaned_rebound_tail_residue" in changed_steps
+    assert "collapse_isolated_quote_example_residue" in changed_steps
+    assert "真要把它算成突然发生的" not in cleaned_markdown
+    assert "反而把事情说浅了" not in cleaned_markdown
+    assert "比如：“刚才那样说，我不舒服。”“这件事我做不到。”“这个问题你得回应我。”" in cleaned_markdown
+    assert "\n\n“这件事我做不到。”" not in cleaned_markdown
+    assert cleanup["original_ai_flavor"]["score"] > cleanup["cleaned_ai_flavor"]["score"]
+
+
+def test_apply_current_compare_cleanups_reflows_common_broken_rebound_shape() -> None:
+    script = _load_run_originality_case_module()
+
+    draft_markdown = (
+        "# 标题\n\n"
+        "很多消耗，你明明已经不舒服，还在维持体面，维持理解，维持那句“再看看”。"
+        "真要把它算成从一次争吵开始的。它更常见的样子。"
+        "白天照常上班，照常说笑，事情也在做，节奏却乱了。"
+    )
+
+    cleaned_markdown, cleanup = script._apply_current_compare_cleanups(
+        title="标题",
+        draft_markdown=draft_markdown,
+    )
+
+    changed_steps = [step["name"] for step in cleanup["steps"] if step["changed"]]
+    assert "strip_orphaned_rebound_tail_residue" in changed_steps
+    assert "真要把它算成从一次争吵开始的" not in cleaned_markdown
+    assert "它更常见的样子" not in cleaned_markdown
+    assert "白天照常上班，照常说笑，事情也在做，节奏却乱了" in cleaned_markdown
+
+
 def test_replay_result_mode_reuses_bundle_artifacts_and_exports_cleaned_compare_bundle(tmp_path: Path) -> None:
     bundle_dir = tmp_path / "historical-bundle"
     bundle_dir.mkdir()
@@ -2076,6 +2138,128 @@ def test_export_prompts_only_mode_skips_metadata_enrichment_when_reuse_bundle_ha
     result = json.loads(result_path.read_text(encoding="utf-8"))
     assert result["status"] == "done"
     assert calls == []
+
+
+def test_best_effort_enrich_tracked_article_records_warning_and_keeps_seed_payload() -> None:
+    script = _load_run_originality_case_module()
+
+    class FakeArticle:
+        def model_dump(self) -> dict[str, object]:
+            return {
+                "slug": "article-demo",
+                "source_kind": "manual",
+                "source_name": "manual-originality-check",
+                "title": "幸福是什么",
+                "url": "local://article-demo",
+                "author": "",
+                "summary": "",
+                "body_markdown": "正文",
+                "body_source": "manual_input",
+                "structure_notes": "",
+                "created_at": None,
+                "tags": [],
+            }
+
+    partial: dict[str, object] = {}
+
+    def fail_enrich(_slug: str):
+        raise RuntimeError("502 upstream access forbidden")
+
+    script._best_effort_enrich_tracked_article(
+        article_slug="article-demo",
+        article_payload=FakeArticle(),
+        enrich_tracked_article_metadata=fail_enrich,
+        should_skip=False,
+        partial=partial,
+    )
+
+    assert partial["tracked_article"]["slug"] == "article-demo"
+    assert partial["tracked_article"]["title"] == "幸福是什么"
+    assert partial["warnings"] == [
+        {
+            "type": "tracked_article_metadata_enrichment_failed",
+            "article_slug": "article-demo",
+            "message": "502 upstream access forbidden",
+            "error_type": "RuntimeError",
+        }
+    ]
+
+
+def test_best_effort_enrich_tracked_article_uses_enriched_payload_without_warning() -> None:
+    script = _load_run_originality_case_module()
+
+    class FakeArticle:
+        def model_dump(self) -> dict[str, object]:
+            return {
+                "slug": "article-demo",
+                "source_kind": "manual",
+                "source_name": "manual-originality-check",
+                "title": "幸福是什么",
+                "url": "local://article-demo",
+                "author": "",
+                "summary": "",
+                "body_markdown": "正文",
+                "body_source": "manual_input",
+                "structure_notes": "",
+                "created_at": None,
+                "tags": [],
+            }
+
+    class FakeEnriched:
+        def model_dump(self) -> dict[str, object]:
+            return {
+                "slug": "article-demo",
+                "source_kind": "manual",
+                "source_name": "manual-originality-check",
+                "title": "幸福是什么",
+                "url": "local://article-demo",
+                "author": "晚舟",
+                "summary": "补齐摘要",
+                "body_markdown": "正文",
+                "body_source": "manual_input",
+                "structure_notes": "先拆误解，再写放下。",
+                "created_at": None,
+                "tags": ["幸福", "放下"],
+            }
+
+    partial: dict[str, object] = {}
+
+    script._best_effort_enrich_tracked_article(
+        article_slug="article-demo",
+        article_payload=FakeArticle(),
+        enrich_tracked_article_metadata=lambda _slug: FakeEnriched(),
+        should_skip=False,
+        partial=partial,
+    )
+
+    assert partial["tracked_article"]["author"] == "晚舟"
+    assert partial["tracked_article"]["summary"] == "补齐摘要"
+    assert "warnings" not in partial
+
+
+def test_build_runtime_db_path_uses_system_temp_dir(tmp_path: Path) -> None:
+    script = _load_run_originality_case_module()
+
+    output_dir = tmp_path / "verify-happiness-live-v10"
+    output_dir.mkdir()
+
+    runtime_db_path = script._build_runtime_db_path(output_dir)
+
+    assert runtime_db_path.name == "verify-happiness-live-v10.db"
+    assert runtime_db_path.parent == Path(tempfile.gettempdir()) / "gankaigc-originality-case-db"
+
+
+def test_sync_runtime_db_to_bundle_copies_sqlite_file(tmp_path: Path) -> None:
+    script = _load_run_originality_case_module()
+
+    runtime_db_path = tmp_path / "runtime.db"
+    bundle_db_path = tmp_path / "bundle" / "workbench.db"
+    runtime_db_path.write_bytes(b"sqlite-bytes")
+
+    script._sync_runtime_db_to_bundle(runtime_db_path=runtime_db_path, bundle_db_path=bundle_db_path)
+
+    assert bundle_db_path.exists()
+    assert bundle_db_path.read_bytes() == b"sqlite-bytes"
 
 
 def test_candidate_rank_tuple_prefers_lower_original_ai_flavor_when_cleaned_scores_tie() -> None:

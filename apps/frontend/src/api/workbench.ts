@@ -272,6 +272,10 @@ export type AIConfigSummary = {
   base_url: string | null;
   model: string;
   image_model: string;
+  image_api_key_configured: boolean;
+  image_base_url: string | null;
+  image_request_timeout_seconds: number;
+  image_uses_dedicated_config: boolean;
   reasoning_effort: string | null;
   request_timeout_seconds: number;
 };

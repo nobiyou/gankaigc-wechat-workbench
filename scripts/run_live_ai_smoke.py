@@ -10,12 +10,17 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = REPO_ROOT / "apps" / "backend"
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 AI_OVERRIDE_ENV_FIELDS: tuple[tuple[str, str], ...] = (
     ("openai_api_key", "OPENAI_API_KEY"),
     ("openai_base_url", "OPENAI_BASE_URL"),
     ("openai_model", "OPENAI_MODEL"),
     ("openai_reasoning_effort", "OPENAI_REASONING_EFFORT"),
     ("openai_request_timeout_seconds", "OPENAI_REQUEST_TIMEOUT_SECONDS"),
+    ("openai_image_api_key", "OPENAI_IMAGE_API_KEY"),
+    ("openai_image_base_url", "OPENAI_IMAGE_BASE_URL"),
+    ("openai_image_model", "OPENAI_IMAGE_MODEL"),
+    ("openai_image_request_timeout_seconds", "OPENAI_IMAGE_REQUEST_TIMEOUT_SECONDS"),
 )
 
 
@@ -51,6 +56,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional OPENAI_REQUEST_TIMEOUT_SECONDS override for this run only.",
     )
+    parser.add_argument("--openai-image-api-key", default=None, help="Optional OPENAI_IMAGE_API_KEY override for this run only.")
+    parser.add_argument("--openai-image-base-url", default=None, help="Optional OPENAI_IMAGE_BASE_URL override for this run only.")
+    parser.add_argument("--openai-image-model", default=None, help="Optional OPENAI_IMAGE_MODEL override for this run only.")
+    parser.add_argument(
+        "--openai-image-request-timeout-seconds",
+        type=float,
+        default=None,
+        help="Optional OPENAI_IMAGE_REQUEST_TIMEOUT_SECONDS override for this run only.",
+    )
     return parser
 
 
@@ -63,19 +77,23 @@ def _normalize_ai_override_value(value: object) -> str | None:
     return text or None
 
 
-def _collect_ai_override_env(args: argparse.Namespace) -> dict[str, str]:
+def _collect_ai_override_env(args: argparse.Namespace) -> tuple[dict[str, str], set[str]]:
     overrides: dict[str, str] = {}
+    cleared_env_names: set[str] = set()
     if getattr(args, "clear_openai_base_url", False):
-        overrides["OPENAI_BASE_URL"] = ""
+        overrides["OPENAI_BASE_URL"] = DEFAULT_OPENAI_BASE_URL
     for field_name, env_name in AI_OVERRIDE_ENV_FIELDS:
         normalized = _normalize_ai_override_value(getattr(args, field_name, None))
         if normalized is not None:
             overrides[env_name] = normalized
-    return overrides
+            cleared_env_names.discard(env_name)
+    return overrides, cleared_env_names
 
 
 def _apply_ai_overrides(args: argparse.Namespace) -> dict[str, str]:
-    overrides = _collect_ai_override_env(args)
+    overrides, cleared_env_names = _collect_ai_override_env(args)
+    for env_name in cleared_env_names:
+        os.environ.pop(env_name, None)
     for env_name, value in overrides.items():
         os.environ[env_name] = value
     return overrides

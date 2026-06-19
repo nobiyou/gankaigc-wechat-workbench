@@ -659,6 +659,147 @@ def test_generate_topic_from_tracked_article_rewrites_abstract_internal_pressure
     assert "求救信号" in payload["angle"]
 
 
+def test_generate_topic_from_tracked_article_does_not_force_happiness_release_article_into_pressure_interface(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "人这一生，最难得的幸福，其实是不再强求",
+                "angle": "从关系和目标里那些迟迟放不下的不甘心切入，写人为什么总把幸福误解成不断得到，而忘了珍惜已经拥有的部分。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "happiness-release-notes",
+            "source_name": "手动录入",
+            "title": "幸福是什么",
+            "url": "https://example.com/happiness-release-notes",
+            "author": "未知",
+            "summary": "文章把幸福的定义从“不断获得”转向“适时放下”，重点讨论人在关系和目标里因不甘心而持续强求的自我消耗。核心判断是，幸福未必来自追到更多，而更可能来自停止拉扯、看见眼前已经拥有的部分。",
+            "body_markdown": (
+                "幸福是什么？我们总以为，幸福是“得到”：得到爱，得到钱，得到想要的一切。后来才懂，幸福其实是“放下”：放下强求，放下执念，放下那些得不到的东西。\n\n"
+                "别再盯着自己没有的东西了，转过头，看看你拥有的。你无忧、无虑、无病、无灾，你有健康的身体，爱你的家人，三两好友，一碗热饭。\n\n"
+                "愿你学会“不再强求”的放下，也学会“别无所求”的知足。"
+            ),
+            "structure_notes": "开头用“幸福是得到还是放下”的反差提问切入，再列举关系、目标和不甘心三种常见执拗场景，建立共鸣。中段把重点转到“强求只会消耗自己”，进一步提出把注意力从得不到的东西移回已拥有的现实支持。结尾回收到“放手不是失去，而是腾出位置”，用珍惜当下和知足作收束。",
+            "tags": ["幸福认知", "停止强求", "关系执念", "自我消耗", "珍惜当下"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/happiness-release-notes/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert "幸福" in payload["title"] or "放下" in payload["title"]
+    assert "体检" not in payload["title"]
+    assert "复查" not in payload["title"]
+    assert "坏关系" not in payload["title"]
+    assert "体检" not in payload["angle"]
+    assert "复查" not in payload["angle"]
+    assert "沉没成本" not in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_happiness_release_article_out_of_relationship_sink(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "你迟迟离不开一段坏关系，往往输给了“已经付出这么多”",
+                "angle": "很多关系拖到最后，卡住人的并不是爱得太深，而是投入太久后的舍不得；这篇稿子要拆开“不甘心”怎样把人留在坏关系里，以及及时止损为什么是一种自我保护。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "happiness-release-reroute",
+            "source_name": "手动录入",
+            "title": "幸福是什么",
+            "url": "https://example.com/happiness-release-reroute",
+            "author": "未知",
+            "summary": "文章把幸福的定义从“不断获得”转向“适时放下”，重点讨论人在关系和目标里因不甘心而持续强求的自我消耗。核心判断是，幸福未必来自追到更多，而更可能来自停止拉扯、看见眼前已经拥有的部分。",
+            "body_markdown": (
+                "幸福是什么？我们总以为，幸福是“得到”：得到爱，得到钱，得到想要的一切。后来才懂，幸福其实是“放下”：放下强求，放下执念，放下那些得不到的东西。\n\n"
+                "你有没有过这样的时刻？明明一段关系已经烂了，你还死死抓着不放，安慰自己“再坚持一下就好了”；明明一个目标根本不合适你，你还拼命往前冲，骗自己“只要够努力就能成功”；把自己困在“不甘心”的牢笼里，一遍遍问：“为什么我付出了，却得不到？”\n\n"
+                "可真正的幸福，恰恰是该结束的时候，不再强求，该珍惜的时候，别无所求。\n\n"
+                "亲爱的，该放手的，就放手，那不是失去，是腾出位置。"
+            ),
+            "structure_notes": "开头用“幸福是得到还是放下”的反差提问切入，再列举关系、目标和不甘心三种常见执拗场景，建立共鸣。中段把重点转到“强求只会消耗自己”，结尾回收到“放手不是失去，而是腾出位置”。",
+            "tags": ["幸福认知", "停止强求", "关系执念", "珍惜当下"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/happiness-release-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert "坏关系" not in payload["title"]
+    assert "沉没成本" not in payload["title"]
+    assert "幸福" in payload["title"] or "放下" in payload["title"]
+    assert "坏关系" not in payload["angle"]
+    assert "沉没成本" not in payload["angle"]
+    assert "放手" in payload["angle"] or "不再强求" in payload["angle"] or "已经拥有" in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_article_out_of_pressure_sink(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "身体一停，才看见谁一直被你排在待办清单最后",
+                "angle": "从体检、手术和在家休养这条现实线索切入，拆开成年女性把陪伴和自我照料长期后置的机制，也接住终于停下来的那份内疚。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "small-things-reroute",
+            "source_name": "手动录入",
+            "title": "一生最重要的事，不是大事",
+            "url": "https://example.com/small-things-reroute",
+            "author": "未知",
+            "summary": "文章把“做大事”的社会期待，与人在身体受挫、生活放慢后重新确认的日常幸福放在一起比较，核心判断是：真正支撑一个人生活感受的，往往不是成就叙事，而是陪伴、相处和被看见的细碎时刻。",
+            "body_markdown": (
+                "年轻时，我们都想改变世界，觉得人生一定要轰轰烈烈，要做大事，要出人头地。可走过半生，才发现，这世界再喧嚣，最重要的事，不过是活在人间烟火里，陪在爱的人身边。\n\n"
+                "朋友是上市公司的高管，前些年，没日没夜地加班，最近因为身体不舒服做了个手术，在家休养。\n\n"
+                "他终于在日落之前，陪爱人做了一顿晚饭。他久违地去接孩子放学。那一刻，他突然觉得，那些拼了命追求的大事，好像瞬间祛魅了。\n\n"
+                "其实，真正让人眼眶发热的，可能从来不是升职加薪、远大抱负，而是这些不起眼的、细碎的、平淡的日常瞬间。宏大叙事属于时代，属于历史书，而一碗热汤、一盏夜灯、一句晚安，才属于你我。"
+            ),
+            "structure_notes": "开头先摆出追逐成就的大命题，中段借手术停下来后的家庭陪伴完成价值转向，结尾回到普通日常和陪伴。",
+            "tags": ["日常治愈", "家庭陪伴", "价值重估"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/small-things-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert "体检" not in payload["title"]
+    assert "待办清单最后" not in payload["title"]
+    assert "大事" in payload["title"] or "小事" in payload["title"] or "重要" in payload["title"]
+    assert "体检" not in payload["angle"]
+    assert "复查" not in payload["angle"]
+    assert "晚饭" in payload["angle"] or "接孩子" in payload["angle"] or "陪伴" in payload["angle"]
+
+
 def test_tracked_articles_can_be_created_listed_and_turned_into_topics() -> None:
     initial_response = client.get("/api/tracked-articles")
     assert initial_response.status_code == 200
@@ -1716,6 +1857,7 @@ def test_builtin_tone_profiles_include_jinwan_youyu_preset() -> None:
     assert "直接问题、现实接口或判断切入" in default_profile["opening_style"]
     assert "不用生活场景冷启动" in default_profile["opening_style"]
     assert "不靠整段场景铺陈" in default_profile["paragraph_rhythm"]
+    assert "多数段落以 1 到 3 句为主" in default_profile["paragraph_rhythm"]
     assert default_profile["closing_style"] == "明确结论或行动落点收束"
     assert "具体、克制、有承接" in default_profile["value_constraints"]
     assert "必须有情绪价值" in default_profile["value_constraints"]
@@ -1737,8 +1879,10 @@ def test_builtin_tone_profiles_include_jinwan_youyu_preset() -> None:
     assert "不含蓄收尾" in jinwan_profile["value_constraints"]
     assert "直接问题、现实接口或一句共鸣判断切入" in jinwan_profile["opening_style"]
     assert "不靠整段氛围铺陈" in jinwan_profile["paragraph_rhythm"]
+    assert "多数段落以 1 到 3 句为主" in jinwan_profile["paragraph_rhythm"]
     assert "行动落点" in jinwan_profile["paragraph_rhythm"]
     assert "开头用直接问题、现实接口或一句共鸣判断迅速点题" in jinwan_profile["default_polish_instruction"]
+    assert "多数段落控制在 1 到 3 句" in jinwan_profile["default_polish_instruction"]
     assert "不要保留大段场景描写" in jinwan_profile["default_polish_instruction"]
     assert "不要写成场景散文" in jinwan_profile["default_polish_instruction"]
     assert "避免空转抒情" in jinwan_profile["default_polish_instruction"]
@@ -2534,10 +2678,10 @@ def test_generate_initial_draft_candidates_runs_full_branch_when_compact_candida
         uses_custom_base_url = True
 
         def __init__(self) -> None:
-            self.calls = 0
+            self.calls: list[dict[str, object]] = []
 
         def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
-            self.calls += 1
+            self.calls.append(dict(payload))
             if payload.get("compact_strategy_mode"):
                 return {
                     "title": "过度顺滑 compact 稿",
@@ -2566,11 +2710,74 @@ def test_generate_initial_draft_candidates_runs_full_branch_when_compact_candida
         draft_payload={},
     )
 
-    assert generator.calls == 2
+    assert len(generator.calls) == 2
+    assert generator.calls[0]["compact_strategy_mode"] is True
+    assert generator.calls[1]["full_fallback_single_attempt_mode"] is True
     assert candidates == [
         ("过度顺滑 compact 稿", "过度顺滑 compact 正文"),
         ("常规分支稿", "常规分支正文"),
     ]
+
+
+def test_generate_initial_draft_candidates_falls_back_to_full_branch_when_compact_branch_times_out(
+    caplog,
+) -> None:
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(dict(payload))
+            if payload.get("compact_strategy_mode"):
+                if payload.get("timeout_recovery_mode"):
+                    return {
+                        "title": "救援分支稿",
+                        "body_markdown": "救援分支正文",
+                    }
+                raise TimeoutError("Request timed out.")
+            return {
+                "title": "常规分支稿",
+                "body_markdown": "常规分支正文",
+            }
+
+    caplog.set_level("WARNING")
+
+    generator = FakeGenerator()
+    candidates = workbench._generate_initial_draft_candidates(
+        project={
+            "source_type": "tracked_article",
+            "slug": "compact-timeout-demo",
+            "reference_article_title": "幸福是什么",
+            "reference_article_author": "北岛",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "放下强求，珍惜已有。",
+            "reference_article_body_markdown": "正文",
+            "reference_article_structure_notes": "总论 + 例子 + 回到拥有",
+            "reference_article_tags": "[]",
+        },
+        generator=generator,
+        draft_payload={
+            "problem_brief": {"clarified_problem": "旧策略包"},
+            "strategy_card": {"point_of_view": "旧策略卡"},
+            "benchmarks": [{"title": "旧基准"}],
+            "reference_article_hidden": True,
+        },
+    )
+
+    assert len(generator.calls) == 2
+    assert candidates == [("救援分支稿", "救援分支正文")]
+    assert generator.calls[0]["compact_strategy_mode"] is True
+    assert "timeout_recovery_mode" not in generator.calls[0]
+    assert generator.calls[1]["compact_strategy_mode"] is True
+    assert generator.calls[1]["timeout_recovery_mode"] is True
+    assert "problem_brief" not in generator.calls[1]
+    assert "strategy_card" not in generator.calls[1]
+    assert "benchmarks" not in generator.calls[1]
+    assert "reference_article_hidden" not in generator.calls[1]
+    assert generator.calls[1]["reference_article_title"] == "幸福是什么"
+    assert "Compact strategy draft branch failed for project compact-timeout-demo" in caplog.text
 
 
 def test_generate_draft_skips_full_branch_when_compact_candidate_matches_fragment_chain_shape(monkeypatch) -> None:
@@ -2881,6 +3088,29 @@ def test_finalize_initial_draft_candidate_prefers_branch_with_better_post_cleanu
     assert result.title == "regular winner after cleanup"
     assert result.body_markdown == "regular cleaned"
     assert result.reference_body_markdown == "regular raw"
+
+
+def test_apply_initial_draft_candidate_cleanups_strips_split_rebound_explainer_tails() -> None:
+    raw_markdown = (
+        "# 你已经很累了\n\n"
+        "咖啡续到第三杯。真要把它算成没看见自己累了。更常见的情况，反而把事情说浅了。\n\n"
+        "这一步看上去不激烈。真要把它算成立刻轻松，也未必马上甘心。你还，反而把事情说浅了。那股惯性还在。"
+    )
+
+    cleaned_markdown, changed_steps = workbench._apply_initial_draft_candidate_cleanups(
+        title="你已经很累了",
+        body_markdown=raw_markdown,
+        source_type="tracked_article",
+    )
+
+    assert changed_steps >= 1
+    assert "真要把它算成" not in cleaned_markdown
+    assert "反而把事情说浅了" not in cleaned_markdown
+    assert "更常见的情况" not in cleaned_markdown
+    assert "你还，" not in cleaned_markdown
+    assert "咖啡续到第三杯。" in cleaned_markdown
+    assert "这一步看上去不激烈。" in cleaned_markdown
+    assert "那股惯性还在。" in cleaned_markdown
 
 
 def test_maybe_retry_polish_for_final_ai_flavor_cleanup_prefers_retry_after_cleanup_preview(
@@ -3344,6 +3574,79 @@ def test_maybe_auto_polish_ai_flavor_draft_output_does_not_short_circuit_low_sco
     assert "开头不要先用“你以为……吗 / 有一类……”替读者分类下定义" in str(
         fake_generator.calls[0]["polish_instruction"]
     )
+
+
+def test_maybe_auto_polish_ai_flavor_draft_output_short_circuits_low_risk_tracked_article_after_polish_when_no_retry_signals(
+    monkeypatch,
+) -> None:
+    score_map = {
+        "tracked raw": 30,
+        "polished raw": 8,
+    }
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        score = score_map[body_markdown]
+        level = "高" if score >= 60 else "中" if score >= 20 else "低"
+        return SimpleNamespace(score=score, level=level, hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+    monkeypatch.setattr(workbench, "_should_prefer_retried_candidate_after_cleanup_preview", lambda **_: True)
+    monkeypatch.setattr(workbench, "_find_missing_structure_headings", lambda **_: [])
+    monkeypatch.setattr(workbench, "_find_excessive_generic_reflective_openers", lambda **_: [])
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False)
+    monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False)
+    monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False)
+
+    def fail_retry(**_: object) -> tuple[str, str]:
+        raise AssertionError("retry chain should short-circuit once tracked article candidate is low risk")
+
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_structure_drift", fail_retry)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_over_smoothing", fail_retry)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_article_shell_cleanup", fail_retry)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_remaining_ai_flavor", fail_retry)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_final_ai_flavor_cleanup", fail_retry)
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        uses_custom_base_url = False
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(payload)
+            return {"title": "polished title", "body_markdown": "polished raw"}
+
+    fake_generator = FakeGenerator()
+
+    result_markdown, result_title = workbench._maybe_auto_polish_ai_flavor_draft_output(
+        title="tracked title",
+        body_markdown="tracked raw",
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+            "reference_article_body_markdown": "reference raw",
+            "reference_article_title": "reference title",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction=None,
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=fake_generator,
+    )
+
+    assert result_title == "polished title"
+    assert result_markdown == "polished raw"
+    assert len(fake_generator.calls) == 1
 
 
 def test_maybe_auto_polish_ai_flavor_draft_output_skips_tracked_article_fragment_chain_candidate(
@@ -5904,6 +6207,64 @@ def test_strip_orphaned_rebound_tail_residue_removes_broken_tail_fragments() -> 
     assert "你可以把很多人很多事安排进去" in cleaned
 
 
+def test_strip_orphaned_rebound_tail_residue_removes_mid_sentence_tail_fragment() -> None:
+    candidate_body = (
+        "# 消息改了三遍还发不出\n\n"
+        "很多人的收口，几次认真开口，换来轻飘飘的回应。真要把它算成突然发生的。，反而把事情说浅了；"
+        "是明明在说委屈，对方只盯着语气；是你把边界提出来，场面立刻变得尴尬，最后还是你先圆回来。"
+    )
+
+    cleaned = workbench._strip_orphaned_rebound_tail_residue(
+        title="消息改了三遍还发不出",
+        body_markdown=candidate_body,
+    )
+
+    assert "真要把它算成突然发生的" not in cleaned
+    assert "反而把事情说浅了" not in cleaned
+    assert "是明明在说委屈" not in cleaned
+    assert "明明在说委屈，对方只盯着语气" in cleaned
+    assert "你把边界提出来，场面立刻变得尴尬" in cleaned
+
+
+def test_strip_orphaned_rebound_tail_residue_removes_broken_common_shape_fragment() -> None:
+    candidate_body = (
+        "# 总在半夜翻旧账的关系，已经耗到你了\n\n"
+        "很多消耗，你明明已经不舒服，还在维持体面，维持理解，维持那句“再看看”。"
+        "真要把它算成从一次争吵开始的。它更常见的样子。"
+        "白天照常上班，照常说笑，事情也在做，节奏却乱了。"
+    )
+
+    cleaned = workbench._strip_orphaned_rebound_tail_residue(
+        title="总在半夜翻旧账的关系，已经耗到你了",
+        body_markdown=candidate_body,
+    )
+
+    assert "真要把它算成从一次争吵开始的" not in cleaned
+    assert "它更常见的样子" not in cleaned
+    assert "白天照常上班，照常说笑，事情也在做，节奏却乱了" in cleaned
+
+
+def test_collapse_isolated_quote_example_residue_merges_quote_run() -> None:
+    candidate_body = (
+        "# 标题\n\n"
+        "真要往回拿，先别急着追求“会说话”。\n\n"
+        "比如：“刚才那样说，我不舒服。”。\n\n"
+        "“这件事我做不到。”。\n\n"
+        "“这个问题你得回应我。”。\n\n"
+        "发出去，先停在这里。"
+    )
+
+    cleaned = workbench._collapse_isolated_quote_example_residue(
+        title="标题",
+        body_markdown=candidate_body,
+    )
+
+    assert "比如：“刚才那样说，我不舒服。”“这件事我做不到。”“这个问题你得回应我。”" in cleaned
+    assert "\n\n“这件事我做不到。”" not in cleaned
+    assert "\n\n“这个问题你得回应我。”" not in cleaned
+    assert "发出去，先停在这里。" in cleaned
+
+
 def test_soften_direct_address_lecture_residue_rewrites_low_score_lecture_shell() -> None:
     candidate_body = (
         "# 等到话越来越少，很多亏欠已经落在自己身上了\n\n"
@@ -7174,6 +7535,124 @@ def test_article_shell_cleanup_triggers_for_time_chained_tracked_article_shell()
         candidate_title="收件箱里那条改期短信，她一直没点开",
         candidate_markdown=candidate_markdown,
     )
+
+
+def test_broad_happiness_release_auto_polish_stops_after_first_retry(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "你以为自己是在等一个答案，其实是在把心力一直挂在得不到的地方。",
+                "outline_body": "1. 先拆人为什么总把继续投入误认成更接近幸福\n2. 再写强求怎么一点点掏空自己\n3. 最后收回到已经拥有却被忽略的部分",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if payload.get("polish_instruction"):
+                return {
+                    "title": "消息还没等来，你先把自己耗空了",
+                    "body_markdown": (
+                        "消息还是没回。聊天框停在昨天，对方那句晚点说后面再没下文。她一会儿看手机，一会儿看对话框，连回复草稿都改了三遍。\n\n"
+                        "她以为再等一句解释，关系就会回温。可每次手机一亮，她先看是不是对方，不是，就继续把注意力挂在那条没回的消息上。\n\n"
+                        "朋友问她要不要见面，她说改天。桌上的饭凉了，手机却一直握在手里。她不是不知道自己累，只是总想等那句回应。\n\n"
+                        "真正拖住她的，不只是没回消息，而是那段关系迟迟没有交代。她怕自己先松手，就等于承认这段关系没有结果。\n\n"
+                        "于是白天上班，夜里还是盯着聊天框。对方的冷淡、敷衍、回得慢，都被她翻来覆去地想。"
+                    ),
+                }
+            return {
+                "title": "幸福不是得到，是继续争取到最后",
+                "body_markdown": (
+                    "很多时候，我们以为幸福靠得到更多。\n\n"
+                    "不是已经太累了，而是还不肯停。\n\n"
+                    "说到底，人只是把不甘心误认成了更接近幸福。"
+                ),
+            }
+
+    def keep_candidate(**kwargs):
+        return kwargs["candidate_body_markdown"], kwargs["candidate_title"]
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        if "继续争取到最后" in title or "说到底" in body_markdown:
+            return SimpleNamespace(
+                score=64,
+                level="高",
+                hits=["命中：标题判断句模板", "命中：整篇解释壳偏密"],
+                suggestions=["把抽象判断拆回具体人和具体代价。"],
+            )
+        return SimpleNamespace(score=18, level="低", hits=[], suggestions=[])
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_structure_drift", keep_candidate, raising=False)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_over_smoothing", keep_candidate, raising=False)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_article_shell_cleanup", keep_candidate, raising=False)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_remaining_ai_flavor", keep_candidate, raising=False)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_final_ai_flavor_cleanup", keep_candidate, raising=False)
+
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "happiness-broad-release-auto-polish-article",
+            "source_kind": "manual",
+            "source_name": "手动录入",
+            "title": "幸福是什么",
+            "url": "https://example.com/happiness-broad-release-auto-polish",
+            "author": "测试",
+            "summary": "文章把幸福的定义从不断获得转向适时放下，重点讨论人在关系和目标里因不甘心而持续强求的自我消耗。",
+            "body_markdown": (
+                "# 幸福是什么\n\n"
+                "幸福是什么？我们总以为，幸福是得到。后来才懂，幸福其实也是放下。\n\n"
+                "你有没有过这样的时刻？明明一段关系已经烂了，你还死死抓着不放；明明一个目标根本不合适你，你还拼命往前冲。\n\n"
+                "我们都曾在强求里，耗尽了自己，以为努力争取，就能得到幸福。可真正的幸福，恰恰是该结束的时候，不再强求，该珍惜的时候，别无所求。\n\n"
+                "别再盯着自己没有的东西了，转过头，看看你已经拥有的。你有健康的身体，爱你的家人，三两好友，一碗热饭。\n\n"
+                "幸福从来不在别处，就在你放手后的轻松里，在你珍惜时的微笑里。"
+            ),
+            "structure_notes": "开头用幸福是得到还是放下的反差提问切入，中段拆强求的代价，结尾回到珍惜已经拥有的部分。",
+            "tags": ["幸福认知", "停止强求", "珍惜当下"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/happiness-broad-release-auto-polish-article/to-topic",
+        json={
+            "slug": "happiness-broad-release-auto-polish-topic",
+            "title": "你以为幸福是得到，后来才懂有些幸福叫放下",
+            "angle": "从人为什么总把幸福误解成继续争取切入，写我们怎样在强求和不甘心里耗尽自己，又怎样在放手后重新看见已经拥有的部分。",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={
+            "slug": "happiness-broad-release-auto-polish-project",
+            "title": "幸福广义情绪文自动精修测试",
+            "owner": "editorial",
+        },
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/happiness-broad-release-auto-polish-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    adopt_response = client.post("/api/projects/happiness-broad-release-auto-polish-project/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+    outline_response = client.post("/api/projects/happiness-broad-release-auto-polish-project/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/happiness-broad-release-auto-polish-project/generate-draft")
+    assert draft_response.status_code == 201
+    assert draft_response.json()["title"] == "消息还没等来，你先把自己耗空了"
+
+    draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
+    polish_calls = [call for call in draft_calls if call[1].get("polish_instruction")]
+    assert len(draft_calls) == 2
+    assert len(polish_calls) == 1
+    assert polish_calls[0][1]["draft"]["title"] == "幸福不是得到，是继续争取到最后"
 
 
 def test_article_shell_cleanup_triggers_for_high_paragraph_shell_burden_candidates() -> None:

@@ -447,7 +447,7 @@ export function SettingsPage({ section }: SettingsPageProps) {
         {aiConfigSummary ? (
           <div className="settings-config-grid">
             <article className="settings-config-card">
-              <span>接口地址</span>
+              <span>文本接口</span>
               <strong>{formatAiConfigBaseUrl(aiConfigSummary.base_url)}</strong>
             </article>
             <article className="settings-config-card">
@@ -455,20 +455,36 @@ export function SettingsPage({ section }: SettingsPageProps) {
               <strong>{aiConfigSummary.model}</strong>
             </article>
             <article className="settings-config-card">
+              <span>文本 Key</span>
+              <strong>{aiConfigSummary.api_key_configured ? "已配置" : "未配置"}</strong>
+            </article>
+            <article className="settings-config-card">
+              <span>出图接口</span>
+              <strong>{formatAiConfigBaseUrl(aiConfigSummary.image_base_url)}</strong>
+            </article>
+            <article className="settings-config-card">
               <span>出图模型</span>
               <strong>{aiConfigSummary.image_model}</strong>
+            </article>
+            <article className="settings-config-card">
+              <span>出图 Key</span>
+              <strong>{aiConfigSummary.image_api_key_configured ? "已配置" : "未配置"}</strong>
             </article>
             <article className="settings-config-card">
               <span>推理强度</span>
               <strong>{formatAiConfigReasoning(aiConfigSummary)}</strong>
             </article>
             <article className="settings-config-card">
-              <span>请求超时</span>
+              <span>文本超时</span>
               <strong>{`${aiConfigSummary.request_timeout_seconds} 秒`}</strong>
             </article>
             <article className="settings-config-card">
-              <span>密钥状态</span>
-              <strong>{aiConfigSummary.api_key_configured ? "已配置" : "未配置"}</strong>
+              <span>出图超时</span>
+              <strong>{`${aiConfigSummary.image_request_timeout_seconds} 秒`}</strong>
+            </article>
+            <article className="settings-config-card">
+              <span>出图链路</span>
+              <strong>{aiConfigSummary.image_uses_dedicated_config ? "独立配置" : "继承文本"}</strong>
             </article>
           </div>
         ) : null}

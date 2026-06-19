@@ -520,3 +520,150 @@ def test_build_strategy_package_keeps_relationship_repair_summary_on_emotional_e
     )
 
     assert result.strategy_card.structure_mode == "emotional_engine_direct"
+
+
+def test_build_strategy_package_uses_relationship_aftercare_mode_for_quarrel_repair_article() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": "每次闹完都要你自己消化，这段关系已经在交“回避税”",
+            "topic_angle": "把反复争执后“谁先冷下来谁就算懂事”的处境拆开，写清长期由一方自我消化、另一方回避修复时，亲密关系会怎样慢慢失去安全感。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "一个人到底爱不爱你，吵一架就知道了",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章把“爱不爱”放到争吵后的具体表现里观察：关键不在是否会吵，而在对方有没有主动沟通、安顿情绪、推动关系修复。",
+            "reference_article_structure_notes": "先看争执后的态度，再拆冷暴力和主动修复怎样把关系带向不同结果。",
+            "reference_article_body_markdown": (
+                "# 一个人到底爱不爱你，吵一架就知道了\n\n"
+                "激烈地争吵过后，有人选择冷暴力，不理不睬，任由情绪发酵；有人选择及时妥协，回归理性，让爱化解矛盾。\n\n"
+                "吵架后的态度，便是检验爱情的试金石。\n\n"
+                "人生在世，遇到一个吵完架还对你温柔以待的人不容易。毕竟好的关系，不是永远不吵架，而是争吵以后还想要继续走下去。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-15T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "relationship_aftercare"
+    assert result.problem_brief.target_reader_situation == "每次吵完都要自己消化情绪、把日子接回去的人"
+    assert "吵架不可怕" in result.problem_brief.writing_goal
+    assert "真正需要被看见的，是为什么一次次争执之后，总是只有一方在回收情绪、重建秩序" in result.problem_brief.clarified_problem
+    assert "争执后的安抚、解释和修复都落在同一个人身上" in result.problem_brief.problem_statement_markdown
+    assert "谁在善后" in result.strategy_card.point_of_view
+    assert "谁先把话咽回去" in result.strategy_card.body_shift
+    assert "长期单人善后" in result.strategy_card.body_shift
+    assert "没被接住的小动作" in result.strategy_card.ending_move
+    assert any("整齐翻转句" in item for item in result.strategy_card.expression_constraints)
+
+
+def test_build_strategy_package_keeps_happiness_release_article_on_emotional_engine_mode() -> None:
+    topic_title = "总想再撑一下的人，容易把沉没成本误认成感情诚意"
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": topic_title,
+            "topic_angle": "从“再坚持一下”这句自我安慰切入，拆开女人迟迟不肯松手时真正抓住的，往往是沉没成本、输不起感和被反复推迟的自我止损。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "幸福是什么",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章把幸福的定义从“不断获得”转向“适时放下”，重点讨论人在关系和目标里因不甘心而持续强求的自我消耗。核心判断是，幸福未必来自追到更多，而更可能来自停止拉扯、看见眼前已经拥有的部分。",
+            "reference_article_structure_notes": "开头用“幸福是得到还是放下”的反差提问切入，中段转到“强求只会消耗自己”，结尾回收到“放手不是失去，而是腾出位置”。",
+            "reference_article_body_markdown": (
+                "# 幸福是什么\n\n"
+                "幸福是什么？我们总以为，幸福是“得到”：得到爱，得到钱，得到想要的一切。后来才懂，幸福其实是“放下”：放下强求，放下执念，放下那些得不到的东西。\n\n"
+                "你有没有过这样的时刻？明明一段关系已经烂了，你还死死抓着不放，安慰自己“再坚持一下就好了”；明明一个目标根本不合适你，你还拼命往前冲，骗自己“只要够努力就能成功”；把自己困在“不甘心”的牢笼里，一遍遍问：“为什么我付出了，却得不到？”\n\n"
+                "我们都曾在“强求”里，耗尽了自己，以为努力争取，就能得到幸福。可真正的幸福，恰恰是该结束的时候，不再强求，该珍惜的时候，别无所求。\n\n"
+                "别再盯着自己没有的东西了，转过头，看看你拥有的。你无忧、无虑、无病、无灾，你有健康的身体，爱你的家人，三两好友，一碗热饭。\n\n"
+                "亲爱的，该放手的，就放手，那不是失去，是腾出位置。该珍惜的，就好好珍惜，别等到来不及，别等到失去了，才意识到自己曾经就在幸福里。\n\n"
+                "愿你学会“不再强求”的放下，也学会“别无所求”的知足。幸福从来不在别处，就在你放手后的轻松里，在你珍惜时的微笑里。别再追问“幸福是什么”了，你已经拥有它了。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-09T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "emotional_engine_direct"
+    assert result.problem_brief.target_reader_situation != "总把休息、体检、吃饭、回复和自己顺手往后挪的人"
+    assert "健康的身体" not in result.strategy_card.opening_move
+    assert "体检" not in result.strategy_card.opening_move
+    assert "情绪发动机" in result.strategy_card.body_shift
+    assert "放到最后" in result.strategy_card.body_shift
+    assert result.problem_brief.problem_statement_markdown.count("从身体和日常节奏已经开始变钝的迹象切入") == 0
+
+
+def test_build_strategy_package_avoids_title_echo_for_broad_happiness_release_article() -> None:
+    topic_title = "把心力收回来：人为什么总把继续投入误认成更接近幸福"
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": topic_title,
+            "topic_angle": "这篇想拆开一种常见误认：我们常把继续投入当成认真和有希望，直到精力、睡眠和眼前拥有都被透支，才发现停下也是一种保护。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "幸福是什么",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章把幸福的定义从“不断获得”转向“适时放下”，重点讨论人在关系和目标里因不甘心而持续强求的自我消耗。核心判断是，幸福未必来自追到更多，而更可能来自停止拉扯、看见眼前已经拥有的部分。",
+            "reference_article_structure_notes": "开头用“幸福是得到还是放下”的反差提问切入，中段转到“强求只会消耗自己”，结尾回收到“放手不是失去，而是腾出位置”。",
+            "reference_article_body_markdown": (
+                "# 幸福是什么\n\n"
+                "幸福是什么？我们总以为，幸福是“得到”：得到爱，得到钱，得到想要的一切。后来才懂，幸福其实是“放下”：放下强求，放下执念，放下那些得不到的东西。\n\n"
+                "你有没有过这样的时刻？明明一段关系已经烂了，你还死死抓着不放，安慰自己“再坚持一下就好了”；明明一个目标根本不合适你，你还拼命往前冲，骗自己“只要够努力就能成功”；把自己困在“不甘心”的牢笼里，一遍遍问：“为什么我付出了，却得不到？”\n\n"
+                "我们都曾在“强求”里，耗尽了自己，以为努力争取，就能得到幸福。可真正的幸福，恰恰是该结束的时候，不再强求，该珍惜的时候，别无所求。\n\n"
+                "别再盯着自己没有的东西了，转过头，看看你拥有的。你无忧、无虑、无病、无灾，你有健康的身体，爱你的家人，三两好友，一碗热饭。\n\n"
+                "亲爱的，该放手的，就放手，那不是失去，是腾出位置。该珍惜的，就好好珍惜，别等到来不及，别等到失去了，才意识到自己曾经就在幸福里。\n\n"
+                "愿你学会“不再强求”的放下，也学会“别无所求”的知足。幸福从来不在别处，就在你放手后的轻松里，在你珍惜时的微笑里。别再追问“幸福是什么”了，你已经拥有它了。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-10T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "emotional_engine_direct"
+    assert result.problem_brief.target_reader_situation == "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人"
+    assert topic_title not in result.problem_brief.observed_phenomenon
+    assert "继续投入误认成还有希望" in result.problem_brief.observed_phenomenon
+    assert topic_title not in result.problem_brief.writing_goal
+    assert "停下不是认输" in result.problem_brief.writing_goal
+    assert topic_title not in result.problem_brief.clarified_problem
+    assert "不甘心、投入感和希望" in result.problem_brief.clarified_problem
+    assert topic_title not in result.problem_brief.feedback_entry
+    assert "不是离幸福太远" in result.problem_brief.feedback_entry
+    assert topic_title not in result.strategy_card.conflict_frame
+    assert "舍不得放手" in result.strategy_card.conflict_frame
+
+
+def test_build_strategy_package_uses_everyday_warmth_return_mode_for_small_things_article() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "tracked-project",
+            "topic_title": "很多“大事”最后都会祛魅，留下你的反而是这些小事",
+            "topic_angle": "从成就叙事为什么总会在某个阶段突然祛魅切入，写人慢下来以后，怎样重新看见那些不起眼却最能托住生活的小事和陪伴。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "一生最重要的事，不是大事",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章把“做大事”的社会期待，与人在身体受挫、生活放慢后重新确认的日常幸福放在一起比较，核心判断是：真正支撑一个人生活感受的，往往不是成就叙事，而是陪伴、相处和被看见的细碎时刻。",
+            "reference_article_structure_notes": "开头先摆出追逐成就的大命题，中段借手术停下来后的家庭陪伴完成价值转向，结尾回到普通日常和陪伴。",
+            "reference_article_body_markdown": (
+                "# 一生最重要的事，不是大事\n\n"
+                "年轻时，我们都想改变世界，觉得人生一定要轰轰烈烈，要做大事，要出人头地。可走过半生，才发现，这世界再喧嚣，最重要的事，不过是活在人间烟火里，陪在爱的人身边。\n\n"
+                "朋友是上市公司的高管，最近因为身体不舒服做了个手术，在家休养。\n\n"
+                "他终于在日落之前，陪爱人做了一顿晚饭。他久违地去接孩子放学。那一刻，他突然觉得，那些拼了命追求的大事，好像瞬间祛魅了。\n\n"
+                "其实，真正让人眼眶发热的，可能从来不是升职加薪、远大抱负，而是这些不起眼的、细碎的、平淡的日常瞬间。宏大叙事属于时代，属于历史书，而一碗热汤、一盏夜灯、一句晚安，才属于你我。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-06-14T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "everyday_warmth_return"
+    assert "更大的目标" in result.problem_brief.writing_goal
+    assert "陪伴和日常" in result.problem_brief.problem_statement_markdown
+    assert "普通陪伴" in result.strategy_card.body_shift or "细小日常" in result.strategy_card.body_shift
+    assert "很小的陪伴动作" in result.strategy_card.ending_move

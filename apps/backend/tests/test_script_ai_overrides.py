@@ -51,7 +51,7 @@ def test_run_originality_case_main_applies_ai_override_before_dispatch(monkeypat
     exit_code = script.main()
 
     assert exit_code == 0
-    assert captured["base_url"] == ""
+    assert captured["base_url"] == "https://api.openai.com/v1"
     assert captured["model"] == "gpt-5-mini"
     assert captured["args_model"] == "gpt-5-mini"
 
@@ -69,6 +69,10 @@ def test_run_live_ai_smoke_check_only_uses_overrides_before_backend_load(monkeyp
                 "base_url": None,
                 "model": "gpt-5-mini",
                 "image_model": "gpt-image-2",
+                "image_api_key_configured": True,
+                "image_base_url": None,
+                "image_request_timeout_seconds": 12.0,
+                "image_uses_dedicated_config": False,
                 "reasoning_effort": "medium",
                 "request_timeout_seconds": 12.0,
             }
@@ -88,7 +92,7 @@ def test_run_live_ai_smoke_check_only_uses_overrides_before_backend_load(monkeyp
         openai_api_key = "test-key"
 
     def fake_load_backend_bindings():
-        assert os.environ.get("OPENAI_BASE_URL") == ""
+        assert os.environ.get("OPENAI_BASE_URL") == "https://api.openai.com/v1"
         assert os.environ.get("OPENAI_MODEL") == "gpt-5-mini"
         assert os.environ.get("OPENAI_REQUEST_TIMEOUT_SECONDS") == "12.0"
         return {
@@ -178,6 +182,10 @@ def test_run_live_ai_smoke_probe_text_routes_reports_route_results(monkeypatch, 
                 "base_url": "https://proxy.example/v1",
                 "model": "gpt-5-mini",
                 "image_model": "gpt-image-2",
+                "image_api_key_configured": True,
+                "image_base_url": "https://proxy.example/v1",
+                "image_request_timeout_seconds": 12.0,
+                "image_uses_dedicated_config": False,
                 "reasoning_effort": "medium",
                 "request_timeout_seconds": 12.0,
             }

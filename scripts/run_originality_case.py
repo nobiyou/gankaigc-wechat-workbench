@@ -6,8 +6,10 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import traceback
 import uuid
 from pathlib import Path
@@ -17,12 +19,18 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = REPO_ROOT / "apps" / "backend"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "tmp" / "article-runs"
+RUNTIME_DB_TEMP_DIRNAME = "gankaigc-originality-case-db"
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 AI_OVERRIDE_ENV_FIELDS: tuple[tuple[str, str], ...] = (
     ("openai_api_key", "OPENAI_API_KEY"),
     ("openai_base_url", "OPENAI_BASE_URL"),
     ("openai_model", "OPENAI_MODEL"),
     ("openai_reasoning_effort", "OPENAI_REASONING_EFFORT"),
     ("openai_request_timeout_seconds", "OPENAI_REQUEST_TIMEOUT_SECONDS"),
+    ("openai_image_api_key", "OPENAI_IMAGE_API_KEY"),
+    ("openai_image_base_url", "OPENAI_IMAGE_BASE_URL"),
+    ("openai_image_model", "OPENAI_IMAGE_MODEL"),
+    ("openai_image_request_timeout_seconds", "OPENAI_IMAGE_REQUEST_TIMEOUT_SECONDS"),
 )
 
 
@@ -174,19 +182,23 @@ def _describe_selected_tone_profile(
     return {"id": int(profile_id)}
 
 
-def _collect_ai_override_env(args: argparse.Namespace) -> dict[str, str]:
+def _collect_ai_override_env(args: argparse.Namespace) -> tuple[dict[str, str], set[str]]:
     overrides: dict[str, str] = {}
+    cleared_env_names: set[str] = set()
     if getattr(args, "clear_openai_base_url", False):
-        overrides["OPENAI_BASE_URL"] = ""
+        overrides["OPENAI_BASE_URL"] = DEFAULT_OPENAI_BASE_URL
     for field_name, env_name in AI_OVERRIDE_ENV_FIELDS:
         normalized = _normalize_ai_override_value(getattr(args, field_name, None))
         if normalized is not None:
             overrides[env_name] = normalized
-    return overrides
+            cleared_env_names.discard(env_name)
+    return overrides, cleared_env_names
 
 
 def _apply_ai_overrides(args: argparse.Namespace) -> dict[str, str]:
-    overrides = _collect_ai_override_env(args)
+    overrides, cleared_env_names = _collect_ai_override_env(args)
+    for env_name in cleared_env_names:
+        os.environ.pop(env_name, None)
     for env_name, value in overrides.items():
         os.environ[env_name] = value
     return overrides
@@ -416,6 +428,19 @@ def _build_output_dir(root: Path, label: str | None) -> Path:
     return output_dir
 
 
+def _build_runtime_db_path(output_dir: Path) -> Path:
+    runtime_root = Path(tempfile.gettempdir()) / RUNTIME_DB_TEMP_DIRNAME
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    return runtime_root / f"{output_dir.name}.db"
+
+
+def _sync_runtime_db_to_bundle(*, runtime_db_path: Path, bundle_db_path: Path) -> None:
+    if not runtime_db_path.exists():
+        return
+    bundle_db_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(runtime_db_path, bundle_db_path)
+
+
 def _ai_flavor_summary_to_dict(summary: Any) -> dict[str, Any]:
     return {
         "score": int(getattr(summary, "score", 0)),
@@ -472,6 +497,8 @@ def _apply_current_compare_cleanups(*, title: str, draft_markdown: str) -> tuple
     from app.services.ai_flavor import evaluate_ai_flavor_risk, extract_embedded_banner_paragraphs
     from app.services.workbench import (
         _collapse_embedded_banner_shell_residue,
+        _collapse_explanatory_bridge_residue,
+        _collapse_isolated_quote_example_residue,
         _collapse_light_segmented_shell_residue,
         _collapse_leading_short_long_cadence_residue,
         _collapse_over_segmented_shell_residue,
@@ -479,8 +506,11 @@ def _apply_current_compare_cleanups(*, title: str, draft_markdown: str) -> tuple
         _collapse_short_judgment_residue,
         _collapse_time_chain_shell_residue,
         _soften_connector_residue,
+        _soften_direct_address_lecture_residue,
         _soften_not_ab_residue,
         _soften_structural_ladder_residue,
+        _strip_orphaned_rebound_tail_residue,
+        _strip_rebound_explainer_tail_residue,
     )
 
     original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=draft_markdown)
@@ -491,12 +521,17 @@ def _apply_current_compare_cleanups(*, title: str, draft_markdown: str) -> tuple
         ("collapse_short_judgment_residue", _collapse_short_judgment_residue),
         ("collapse_time_chain_shell_residue", _collapse_time_chain_shell_residue),
         ("collapse_embedded_banner_shell_residue", _collapse_embedded_banner_shell_residue),
+        ("collapse_explanatory_bridge_residue", _collapse_explanatory_bridge_residue),
         ("collapse_leading_short_long_cadence_residue", _collapse_leading_short_long_cadence_residue),
         ("collapse_short_long_cadence_residue", _collapse_short_long_cadence_residue),
         ("collapse_over_segmented_shell_residue", _collapse_over_segmented_shell_residue),
         ("collapse_light_segmented_shell_residue", _collapse_light_segmented_shell_residue),
         ("soften_structural_ladder_residue", _soften_structural_ladder_residue),
+        ("soften_direct_address_lecture_residue", _soften_direct_address_lecture_residue),
         ("soften_not_ab_residue", _soften_not_ab_residue),
+        ("strip_rebound_explainer_tail_residue", _strip_rebound_explainer_tail_residue),
+        ("strip_orphaned_rebound_tail_residue", _strip_orphaned_rebound_tail_residue),
+        ("collapse_isolated_quote_example_residue", _collapse_isolated_quote_example_residue),
         ("soften_connector_residue", _soften_connector_residue),
     ):
         next_markdown = step_fn(title=title, body_markdown=current_markdown)
@@ -951,6 +986,39 @@ def _should_skip_tracked_article_enrichment(
         return False
     tracked_article = reuse_bundle_payload.get("tracked_article")
     return isinstance(tracked_article, Mapping)
+
+
+def _build_tracked_article_enrichment_warning(*, article_slug: str, exc: Exception) -> dict[str, object]:
+    return {
+        "type": "tracked_article_metadata_enrichment_failed",
+        "article_slug": article_slug,
+        "message": str(exc),
+        "error_type": exc.__class__.__name__,
+    }
+
+
+def _best_effort_enrich_tracked_article(
+    *,
+    article_slug: str,
+    article_payload: Any,
+    enrich_tracked_article_metadata: Any,
+    should_skip: bool,
+    partial: dict[str, Any],
+) -> None:
+    if should_skip:
+        partial["tracked_article"] = article_payload.model_dump()
+        return
+
+    try:
+        enriched = enrich_tracked_article_metadata(article_slug)
+    except Exception as exc:
+        partial["tracked_article"] = article_payload.model_dump()
+        partial.setdefault("warnings", []).append(
+            _build_tracked_article_enrichment_warning(article_slug=article_slug, exc=exc)
+        )
+        return
+
+    partial["tracked_article"] = enriched.model_dump()
 
 
 def _extract_reuse_strategy_card(
@@ -2426,13 +2494,15 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
     input_path = Path(args.input_file).resolve()
     source_markdown = _read_text(input_path)
     output_dir = _build_output_dir(Path(args.output_root).resolve(), args.label)
+    bundle_db_path = output_dir / "workbench.db"
+    runtime_db_path = _build_runtime_db_path(output_dir)
     source_copy_path = output_dir / "source.md"
     source_detector_text_path = output_dir / "source.txt"
     result_path = output_dir / "result.json"
     _write_text(source_copy_path, source_markdown)
     _write_text(source_detector_text_path, _to_detector_text(source_markdown))
 
-    os.environ["DB_PATH"] = str(output_dir / "workbench.db")
+    os.environ["DB_PATH"] = str(runtime_db_path)
     os.environ["GENERATED_ASSETS_DIR"] = str(output_dir / "assets")
 
     if str(BACKEND_ROOT) not in sys.path:
@@ -2483,7 +2553,8 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         "source_title": article_title,
         "artifacts": {
             "output_dir": str(output_dir),
-            "db_path": os.environ["DB_PATH"],
+            "db_path": str(bundle_db_path),
+            "runtime_db_path": str(runtime_db_path),
             "source_md": str(source_copy_path),
             "source_detector_text": str(source_detector_text_path),
             "outline_prompt_json": str(output_dir / "outline-prompt.json"),
@@ -2514,11 +2585,13 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         import_result = import_tracked_articles([article_payload], source_kind="manual")
         partial["import_result"] = import_result
 
-        if not _should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload):
-            enriched = enrich_tracked_article_metadata(article_slug)
-            partial["tracked_article"] = enriched.model_dump()
-        else:
-            partial["tracked_article"] = article_payload.model_dump()
+        _best_effort_enrich_tracked_article(
+            article_slug=article_slug,
+            article_payload=article_payload,
+            enrich_tracked_article_metadata=enrich_tracked_article_metadata,
+            should_skip=_should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload),
+            partial=partial,
+        )
 
         reuse_topic_seed = (
             _extract_reuse_topic_seed(reuse_bundle_payload)
@@ -2625,11 +2698,13 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
             "instructions_chars": len(draft_template.instructions),
             "prompt_chars": len(draft_template.prompt),
         }
+        _sync_runtime_db_to_bundle(runtime_db_path=runtime_db_path, bundle_db_path=bundle_db_path)
         partial["status"] = "done"
         _write_json(result_path, partial)
         _safe_print_json(partial)
         return 0
     except Exception as exc:  # pragma: no cover - exercised by live runs
+        _sync_runtime_db_to_bundle(runtime_db_path=runtime_db_path, bundle_db_path=bundle_db_path)
         partial["status"] = "failed"
         partial["error"] = {"message": str(exc), "traceback": traceback.format_exc()}
         _write_json(result_path, partial)
@@ -2641,13 +2716,15 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
     input_path = Path(args.input_file).resolve()
     source_markdown = _read_text(input_path)
     output_dir = _build_output_dir(Path(args.output_root).resolve(), args.label)
+    bundle_db_path = output_dir / "workbench.db"
+    runtime_db_path = _build_runtime_db_path(output_dir)
     source_copy_path = output_dir / "source.md"
     source_detector_text_path = output_dir / "source.txt"
     result_path = output_dir / "result.json"
     _write_text(source_copy_path, source_markdown)
     _write_text(source_detector_text_path, _to_detector_text(source_markdown))
 
-    os.environ["DB_PATH"] = str(output_dir / "workbench.db")
+    os.environ["DB_PATH"] = str(runtime_db_path)
     os.environ["GENERATED_ASSETS_DIR"] = str(output_dir / "assets")
 
     if str(BACKEND_ROOT) not in sys.path:
@@ -2694,7 +2771,8 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         "source_title": article_title,
         "artifacts": {
             "output_dir": str(output_dir),
-            "db_path": os.environ["DB_PATH"],
+            "db_path": str(bundle_db_path),
+            "runtime_db_path": str(runtime_db_path),
             "source_md": str(source_copy_path),
             "source_detector_text": str(source_detector_text_path),
             "draft_md": str(output_dir / "draft.md"),
@@ -2731,11 +2809,13 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         import_result = import_tracked_articles([article_payload], source_kind="manual")
         partial["import_result"] = import_result
 
-        if not _should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload):
-            enriched = enrich_tracked_article_metadata(article_slug)
-            partial["tracked_article"] = enriched.model_dump()
-        else:
-            partial["tracked_article"] = article_payload.model_dump()
+        _best_effort_enrich_tracked_article(
+            article_slug=article_slug,
+            article_payload=article_payload,
+            enrich_tracked_article_metadata=enrich_tracked_article_metadata,
+            should_skip=_should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload),
+            partial=partial,
+        )
 
         reuse_topic_seed = (
             _extract_reuse_topic_seed(reuse_bundle_payload)
@@ -2801,11 +2881,13 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         )
         if detector_report is not None:
             partial["external_detector"] = detector_report
+        _sync_runtime_db_to_bundle(runtime_db_path=runtime_db_path, bundle_db_path=bundle_db_path)
         partial["status"] = "done"
         _write_json(result_path, partial)
         _safe_print_json(partial)
         return 0
     except Exception as exc:  # pragma: no cover - exercised by live runs
+        _sync_runtime_db_to_bundle(runtime_db_path=runtime_db_path, bundle_db_path=bundle_db_path)
         partial["status"] = "failed"
         partial["error"] = {"message": str(exc), "traceback": traceback.format_exc()}
         _write_json(result_path, partial)
@@ -2854,6 +2936,15 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="Optional OPENAI_REQUEST_TIMEOUT_SECONDS override for this run only.",
+    )
+    parser.add_argument("--openai-image-api-key", default=None, help="Optional OPENAI_IMAGE_API_KEY override for this run only.")
+    parser.add_argument("--openai-image-base-url", default=None, help="Optional OPENAI_IMAGE_BASE_URL override for this run only.")
+    parser.add_argument("--openai-image-model", default=None, help="Optional OPENAI_IMAGE_MODEL override for this run only.")
+    parser.add_argument(
+        "--openai-image-request-timeout-seconds",
+        type=float,
+        default=None,
+        help="Optional OPENAI_IMAGE_REQUEST_TIMEOUT_SECONDS override for this run only.",
     )
     parser.add_argument(
         "--probe-ai-routes",
