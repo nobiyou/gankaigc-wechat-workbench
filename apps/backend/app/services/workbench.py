@@ -78,6 +78,7 @@ from app.services.content_diagnosis import (
     build_reference_originality_report,
     resolve_diagnosis_objective_summary,
 )
+from app.services.draft_quality_summary import build_draft_quality_summary
 from app.services.creative_reports import build_creative_review_report
 from app.services.creative_patterns import build_reusable_pattern_from_lesson, build_reusable_pattern_id
 from app.services.creative_strategy import build_strategy_package
@@ -4345,6 +4346,19 @@ def get_project_detail(project_slug: str) -> ProjectDetail:
         ).fetchall()
     has_strategy_package = problem_brief is not None and strategy_card is not None
     has_adopted_strategy = bool(strategy_card and strategy_card.adopted_at)
+    reference_originality_report = _build_project_reference_originality_report(project_row, draft_row)
+    diagnosis_report = _hydrate_diagnosis_report_row(diagnosis_report_row) if diagnosis_report_row else None
+    draft_quality_summary = (
+        build_draft_quality_summary(
+            draft_version=int(draft_row["version"]),
+            draft_title=str(draft_row["title"]),
+            draft_body_markdown=str(draft_row["body_markdown"]),
+            diagnosis_report=diagnosis_report.model_dump() if diagnosis_report else None,
+            reference_originality_report=reference_originality_report,
+        )
+        if draft_row
+        else None
+    )
 
     return ProjectDetail(
         project=_build_project_item_from_rows(
@@ -4366,14 +4380,15 @@ def get_project_detail(project_slug: str) -> ProjectDetail:
         problem_brief=problem_brief,
         benchmarks=benchmarks,
         strategy_card=strategy_card,
-        diagnosis_report=_hydrate_diagnosis_report_row(diagnosis_report_row) if diagnosis_report_row else None,
+        diagnosis_report=diagnosis_report,
         creative_review_report=(
             _hydrate_creative_review_report_row(creative_review_report_row)
             if creative_review_report_row
             else None
         ),
+        draft_quality_summary=draft_quality_summary,
         reusable_patterns=[_hydrate_reusable_pattern_row(row) for row in reusable_pattern_rows],
-        reference_originality_report=_build_project_reference_originality_report(project_row, draft_row),
+        reference_originality_report=reference_originality_report,
     )
 
 

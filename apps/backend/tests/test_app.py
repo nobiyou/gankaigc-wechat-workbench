@@ -4814,6 +4814,8 @@ def test_diagnose_draft_persists_report_without_mutating_draft(monkeypatch) -> N
     initial_detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
     assert initial_detail["diagnosis_report"] is None
     assert initial_detail["draft"]["version"] == 1
+    assert initial_detail["draft_quality_summary"]["draft_version"] == 1
+    assert initial_detail["draft_quality_summary"]["diagnosis_version"] is None
 
     diagnosis_response = client.post("/api/projects/office-burnout-recovery-weekly/diagnose-draft")
     assert diagnosis_response.status_code == 201
@@ -4833,6 +4835,10 @@ def test_diagnose_draft_persists_report_without_mutating_draft(monkeypatch) -> N
     assert detail["draft"]["version"] == 1
     assert detail["diagnosis_report"]["version"] == 1
     assert detail["diagnosis_report"]["draft_version"] == 1
+    assert detail["draft_quality_summary"]["draft_version"] == 1
+    assert detail["draft_quality_summary"]["diagnosis_version"] == 1
+    assert detail["draft_quality_summary"]["recommended_next_action"] == diagnosis["recommended_next_action"]
+    assert detail["draft_quality_summary"]["recommended_polish_instruction"] == diagnosis["recommended_polish_instruction"]
 
     versions = client.get("/api/projects/office-burnout-recovery-weekly/versions").json()
     assert [item["version"] for item in versions["diagnosis_reports"]] == [1]

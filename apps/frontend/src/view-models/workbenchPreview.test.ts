@@ -454,6 +454,32 @@ test("buildWorkbenchPreview renders creative review report in publish preview", 
   assert.equal(reportBlock?.copyText, reportBlock?.content);
 });
 
+test("buildWorkbenchPreview renders draft quality summary in publish preview", () => {
+  const preview = buildWorkbenchPreview("publish", {
+    ...baseDetail,
+    draft_quality_summary: {
+      draft_version: 1,
+      diagnosis_version: 2,
+      reference_risk_level: "medium",
+      reference_risk_score: 42,
+      ai_fingerprint_level: "medium",
+      ai_flavor_score: 38,
+      ai_flavor_level: "medium",
+      recommended_next_action: "reduce_ai_fingerprint",
+      recommended_polish_instruction: "压低模板感。",
+      key_findings: ["解释连接词偏多 x5", "结尾口号感偏强"],
+    },
+  });
+
+  const summaryBlock = preview?.blocks.find((block) => block.key === "publish-draft-quality-summary");
+  assert.equal(summaryBlock?.label, "综合质量摘要");
+  assert.equal(summaryBlock?.content.includes("草稿版本：v1 · 诊断 v2"), true);
+  assert.equal(summaryBlock?.content.includes("参考文隔离风险：medium / 42"), true);
+  assert.equal(summaryBlock?.content.includes("AI味启发式：medium / 38"), true);
+  assert.equal(summaryBlock?.content.includes("推荐动作：reduce_ai_fingerprint"), true);
+  assert.equal(summaryBlock?.content.includes("发现：解释连接词偏多 x5"), true);
+});
+
 test("buildWorkbenchPreview adds reference isolation diagnosis when backend report exists", () => {
   const preview = buildWorkbenchPreview("publish", {
     ...baseDetail,

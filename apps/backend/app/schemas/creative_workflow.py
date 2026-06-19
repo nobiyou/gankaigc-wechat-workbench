@@ -87,6 +87,19 @@ class DraftDiagnosisReportItem(BaseModel):
     created_at: str | None = None
 
 
+class DraftQualitySummaryItem(BaseModel):
+    draft_version: int
+    diagnosis_version: int | None = None
+    reference_risk_level: str = "low"
+    reference_risk_score: int = 0
+    ai_fingerprint_level: str = "low"
+    ai_flavor_score: int = 0
+    ai_flavor_level: str = "low"
+    recommended_next_action: str = ""
+    recommended_polish_instruction: str = ""
+    key_findings: list[str] = Field(default_factory=list)
+
+
 class DirectionalPolishLinkItem(BaseModel):
     project_slug: str
     source_draft_version: int

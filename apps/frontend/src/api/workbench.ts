@@ -284,6 +284,19 @@ export type DraftDiagnosisReport = {
   created_at: string | null;
 };
 
+export type DraftQualitySummary = {
+  draft_version: number;
+  diagnosis_version: number | null;
+  reference_risk_level: string;
+  reference_risk_score: number;
+  ai_fingerprint_level: string;
+  ai_flavor_score: number;
+  ai_flavor_level: string;
+  recommended_next_action: string;
+  recommended_polish_instruction: string;
+  key_findings: string[];
+};
+
 export type DirectionalPolishLink = {
   project_slug: string;
   source_draft_version: number;
@@ -517,6 +530,7 @@ export type ProjectDetail = {
   strategy_card?: StrategyCardItem | null;
   diagnosis_report?: DraftDiagnosisReport | null;
   creative_review_report?: CreativeReviewReport | null;
+  draft_quality_summary?: DraftQualitySummary | null;
   reusable_patterns?: ReusablePatternItem[];
   reference_originality_report?: ReferenceOriginalityReport | null;
 };

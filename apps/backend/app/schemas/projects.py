@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from app.schemas.creative_workflow import (
     BenchmarkReferenceItem,
     CreativeReviewReportItem,
+    DraftQualitySummaryItem,
     DirectionalPolishLinkItem,
     DraftDiagnosisReportItem,
     ProblemBriefItem,
@@ -223,6 +224,7 @@ class ProjectDetail(BaseModel):
     strategy_card: StrategyCardItem | None = None
     diagnosis_report: DraftDiagnosisReportItem | None = None
     creative_review_report: CreativeReviewReportItem | None = None
+    draft_quality_summary: DraftQualitySummaryItem | None = None
     reusable_patterns: list[ReusablePatternItem] = Field(default_factory=list)
     reference_originality_report: dict[str, object] | None = None
 

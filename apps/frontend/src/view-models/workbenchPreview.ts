@@ -311,6 +311,17 @@ function buildDraftDiagnosisSummaryLines(report: DraftDiagnosisReport): string[]
   ].filter((line): line is string => Boolean(line));
 }
 
+function buildDraftQualitySummaryLines(summary: NonNullable<ProjectDetail["draft_quality_summary"]>): string[] {
+  return [
+    `草稿版本：v${summary.draft_version}${summary.diagnosis_version ? ` · 诊断 v${summary.diagnosis_version}` : ""}`,
+    `参考文隔离风险：${summary.reference_risk_level} / ${summary.reference_risk_score}`,
+    `AI 指纹风险：${summary.ai_fingerprint_level}`,
+    `AI味启发式：${summary.ai_flavor_level} / ${summary.ai_flavor_score}`,
+    summary.recommended_next_action ? `推荐动作：${summary.recommended_next_action}` : null,
+    ...summary.key_findings.slice(0, 4).map((item) => `发现：${item}`),
+  ].filter((line): line is string => Boolean(line));
+}
+
 function buildCreativeReviewReportMarkdown(report: CreativeReviewReport): string {
   const lessonLines = report.retained_lessons
     .slice(0, 5)
@@ -733,6 +744,15 @@ export function buildWorkbenchPreview(
         key: "publish-content-diagnosis",
         label: "内容诊断",
         content: buildDraftDiagnosisSummaryLines(detail.diagnosis_report).join("\n"),
+        kind: "markdown",
+      });
+    }
+
+    if (detail.draft_quality_summary && detail.draft_quality_summary.draft_version === detail.draft?.version) {
+      blocks.push({
+        key: "publish-draft-quality-summary",
+        label: "综合质量摘要",
+        content: buildDraftQualitySummaryLines(detail.draft_quality_summary).join("\n"),
         kind: "markdown",
       });
     }
