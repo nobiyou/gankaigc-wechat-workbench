@@ -46,6 +46,7 @@ const baseCreativeDetail = {
   problem_brief: null,
   benchmarks: [],
   strategy_card: null,
+  diagnosis_report: null,
 };
 
 test("buildWorkbenchActionPlan exposes outline generation when outline is missing", () => {
@@ -132,11 +133,125 @@ test("buildWorkbenchActionPlan exposes draft generation and polish paths when dr
     historyEntryCount: 2,
   });
 
-  assert.equal(plan.primaryAction?.kind, "polish_draft");
-  assert.equal(plan.primaryAction?.label, "原创增强精修");
+  assert.equal(plan.primaryAction?.kind, "diagnose_draft");
+  assert.equal(plan.primaryAction?.label, "运行内容诊断");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "polish_draft"), true);
   assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_draft"), true);
   assert.equal(plan.showInstructionField, true);
   assert.equal(plan.canRestoreHistory, true);
+});
+
+test("buildWorkbenchActionPlan promotes diagnosis-driven polish after current draft diagnosis exists", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "draft",
+    detail: {
+      ...baseCreativeDetail,
+      project: {
+        ...baseProject,
+        current_chain_state: "draft_ready",
+        current_outline_version: 1,
+        current_draft_version: 2,
+      },
+      outline: {
+        project_slug: "demo-project",
+        version: 1,
+        hook: "hook",
+        outline_body: "1. a",
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      draft: {
+        project_slug: "demo-project",
+        outline_version: 1,
+        version: 2,
+        title: "第二版初稿",
+        body_markdown: "# body",
+        word_count: 1200,
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      diagnosis_report: {
+        project_slug: "demo-project",
+        draft_version: 2,
+        version: 1,
+        opening_strength: "weak",
+        scene_specificity: "medium",
+        viewpoint_clarity: "medium",
+        progression_efficiency: "weak",
+        ending_quality: "medium",
+        ai_fingerprint_level: "medium",
+        upstream_findings: ["开头切口偏弱"],
+        downstream_findings: ["推进效率偏低"],
+        recommended_next_action: "strengthen_opening_and_progression",
+        objective_summary: "先重写开头和中段推进",
+        recommended_polish_instruction: "请按内容诊断目标精修。",
+        created_at: "2026-06-19T00:00:00+00:00",
+      },
+    },
+    historyEntryCount: 1,
+  });
+
+  assert.equal(plan.primaryAction?.kind, "polish_draft");
+  assert.equal(plan.primaryAction?.label, "按诊断目标精修");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "diagnose_draft"), true);
+});
+
+test("buildWorkbenchActionPlan prioritizes reference isolation polish for risky reports", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "draft",
+    detail: {
+      ...baseCreativeDetail,
+      project: {
+        ...baseProject,
+        current_chain_state: "draft_ready",
+        current_outline_version: 1,
+        current_draft_version: 1,
+      },
+      outline: {
+        project_slug: "demo-project",
+        version: 1,
+        hook: "hook",
+        outline_body: "1. a",
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      draft: {
+        project_slug: "demo-project",
+        outline_version: 1,
+        version: 1,
+        title: "初稿",
+        body_markdown: "# body",
+        word_count: 1200,
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      reference_originality_report: {
+        risk_level: "high",
+        risk_label: "原创隔离风险高",
+        risk_score: 80,
+        originality_score: 20,
+        recommended_polish_instruction: "请执行参考文隔离精修。",
+        overlap_report: {
+          title_same: true,
+          title_similarity: 1,
+          heading_overlap: [],
+          exact_long_sentence_overlap_count: 1,
+          exact_long_sentence_overlap_samples: [],
+          char_8gram_jaccard: 0.2,
+          char_12gram_jaccard: 0.1,
+          longest_common_substring_length: 30,
+          longest_common_substring_sample: "",
+        },
+        danger_fragment_hits: [],
+        suggestions: [],
+        quality_signals: {},
+      },
+    },
+    historyEntryCount: 1,
+  });
+
+  assert.equal(plan.primaryAction?.kind, "diagnose_draft");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "polish_draft" && action.label === "参考文隔离精修"), true);
 });
 
 test("buildWorkbenchActionPlan exposes cover-only regeneration separately from full assets regeneration", () => {
@@ -286,6 +401,7 @@ test("buildWorkbenchActionPlan exposes publish review actions for ready packages
   assert.equal(plan.showPublishReviewForm, true);
   assert.equal(plan.primaryAction?.kind, "approve_publish_package");
   assert.equal(plan.secondaryActions.some((action) => action.kind === "request_publish_revision"), true);
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_creative_review_report"), true);
 });
 
 test("buildWorkbenchActionPlan exposes regenerate and retro actions in the right publish states", () => {

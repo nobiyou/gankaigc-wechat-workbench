@@ -159,10 +159,16 @@ export function buildToneProfileUpdatePayload(form: ToneProfileFormState): ToneP
 export function resolveDraftPolishInstruction(
   draftInstruction: string,
   toneProfile: { default_polish_instruction?: string } | null,
+  diagnosisInstruction = "",
 ): string {
   const normalizedDraftInstruction = draftInstruction.trim();
   if (normalizedDraftInstruction) {
     return normalizedDraftInstruction;
+  }
+
+  const normalizedDiagnosisInstruction = diagnosisInstruction.trim();
+  if (normalizedDiagnosisInstruction) {
+    return normalizedDiagnosisInstruction;
   }
 
   return toneProfile?.default_polish_instruction?.trim() ?? "";

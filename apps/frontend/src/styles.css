@@ -884,12 +884,22 @@ a {
   background: rgba(255, 255, 255, 0.82);
 }
 
+.settings-config-card--pattern,
+.workspace-subsection--creative-patterns {
+  border-color: rgba(15, 118, 110, 0.16);
+  background: linear-gradient(180deg, rgba(240, 253, 250, 0.72), rgba(255, 255, 255, 0.86));
+}
+
 .settings-config-card span {
   color: #9a3412;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.settings-config-card--pattern span {
+  color: #0f766e;
 }
 
 .settings-config-card strong {

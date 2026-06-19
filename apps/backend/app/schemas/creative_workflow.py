@@ -67,3 +67,71 @@ class AdoptStrategyCardResponse(BaseModel):
     project_slug: str
     strategy_card: StrategyCardItem
     project: dict[str, object]
+
+
+class DraftDiagnosisReportItem(BaseModel):
+    project_slug: str
+    draft_version: int
+    version: int
+    opening_strength: str
+    scene_specificity: str
+    viewpoint_clarity: str
+    progression_efficiency: str
+    ending_quality: str
+    ai_fingerprint_level: str
+    upstream_findings: list[str] = Field(default_factory=list)
+    downstream_findings: list[str] = Field(default_factory=list)
+    recommended_next_action: str
+    objective_summary: str = ""
+    recommended_polish_instruction: str = ""
+    created_at: str | None = None
+
+
+class DirectionalPolishLinkItem(BaseModel):
+    project_slug: str
+    source_draft_version: int
+    target_draft_version: int
+    diagnosis_version: int | None = None
+    objective_key: str
+    objective_summary: str
+    created_at: str | None = None
+
+
+class RetainedLessonItem(BaseModel):
+    title: str
+    pattern_type: str
+    intended_use: str
+    pattern_content: str
+    caution_notes: str
+
+
+class CreativeReviewReportItem(BaseModel):
+    project_slug: str
+    version: int
+    strategy_version: int | None = None
+    draft_version: int | None = None
+    summary_markdown: str
+    retained_lessons: list[RetainedLessonItem] = Field(default_factory=list)
+    created_at: str | None = None
+
+
+class ReusablePatternItem(BaseModel):
+    id: str
+    source_project_slug: str
+    source_report_version: int
+    pattern_type: str
+    title: str
+    intended_use: str
+    pattern_content: str
+    caution_notes: str
+    status: str
+    created_at: str | None = None
+
+
+class PromoteCreativePatternAction(BaseModel):
+    report_version: int
+    lesson_index: int
+    title: str | None = None
+    pattern_type: str | None = None
+    intended_use: str | None = None
+    caution_notes: str | None = None

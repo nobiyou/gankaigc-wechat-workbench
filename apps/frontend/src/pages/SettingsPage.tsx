@@ -7,6 +7,7 @@ import {
   deleteToneProfile,
   duplicateToneProfile,
   fetchAIConfigSummary,
+  fetchCreativePatterns,
   fetchDomainPacks,
   fetchPromptTemplates,
   fetchToneProfiles,
@@ -16,6 +17,7 @@ import {
   type AIConfigSummary,
   type DomainPackSummary,
   type PromptTemplateSummary,
+  type ReusablePatternItem,
   type ToneProfileItem,
 } from "../api/workbench";
 import { formatAiConfigBaseUrl, formatAiConfigReasoning, formatAiConfigSummaryLabel } from "../aiConfig";
@@ -34,7 +36,7 @@ import {
 } from "../toneProfiles";
 
 type SettingsPageProps = {
-  section: "tone-profiles";
+  section: "tone-profiles" | "patterns";
 };
 
 type LoadState =
@@ -57,6 +59,11 @@ type PromptTemplatesLoadState =
   | { status: "error"; message: string }
   | { status: "ready"; templates: PromptTemplateSummary[] };
 
+type PatternLoadState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; patterns: ReusablePatternItem[] };
+
 type NoticeState = {
   tone: "success" | "error" | "info";
   message: string;
@@ -68,6 +75,11 @@ const SECTION_COPY: Record<SettingsPageProps["section"], { eyebrow: string; titl
     title: "Tone Profiles",
     description: "风格配置从生产主航道中独立出来，但仍保持真实可编辑，避免设置工作干扰日常写作链路。",
   },
+  patterns: {
+    eyebrow: "Settings",
+    title: "Creative Patterns",
+    description: "复盘中确认值得保留的经验会进入这里，作为后续策略阶段的可选参考。",
+  },
 };
 
 export function SettingsPage({ section }: SettingsPageProps) {
@@ -75,6 +87,7 @@ export function SettingsPage({ section }: SettingsPageProps) {
   const [aiConfigLoadState, setAiConfigLoadState] = useState<AIConfigLoadState>({ status: "loading" });
   const [domainPacksLoadState, setDomainPacksLoadState] = useState<DomainPacksLoadState>({ status: "loading" });
   const [promptTemplatesLoadState, setPromptTemplatesLoadState] = useState<PromptTemplatesLoadState>({ status: "loading" });
+  const [patternLoadState, setPatternLoadState] = useState<PatternLoadState>({ status: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
   const [formState, setFormState] = useState<ToneProfileFormState>(createToneProfileFormState());
@@ -90,6 +103,7 @@ export function SettingsPage({ section }: SettingsPageProps) {
     setAiConfigLoadState({ status: "loading" });
     setDomainPacksLoadState({ status: "loading" });
     setPromptTemplatesLoadState({ status: "loading" });
+    setPatternLoadState({ status: "loading" });
 
     fetchToneProfiles()
       .then((profiles) => {
@@ -147,6 +161,21 @@ export function SettingsPage({ section }: SettingsPageProps) {
           setPromptTemplatesLoadState({
             status: "error",
             message: error instanceof Error ? error.message : "阶段模板加载失败。",
+          });
+        }
+      });
+
+    fetchCreativePatterns()
+      .then((patterns) => {
+        if (!isCancelled) {
+          setPatternLoadState({ status: "ready", patterns });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!isCancelled) {
+          setPatternLoadState({
+            status: "error",
+            message: error instanceof Error ? error.message : "创作模式库加载失败。",
           });
         }
       });
@@ -352,6 +381,101 @@ export function SettingsPage({ section }: SettingsPageProps) {
     } finally {
       setPendingAction(null);
     }
+  }
+
+  if (section === "patterns") {
+    const patterns = patternLoadState.status === "ready" ? patternLoadState.patterns : [];
+    const activePatterns = patterns.filter((pattern) => pattern.status === "active");
+    const patternTypes = new Set(activePatterns.map((pattern) => pattern.pattern_type)).size;
+    const sourceProjects = new Set(activePatterns.map((pattern) => pattern.source_project_slug)).size;
+
+    return (
+      <section className="workspace-page">
+        <section className="workspace-section">
+          <div className="workspace-section__header">
+            <div>
+              <p className="workspace-section__eyebrow">{sectionCopy.eyebrow}</p>
+              <h3>{sectionCopy.title}</h3>
+              <p className="workspace-section__description">{sectionCopy.description}</p>
+            </div>
+            <button className="dashboard-button" type="button" onClick={() => setReloadToken((value) => value + 1)}>
+              刷新模式库
+            </button>
+          </div>
+          <div className="workspace-summary-grid">
+            <article className="workspace-summary-card">
+              <span>可用模式</span>
+              <strong>{activePatterns.length}</strong>
+              <p>当前只展示 active 状态，避免旧经验自动进入后续判断。</p>
+            </article>
+            <article className="workspace-summary-card">
+              <span>模式类型</span>
+              <strong>{patternTypes}</strong>
+              <p>按复盘保留经验的类型沉淀，策略阶段仍由操作者选择是否参考。</p>
+            </article>
+            <article className="workspace-summary-card">
+              <span>来源项目</span>
+              <strong>{sourceProjects}</strong>
+              <p>保留来源项目和报告版本，方便回查经验从哪里来。</p>
+            </article>
+          </div>
+        </section>
+
+        {patternLoadState.status === "loading" ? (
+          <div className="dashboard-state dashboard-state--loading">
+            <p className="dashboard-state__eyebrow">加载中</p>
+            <h3>正在加载 Creative Patterns</h3>
+            <p>正在读取已推广的创作模式。</p>
+          </div>
+        ) : null}
+
+        {patternLoadState.status === "error" ? (
+          <div className="dashboard-state dashboard-state--error">
+            <p className="dashboard-state__eyebrow">加载失败</p>
+            <h3>Creative Patterns 加载失败</h3>
+            <p>{patternLoadState.message}</p>
+            <div className="dashboard-state__actions">
+              <button className="dashboard-button" type="button" onClick={() => setReloadToken((value) => value + 1)}>
+                重新加载
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {patternLoadState.status === "ready" ? (
+          <section className="workspace-section">
+            <div className="workspace-section__header">
+              <div>
+                <p className="workspace-section__eyebrow">Pattern Library</p>
+                <h3>创作模式库</h3>
+                <p className="workspace-section__description">从发布阶段创作复盘中人工推广而来，后续只作为策略设置时的参考材料。</p>
+              </div>
+            </div>
+
+            {activePatterns.length > 0 ? (
+              <div className="settings-config-grid">
+                {activePatterns.map((pattern) => (
+                  <article key={pattern.id} className="settings-config-card settings-config-card--pattern">
+                    <span>{pattern.pattern_type}</span>
+                    <strong>{pattern.title}</strong>
+                    <p className="settings-config-card__meta">
+                      {pattern.source_project_slug} · report v{pattern.source_report_version}
+                    </p>
+                    <p className="settings-config-card__detail">适用：{pattern.intended_use}</p>
+                    <p className="settings-config-card__detail">内容：{pattern.pattern_content}</p>
+                    <p className="settings-config-card__detail">注意：{pattern.caution_notes}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="workspace-note workspace-note--info">
+                <p>还没有 active 创作模式。生成创作复盘后，可在项目发布阶段把保留经验推广进模式库。</p>
+              </div>
+            )}
+          </section>
+        ) : null}
+      </section>
+    );
   }
 
   if (loadState.status === "loading") {

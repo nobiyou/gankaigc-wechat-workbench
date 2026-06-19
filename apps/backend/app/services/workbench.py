@@ -23,7 +23,12 @@ from app.schemas.background_tasks import BackgroundTaskDetail, BackgroundTaskSub
 from app.schemas.creative_workflow import (
     AdoptStrategyCardResponse,
     BenchmarkReferenceItem,
+    CreativeReviewReportItem,
+    DirectionalPolishLinkItem,
+    DraftDiagnosisReportItem,
     ProblemBriefItem,
+    PromoteCreativePatternAction,
+    ReusablePatternItem,
     StrategyCardItem,
     StrategyPackageResult,
 )
@@ -67,6 +72,14 @@ from app.schemas.projects import (
     ProjectVersions,
     ProjectStageUpdate,
 )
+from app.services.content_diagnosis import (
+    build_diagnosis_polish_instruction,
+    build_draft_diagnosis_report,
+    build_reference_originality_report,
+    resolve_diagnosis_objective_summary,
+)
+from app.services.creative_reports import build_creative_review_report
+from app.services.creative_patterns import build_reusable_pattern_from_lesson, build_reusable_pattern_id
 from app.services.creative_strategy import build_strategy_package
 from app.schemas.tone_profiles import ToneProfileItem, ToneProfileReorder, ToneProfileUpsert
 from app.services.prompt_templates import DEFAULT_DOMAIN_PROMPT_PACK, get_domain_prompt_pack
@@ -225,6 +238,13 @@ class _InitialDraftCandidateResult:
     reference_body_markdown: str
     cleanup_applied: bool
     cleanup_changed_steps: int
+
+
+@dataclass(frozen=True)
+class _DirectionalPolishContext:
+    diagnosis_report_version: int | None
+    objective_key: str
+    objective_summary: str
 
 
 def _apply_initial_draft_candidate_cleanups(
@@ -728,6 +748,72 @@ def _ensure_creative_workflow_schema(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS diagnosis_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_slug TEXT NOT NULL,
+            draft_version INTEGER NOT NULL,
+            version INTEGER NOT NULL,
+            opening_strength TEXT NOT NULL,
+            scene_specificity TEXT NOT NULL,
+            viewpoint_clarity TEXT NOT NULL,
+            progression_efficiency TEXT NOT NULL,
+            ending_quality TEXT NOT NULL,
+            ai_fingerprint_level TEXT NOT NULL,
+            upstream_findings TEXT NOT NULL DEFAULT '[]',
+            downstream_findings TEXT NOT NULL DEFAULT '[]',
+            recommended_next_action TEXT NOT NULL,
+            objective_summary TEXT NOT NULL DEFAULT '',
+            recommended_polish_instruction TEXT NOT NULL DEFAULT '',
+            created_at TEXT DEFAULT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS directional_polish_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_slug TEXT NOT NULL,
+            source_draft_version INTEGER NOT NULL,
+            target_draft_version INTEGER NOT NULL,
+            diagnosis_version INTEGER DEFAULT NULL,
+            objective_key TEXT NOT NULL,
+            objective_summary TEXT NOT NULL,
+            created_at TEXT DEFAULT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS creative_review_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_slug TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            strategy_version INTEGER DEFAULT NULL,
+            draft_version INTEGER DEFAULT NULL,
+            summary_markdown TEXT NOT NULL,
+            retained_lessons TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT DEFAULT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reusable_patterns (
+            id TEXT PRIMARY KEY,
+            source_project_slug TEXT NOT NULL,
+            source_report_version INTEGER NOT NULL,
+            pattern_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            intended_use TEXT NOT NULL,
+            pattern_content TEXT NOT NULL,
+            caution_notes TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT DEFAULT NULL
+        )
+        """
+    )
     problem_brief_columns = _get_table_columns(connection, "problem_briefs")
     if "observed_phenomenon" not in problem_brief_columns:
         connection.execute(
@@ -777,6 +863,15 @@ def _ensure_creative_workflow_schema(connection: sqlite3.Connection) -> None:
     if "strategy_markdown" not in strategy_card_columns:
         connection.execute(
             "ALTER TABLE strategy_cards ADD COLUMN strategy_markdown TEXT NOT NULL DEFAULT ''"
+        )
+    diagnosis_columns = _get_table_columns(connection, "diagnosis_reports")
+    if "objective_summary" not in diagnosis_columns:
+        connection.execute(
+            "ALTER TABLE diagnosis_reports ADD COLUMN objective_summary TEXT NOT NULL DEFAULT ''"
+        )
+    if "recommended_polish_instruction" not in diagnosis_columns:
+        connection.execute(
+            "ALTER TABLE diagnosis_reports ADD COLUMN recommended_polish_instruction TEXT NOT NULL DEFAULT ''"
         )
 
 
@@ -1163,6 +1258,10 @@ def initialize_store(reset: bool = False) -> None:
             connection.execute("DELETE FROM problem_briefs")
             connection.execute("DELETE FROM strategy_cards")
             connection.execute("DELETE FROM benchmark_references")
+            connection.execute("DELETE FROM diagnosis_reports")
+            connection.execute("DELETE FROM directional_polish_links")
+            connection.execute("DELETE FROM creative_review_reports")
+            connection.execute("DELETE FROM reusable_patterns")
             connection.execute("DELETE FROM outlines")
             connection.execute("DELETE FROM drafts")
             connection.execute("DELETE FROM assets")
@@ -3251,6 +3350,24 @@ def _build_reference_article_payload(
     return payload
 
 
+def _build_project_reference_originality_report(
+    project: sqlite3.Row,
+    draft_row: sqlite3.Row | None,
+) -> dict[str, object] | None:
+    if str(project["source_type"]) != "tracked_article" or not draft_row:
+        return None
+    source_markdown = str(project["reference_article_body_markdown"] or "").strip()
+    if not source_markdown:
+        return None
+    report = build_reference_originality_report(
+        source_title=str(project["reference_article_title"] or ""),
+        source_markdown=source_markdown,
+        draft_title=str(draft_row["title"] or ""),
+        draft_markdown=str(draft_row["body_markdown"] or ""),
+    )
+    return report.to_dict()
+
+
 def _build_strategy_bundle_payload(
     *,
     problem_brief: ProblemBriefItem | None,
@@ -3281,6 +3398,43 @@ def _hydrate_strategy_card_row(row: sqlite3.Row) -> StrategyCardItem:
     payload["divergence_axes"] = json.loads(str(payload["divergence_axes"]))
     payload["execution_checklist"] = json.loads(str(payload["execution_checklist"]))
     return StrategyCardItem(**payload)
+
+
+def _load_json_string_list(raw_value: object) -> list[str]:
+    if raw_value in (None, ""):
+        return []
+    try:
+        parsed = json.loads(str(raw_value))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if isinstance(item, str)]
+
+
+def _hydrate_diagnosis_report_row(row: sqlite3.Row) -> DraftDiagnosisReportItem:
+    payload = dict(row)
+    payload["upstream_findings"] = _load_json_string_list(payload["upstream_findings"])
+    payload["downstream_findings"] = _load_json_string_list(payload["downstream_findings"])
+    return DraftDiagnosisReportItem(**payload)
+
+
+def _hydrate_directional_polish_link_row(row: sqlite3.Row) -> DirectionalPolishLinkItem:
+    return DirectionalPolishLinkItem(**dict(row))
+
+
+def _hydrate_creative_review_report_row(row: sqlite3.Row) -> CreativeReviewReportItem:
+    payload = dict(row)
+    try:
+        retained_lessons = json.loads(str(payload["retained_lessons"]))
+    except json.JSONDecodeError:
+        retained_lessons = []
+    payload["retained_lessons"] = retained_lessons if isinstance(retained_lessons, list) else []
+    return CreativeReviewReportItem(**payload)
+
+
+def _hydrate_reusable_pattern_row(row: sqlite3.Row) -> ReusablePatternItem:
+    return ReusablePatternItem(**dict(row))
 
 
 def _get_latest_problem_brief_row(connection: sqlite3.Connection, project_slug: str) -> sqlite3.Row | None:
@@ -3445,6 +3599,116 @@ def _get_strategy_card_row_by_version(
 
 def _get_current_strategy_card_row(connection: sqlite3.Connection, project_slug: str) -> sqlite3.Row | None:
     return _get_adopted_strategy_card_row(connection, project_slug) or _get_latest_strategy_card_row(connection, project_slug)
+
+
+def _get_diagnosis_report_select_sql() -> str:
+    return """
+        SELECT
+            project_slug,
+            draft_version,
+            version,
+            opening_strength,
+            scene_specificity,
+            viewpoint_clarity,
+            progression_efficiency,
+            ending_quality,
+            ai_fingerprint_level,
+            upstream_findings,
+            downstream_findings,
+            recommended_next_action,
+            objective_summary,
+            recommended_polish_instruction,
+            created_at
+        FROM diagnosis_reports
+    """
+
+
+def _get_latest_diagnosis_report_row(
+    connection: sqlite3.Connection,
+    project_slug: str,
+    *,
+    draft_version: int | None = None,
+) -> sqlite3.Row | None:
+    if draft_version is None:
+        return connection.execute(
+            _get_diagnosis_report_select_sql()
+            + """
+            WHERE project_slug = ?
+            ORDER BY version DESC, id DESC
+            LIMIT 1
+            """,
+            (project_slug,),
+        ).fetchone()
+    return connection.execute(
+        _get_diagnosis_report_select_sql()
+        + """
+        WHERE project_slug = ? AND draft_version = ?
+        ORDER BY version DESC, id DESC
+        LIMIT 1
+        """,
+        (project_slug, draft_version),
+    ).fetchone()
+
+
+def _get_diagnosis_report_row_by_version(
+    connection: sqlite3.Connection,
+    project_slug: str,
+    version: int,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        _get_diagnosis_report_select_sql()
+        + """
+        WHERE project_slug = ? AND version = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (project_slug, version),
+    ).fetchone()
+
+
+def _get_creative_review_report_select_sql() -> str:
+    return """
+        SELECT
+            project_slug,
+            version,
+            strategy_version,
+            draft_version,
+            summary_markdown,
+            retained_lessons,
+            created_at
+        FROM creative_review_reports
+    """
+
+
+def _get_latest_creative_review_report_row(
+    connection: sqlite3.Connection,
+    project_slug: str,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        _get_creative_review_report_select_sql()
+        + """
+        WHERE project_slug = ?
+        ORDER BY version DESC, id DESC
+        LIMIT 1
+        """,
+        (project_slug,),
+    ).fetchone()
+
+
+def _get_creative_review_report_row_by_version(
+    connection: sqlite3.Connection,
+    project_slug: str,
+    version: int,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        _get_creative_review_report_select_sql()
+        + """
+        WHERE project_slug = ? AND version = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (project_slug, version),
+    ).fetchone()
 
 
 def _get_benchmark_reference_rows(
@@ -4043,7 +4307,7 @@ def adopt_strategy_card(project_slug: str, version: int) -> AdoptStrategyCardRes
 
 
 def get_project_detail(project_slug: str) -> ProjectDetail:
-    project_row = _get_project_row(project_slug)
+    project_row = _get_project_context(project_slug)
     with _get_connection() as connection:
         outline_row, draft_row, assets_row, publish_package_row = _get_project_chain_rows(
             connection, project_slug
@@ -4054,6 +4318,31 @@ def get_project_detail(project_slug: str) -> ProjectDetail:
             publish_package_row=publish_package_row,
         )
         problem_brief, benchmarks, strategy_card = _load_project_strategy_bundle(connection, project_slug)
+        diagnosis_report_row = _get_latest_diagnosis_report_row(
+            connection,
+            project_slug,
+            draft_version=int(draft_row["version"]) if draft_row else None,
+        ) if draft_row else None
+        creative_review_report_row = _get_latest_creative_review_report_row(connection, project_slug)
+        reusable_pattern_rows = connection.execute(
+            """
+            SELECT
+                id,
+                source_project_slug,
+                source_report_version,
+                pattern_type,
+                title,
+                intended_use,
+                pattern_content,
+                caution_notes,
+                status,
+                created_at
+            FROM reusable_patterns
+            WHERE status = ?
+            ORDER BY datetime(created_at) DESC, rowid DESC
+            """,
+            ("active",),
+        ).fetchall()
     has_strategy_package = problem_brief is not None and strategy_card is not None
     has_adopted_strategy = bool(strategy_card and strategy_card.adopted_at)
 
@@ -4077,6 +4366,14 @@ def get_project_detail(project_slug: str) -> ProjectDetail:
         problem_brief=problem_brief,
         benchmarks=benchmarks,
         strategy_card=strategy_card,
+        diagnosis_report=_hydrate_diagnosis_report_row(diagnosis_report_row) if diagnosis_report_row else None,
+        creative_review_report=(
+            _hydrate_creative_review_report_row(creative_review_report_row)
+            if creative_review_report_row
+            else None
+        ),
+        reusable_patterns=[_hydrate_reusable_pattern_row(row) for row in reusable_pattern_rows],
+        reference_originality_report=_build_project_reference_originality_report(project_row, draft_row),
     )
 
 
@@ -4179,6 +4476,38 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
             """,
             (project_slug,),
         ).fetchall()
+        diagnosis_report_rows = connection.execute(
+            _get_diagnosis_report_select_sql()
+            + """
+            WHERE project_slug = ?
+            ORDER BY version DESC, id DESC
+            """,
+            (project_slug,),
+        ).fetchall()
+        directional_polish_link_rows = connection.execute(
+            """
+            SELECT
+                project_slug,
+                source_draft_version,
+                target_draft_version,
+                diagnosis_version,
+                objective_key,
+                objective_summary,
+                created_at
+            FROM directional_polish_links
+            WHERE project_slug = ?
+            ORDER BY id DESC
+            """,
+            (project_slug,),
+        ).fetchall()
+        creative_review_report_rows = connection.execute(
+            _get_creative_review_report_select_sql()
+            + """
+            WHERE project_slug = ?
+            ORDER BY version DESC, id DESC
+            """,
+            (project_slug,),
+        ).fetchall()
 
     return ProjectVersions(
         project_slug=project_slug,
@@ -4187,7 +4516,311 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
         assets=[_hydrate_asset_row(row) for row in assets_rows],
         publish_packages=[_hydrate_publish_package_row(row) for row in publish_package_rows],
         strategy_cards=[_hydrate_strategy_card_row(row) for row in strategy_card_rows],
+        diagnosis_reports=[_hydrate_diagnosis_report_row(row) for row in diagnosis_report_rows],
+        directional_polish_links=[_hydrate_directional_polish_link_row(row) for row in directional_polish_link_rows],
+        creative_review_reports=[_hydrate_creative_review_report_row(row) for row in creative_review_report_rows],
     )
+
+
+def generate_creative_review_report(project_slug: str) -> CreativeReviewReportItem:
+    project_row = _get_project_context(project_slug)
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            outline_row, draft_row, assets_row, publish_package_row = _get_project_chain_rows(
+                connection,
+                project_slug,
+            )
+            retro_row = _get_project_retro_row(
+                connection,
+                project_slug,
+                publish_package_row=publish_package_row,
+            )
+            problem_brief, benchmarks, strategy_card = _load_project_strategy_bundle(connection, project_slug)
+            has_strategy_package = problem_brief is not None and strategy_card is not None
+            has_adopted_strategy = bool(strategy_card and strategy_card.adopted_at)
+            project_item = _build_project_item_from_rows(
+                project_row,
+                source_type=str(project_row["source_type"] or "trend"),
+                has_strategy_package=has_strategy_package,
+                has_adopted_strategy=has_adopted_strategy,
+                outline_row=outline_row,
+                draft_row=draft_row,
+                assets_row=assets_row,
+                publish_package_row=publish_package_row,
+                retro_row=retro_row,
+            )
+            draft_rows = connection.execute(
+                """
+                SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
+                FROM drafts
+                WHERE project_slug = ?
+                ORDER BY version DESC, id DESC
+                """,
+                (project_slug,),
+            ).fetchall()
+            latest_publish_package_row = connection.execute(
+                """
+                SELECT
+                    project_slug,
+                    draft_version,
+                    assets_version,
+                    version,
+                    abstract,
+                    tags,
+                    publish_checklist,
+                    editor_note,
+                    markdown_path,
+                    markdown_url,
+                    manifest_path,
+                    manifest_url,
+                    status,
+                    review_comment,
+                    reviewed_by,
+                    reviewed_at,
+                    created_at,
+                    origin,
+                    tone_profile_id,
+                    tone_profile_name
+                FROM publish_packages
+                WHERE project_slug = ?
+                ORDER BY version DESC, id DESC
+                LIMIT 1
+                """,
+                (project_slug,),
+            ).fetchone()
+            latest_publish_retro_row = _get_project_retro_row(
+                connection,
+                project_slug,
+                publish_package_row=latest_publish_package_row,
+            ) if latest_publish_package_row else None
+            diagnosis_report_rows = connection.execute(
+                _get_diagnosis_report_select_sql()
+                + """
+                WHERE project_slug = ?
+                ORDER BY version DESC, id DESC
+                """,
+                (project_slug,),
+            ).fetchall()
+            directional_polish_link_rows = connection.execute(
+                """
+                SELECT
+                    project_slug,
+                    source_draft_version,
+                    target_draft_version,
+                    diagnosis_version,
+                    objective_key,
+                    objective_summary,
+                    created_at
+                FROM directional_polish_links
+                WHERE project_slug = ?
+                ORDER BY id DESC
+                """,
+                (project_slug,),
+            ).fetchall()
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM creative_review_reports WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            version = int(current["version"]) + 1
+            created_at = _utc_now_iso()
+            report = build_creative_review_report(
+                project_slug=project_slug,
+                version=version,
+                created_at=created_at,
+                project=project_item.model_dump(),
+                problem_brief=problem_brief.model_dump() if problem_brief else None,
+                benchmarks=[benchmark.model_dump() for benchmark in benchmarks],
+                strategy_card=strategy_card.model_dump() if strategy_card else None,
+                diagnosis_reports=[
+                    _hydrate_diagnosis_report_row(row).model_dump()
+                    for row in diagnosis_report_rows
+                ],
+                directional_polish_links=[
+                    _hydrate_directional_polish_link_row(row).model_dump()
+                    for row in directional_polish_link_rows
+                ],
+                drafts=[DraftItem(**dict(row)).model_dump() for row in draft_rows],
+                publish_package=(
+                    _hydrate_publish_package_row(latest_publish_package_row).model_dump()
+                    if latest_publish_package_row
+                    else None
+                ),
+                retro=(
+                    _hydrate_project_retro_row(latest_publish_retro_row).model_dump()
+                    if latest_publish_retro_row
+                    else None
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO creative_review_reports (
+                    project_slug,
+                    version,
+                    strategy_version,
+                    draft_version,
+                    summary_markdown,
+                    retained_lessons,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    report.project_slug,
+                    report.version,
+                    report.strategy_version,
+                    report.draft_version,
+                    report.summary_markdown,
+                    json.dumps(
+                        [lesson.model_dump() for lesson in report.retained_lessons],
+                        ensure_ascii=False,
+                    ),
+                    report.created_at,
+                ),
+            )
+            _record_task(
+                connection,
+                task_type="creative_review_report_generated",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.commit()
+
+    return report
+
+
+def list_reusable_patterns(
+    *,
+    pattern_type: str | None = None,
+    source_project_slug: str | None = None,
+    include_archived: bool = False,
+) -> list[ReusablePatternItem]:
+    conditions: list[str] = []
+    params: list[object] = []
+    if not include_archived:
+        conditions.append("status = ?")
+        params.append("active")
+    if pattern_type:
+        conditions.append("pattern_type = ?")
+        params.append(pattern_type)
+    if source_project_slug:
+        conditions.append("source_project_slug = ?")
+        params.append(source_project_slug)
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    with _get_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                id,
+                source_project_slug,
+                source_report_version,
+                pattern_type,
+                title,
+                intended_use,
+                pattern_content,
+                caution_notes,
+                status,
+                created_at
+            FROM reusable_patterns
+            {where_clause}
+            ORDER BY datetime(created_at) DESC, rowid DESC
+            """,
+            tuple(params),
+        ).fetchall()
+    return [_hydrate_reusable_pattern_row(row) for row in rows]
+
+
+def promote_creative_pattern(project_slug: str, payload: PromoteCreativePatternAction) -> ReusablePatternItem:
+    _get_project_row(project_slug)
+    created_at = _utc_now_iso()
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            report_row = _get_creative_review_report_row_by_version(
+                connection,
+                project_slug,
+                payload.report_version,
+            )
+            if not report_row:
+                raise HTTPException(status_code=404, detail="Creative review report version not found")
+            report = _hydrate_creative_review_report_row(report_row)
+            if payload.lesson_index < 0 or payload.lesson_index >= len(report.retained_lessons):
+                raise HTTPException(status_code=400, detail="Lesson index is out of range")
+            selected_lesson = report.retained_lessons[payload.lesson_index]
+            pattern_id = build_reusable_pattern_id(
+                source_project_slug=project_slug,
+                source_report_version=report.version,
+                lesson_index=payload.lesson_index,
+                title=(payload.title or selected_lesson.title),
+            )
+            existing_row = connection.execute(
+                """
+                SELECT
+                    id,
+                    source_project_slug,
+                    source_report_version,
+                    pattern_type,
+                    title,
+                    intended_use,
+                    pattern_content,
+                    caution_notes,
+                    status,
+                    created_at
+                FROM reusable_patterns
+                WHERE id = ?
+                """,
+                (pattern_id,),
+            ).fetchone()
+            if existing_row:
+                return _hydrate_reusable_pattern_row(existing_row)
+
+            pattern = build_reusable_pattern_from_lesson(
+                pattern_id=pattern_id,
+                source_project_slug=project_slug,
+                source_report_version=report.version,
+                retained_lessons=report.retained_lessons,
+                payload=payload,
+                created_at=created_at,
+            )
+            connection.execute(
+                """
+                INSERT INTO reusable_patterns (
+                    id,
+                    source_project_slug,
+                    source_report_version,
+                    pattern_type,
+                    title,
+                    intended_use,
+                    pattern_content,
+                    caution_notes,
+                    status,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    pattern.id,
+                    pattern.source_project_slug,
+                    pattern.source_report_version,
+                    pattern.pattern_type,
+                    pattern.title,
+                    pattern.intended_use,
+                    pattern.pattern_content,
+                    pattern.caution_notes,
+                    pattern.status,
+                    pattern.created_at,
+                ),
+            )
+            _record_task(
+                connection,
+                task_type="creative_pattern_promoted",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.commit()
+
+    return pattern
 
 
 def generate_outline(project_slug: str) -> OutlineItem:
@@ -4336,12 +4969,135 @@ def generate_draft(project_slug: str) -> DraftItem:
     return _generate_draft(project_slug)
 
 
-def polish_draft(project_slug: str, instruction: str) -> DraftItem:
+def diagnose_draft(project_slug: str, *, draft_version: int | None = None) -> DraftDiagnosisReportItem:
+    project = _get_project_context(project_slug)
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            if draft_version is None:
+                _, draft_row, _, _ = _get_project_chain_rows(connection, project_slug)
+            else:
+                draft_row = connection.execute(
+                    """
+                    SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
+                    FROM drafts
+                    WHERE project_slug = ? AND version = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (project_slug, draft_version),
+                ).fetchone()
+            if not draft_row:
+                raise HTTPException(status_code=409, detail="Draft not generated")
+
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM diagnosis_reports WHERE project_slug = ?",
+                (project_slug,),
+            ).fetchone()
+            version = int(current["version"]) + 1
+            created_at = _utc_now_iso()
+            problem_brief, _, strategy_card = _load_project_strategy_bundle(connection, project_slug)
+            reference_originality_report = _build_project_reference_originality_report(project, draft_row)
+            report = build_draft_diagnosis_report(
+                project_slug=project_slug,
+                draft_version=int(draft_row["version"]),
+                version=version,
+                title=str(draft_row["title"]),
+                body_markdown=str(draft_row["body_markdown"]),
+                created_at=created_at,
+                reference_originality_report=reference_originality_report,
+                has_strategy_card=problem_brief is not None and strategy_card is not None,
+            )
+            connection.execute(
+                """
+                INSERT INTO diagnosis_reports (
+                    project_slug,
+                    draft_version,
+                    version,
+                    opening_strength,
+                    scene_specificity,
+                    viewpoint_clarity,
+                    progression_efficiency,
+                    ending_quality,
+                    ai_fingerprint_level,
+                    upstream_findings,
+                    downstream_findings,
+                    recommended_next_action,
+                    objective_summary,
+                    recommended_polish_instruction,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    report.project_slug,
+                    report.draft_version,
+                    report.version,
+                    report.opening_strength,
+                    report.scene_specificity,
+                    report.viewpoint_clarity,
+                    report.progression_efficiency,
+                    report.ending_quality,
+                    report.ai_fingerprint_level,
+                    json.dumps(report.upstream_findings, ensure_ascii=False),
+                    json.dumps(report.downstream_findings, ensure_ascii=False),
+                    report.recommended_next_action,
+                    report.objective_summary,
+                    report.recommended_polish_instruction,
+                    report.created_at,
+                ),
+            )
+            _record_task(
+                connection,
+                task_type="draft_diagnosed",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.commit()
+
+    return DraftDiagnosisReportItem(**report.to_dict())
+
+
+def polish_draft(
+    project_slug: str,
+    instruction: str | None = None,
+    *,
+    diagnosis_report_version: int | None = None,
+    objective_key: str | None = None,
+) -> DraftItem:
     project = _get_project_context(project_slug)
     tone_profile = get_project_tone_profile(project)
-    normalized_instruction = instruction.strip()
-    effective_instruction = normalized_instruction or tone_profile.default_polish_instruction.strip()
-    return _generate_draft(project_slug, polish_instruction=effective_instruction)
+    normalized_instruction = (instruction or "").strip()
+    directional_context: _DirectionalPolishContext | None = None
+
+    if objective_key and diagnosis_report_version is None:
+        raise HTTPException(status_code=400, detail="Diagnosis report version is required for diagnosis-driven polish")
+
+    if diagnosis_report_version is not None:
+        with _get_connection() as connection:
+            diagnosis_row = _get_diagnosis_report_row_by_version(connection, project_slug, diagnosis_report_version)
+        if not diagnosis_row:
+            raise HTTPException(status_code=404, detail="Diagnosis report version not found")
+        diagnosis_report = _hydrate_diagnosis_report_row(diagnosis_row)
+        resolved_objective_key = (objective_key or diagnosis_report.recommended_next_action).strip()
+        objective_summary = resolve_diagnosis_objective_summary(resolved_objective_key)
+        directional_context = _DirectionalPolishContext(
+            diagnosis_report_version=diagnosis_report.version,
+            objective_key=resolved_objective_key,
+            objective_summary=objective_summary,
+        )
+        effective_instruction = normalized_instruction or build_diagnosis_polish_instruction(
+            diagnosis_report.model_dump(),
+            objective_key=resolved_objective_key,
+        )
+    else:
+        effective_instruction = normalized_instruction or tone_profile.default_polish_instruction.strip()
+
+    return _generate_draft(
+        project_slug,
+        polish_instruction=effective_instruction,
+        directional_polish_context=directional_context,
+    )
 
 
 def _generate_draft(
@@ -4349,6 +5105,7 @@ def _generate_draft(
     *,
     review_comment: str | None = None,
     polish_instruction: str | None = None,
+    directional_polish_context: _DirectionalPolishContext | None = None,
 ) -> DraftItem:
     project = _get_project_context(project_slug)
     tone_profile = get_project_tone_profile(project)
@@ -4618,9 +5375,39 @@ def _generate_draft(
                     tone_profile.name,
                 ),
             )
+            if polish_instruction and latest_draft_row and directional_polish_context:
+                connection.execute(
+                    """
+                    INSERT INTO directional_polish_links (
+                        project_slug,
+                        source_draft_version,
+                        target_draft_version,
+                        diagnosis_version,
+                        objective_key,
+                        objective_summary,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        project_slug,
+                        int(latest_draft_row["version"]),
+                        version,
+                        directional_polish_context.diagnosis_report_version,
+                        directional_polish_context.objective_key,
+                        directional_polish_context.objective_summary,
+                        created_at,
+                    ),
+                )
             _record_task(
                 connection,
-                task_type="draft_polished" if polish_instruction else "draft_generation",
+                task_type=(
+                    "draft_polished_from_diagnosis"
+                    if polish_instruction and directional_polish_context
+                    else "draft_polished"
+                    if polish_instruction
+                    else "draft_generation"
+                ),
                 status="done",
                 entity_slug=project_slug,
                 entity_type="project",

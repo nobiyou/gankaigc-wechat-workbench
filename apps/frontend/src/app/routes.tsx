@@ -29,6 +29,7 @@ export function AppRoutes() {
         <Route path="settings">
           <Route index element={<Navigate to="tone-profiles" replace />} />
           <Route path="tone-profiles" element={<SettingsPage section="tone-profiles" />} />
+          <Route path="patterns" element={<SettingsPage section="patterns" />} />
         </Route>
       </Route>
 

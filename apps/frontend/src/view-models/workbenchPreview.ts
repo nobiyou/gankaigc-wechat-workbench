@@ -1,4 +1,4 @@
-import type { DraftItem, ProjectDetail, ProjectVersions } from "../api/workbench";
+import type { CreativeReviewReport, DraftDiagnosisReport, DraftItem, ProjectDetail, ProjectVersions, ReferenceOriginalityReport } from "../api/workbench";
 import type { WorkbenchStage } from "../app/navigation";
 
 export type WorkbenchPreviewBlock = {
@@ -243,6 +243,89 @@ function buildRewriteAcceptanceSummaryLines(
   ];
 }
 
+function formatOverlapRatio(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function buildReferenceOriginalitySummaryLines(report: ReferenceOriginalityReport): string[] {
+  const overlap = report.overlap_report;
+  const dangerFragments = report.danger_fragment_hits
+    .slice(0, 5)
+    .map((hit) => hit.fragment)
+    .join(" / ");
+  const suggestions = report.suggestions.slice(0, 3).join(" / ");
+
+  return [
+    `原创隔离：${report.risk_label}（${report.originality_score} / 100）`,
+    `标题复用：${overlap.title_same ? "是" : "否"}`,
+    `长句残留：${overlap.exact_long_sentence_overlap_count} 处`,
+    `8字片段重叠：${formatOverlapRatio(overlap.char_8gram_jaccard)}`,
+    `12字片段重叠：${formatOverlapRatio(overlap.char_12gram_jaccard)}`,
+    `最长连续重合：${overlap.longest_common_substring_length} 字`,
+    dangerFragments ? `危险片段：${dangerFragments}` : "危险片段：无",
+    suggestions ? `建议：${suggestions}` : null,
+  ].filter((line): line is string => Boolean(line));
+}
+
+function formatDiagnosisStrength(value: string): string {
+  if (value === "strong") {
+    return "强";
+  }
+  if (value === "medium") {
+    return "中";
+  }
+  if (value === "weak") {
+    return "弱";
+  }
+  return value;
+}
+
+function formatDiagnosisRisk(value: string): string {
+  if (value === "high") {
+    return "高";
+  }
+  if (value === "medium") {
+    return "中";
+  }
+  if (value === "low") {
+    return "低";
+  }
+  return value;
+}
+
+function buildDraftDiagnosisSummaryLines(report: DraftDiagnosisReport): string[] {
+  const upstreamFindings = report.upstream_findings.slice(0, 3).join(" / ");
+  const downstreamFindings = report.downstream_findings.slice(0, 4).join(" / ");
+
+  return [
+    `诊断版本：v${report.version} · 草稿 v${report.draft_version}`,
+    `开头力度：${formatDiagnosisStrength(report.opening_strength)}`,
+    `场景具体度：${formatDiagnosisStrength(report.scene_specificity)}`,
+    `观点清晰度：${formatDiagnosisStrength(report.viewpoint_clarity)}`,
+    `推进效率：${formatDiagnosisStrength(report.progression_efficiency)}`,
+    `结尾质量：${formatDiagnosisStrength(report.ending_quality)}`,
+    `AI 指纹风险：${formatDiagnosisRisk(report.ai_fingerprint_level)}`,
+    `推荐动作：${report.objective_summary || report.recommended_next_action}`,
+    upstreamFindings ? `上游问题：${upstreamFindings}` : null,
+    downstreamFindings ? `表达问题：${downstreamFindings}` : null,
+  ].filter((line): line is string => Boolean(line));
+}
+
+function buildCreativeReviewReportMarkdown(report: CreativeReviewReport): string {
+  const lessonLines = report.retained_lessons
+    .slice(0, 5)
+    .map((lesson, index) => `${index + 1}. ${lesson.title}（${lesson.pattern_type}）`)
+    .join("\n");
+  const metaLines = [
+    `报告版本：v${report.version}`,
+    report.strategy_version ? `策略卡：v${report.strategy_version}` : "策略卡：暂无",
+    report.draft_version ? `草稿：v${report.draft_version}` : "草稿：暂无",
+    lessonLines ? `保留经验：\n${lessonLines}` : null,
+  ].filter((line): line is string => Boolean(line));
+
+  return [metaLines.join("\n"), "", report.summary_markdown].join("\n").trim();
+}
+
 function countPatternMatches(markdown: string, pattern: RegExp): number {
   return (markdown.match(pattern) ?? []).length;
 }
@@ -339,6 +422,7 @@ export function buildWorkbenchPreview(
     const strategyCard = detail.strategy_card ?? null;
     const problemBrief = detail.problem_brief ?? null;
     const benchmarks = detail.benchmarks ?? [];
+    const reusablePatterns = (detail.reusable_patterns ?? []).filter((item) => item.status === "active").slice(0, 5);
     const strategyStatus = !strategyCard
       ? "还没有生成策略包，先明确问题、读者处境和表达边界。"
       : strategyCard.adopted_at
@@ -405,6 +489,21 @@ export function buildWorkbenchPreview(
       });
     }
 
+    if (reusablePatterns.length > 0) {
+      const patternLines = reusablePatterns.map(
+        (item, index) =>
+          `${index + 1}. ${item.title}（${item.pattern_type}）\n适用：${item.intended_use}\n内容：${item.pattern_content}\n注意：${item.caution_notes}`,
+      );
+
+      blocks.push({
+        key: "reusable-patterns",
+        label: "可选模式参考",
+        content: patternLines.join("\n\n"),
+        kind: "markdown",
+        copyText: patternLines.join("\n\n"),
+      });
+    }
+
     return {
       title: problemBrief?.clarified_problem ?? detail.project.title,
       eyebrow: "Topic Preview",
@@ -461,6 +560,15 @@ export function buildWorkbenchPreview(
         copyText: detail.draft.body_markdown,
       },
     ];
+
+    if (detail.diagnosis_report && detail.diagnosis_report.draft_version === detail.draft.version) {
+      blocks.push({
+        key: "draft-content-diagnosis",
+        label: "内容诊断",
+        content: buildDraftDiagnosisSummaryLines(detail.diagnosis_report).join("\n"),
+        kind: "markdown",
+      });
+    }
 
     if (comparison) {
       const aiFlavorRisk = buildAiFlavorRiskSummary(detail.draft);
@@ -535,6 +643,15 @@ export function buildWorkbenchPreview(
       });
     }
 
+    if (detail.reference_originality_report) {
+      blocks.push({
+        key: "draft-reference-originality-diagnosis",
+        label: "参考文隔离诊断",
+        content: buildReferenceOriginalitySummaryLines(detail.reference_originality_report).join("\n"),
+        kind: "markdown",
+      });
+    }
+
     return {
       title: detail.draft.title,
       eyebrow: "Draft Preview",
@@ -600,6 +717,26 @@ export function buildWorkbenchPreview(
 
     const blocks: WorkbenchPreviewBlock[] = [];
 
+    if (detail.creative_review_report) {
+      const reviewMarkdown = buildCreativeReviewReportMarkdown(detail.creative_review_report);
+      blocks.push({
+        key: "creative-review-report",
+        label: "创作复盘报告",
+        content: reviewMarkdown,
+        kind: "markdown",
+        copyText: reviewMarkdown,
+      });
+    }
+
+    if (detail.draft && detail.diagnosis_report && detail.diagnosis_report.draft_version === detail.draft.version) {
+      blocks.push({
+        key: "publish-content-diagnosis",
+        label: "内容诊断",
+        content: buildDraftDiagnosisSummaryLines(detail.diagnosis_report).join("\n"),
+        kind: "markdown",
+      });
+    }
+
     if (detail.draft && comparison) {
       const aiFlavorRisk = buildAiFlavorRiskSummary(detail.draft);
       blocks.push({
@@ -612,6 +749,15 @@ export function buildWorkbenchPreview(
         key: "publish-ai-flavor-risk-summary",
         label: "AI味风险提示",
         content: buildAiFlavorRiskSummaryLines(aiFlavorRisk).join("\n"),
+        kind: "markdown",
+      });
+    }
+
+    if (detail.reference_originality_report) {
+      blocks.push({
+        key: "publish-reference-originality-diagnosis",
+        label: "参考文隔离诊断",
+        content: buildReferenceOriginalitySummaryLines(detail.reference_originality_report).join("\n"),
         kind: "markdown",
       });
     }

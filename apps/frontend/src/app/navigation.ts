@@ -98,6 +98,12 @@ export const SETTINGS_NAV_ITEMS: SectionNavItem[] = [
     to: "/settings/tone-profiles",
     description: "维护写作风格配置，同时与生产界面保持隔离。",
   },
+  {
+    key: "patterns",
+    label: "Creative Patterns",
+    to: "/settings/patterns",
+    description: "查看从项目复盘中人工沉淀的创作模式。",
+  },
 ];
 
 export const WORKBENCH_STAGES: Array<{ key: WorkbenchStage; label: string; description: string }> = [

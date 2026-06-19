@@ -327,10 +327,14 @@ test("sortToneProfiles follows backend sort_order instead of local insertion ord
   );
 });
 
-test("resolveDraftPolishInstruction prefers explicit input and otherwise falls back to tone profile default", () => {
+test("resolveDraftPolishInstruction prefers explicit input, diagnosis, then tone profile default", () => {
   assert.equal(
-    resolveDraftPolishInstruction("  重写开头  ", { default_polish_instruction: "默认策略" }),
+    resolveDraftPolishInstruction("  重写开头  ", { default_polish_instruction: "默认策略" }, "参考文隔离"),
     "重写开头",
+  );
+  assert.equal(
+    resolveDraftPolishInstruction("   ", { default_polish_instruction: "  默认策略  " }, "  参考文隔离  "),
+    "参考文隔离",
   );
   assert.equal(
     resolveDraftPolishInstruction("   ", { default_polish_instruction: "  默认策略  " }),

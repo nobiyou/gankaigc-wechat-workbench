@@ -360,42 +360,6 @@ def _infer_title(markdown: str, fallback: str) -> str:
     return compact[:48] or fallback
 
 
-def _extract_headings(markdown: str) -> list[str]:
-    headings: list[str] = []
-    for line in markdown.splitlines():
-        if not line.lstrip().startswith("#"):
-            continue
-        heading = re.sub(r"^\s{0,3}#{1,6}\s*", "", line).strip()
-        if heading:
-            headings.append(heading)
-    return headings
-
-
-def _extract_sentences(markdown: str) -> list[str]:
-    stripped = _strip_markdown(markdown)
-    sentences: list[str] = []
-    for part in re.split(r"[。！？!?；;\n]", stripped):
-        normalized = re.sub(r"\s+", "", part)
-        if normalized:
-            sentences.append(normalized)
-    return sentences
-
-
-def _char_ngrams(text: str, n: int) -> set[str]:
-    compact = _compact_text(text)
-    if len(compact) < n:
-        return {compact} if compact else set()
-    return {compact[index : index + n] for index in range(len(compact) - n + 1)}
-
-
-def _jaccard(left: set[str], right: set[str]) -> float:
-    if not left and not right:
-        return 1.0
-    if not left or not right:
-        return 0.0
-    return round(len(left & right) / len(left | right), 6)
-
-
 def _build_overlap_report(
     *,
     source_title: str,
@@ -403,22 +367,17 @@ def _build_overlap_report(
     draft_title: str,
     draft_markdown: str,
 ) -> dict[str, Any]:
-    normalized_source_title = re.sub(r"\s+", "", source_title)
-    normalized_draft_title = re.sub(r"\s+", "", draft_title)
-    source_sentences = {item for item in _extract_sentences(source_markdown) if len(item) >= 18}
-    draft_sentences = {item for item in _extract_sentences(draft_markdown) if len(item) >= 18}
-    exact_overlap = sorted(source_sentences & draft_sentences)
-    source_headings = set(_extract_headings(source_markdown))
-    draft_headings = set(_extract_headings(draft_markdown))
+    if str(BACKEND_ROOT) not in sys.path:
+        sys.path.insert(0, str(BACKEND_ROOT))
 
-    return {
-        "title_same": normalized_source_title == normalized_draft_title,
-        "heading_overlap": sorted(source_headings & draft_headings),
-        "exact_long_sentence_overlap_count": len(exact_overlap),
-        "exact_long_sentence_overlap_samples": exact_overlap[:5],
-        "char_8gram_jaccard": _jaccard(_char_ngrams(source_markdown, 8), _char_ngrams(draft_markdown, 8)),
-        "char_12gram_jaccard": _jaccard(_char_ngrams(source_markdown, 12), _char_ngrams(draft_markdown, 12)),
-    }
+    from app.services.content_diagnosis import build_reference_originality_report
+
+    return build_reference_originality_report(
+        source_title=source_title,
+        source_markdown=source_markdown,
+        draft_title=draft_title,
+        draft_markdown=draft_markdown,
+    ).to_overlap_report_dict()
 
 
 def _build_output_dir(root: Path, label: str | None) -> Path:
@@ -454,40 +413,9 @@ def _build_structural_residue(markdown: str) -> dict[str, int]:
     if str(BACKEND_ROOT) not in sys.path:
         sys.path.insert(0, str(BACKEND_ROOT))
 
-    from app.services.ai_flavor import (
-        _count_paragraph_shell_burden,
-        count_repeated_paragraph_starter_run,
-        count_short_long_cadence_pairs,
-        extract_bridging_summary_paragraphs,
-        extract_embedded_banner_paragraphs,
-        extract_short_judgment_paragraphs,
-    )
+    from app.services.content_diagnosis import build_structural_residue_report
 
-    paragraph_shell_burden, paragraph_count, shell_like_blocks = _count_paragraph_shell_burden(markdown)
-    short_judgment_count = len(extract_short_judgment_paragraphs(markdown))
-    embedded_banner_count = len(extract_embedded_banner_paragraphs(markdown))
-    bridging_summary_count = len(extract_bridging_summary_paragraphs(markdown))
-    short_long_cadence_pairs = count_short_long_cadence_pairs(markdown)
-    repeated_starter_run = count_repeated_paragraph_starter_run(markdown)[1]
-    residue_score = (
-        paragraph_shell_burden
-        + short_judgment_count * 2
-        + embedded_banner_count * 3
-        + bridging_summary_count * 2
-        + short_long_cadence_pairs * 2
-        + max(0, repeated_starter_run - 2) * 2
-    )
-    return {
-        "residue_score": residue_score,
-        "paragraph_shell_burden": paragraph_shell_burden,
-        "paragraph_count": paragraph_count,
-        "shell_like_blocks": shell_like_blocks,
-        "short_judgment_count": short_judgment_count,
-        "embedded_banner_count": embedded_banner_count,
-        "bridging_summary_count": bridging_summary_count,
-        "short_long_cadence_pairs": short_long_cadence_pairs,
-        "repeated_starter_run": repeated_starter_run,
-    }
+    return build_structural_residue_report(markdown)
 
 
 def _apply_current_compare_cleanups(*, title: str, draft_markdown: str) -> tuple[str, dict[str, Any]]:

@@ -1086,7 +1086,10 @@ def test_project_generation_works_for_topics_created_from_tracked_articles(monke
             self.calls.append(("draft", payload))
             return {
                 "title": "别急着解释，先把那一下失望接住",
-                "body_markdown": "# 别急着解释，先把那一下失望接住\n\n先写失望现场。",
+                "body_markdown": (
+                    "# 别急着解释，先把那一下失望接住\n\n"
+                    "先写失望现场，再把那一下没有被回应的委屈慢慢拆开。"
+                ),
             }
 
     client.post(
@@ -1094,10 +1097,15 @@ def test_project_generation_works_for_topics_created_from_tracked_articles(monke
         json={
             "slug": "slow-repair-template",
             "source_name": "夜读关系实验室",
-            "title": "真正让关系缓回来，不是解释，是先接住那一下失望",
+            "title": "别急着解释，先把那一下失望接住",
             "url": "https://example.com/slow-repair-template",
             "author": "北岛",
             "summary": "从关系修复案例提炼表达顺序。",
+            "body_markdown": (
+                "# 别急着解释，先把那一下失望接住\n\n"
+                "先写失望现场，再把那一下没有被回应的委屈慢慢拆开。"
+            ),
+            "body_source": "manual",
             "structure_notes": "案例开头 + 情绪拆解 + 动作建议。",
             "tags": ["表达修复"],
         },
@@ -1159,6 +1167,16 @@ def test_project_generation_works_for_topics_created_from_tracked_articles(monke
     assert draft_response.status_code == 201
     draft = draft_response.json()
     assert draft["title"] == "别急着解释，先把那一下失望接住"
+
+    detail_response = client.get("/api/projects/slow-repair-project")
+    assert detail_response.status_code == 200
+    reference_report = detail_response.json()["reference_originality_report"]
+    assert reference_report["risk_level"] == "high"
+    assert reference_report["risk_label"] == "原创隔离风险高"
+    assert reference_report["overlap_report"]["title_same"] is True
+    assert reference_report["overlap_report"]["exact_long_sentence_overlap_count"] >= 1
+    assert reference_report["danger_fragment_hits"]
+    assert reference_report["quality_signals"]["functional_equivalence_ready"] is False
 
     assert len(fake_generator.calls) == 2
     outline_call_type, outline_payload = fake_generator.calls[0]
@@ -4749,6 +4767,320 @@ def test_polish_draft_falls_back_to_tone_profile_default_instruction(monkeypatch
 
     polished_call = next(call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction"))
     assert polished_call[1]["polish_instruction"] == "重写开头和结尾，调整段落连接。"
+
+
+def test_diagnose_draft_persists_report_without_mutating_draft(monkeypatch) -> None:
+    class FakeGenerator:
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            if payload.get("polish_instruction"):
+                return {
+                    "title": "先把身体放回日程里",
+                    "body_markdown": "# 先把身体放回日程里\n\n她站在电梯里，先把手机扣回口袋。",
+                }
+            return {
+                "title": "先把身体放回日程里",
+                "body_markdown": (
+                    "# 先把身体放回日程里\n\n"
+                    "她站在电梯里，手机又亮了一下。\n\n"
+                    "很多时候，我们总是把自己放在最后。\n\n"
+                    "愿你从今天开始，好好爱自己。"
+                ),
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a"],
+                "cover_prompt": "prompt",
+                "cover_copy": "copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {"abstract": "abstract", "tags": ["tag"], "editor_note": "note"}
+
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: FakeGenerator(), raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    draft_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+    assert draft_response.status_code == 201
+    assert draft_response.json()["version"] == 1
+
+    initial_detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
+    assert initial_detail["diagnosis_report"] is None
+    assert initial_detail["draft"]["version"] == 1
+
+    diagnosis_response = client.post("/api/projects/office-burnout-recovery-weekly/diagnose-draft")
+    assert diagnosis_response.status_code == 201
+    diagnosis = diagnosis_response.json()
+    assert diagnosis["project_slug"] == "office-burnout-recovery-weekly"
+    assert diagnosis["draft_version"] == 1
+    assert diagnosis["version"] == 1
+    assert diagnosis["opening_strength"] in {"weak", "medium", "strong"}
+    assert diagnosis["scene_specificity"] in {"weak", "medium", "strong"}
+    assert diagnosis["ai_fingerprint_level"] in {"low", "medium", "high"}
+    assert diagnosis["upstream_findings"]
+    assert diagnosis["downstream_findings"]
+    assert diagnosis["recommended_next_action"]
+    assert "内容诊断目标精修" in diagnosis["recommended_polish_instruction"]
+
+    detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
+    assert detail["draft"]["version"] == 1
+    assert detail["diagnosis_report"]["version"] == 1
+    assert detail["diagnosis_report"]["draft_version"] == 1
+
+    versions = client.get("/api/projects/office-burnout-recovery-weekly/versions").json()
+    assert [item["version"] for item in versions["diagnosis_reports"]] == [1]
+    assert versions["directional_polish_links"] == []
+
+
+def test_polish_draft_can_use_diagnosis_objective_and_records_link(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            if payload.get("polish_instruction"):
+                return {
+                    "title": "身体会替你重新排序",
+                    "body_markdown": "# 身体会替你重新排序\n\n她把手机扣在桌上，先给自己倒了一杯水。",
+                }
+            return {
+                "title": "先把身体放回日程里",
+                "body_markdown": (
+                    "# 先把身体放回日程里\n\n"
+                    "她站在电梯里，手机又亮了一下。\n\n"
+                    "她没有马上回消息，而是先把复查提醒重新置顶。\n\n"
+                    "那一刻她才发现，身体已经替她把事情重新排了一次顺序。"
+                ),
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a"],
+                "cover_prompt": "prompt",
+                "cover_copy": "copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {"abstract": "abstract", "tags": ["tag"], "editor_note": "note"}
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+    diagnosis = client.post("/api/projects/office-burnout-recovery-weekly/diagnose-draft").json()
+
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={
+            "instruction": None,
+            "diagnosis_report_version": diagnosis["version"],
+            "objective_key": diagnosis["recommended_next_action"],
+        },
+    )
+    assert polish_response.status_code == 201
+    polished = polish_response.json()
+    assert polished["version"] == 2
+    assert polished["title"] == "身体会替你重新排序"
+
+    polished_call = next(call for call in fake_generator.calls if call[0] == "draft" and call[1].get("polish_instruction"))
+    assert "内容诊断目标精修" in polished_call[1]["polish_instruction"]
+    assert polished_call[1]["draft"]["title"] == "先把身体放回日程里"
+
+    versions = client.get("/api/projects/office-burnout-recovery-weekly/versions").json()
+    assert [item["version"] for item in versions["drafts"]] == [2, 1]
+    assert versions["diagnosis_reports"][0]["version"] == diagnosis["version"]
+    assert versions["directional_polish_links"] == [
+        {
+            "project_slug": "office-burnout-recovery-weekly",
+            "source_draft_version": 1,
+            "target_draft_version": 2,
+            "diagnosis_version": diagnosis["version"],
+            "objective_key": diagnosis["recommended_next_action"],
+            "objective_summary": diagnosis["objective_summary"],
+            "created_at": polished["created_at"],
+        }
+    ]
+
+
+def test_generate_creative_review_report_works_for_legacy_project() -> None:
+    detail_response = client.get("/api/projects/office-burnout-recovery-weekly")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["creative_review_report"] is None
+
+    report_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-creative-review-report")
+    assert report_response.status_code == 201
+    report = report_response.json()
+    assert report["project_slug"] == "office-burnout-recovery-weekly"
+    assert report["version"] == 1
+    assert report["strategy_version"] is None
+    assert report["draft_version"] is None
+    assert "暂无记录，本报告只汇总当前项目已有事实" in report["summary_markdown"]
+    assert report["retained_lessons"][0]["pattern_type"] == "review_note"
+
+    detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
+    assert detail["creative_review_report"]["version"] == 1
+
+    versions = client.get("/api/projects/office-burnout-recovery-weekly/versions").json()
+    assert [item["version"] for item in versions["creative_review_reports"]] == [1]
+
+
+def test_generate_creative_review_report_summarizes_strategy_diagnosis_and_revision(monkeypatch) -> None:
+    class FakeGenerator:
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {"hook": "hook", "outline_body": "1. a\n2. b"}
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            if payload.get("polish_instruction"):
+                return {
+                    "title": "身体会替你重新排序",
+                    "body_markdown": (
+                        "# 身体会替你重新排序\n\n"
+                        "她把手机扣在桌上，先给自己倒了一杯水。\n\n"
+                        "这一次，她没有把复查提醒往后拖。"
+                    ),
+                }
+            return {
+                "title": "先把身体放回日程里",
+                "body_markdown": (
+                    "# 先把身体放回日程里\n\n"
+                    "她站在电梯里，手机又亮了一下。\n\n"
+                    "她没有马上回消息，而是先把复查提醒重新置顶。"
+                ),
+            }
+
+        def generate_assets(self, _: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["title a"],
+                "cover_prompt": "prompt",
+                "cover_copy": "copy",
+                "social_teaser": "teaser",
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, _: dict[str, object]) -> dict[str, object]:
+            return {"abstract": "abstract", "tags": ["tag"], "editor_note": "note"}
+
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: FakeGenerator(), raising=False)
+
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-strategy-package").status_code == 201
+    assert client.post("/api/projects/office-burnout-recovery-weekly/adopt-strategy-card/1").status_code == 200
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-outline").status_code == 201
+    assert client.post("/api/projects/office-burnout-recovery-weekly/generate-draft").status_code == 201
+    diagnosis = client.post("/api/projects/office-burnout-recovery-weekly/diagnose-draft").json()
+    polish_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/polish-draft",
+        json={
+            "instruction": None,
+            "diagnosis_report_version": diagnosis["version"],
+            "objective_key": diagnosis["recommended_next_action"],
+        },
+    )
+    assert polish_response.status_code == 201
+    assert polish_response.json()["version"] == 2
+
+    report_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-creative-review-report")
+    assert report_response.status_code == 201
+    report = report_response.json()
+    assert report["strategy_version"] == 1
+    assert report["draft_version"] == 2
+    assert "## 前写作策略" in report["summary_markdown"]
+    assert "## 诊断与修订" in report["summary_markdown"]
+    assert "草稿 v1 -> v2" in report["summary_markdown"]
+    assert diagnosis["objective_summary"] in report["summary_markdown"]
+    lesson_types = {lesson["pattern_type"] for lesson in report["retained_lessons"]}
+    assert "opening" in lesson_types
+    assert "revision_objective" in lesson_types
+    assert "revision_trace" in lesson_types
+
+    detail = client.get("/api/projects/office-burnout-recovery-weekly").json()
+    assert detail["creative_review_report"]["version"] == 1
+    versions = client.get("/api/projects/office-burnout-recovery-weekly/versions").json()
+    assert versions["creative_review_reports"][0]["version"] == 1
+
+
+def test_promote_creative_pattern_from_review_report_and_list_library() -> None:
+    report = client.post("/api/projects/office-burnout-recovery-weekly/generate-creative-review-report").json()
+    assert report["retained_lessons"]
+
+    promote_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/promote-creative-pattern",
+        json={
+            "report_version": report["version"],
+            "lesson_index": 0,
+            "title": "旧项目复盘入口",
+            "pattern_type": "review-note",
+            "intended_use": "适合资料不完整的旧项目先整理事实。",
+            "caution_notes": "不要直接复用旧稿内容。",
+        },
+    )
+    assert promote_response.status_code == 201
+    promoted = promote_response.json()
+    assert promoted["source_project_slug"] == "office-burnout-recovery-weekly"
+    assert promoted["source_report_version"] == report["version"]
+    assert promoted["title"] == "旧项目复盘入口"
+    assert promoted["pattern_type"] == "review-note"
+    assert promoted["status"] == "active"
+
+    duplicate_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/promote-creative-pattern",
+        json={
+            "report_version": report["version"],
+            "lesson_index": 0,
+            "title": "旧项目复盘入口",
+            "pattern_type": "review-note",
+            "intended_use": "适合资料不完整的旧项目先整理事实。",
+            "caution_notes": "不要直接复用旧稿内容。",
+        },
+    )
+    assert duplicate_response.status_code == 201
+    assert duplicate_response.json()["id"] == promoted["id"]
+
+    list_response = client.get("/api/creative-patterns")
+    assert list_response.status_code == 200
+    patterns = list_response.json()
+    assert [item["id"] for item in patterns] == [promoted["id"]]
+
+    detail_response = client.get("/api/projects/office-burnout-recovery-weekly")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert [item["id"] for item in detail["reusable_patterns"]] == [promoted["id"]]
+
+    filtered_response = client.get("/api/creative-patterns?pattern_type=review-note")
+    assert filtered_response.status_code == 200
+    assert [item["id"] for item in filtered_response.json()] == [promoted["id"]]
+
+    missing_filter_response = client.get("/api/creative-patterns?pattern_type=opening")
+    assert missing_filter_response.status_code == 200
+    assert missing_filter_response.json() == []
+
+
+def test_promote_creative_pattern_rejects_invalid_lesson_index() -> None:
+    report = client.post("/api/projects/office-burnout-recovery-weekly/generate-creative-review-report").json()
+
+    promote_response = client.post(
+        "/api/projects/office-burnout-recovery-weekly/promote-creative-pattern",
+        json={"report_version": report["version"], "lesson_index": 99},
+    )
+    assert promote_response.status_code == 400
+    assert promote_response.json()["detail"] == "Lesson index is out of range"
 
 
 def test_polish_draft_retries_when_structure_headings_are_lost(monkeypatch) -> None:

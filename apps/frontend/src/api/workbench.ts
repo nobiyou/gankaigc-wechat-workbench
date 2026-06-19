@@ -236,6 +236,95 @@ export type PublishPackageItem = {
   tone_profile_name: string | null;
 };
 
+export type ReferenceDangerFragmentHit = {
+  fragment: string;
+  length: number;
+  source_occurrences: number;
+  draft_occurrences: number;
+  source_context: string;
+};
+
+export type ReferenceOriginalityReport = {
+  risk_level: string;
+  risk_label: string;
+  risk_score: number;
+  originality_score: number;
+  overlap_report: {
+    title_same: boolean;
+    title_similarity: number;
+    heading_overlap: string[];
+    exact_long_sentence_overlap_count: number;
+    exact_long_sentence_overlap_samples: string[];
+    char_8gram_jaccard: number;
+    char_12gram_jaccard: number;
+    longest_common_substring_length: number;
+    longest_common_substring_sample: string;
+  };
+  danger_fragment_hits: ReferenceDangerFragmentHit[];
+  suggestions: string[];
+  recommended_polish_instruction: string;
+  quality_signals: Record<string, unknown>;
+};
+
+export type DraftDiagnosisReport = {
+  project_slug: string;
+  draft_version: number;
+  version: number;
+  opening_strength: "weak" | "medium" | "strong" | string;
+  scene_specificity: "weak" | "medium" | "strong" | string;
+  viewpoint_clarity: "weak" | "medium" | "strong" | string;
+  progression_efficiency: "weak" | "medium" | "strong" | string;
+  ending_quality: "weak" | "medium" | "strong" | string;
+  ai_fingerprint_level: "low" | "medium" | "high" | string;
+  upstream_findings: string[];
+  downstream_findings: string[];
+  recommended_next_action: string;
+  objective_summary: string;
+  recommended_polish_instruction: string;
+  created_at: string | null;
+};
+
+export type DirectionalPolishLink = {
+  project_slug: string;
+  source_draft_version: number;
+  target_draft_version: number;
+  diagnosis_version: number | null;
+  objective_key: string;
+  objective_summary: string;
+  created_at: string | null;
+};
+
+export type RetainedLessonItem = {
+  title: string;
+  pattern_type: string;
+  intended_use: string;
+  pattern_content: string;
+  caution_notes: string;
+};
+
+export type CreativeReviewReport = {
+  project_slug: string;
+  version: number;
+  strategy_version: number | null;
+  draft_version: number | null;
+  summary_markdown: string;
+  retained_lessons: RetainedLessonItem[];
+  created_at: string | null;
+};
+
+export type ReusablePatternItem = {
+  id: string;
+  source_project_slug: string;
+  source_report_version: number;
+  pattern_type: string;
+  title: string;
+  intended_use: string;
+  pattern_content: string;
+  caution_notes: string;
+  status: string;
+  created_at: string | null;
+};
+
 export type ProjectRetroItem = {
   project_slug: string;
   performance_rating: number;
@@ -344,6 +433,25 @@ export type BuildPublishPackagePayload = {
   polish_instruction?: string | null;
 };
 
+export type DiagnoseDraftPayload = {
+  draft_version?: number | null;
+};
+
+export type DraftPolishPayload = {
+  instruction?: string | null;
+  diagnosis_report_version?: number | null;
+  objective_key?: string | null;
+};
+
+export type PromoteCreativePatternPayload = {
+  report_version: number;
+  lesson_index: number;
+  title?: string | null;
+  pattern_type?: string | null;
+  intended_use?: string | null;
+  caution_notes?: string | null;
+};
+
 export type ProblemBriefItem = {
   project_slug: string;
   version: number;
@@ -407,6 +515,10 @@ export type ProjectDetail = {
   problem_brief?: ProblemBriefItem | null;
   benchmarks?: BenchmarkReferenceItem[];
   strategy_card?: StrategyCardItem | null;
+  diagnosis_report?: DraftDiagnosisReport | null;
+  creative_review_report?: CreativeReviewReport | null;
+  reusable_patterns?: ReusablePatternItem[];
+  reference_originality_report?: ReferenceOriginalityReport | null;
 };
 
 export type ProjectVersions = {
@@ -416,6 +528,9 @@ export type ProjectVersions = {
   assets: AssetItem[];
   publish_packages: PublishPackageItem[];
   strategy_cards?: StrategyCardItem[];
+  diagnosis_reports?: DraftDiagnosisReport[];
+  directional_polish_links?: DirectionalPolishLink[];
+  creative_review_reports?: CreativeReviewReport[];
 };
 
 export type BatchContinueProjectResult = {
@@ -627,6 +742,25 @@ export function fetchPromptTemplates(): Promise<PromptTemplateSummary[]> {
   return fetchJson<PromptTemplateSummary[]>("/settings/prompt-templates");
 }
 
+export function fetchCreativePatterns(options?: {
+  pattern_type?: string | null;
+  source_project_slug?: string | null;
+  include_archived?: boolean;
+}): Promise<ReusablePatternItem[]> {
+  const params = new URLSearchParams();
+  if (options?.pattern_type) {
+    params.set("pattern_type", options.pattern_type);
+  }
+  if (options?.source_project_slug) {
+    params.set("source_project_slug", options.source_project_slug);
+  }
+  if (options?.include_archived) {
+    params.set("include_archived", "true");
+  }
+  const query = params.toString();
+  return fetchJson<ReusablePatternItem[]>(query ? `/creative-patterns?${query}` : "/creative-patterns");
+}
+
 export function fetchProjectDetail(projectSlug: string): Promise<ProjectDetail> {
   return fetchJson<ProjectDetail>(`/projects/${projectSlug}`);
 }
@@ -762,8 +896,27 @@ export function generateDraft(projectSlug: string): Promise<DraftItem> {
   return sendJson<DraftItem>(`/projects/${projectSlug}/generate-draft`, "POST", {});
 }
 
-export function polishDraft(projectSlug: string, instruction: string): Promise<DraftItem> {
-  return sendJson<DraftItem>(`/projects/${projectSlug}/polish-draft`, "POST", { instruction });
+export function diagnoseDraft(projectSlug: string, payload?: DiagnoseDraftPayload): Promise<DraftDiagnosisReport> {
+  return sendJson<DraftDiagnosisReport>(`/projects/${projectSlug}/diagnose-draft`, "POST", payload ?? {});
+}
+
+export function generateCreativeReviewReport(projectSlug: string): Promise<CreativeReviewReport> {
+  return sendJson<CreativeReviewReport>(`/projects/${projectSlug}/generate-creative-review-report`, "POST", {});
+}
+
+export function promoteCreativePattern(
+  projectSlug: string,
+  payload: PromoteCreativePatternPayload,
+): Promise<ReusablePatternItem> {
+  return sendJson<ReusablePatternItem>(`/projects/${projectSlug}/promote-creative-pattern`, "POST", payload);
+}
+
+export function polishDraft(projectSlug: string, payload: string | DraftPolishPayload): Promise<DraftItem> {
+  return sendJson<DraftItem>(
+    `/projects/${projectSlug}/polish-draft`,
+    "POST",
+    typeof payload === "string" ? { instruction: payload } : payload,
+  );
 }
 
 export function restoreDraftVersion(projectSlug: string, version: number): Promise<DraftItem> {
