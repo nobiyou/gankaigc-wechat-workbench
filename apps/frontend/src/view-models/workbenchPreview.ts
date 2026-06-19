@@ -327,7 +327,7 @@ function buildDraftDiagnosisSummaryLines(report: DraftDiagnosisReport): string[]
     `推进效率：${formatDiagnosisStrength(report.progression_efficiency)}`,
     `结尾质量：${formatDiagnosisStrength(report.ending_quality)}`,
     `AI 指纹风险：${formatDiagnosisRisk(report.ai_fingerprint_level)}`,
-    `推荐动作：${report.objective_summary || report.recommended_next_action}`,
+    `推荐动作：${report.objective_summary || formatQualityAction(report.recommended_next_action)}`,
     upstreamFindings ? `上游问题：${upstreamFindings}` : null,
     downstreamFindings ? `表达问题：${downstreamFindings}` : null,
   ].filter((line): line is string => Boolean(line));
