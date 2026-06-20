@@ -12,6 +12,7 @@ from app.services.prompt_templates import (
     _infer_tracked_article_pressure_guard,
     _has_broad_emotional_release_focus,
     _has_everyday_warmth_return_focus,
+    _has_resilience_reconstruction_focus,
     _has_relationship_aftercare_focus,
     build_assets_prompt,
     build_cover_image_prompt,
@@ -784,6 +785,59 @@ def test_build_topic_prompt_adds_relationship_aftercare_guard_for_quarrel_repair
     assert "不要把标题写成“这段关系已经在……”式整句判决" in template.instructions
 
 
+def test_everyday_warmth_return_focus_adds_guardrails_across_topic_outline_and_draft() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "source_ref_slug": "small-things-reroute",
+        "source_name": "手动录入",
+        "article_title": "一生最重要的事，不是大事",
+        "author": "未知",
+        "summary": "文章把“做大事”的期待，与人在慢下来后重新确认的日常幸福放在一起比较，核心判断是普通陪伴和细碎日常才最能托住生活。",
+        "body_markdown": (
+            "年轻时，我们都想改变世界，觉得人生一定要轰轰烈烈，要做大事，要出人头地。可走过半生，才发现最重要的事，不过是活在人间烟火里，陪在爱的人身边。\n\n"
+            "朋友因为身体不舒服做了个手术，在家休养。他终于陪爱人做了一顿晚饭，去接孩子放学，也陪父母慢慢散步。\n\n"
+            "那些拼了命追求的大事，好像忽然祛魅了，剩下来的反而是一顿饭、一句晚安、一个陪伴动作。"
+        ),
+        "structure_notes": "先写大事叙事，再用手术后的慢下来做转折，中段回到晚饭、接孩子、陪父母这些普通日常，结尾回到小事才最重要。",
+        "tags": ["人间烟火", "陪伴", "小事", "日常", "祛魅"],
+        "tone_profile": TONE_PROFILE,
+    }
+    topic_template = build_topic_prompt(payload)
+    outline_template = build_outline_prompt(
+        {
+            **payload,
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "原来一生里最重要的，常常都是那些不起眼的小事",
+            "topic_angle": "从成就叙事为什么会在某个阶段突然祛魅切入，写人慢下来以后，怎样重新看见那些不起眼却最能托住生活的小事和陪伴。",
+            "project_title": "小事回归样稿",
+        }
+    )
+    draft_template = build_draft_prompt(
+        {
+            **payload,
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "原来一生里最重要的，常常都是那些不起眼的小事",
+            "topic_angle": "从成就叙事为什么会在某个阶段突然祛魅切入，写人慢下来以后，怎样重新看见那些不起眼却最能托住生活的小事和陪伴。",
+            "project_title": "小事回归样稿",
+            "outline": {
+                "hook": "很多人拼命往前赶，最后被留下来的，反而是一顿饭和一句晚安。",
+                "outline_body": "1. 宏大目标祛魅\n2. 日常陪伴回归\n3. 结尾回到一个小动作",
+            },
+        }
+    )
+
+    assert _has_everyday_warmth_return_focus(payload) is True
+    assert "不要把选题收窄成身体告警、自我照料积压或单一复查拖延主线。" in topic_template.instructions
+    assert "也不要把题眼改写成“有人等你回应”“先把关系接住”或谁被排在回应顺序后面这类关系回应排序。" in topic_template.instructions
+    assert "不要把它再抽象成“女性要重建生活托底感”“意义供给退潮后怎么办”这类泛成长标题。" in topic_template.instructions
+    assert "不要写成“女人中年以后更需要重估哪些事”这类年龄阶段提问式抽象标题。" in topic_template.instructions
+    assert "标题和切入角度优先围绕成就叙事为什么会祛魅、普通陪伴为什么反而最重要来重组" in topic_template.instructions
+    assert "大纲不要自动缩成身体提醒追债稿。" in outline_template.instructions
+    assert "中段至少留一段写普通陪伴和细小日常怎样托住生活" in outline_template.instructions
+    assert "正文不要把手术、休养或身体提醒写成唯一主轴。" in draft_template.instructions
+    assert "真正要写的是：那些被高估的大事为什么会慢慢祛魅" in draft_template.instructions
+
+
 def test_tracked_article_pressure_guard_does_not_misclassify_happiness_release_article() -> None:
     payload = {
         "source_type": "tracked_article",
@@ -799,6 +853,32 @@ def test_tracked_article_pressure_guard_does_not_misclassify_happiness_release_a
     }
 
     assert _infer_tracked_article_pressure_guard(payload) == ""
+
+
+def test_resilience_reconstruction_focus_adds_topic_guardrails() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "source_ref_slug": "jiang-yuyan-reroute",
+        "source_name": "手动录入",
+        "article_title": "一个人最大的底气，不是美貌，也不是金钱，而是韧性",
+        "author": "未知",
+        "summary": "文章以残奥会冠军蒋裕燕的人生为例，重点写命运重击、长期疼痛、泳池训练和不被定义后的重建，而不是女性把自己放最后的情绪照顾。",
+        "body_markdown": (
+            "3岁那年，一场车祸无情夺走了蒋裕燕的右臂与右腿。从3岁到8岁，她每一年都要被迫走上手术台，接受锯掉新生骨头的剧痛。\n\n"
+            "为了康复，她走进了泳池。没有右臂维持平衡，没有右腿蹬水发力，她每一次划水都要比常人多划11下。\n\n"
+            "肩伤反复发作、背痛缠扰不休、炎症如影随形，可她从未停下前进的脚步。命运以痛吻她，她却在破碎中重建自己，不让任何人定义她能做的事情。"
+        ),
+        "structure_notes": "先写命运重击和手术台，再转到泳池里的训练硬撑，结尾回到不被定义和韧性重建。",
+        "tags": ["韧性", "残奥冠军", "命运重击", "训练", "不被定义"],
+        "tone_profile": TONE_PROFILE,
+    }
+
+    template = build_topic_prompt(payload)
+
+    assert _has_resilience_reconstruction_focus(payload) is True
+    assert "不要把选题改写成泛女性自我照顾、把自己排回前面或先学会照顾自己这类轻量自助主线。" in template.instructions
+    assert "像车祸、手术台、泳池里多划11下、肩伤背痛、不被定义这类抓手" in template.instructions
+    assert "每一次划水都要比常人多划11下" in template.prompt
 
 
 def test_extract_tracked_article_body_cues_skips_supportive_healthy_body_sentence() -> None:

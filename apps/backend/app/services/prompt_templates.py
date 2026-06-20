@@ -444,6 +444,62 @@ _RELATIONSHIP_AFTERCARE_THESIS_MARKERS = (
     "回避修复",
     "回避税",
 )
+_RESILIENCE_RECONSTRUCTION_ADVERSITY_KEYWORDS = (
+    "韧性",
+    "命运",
+    "重击",
+    "淬炼",
+    "凤凰涅槃",
+    "车祸",
+    "右臂",
+    "右腿",
+    "残肢",
+    "刺穿",
+    "皮肤",
+    "手术台",
+    "剧痛",
+    "伤痛",
+    "残缺",
+)
+_RESILIENCE_RECONSTRUCTION_TRAINING_KEYWORDS = (
+    "残奥",
+    "冠军",
+    "泳池",
+    "游泳",
+    "转身",
+    "呛水",
+    "蹬水",
+    "划水",
+    "多划11下",
+    "11下",
+    "训练",
+    "万米训练",
+    "肩伤",
+    "背痛",
+    "炎症",
+    "风暴",
+)
+_RESILIENCE_RECONSTRUCTION_IDENTITY_KEYWORDS = (
+    "不要让任何人",
+    "限制你",
+    "破碎中重建",
+    "生命的裂痕",
+    "命运的终章",
+    "不被定义",
+    "向阳而生",
+    "自己的太阳",
+    "破局而上",
+)
+_RESILIENCE_RECONSTRUCTION_THESIS_MARKERS = (
+    "百折不回",
+    "真正的强大",
+    "完整的人生",
+    "一寸寸拔节",
+    "一步步生长",
+    "心有山海",
+    "静水流深",
+    "不必借光而行",
+)
 _SUPPORTIVE_LIFE_BASE_MARKERS = (
     "健康的身体",
     "爱你的家人",
@@ -623,6 +679,77 @@ def _has_everyday_warmth_return_focus(payload: Mapping[str, object]) -> bool:
     return achievement_hits >= 2 and daily_hits >= 3 and thesis_hits >= 1
 
 
+def _has_resilience_reconstruction_focus(payload: Mapping[str, object]) -> bool:
+    if _as_clean_text(payload.get("source_type")) != "tracked_article":
+        return False
+    if _has_everyday_warmth_return_focus(payload):
+        return False
+    if _has_relationship_aftercare_focus(payload):
+        return False
+
+    fields = [
+        payload.get("topic_title"),
+        payload.get("topic_angle"),
+        payload.get("article_title"),
+        payload.get("summary"),
+        payload.get("structure_notes"),
+        payload.get("body_markdown"),
+        payload.get("reference_article_title"),
+        payload.get("reference_article_summary"),
+        payload.get("reference_article_structure_notes"),
+        payload.get("reference_article_body_markdown"),
+    ]
+    problem_brief = payload.get("problem_brief")
+    if isinstance(problem_brief, Mapping):
+        fields.extend(
+            [
+                problem_brief.get("raw_goal"),
+                problem_brief.get("clarified_problem"),
+                problem_brief.get("observed_phenomenon"),
+                problem_brief.get("writing_goal"),
+                problem_brief.get("target_reader_situation"),
+                problem_brief.get("core_conflict"),
+                problem_brief.get("feedback_entry"),
+            ]
+        )
+    strategy_card = payload.get("strategy_card")
+    if isinstance(strategy_card, Mapping):
+        fields.extend(
+            [
+                strategy_card.get("reader_situation"),
+                strategy_card.get("point_of_view"),
+                strategy_card.get("conflict_frame"),
+                strategy_card.get("emotional_path"),
+                strategy_card.get("opening_move"),
+                strategy_card.get("body_shift"),
+                strategy_card.get("ending_move"),
+                strategy_card.get("benchmark_summary"),
+            ]
+        )
+    tag_values = [payload.get("tags"), payload.get("reference_article_tags")]
+    corpus_parts = [_as_clean_text(value) for value in fields if _as_clean_text(value)]
+    for tag_value in tag_values:
+        if isinstance(tag_value, list):
+            corpus_parts.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
+    corpus = " ".join(corpus_parts)
+    if not corpus:
+        return False
+
+    adversity_hits = sum(1 for keyword in _RESILIENCE_RECONSTRUCTION_ADVERSITY_KEYWORDS if keyword in corpus)
+    training_hits = sum(1 for keyword in _RESILIENCE_RECONSTRUCTION_TRAINING_KEYWORDS if keyword in corpus)
+    identity_hits = sum(1 for keyword in _RESILIENCE_RECONSTRUCTION_IDENTITY_KEYWORDS if keyword in corpus)
+    thesis_hits = sum(1 for marker in _RESILIENCE_RECONSTRUCTION_THESIS_MARKERS if marker in corpus)
+    return (
+        adversity_hits >= 2
+        and training_hits >= 2
+        and (identity_hits >= 1 or thesis_hits >= 1)
+    ) or (
+        adversity_hits >= 3
+        and training_hits >= 1
+        and identity_hits >= 2
+    )
+
+
 def _has_relationship_aftercare_focus(payload: Mapping[str, object]) -> bool:
     if _as_clean_text(payload.get("source_type")) != "tracked_article":
         return False
@@ -796,6 +923,30 @@ def _score_tracked_article_everyday_warmth_cue(sentence: str) -> int:
         score -= 4
     if any(keyword in compact for keyword in _INTERNAL_PRESSURE_BODY_HARD_SIGNALS):
         score -= 2
+    if len(compact) < 10:
+        score -= 2
+    return score
+
+
+def _score_tracked_article_resilience_cue(sentence: str) -> int:
+    score = 0
+    compact = re.sub(r"\s+", "", sentence)
+    for keyword in _RESILIENCE_RECONSTRUCTION_ADVERSITY_KEYWORDS:
+        if keyword in compact:
+            score += 2
+    for keyword in _RESILIENCE_RECONSTRUCTION_TRAINING_KEYWORDS:
+        if keyword in compact:
+            score += 2
+    for keyword in _RESILIENCE_RECONSTRUCTION_IDENTITY_KEYWORDS:
+        if keyword in compact:
+            score += 2
+    for marker in _RESILIENCE_RECONSTRUCTION_THESIS_MARKERS:
+        if marker in compact:
+            score += 2
+    if "“" in sentence or "\"" in sentence:
+        score += 1
+    if _is_generic_tracked_article_cue(sentence):
+        score -= 4
     if len(compact) < 10:
         score -= 2
     return score
@@ -1183,6 +1334,35 @@ def _extract_tracked_article_everyday_warmth_cues(
     return selected
 
 
+def _extract_tracked_article_resilience_cues(
+    payload: Mapping[str, object],
+    *,
+    max_items: int = 3,
+) -> list[str]:
+    body_markdown = _as_clean_text(payload.get("body_markdown"))
+    if not body_markdown:
+        return []
+
+    candidates: list[tuple[int, str]] = []
+    for sentence in _split_text_sentences(body_markdown):
+        normalized = re.sub(r"\s+", " ", sentence).strip(" -#>*")
+        if not normalized:
+            continue
+        score = _score_tracked_article_resilience_cue(normalized)
+        if score <= 0:
+            continue
+        candidates.append((score, _truncate_text(normalized, max_length=64)))
+
+    selected: list[str] = []
+    for _, sentence in sorted(candidates, key=lambda item: (-item[0], len(item[1]))):
+        if sentence in selected:
+            continue
+        selected.append(sentence)
+        if len(selected) >= max_items:
+            break
+    return selected
+
+
 def _extract_tracked_article_relationship_aftercare_cues(
     payload: Mapping[str, object],
     *,
@@ -1225,6 +1405,10 @@ def _extract_tracked_article_topic_cues(
         warmth_cues = _extract_tracked_article_everyday_warmth_cues(payload, max_items=max_items)
         if warmth_cues:
             return warmth_cues
+    if _has_resilience_reconstruction_focus(payload):
+        resilience_cues = _extract_tracked_article_resilience_cues(payload, max_items=max_items)
+        if resilience_cues:
+            return resilience_cues
     if _has_broad_emotional_release_focus(payload):
         emotional_cues = _extract_tracked_article_emotional_cues(payload, max_items=max_items)
         if emotional_cues:
@@ -1476,6 +1660,9 @@ def _build_tracked_article_everyday_warmth_guard_instructions(payload: Mapping[s
         return (
             "如果参考文章重心是“大事祛魅”、日常陪伴回归和普通生活重新变重要，"
             "不要把选题收窄成身体告警、自我照料积压或单一复查拖延主线。"
+            "也不要把题眼改写成“有人等你回应”“先把关系接住”或谁被排在回应顺序后面这类关系回应排序。"
+            "不要把它再抽象成“女性要重建生活托底感”“意义供给退潮后怎么办”这类泛成长标题。"
+            "不要写成“女人中年以后更需要重估哪些事”这类年龄阶段提问式抽象标题。"
             "文中的手术、停下来和休养只是价值转向的触发点，不是整篇唯一主命题。"
             "标题和切入角度优先围绕成就叙事为什么会祛魅、普通陪伴为什么反而最重要来重组；"
             "尽量把晚饭、回家、接孩子、陪父母、说晚安这类日常接口当成情绪证明，而不是把重点压回体检、复查和身体追债。"
@@ -1492,6 +1679,21 @@ def _build_tracked_article_everyday_warmth_guard_instructions(payload: Mapping[s
             "它们只是价值转向的触发点，真正要写的是：那些被高估的大事为什么会慢慢祛魅，普通陪伴和微小日常为什么反而最能托住一个人。"
             "开头可以直接点破这种误认，但需要留 1 到 2 个普通日常接口作情绪证明，比如一顿晚饭、一次接孩子、陪父母散步、说句晚安；不要把它们铺成大段场景。"
             "结尾回到一个很小的陪伴动作或日常决定上，不要又拐回身体告警、自我责备或万能祝福。"
+        )
+    return ""
+
+
+def _build_tracked_article_resilience_guard_instructions(payload: Mapping[str, object], *, stage: str) -> str:
+    if not _has_resilience_reconstruction_focus(payload):
+        return ""
+
+    if stage == "topic":
+        return (
+            "如果参考文章重心是命运重击、长期疼痛、训练硬撑和不被定义后的重建，"
+            "不要把选题改写成泛女性自我照顾、把自己排回前面或先学会照顾自己这类轻量自助主线。"
+            "标题和切入角度优先围绕命运怎样把人逼到极限、训练怎样一点点重建身体与意志、一个人怎样拒绝被残缺或低谷定义来重组。"
+            "不要把题眼压成提醒列表、待办顺位、谁先照顾谁或情绪兜底。"
+            "像车祸、手术台、泳池里多划11下、肩伤背痛、不被定义这类抓手，比“先把自己放回前面”更接近原文真正的冲突。"
         )
     return ""
 
@@ -2388,6 +2590,9 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     recomposition_recipe_instructions = _build_recomposition_recipe_instructions(payload, stage="outline")
     pressure_guard_instructions = _build_tracked_article_pressure_guard_instructions(payload, stage="outline")
     emotional_release_guard_instructions = _build_tracked_article_emotional_release_guard_instructions(payload, stage="outline")
+    everyday_warmth_guard_instructions = _build_tracked_article_everyday_warmth_guard_instructions(
+        payload, stage="outline"
+    )
     relationship_aftercare_guard_instructions = _build_tracked_article_relationship_aftercare_guard_instructions(payload, stage="outline")
     return PromptTemplate(
         instructions=build_stage_instructions(
@@ -2403,6 +2608,7 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         + "大纲只写段落职责和推进动作，不要把任何一段提前扩写成完整正文；每段尽量控制在 1 行。"
         + pressure_guard_instructions
         + emotional_release_guard_instructions
+        + everyday_warmth_guard_instructions
         + relationship_aftercare_guard_instructions
         + structure_mode_instructions
         + recomposition_recipe_instructions
@@ -2442,6 +2648,10 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     content_skill_instructions = build_content_skill_instructions(stage="topic")
     pressure_guard_instructions = _build_tracked_article_pressure_guard_instructions(payload, stage="topic")
     emotional_release_guard_instructions = _build_tracked_article_emotional_release_guard_instructions(payload, stage="topic")
+    everyday_warmth_guard_instructions = _build_tracked_article_everyday_warmth_guard_instructions(
+        payload, stage="topic"
+    )
+    resilience_guard_instructions = _build_tracked_article_resilience_guard_instructions(payload, stage="topic")
     relationship_aftercare_guard_instructions = _build_tracked_article_relationship_aftercare_guard_instructions(payload, stage="topic")
     if source_type == "tracked_article":
         body_cues = _extract_tracked_article_topic_cues(payload)
@@ -2482,6 +2692,8 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             + "如果参考文章正文里已经出现可用的现实接口、身体提醒、延迟代价或被反复往后放的动作，优先拿这些抓手重新组织选题，不要只围着摘要里的大道理换说法。"
             + pressure_guard_instructions
             + emotional_release_guard_instructions
+            + everyday_warmth_guard_instructions
+            + resilience_guard_instructions
             + relationship_aftercare_guard_instructions
         )
     else:
@@ -2600,6 +2812,9 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     timeout_recovery_instructions = _build_timeout_recovery_draft_instructions(payload)
     pressure_guard_instructions = _build_tracked_article_pressure_guard_instructions(payload, stage="draft")
     emotional_release_guard_instructions = _build_tracked_article_emotional_release_guard_instructions(payload, stage="draft")
+    everyday_warmth_guard_instructions = _build_tracked_article_everyday_warmth_guard_instructions(
+        payload, stage="draft"
+    )
     relationship_aftercare_guard_instructions = _build_tracked_article_relationship_aftercare_guard_instructions(payload, stage="draft")
     structure_mode_instructions = (
         ""
@@ -2701,6 +2916,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         + wechat_public_account_instructions
         + pressure_guard_instructions
         + emotional_release_guard_instructions
+        + everyday_warmth_guard_instructions
         + relationship_aftercare_guard_instructions
         + structure_mode_instructions
         + recomposition_recipe_instructions

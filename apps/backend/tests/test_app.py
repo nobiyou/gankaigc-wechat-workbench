@@ -797,7 +797,59 @@ def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_art
     assert "大事" in payload["title"] or "小事" in payload["title"] or "重要" in payload["title"]
     assert "体检" not in payload["angle"]
     assert "复查" not in payload["angle"]
+    assert "关系接住" not in payload["angle"]
+    assert "等你回应" not in payload["title"]
+    assert "托底感" not in payload["title"]
+    assert "中年以后" not in payload["title"]
     assert "晚饭" in payload["angle"] or "接孩子" in payload["angle"] or "陪伴" in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_resilience_article_out_of_self_help_sink(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总要多耗那11下的女性，先把自己从列表最底下挪上来",
+                "angle": "从很多女性总把自己放在提醒列表最底下切入，拆开她们为什么总先照顾别人、先替所有人兜底，最后才想起把自己排回前面。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "jiang-yuyan-reroute",
+            "source_name": "手动录入",
+            "title": "一个人最大的底气，不是美貌，也不是金钱，而是韧性",
+            "url": "https://example.com/jiang-yuyan-reroute",
+            "author": "未知",
+            "summary": "文章以残奥会冠军蒋裕燕的人生为例，重点写命运重击、长期疼痛、泳池训练和不被定义后的重建，而不是女性把自己放最后的情绪照顾。",
+            "body_markdown": (
+                "3岁那年，一场车祸无情夺走了蒋裕燕的右臂与右腿。从3岁到8岁，她每一年都要被迫走上手术台，接受锯掉新生骨头的剧痛。\n\n"
+                "为了康复，她走进了泳池。没有右臂维持平衡，没有右腿蹬水发力，她每一次划水都要比常人多划11下。\n\n"
+                "疲惫与酸痛，肩伤反复发作、背痛缠扰不休、炎症如影随形，可她从未停下前进的脚步。命运以痛吻她，她却在破碎中重建自己，不让任何人定义她能做的事情。"
+            ),
+            "structure_notes": "先写命运重击和手术台，再转到泳池里的训练硬撑，结尾回到不被定义和韧性重建。",
+            "tags": ["韧性", "残奥冠军", "命运重击", "训练", "不被定义"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/jiang-yuyan-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert "女性" not in payload["title"]
+    assert "列表最底下" not in payload["title"]
+    assert "把自己放最后" not in payload["title"]
+    assert "提醒列表" not in payload["angle"]
+    assert "先照顾别人" not in payload["angle"]
+    assert "兜底" not in payload["angle"]
+    assert "11下" in payload["title"] or "命运" in payload["title"] or "韧性" in payload["title"]
+    assert "训练" in payload["angle"] or "命运" in payload["angle"] or "重建" in payload["angle"]
 
 
 def test_tracked_articles_can_be_created_listed_and_turned_into_topics() -> None:
@@ -1205,6 +1257,144 @@ def test_project_generation_works_for_topics_created_from_tracked_articles(monke
     assert "reference_article_tags" not in draft_payload
     assert draft_payload["strategy_card"]["version"] == 1
     assert draft_payload["problem_brief"]["version"] == 1
+
+
+def test_generate_strategy_package_for_everyday_warmth_tracked_article_stays_on_small_things_lane() -> None:
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "small-things-strategy-article",
+            "source_name": "手动录入",
+            "title": "一生最重要的事，不是大事",
+            "url": "https://example.com/small-things-strategy-article",
+            "author": "未知",
+            "summary": "文章把“做大事”的社会期待，与人在生活放慢后重新确认的日常幸福放在一起比较，重点不是关系善后，而是成就祛魅之后，小事和陪伴怎样重新显出分量。",
+            "body_markdown": (
+                "年轻时，我们都想改变世界，觉得人生一定要轰轰烈烈，要做大事，要出人头地。可走过半生，才发现，这世界再喧嚣，最重要的事，不过是活在人间烟火里，陪在爱的人身边。\n\n"
+                "朋友是上市公司的高管，前些年，没日没夜地加班，最近因为身体不舒服做了个手术，在家休养。\n\n"
+                "他终于在日落之前，陪爱人做了一顿晚饭。他久违地去接孩子放学。那一刻，他突然觉得，那些拼了命追求的大事，好像瞬间祛魅了。\n\n"
+                "真正让人眼眶发热的，可能从来不是升职加薪、远大抱负，而是这些不起眼的、细碎的、平淡的日常瞬间。宏大叙事属于时代，而一碗热汤、一盏夜灯、一句晚安，才属于你我。"
+            ),
+            "structure_notes": "开头先摆出追逐成就的大命题，中段借停下来后的家庭陪伴完成价值转向，结尾回到普通日常和陪伴。",
+            "tags": ["日常治愈", "家庭陪伴", "价值重估"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/small-things-strategy-article/to-topic",
+        json={
+            "slug": "small-things-strategy-topic",
+            "title": "当头衔开始失重，晚饭、回家和一句晚安为什么反而变贵了",
+            "angle": "从头衔满足感会递减切入，拆开人在长期向上奔跑后，为什么会重新把晚饭、回家、陪父母和一句晚安看得更重。",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "small-things-strategy-project", "title": "小事回归策略测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/small-things-strategy-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    payload = strategy_response.json()
+
+    assert payload["strategy_card"]["structure_mode"] == "everyday_warmth_return"
+    combined = "\n".join(
+        [
+            payload["problem_brief"]["clarified_problem"],
+            payload["problem_brief"]["observed_phenomenon"],
+            payload["problem_brief"]["writing_goal"],
+            payload["problem_brief"]["feedback_entry"],
+            payload["strategy_card"]["point_of_view"],
+            payload["strategy_card"]["conflict_frame"],
+            payload["strategy_card"]["emotional_path"],
+            payload["strategy_card"]["opening_move"],
+            payload["strategy_card"]["body_shift"],
+            payload["strategy_card"]["ending_move"],
+        ]
+    )
+    constraints_text = "\n".join(payload["strategy_card"]["expression_constraints"])
+
+    assert "祛魅" in combined
+    assert "陪伴" in combined
+    assert "晚饭" in combined or "回家" in combined or "晚安" in combined
+    assert "长期体谅" not in combined
+    assert "继续等你的心气" not in combined
+    assert "关系坏在冲突" not in combined
+    assert "长期体谅" in constraints_text
+
+
+def test_generate_strategy_package_for_resilience_tracked_article_stays_on_reconstruction_lane() -> None:
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "jiang-yuyan-strategy-article",
+            "source_name": "手动录入",
+            "title": "一个人最大的底气，不是美貌，也不是金钱，而是韧性",
+            "url": "https://example.com/jiang-yuyan-strategy-article",
+            "author": "未知",
+            "summary": "文章以残奥会冠军蒋裕燕的人生为例，重点写命运重击、长期疼痛、泳池训练和不被定义后的重建，而不是女性把自己放最后的情绪照顾。",
+            "body_markdown": (
+                "3岁那年，一场车祸无情夺走了蒋裕燕的右臂与右腿。从3岁到8岁，她每一年都要被迫走上手术台，接受锯掉新生骨头的剧痛。\n\n"
+                "为了康复，她走进了泳池。没有右臂维持平衡，没有右腿蹬水发力，她每一次划水都要比常人多划11下。\n\n"
+                "疲惫与酸痛，肩伤反复发作、背痛缠扰不休、炎症如影随形，可她从未停下前进的脚步。命运以痛吻她，她却在破碎中重建自己，不让任何人定义她能做的事情。"
+            ),
+            "structure_notes": "先写命运重击和手术台，再转到泳池里的训练硬撑，结尾回到不被定义和韧性重建。",
+            "tags": ["韧性", "残奥冠军", "命运重击", "训练", "不被定义"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/jiang-yuyan-strategy-article/to-topic",
+        json={
+            "slug": "jiang-yuyan-strategy-topic",
+            "title": "手术台下来以后，一个人是怎么靠重复训练把自己重新托住的",
+            "angle": "从伤痛、复健到泳池里多划出的每一下，拆开一个人在身体受限之后，怎样靠持续行动慢慢重建意志，而不把低谷当成自我定义。",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "jiang-yuyan-strategy-project", "title": "韧性重建策略测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/jiang-yuyan-strategy-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    payload = strategy_response.json()
+
+    assert payload["strategy_card"]["structure_mode"] == "resilience_reconstruction"
+    combined = "\n".join(
+        [
+            payload["problem_brief"]["clarified_problem"],
+            payload["problem_brief"]["observed_phenomenon"],
+            payload["problem_brief"]["writing_goal"],
+            payload["problem_brief"]["feedback_entry"],
+            payload["strategy_card"]["point_of_view"],
+            payload["strategy_card"]["conflict_frame"],
+            payload["strategy_card"]["emotional_path"],
+            payload["strategy_card"]["opening_move"],
+            payload["strategy_card"]["body_shift"],
+            payload["strategy_card"]["ending_move"],
+        ]
+    )
+    constraints_text = "\n".join(payload["strategy_card"]["expression_constraints"])
+
+    assert "命运" in combined
+    assert "训练" in combined
+    assert "被定义" in combined or "自我定义" in combined or "重建" in combined
+    assert "把自己排到最后" not in combined
+    assert "照顾自己" not in combined
+    assert "稳住自己" not in combined
+    assert "照顾自己" in constraints_text
+    assert "术后恢复" in constraints_text
 
 
 def test_create_project_from_topic_and_advance_stage() -> None:

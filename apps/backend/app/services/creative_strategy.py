@@ -246,6 +246,50 @@ _RELATIONSHIP_AFTERCARE_THESIS_MARKERS = (
     "回避修复",
     "回避税",
 )
+_RESILIENCE_RECONSTRUCTION_ADVERSITY_KEYWORDS = (
+    "韧性",
+    "命运",
+    "重击",
+    "淬炼",
+    "凤凰涅槃",
+    "车祸",
+    "手术台",
+    "剧痛",
+    "伤痛",
+    "残缺",
+    "破碎",
+    "疼痛",
+)
+_RESILIENCE_RECONSTRUCTION_TRAINING_KEYWORDS = (
+    "残奥",
+    "冠军",
+    "泳池",
+    "游泳",
+    "划水",
+    "多划11下",
+    "11下",
+    "训练",
+    "肩伤",
+    "背痛",
+    "炎症",
+    "反复重来",
+)
+_RESILIENCE_RECONSTRUCTION_IDENTITY_KEYWORDS = (
+    "不要让任何人",
+    "限制你",
+    "破碎中重建",
+    "不被定义",
+    "自己的太阳",
+    "破局而上",
+    "重新站起来",
+)
+_RESILIENCE_RECONSTRUCTION_THESIS_MARKERS = (
+    "百折不回",
+    "真正的强大",
+    "完整的人生",
+    "一步步生长",
+    "不必借光而行",
+)
 _SUPPORTIVE_HEALTHY_BODY_MARKERS = ("健康的身体", "爱你的家人", "三两好友", "一碗热饭")
 
 
@@ -383,8 +427,14 @@ def build_strategy_package(
         "不要复用不是A而是B的对称判断句",
         "不要沿用参考文章的开头对象、推进顺序和结尾判断",
     ]
+    if structure_mode == "everyday_warmth_return":
+        expression_constraints.append("不要把正文重心滑成“长期体谅”“别人继续等你的心气”或“关系坏在冲突之外”这类关系善后判断。")
+        expression_constraints.append("不要把手术、停下来或身体受挫写成主要问题，它们只承担价值祛魅的转折证据。")
     if structure_mode == "relationship_aftercare":
         expression_constraints.append("少写“真正伤人的不是……”或“关系不是输在……而是输在……”这类整齐翻转句。")
+    if structure_mode == "resilience_reconstruction":
+        expression_constraints.append("不要把命运重击和训练重建稿改写成“把自己排回前面”“照顾自己”或“术后恢复”这类自我照料文。")
+        expression_constraints.append("不要把人物写成被别人接住的关系稿，主线要留在疼痛、训练和不被定义的重建上。")
     expression_constraints = merge_unique_lines(
         expression_constraints,
         _build_reference_shell_expression_constraints(reference_shell_signals),
@@ -642,6 +692,17 @@ def _has_relationship_aftercare_reference(*parts: str) -> bool:
     )
 
 
+def _has_resilience_reconstruction_reference(*parts: str) -> bool:
+    corpus = " ".join(part.strip() for part in parts if part and part.strip())
+    if not corpus:
+        return False
+    adversity_hits = _count_keyword_hits(corpus, _RESILIENCE_RECONSTRUCTION_ADVERSITY_KEYWORDS)
+    training_hits = _count_keyword_hits(corpus, _RESILIENCE_RECONSTRUCTION_TRAINING_KEYWORDS)
+    identity_hits = _count_keyword_hits(corpus, _RESILIENCE_RECONSTRUCTION_IDENTITY_KEYWORDS)
+    thesis_hits = _count_keyword_hits(corpus, _RESILIENCE_RECONSTRUCTION_THESIS_MARKERS)
+    return adversity_hits >= 2 and training_hits >= 2 and (identity_hits >= 1 or thesis_hits >= 1)
+
+
 def _uses_broad_emotional_release_mode(*, topic_title: str = "", topic_angle: str, structure_mode: str = "") -> bool:
     if structure_mode != "emotional_engine_direct":
         return False
@@ -665,6 +726,10 @@ def _uses_everyday_warmth_return_mode(*, topic_title: str = "", topic_angle: str
 
 def _uses_relationship_aftercare_mode(*, topic_title: str = "", topic_angle: str, structure_mode: str = "") -> bool:
     return structure_mode == "relationship_aftercare"
+
+
+def _uses_resilience_reconstruction_mode(*, topic_title: str = "", topic_angle: str, structure_mode: str = "") -> bool:
+    return structure_mode == "resilience_reconstruction"
 
 
 def _extract_pressure_reference_cues(reference_body_markdown: str, *, max_items: int = 3) -> list[str]:
@@ -736,6 +801,8 @@ def _build_reader_situation(topic_title: str, topic_angle: str, *, structure_mod
         return "一路追着更大的目标往前跑，后来才发现真正重要的东西一直在身边的人"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "每次吵完都要自己消化情绪、把日子接回去的人"
+    if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "被命运或身体限制迎头打过，却还得一次次把自己重新托住的人"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人"
     if "边界" in topic_angle:
@@ -763,6 +830,8 @@ def _build_core_conflict(
         return "越把重要感押在更大的目标上，越容易在一路往前赶的时候，错过那些真正托住自己的陪伴和日常。"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "冲突本身未必会让关系散掉，可如果每次吵完都只有一方在善后，安全感就会被一点点磨掉。"
+    if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "真正难的，不只是命运下手太重，而是长期疼痛、重复训练和外界定义都在往下拽，人还是得决定不把残缺和低谷收成自己的结论。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "越舍不得停下，越容易把继续消耗误认成认真，最后连眼前真正重要的东西也一起忽略掉。"
     if "边界" in topic_angle:
@@ -800,6 +869,8 @@ def _build_observed_phenomenon(
         return "很多人一路追着更大的目标往前跑，等真正慢下来以后，才突然看见那些最普通的陪伴和日常，原来才是最难被替代的部分"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "很多关系表面还能照常过下去，可每次争执后的安抚、解释和修复都落在同一个人身上，久了连开口都变得很累"
+    if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "有些人不是没有被命运打碎过，而是被打碎以后，还得在长期疼痛、重复训练和别人想替她下定义的目光里，一次次把自己重新托起来"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "很多人把继续投入误认成还有希望，等到心力、睡眠和眼前拥有的东西一起被透支，才发现自己一直没舍得停下来"
     if source_mode == "tracked_article":
@@ -837,6 +908,8 @@ def _normalize_topic_angle(*, topic_angle: str, topic_title: str, source_mode: s
         return normalized
     if structure_mode == "relationship_aftercare":
         return normalized
+    if structure_mode == "resilience_reconstruction":
+        return "从命运重击、长期疼痛和重复训练切入，重点写一个人怎样在反复重来里把身体与意志重新托住，而不是被残缺、低谷和外界定义收走人生。"
     if structure_mode == "emotional_engine_direct":
         return normalized
     if structure_mode == "pressure_interface_direct":
@@ -883,6 +956,8 @@ def _build_writing_goal(
         return "把人为什么总把重要感押在更大的目标上讲清楚，也把人慢下来以后，为什么反而会被最普通的陪伴和日常重新托住讲清楚。"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "把为什么吵架不可怕、吵完以后没人回来接住你才最伤人讲清楚，让读者看见一段关系的分量其实藏在善后态度里。"
+    if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "把人为什么能在命运重击、长期疼痛和重复训练里，一点点把自己重新托住讲清楚，让读者看到韧性不是口号，而是拒绝被残缺和低谷定义。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "把人为什么会把继续投入误认成还有希望讲清楚，让读者看见停下不是认输，而是把心力收回来。"
     if "边界" in topic_angle:
@@ -939,6 +1014,8 @@ def _build_clarified_problem(
         return "真正需要被看见的，不是人该不该追求更大的目标，而是为什么很多人要等到慢下来甚至差点错过的时候，才重新承认那些微小陪伴和普通日常才是生活的底座。"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "真正需要被看见的，是为什么一次次争执之后，总是只有一方在回收情绪、重建秩序，关系也就从这里开始慢慢失温。"
+    if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "真正需要被看见的，不是一个励志标签，而是为什么有些人明明被命运重击、长期疼痛和训练代价反复碾过，还是会在一次次重来里拒绝把残缺和低谷收成自我定义。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "真正需要被看见的，不是人人都懂却做不到的道理，而是人为什么明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。"
     return f"{topic_title}真正需要被看见的，是{observed_phenomenon}里一点点累积出来的压力和失衡。"
@@ -975,6 +1052,11 @@ def _build_feedback_entry(
         return (
             f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
             "也会认出，关系发冷常常就是从每次架后都没人回来接住她开始的。"
+        )
+    if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return (
+            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            "也会认出，真正托住一个人的往往不是一句励志话，而是那些没人替她完成的重复训练和不肯被定义的那股劲。"
         )
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
@@ -1028,6 +1110,8 @@ def _build_problem_explanation(
         return "这篇稿子要解释的，是为什么很多人明明已经拥有最重要的陪伴和日常，却总要在一路往前赶、差点错过之后，才承认它们才是生活里最难替代的部分。"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "这篇稿子要解释的，是为什么在有些关系里，架一吵完，总是同一个人先把话咽回去、把日常接回去，久了以后先退掉的往往是安全感和表达欲。"
+    if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "这篇稿子要解释的，是为什么人明明已经被命运和疼痛打得很重，还是会在重复训练和反复重来里，不肯把自己交给残缺、低谷和外界定义。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "这篇稿子要解释的，是为什么人明明已经被拖得很累了，还是会把继续投入误认成更接近幸福。"
     return f"这篇稿子要解释的，是为什么{observed_phenomenon}会一遍遍重演，读者真正卡住的那一步到底在哪。"
@@ -1051,6 +1135,8 @@ def _build_point_of_view(topic_angle: str, *, topic_title: str = "", primary_pre
         return "不急着把文章写成健康告诫或人生箴言，先把那些被高估的大事为什么会慢慢祛魅、普通陪伴为什么反而更重要讲清楚。"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "不急着给争吵贴对错，先把吵完以后谁在善后、谁在回避、谁愿不愿意回来修复讲清楚。"
+    if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "不急着把人物写成励志样板或术后恢复案例，先把命运下手有多重、训练怎样一点点把身体与意志重新托住讲清楚。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "不急着讲知足、放下或清醒的大道理，先把人为什么明明很累却还是不肯松手讲清楚。"
     if "边界" in topic_angle:
@@ -1080,6 +1166,8 @@ def _build_conflict_frame(
         return "真正让人后知后觉的，不是没做成更大的事，而是一路忙着往前赶的时候，把最能托住自己的日常和陪伴慢慢放轻了。"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "一段关系会慢慢变冷，常常是因为争执过后，总是同一个人留在原地处理沉默、试探气氛，再把情绪和日常接回去。"
+    if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
+        return "真正难的，不只是命运下手太重，而是长期疼痛、训练消耗和外界定义都在往下拽，人还得决定自己不被它们收走。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "真正把人困住的，不是没有答案，而是总把舍不得放手误认成还有希望。"
     if "边界" in topic_angle:
@@ -1108,6 +1196,8 @@ def _build_emotional_path(
         return "先认出人为什么总把重要感押在更大的目标上，再看那些普通陪伴和细小日常，是怎样在慢下来以后重新显出分量的。"
     if structure_mode == "relationship_aftercare":
         return "先认出每次吵完最累的地方，其实落在后面那段总要自己把日常接回去的善后，再看人怎样从还想沟通，慢慢退到不想再开口。"
+    if structure_mode == "resilience_reconstruction":
+        return "先认出命运怎样把人逼到极限，再看她怎样在训练、疼痛和反复重来里一点点把自己重新托住，最后落到不肯被定义上。"
     if structure_mode == "fragment_chain_observation":
         return "先让不同接口里的压力互相照见，再慢慢显出真正被牺牲掉的部分。"
     if _uses_broad_emotional_release_mode(topic_angle=topic_angle, structure_mode=structure_mode):
@@ -1138,6 +1228,8 @@ def _build_opening_move(
         return "开头先点破“更大的事未必更重要”这种误认，再用一顿晚饭、一次接孩子、陪父母走一段路这类普通日常托住判断；不要铺成长场景。"
     if structure_mode == "relationship_aftercare":
         return "开头先落一个吵完之后还得照常上班、做饭、回消息，但胸口还紧着的小接口，不要先抽象讲“爱不爱”或“成熟关系”。"
+    if structure_mode == "resilience_reconstruction":
+        return "开头先落一个命运重击后的硬事实：手术台、泳池里多划11下、肩伤背痛这类抓手，不要先讲励志大道理，也不要滑成术后恢复稿。"
     if structure_mode == "emotional_engine_direct":
         if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
             return "开头不要整段生活场景冷启动，先用一句会让人停一下的误认判断把读者拉进来；需要细节时，只留一个能挂住“继续投入”或“不肯松手”的小接口。"
@@ -1176,9 +1268,11 @@ def _build_body_shift(
             return f"中段沿着 `{cues[0]}` 这条代价线推进：哪件事先被顺手往后挪，当时怎么处理，后面又留下什么新的失序。"
         return "中段沿着 1 到 2 条压力链推进：哪件事先被顺手往后挪，当时怎么处理，后面又留下什么代价、误差或新的失序。"
     if structure_mode == "everyday_warmth_return":
-        return "中段先拆成就、体面、宏大目标为什么会在某个阶段突然祛魅，再把普通陪伴、微小日常和被重新看见的关系分量接回来，不要把篇幅重新压回身体提醒追债。"
+        return "中段先拆成就、体面、宏大目标为什么会在某个阶段突然祛魅，再把普通陪伴、微小日常和被重新看见的生活分量接回来，让晚饭、回家、陪父母这些小动作承担分量回落。"
     if structure_mode == "relationship_aftercare":
         return "中段先写每次吵完谁先把话咽回去、谁先恢复正常、谁先试探气氛，再写长期单人善后怎样让表达欲、期待感和安全感一点点退掉。"
+    if structure_mode == "resilience_reconstruction":
+        return "中段先拆长期疼痛和训练代价怎样一遍遍逼人重来，再写她为什么没有把残缺、低谷或外界定义收成自我结论。"
     if structure_mode == "emotional_engine_direct":
         if _uses_broad_emotional_release_mode(topic_angle=topic_angle, structure_mode=structure_mode):
             return "中段先拆情绪发动机：人为什么会把继续投入误认成还有希望，又为什么总要等到失去之后才看见已经拥有的部分。"
@@ -1201,6 +1295,8 @@ def _build_ending_move(topic_angle: str, structure_mode: str) -> str:
         return "结尾回到一个很小的陪伴动作或普通决定上，让分量自然落下来，不要写成身体告诫、口号总结或祝福式收束。"
     if structure_mode == "relationship_aftercare":
         return "结尾回到一个还没被接住的小动作、沉默或没等来的回应上，不要写成万能关系鸡汤。"
+    if structure_mode == "resilience_reconstruction":
+        return "结尾回到一个还在继续的训练动作、身体余波或不肯松掉的念头上，不写成励志口号，也不写成自我照料宣言。"
     if structure_mode == "emotional_engine_direct":
         if _uses_broad_emotional_release_mode(topic_angle=topic_angle, structure_mode=structure_mode):
             return "结尾给读者一个明确的价值赦免和现实答案：停下来不是失去，是把心力收回来。"
@@ -1278,6 +1374,12 @@ def _build_structure_mode(
             reference_summary,
             reference_body_markdown,
         )
+        reference_is_resilience_reconstruction = _has_resilience_reconstruction_reference(
+            normalized,
+            tracked_article_scene,
+            reference_summary,
+            reference_body_markdown,
+        )
         reference_is_emotional_release = _has_emotional_release_reference(
             normalized,
             tracked_article_scene,
@@ -1290,6 +1392,8 @@ def _build_structure_mode(
             return "everyday_warmth_return"
         if reference_is_relationship_aftercare:
             return "relationship_aftercare"
+        if reference_is_resilience_reconstruction:
+            return "resilience_reconstruction"
         if reference_is_emotional_release and not reference_has_pressure:
             return "emotional_engine_direct"
         if _has_pressure_interface_topic(normalized) or reference_has_pressure or any(
@@ -1342,6 +1446,11 @@ def _describe_structure_mode(structure_mode: str) -> tuple[str, str]:
             "争吵后善后推进",
             "先守住争执过后的空白、沉默或回避接口，再顺着谁先把话咽回去、谁先恢复正常、谁先把场面接回去推进，让安全感变薄这件事从动作里自己显出来。",
         )
+    if structure_mode == "resilience_reconstruction":
+        return (
+            "逆境重建推进",
+            "先守住命运重击、身体限制或训练代价，再沿着疼痛、重复训练和拒绝被定义的反抗往前推，不写成术后恢复、自我照料或泛励志鸡汤。",
+        )
     if structure_mode == "pressure_interface_direct":
         return (
             "压力接口直推",
@@ -1391,12 +1500,28 @@ def _build_recomposition_recipe(
             "需要判断时，把判断压回事实、后果和当场反应里，不要排成“先摆现象，再补道理，再给答案”的成熟讲解稿。",
             ending_step,
         ]
+    elif structure_mode == "everyday_warmth_return":
+        recipe = [
+            opening_step,
+            "前半篇先守住“大事 / 成就 / 体面 / 向上奔跑”为什么会慢慢失重，不要一上来就滑进某段关系谁更委屈、谁在长期体谅的善后逻辑。",
+            "中段沿着“宏大叙事祛魅 -> 普通陪伴回到视野里 -> 小日常重新显出分量”推进，让晚饭、回家、晚安、陪父母这类动作承担价值回落。",
+            "不要把身体不适、手术或停下来写成主要问题，它们只负责提供转折证据；也不要把正文改写成“别人还在等你回应”的关系排序稿。",
+            ending_step,
+        ]
     elif structure_mode == "relationship_aftercare":
         recipe = [
             opening_step,
             "前半篇先守住一次吵完之后的空白、沉默或回避接口，不要立刻抬成“爱不爱”的整篇总论。",
             "中段沿着“谁先把话咽回去 / 谁先恢复正常 / 谁先试探气氛 / 谁把情绪和日常接回去”这条关系代价线推进。",
             "少写“真正伤人的不是……”或“关系不是输在……而是输在……”这类整齐翻转句，判断要压回动作、回避、回应顺序和后续失温里自己长出来。",
+            ending_step,
+        ]
+    elif structure_mode == "resilience_reconstruction":
+        recipe = [
+            opening_step,
+            "前半篇先守住命运重击后的硬事实：手术台、身体限制、训练动作或长期疼痛，不要一上来就抬成励志总论，也不要转成术后恢复或自我照料提醒。",
+            "中段沿着“重击留下的代价 -> 重复训练怎样逼人重来 -> 为什么她还是不肯被定义”推进，让疼痛、训练和意志重建彼此咬住。",
+            "判断要压回训练动作、身体余波和被命运逼到极限后的选择里，不要写成高位赞美、女性成长口号或万能鼓劲话。",
             ending_step,
         ]
     elif structure_mode == "single_window_scene":
@@ -1455,8 +1580,12 @@ def _build_divergence_axes(*, source_mode: str, structure_mode: str) -> list[str
         axes.append("不要把原创距离理解成换场景，必须换情绪发动机、判断顺序和价值赦免方式")
     if structure_mode == "pressure_interface_direct":
         axes.append("不要把普通接口重新抬成终局问题、人生总结或价值赦免台词，要让代价从过程里自己长出来")
+    if structure_mode == "everyday_warmth_return":
+        axes.append("不要把小事回归文改写成长期体谅、关系善后或术后恢复自我照料稿，主线必须留在成就祛魅和日常分量回归上")
     if structure_mode == "relationship_aftercare":
         axes.append("不要把关系修复文改写成泛内耗、自我成长或单人稳情绪稿，主线必须留在吵后谁来善后和谁在回避修复")
+    if structure_mode == "resilience_reconstruction":
+        axes.append("不要把命运重击和训练重建稿改写成术后恢复、自我照料或泛励志样板文，主线必须留在疼痛、重复训练和不被定义的重建上")
     if source_mode == "tracked_article":
         axes.append("判断句的措辞和情绪转折不能复用参考文章现成表达")
         axes = merge_unique_lines(
@@ -1505,9 +1634,17 @@ def _build_execution_checklist(*, structure_mode: str, reference_shell_signals: 
             ]
             if structure_mode == "pressure_interface_direct"
             else [
+                "是否先拆成就祛魅，再把晚饭、回家、陪伴这类小日常的分量接回来，而不是滑成长期体谅、关系排序或身体提醒告诫。",
+            ]
+            if structure_mode == "everyday_warmth_return"
+            else [
                 "是否先守住吵后空白、沉默或回避接口，再推进谁先把话咽回去、谁先恢复正常、谁在善后，而不是滑成泛自我成长结论或整齐翻转句。",
             ]
             if structure_mode == "relationship_aftercare"
+            else [
+                "是否先守住命运重击、身体限制或训练代价，再推进重复训练和拒绝被定义，而不是滑成术后恢复、自我照料或泛励志口号。",
+            ]
+            if structure_mode == "resilience_reconstruction"
             else [
                 "是否避开了整段空场景铺陈，同时保留了 1 到 2 个能挂住判断的真实接口，而不是把事实全蒸发成抽象判断。",
             ]

@@ -90,6 +90,7 @@ from app.services.prompt_templates import (
     _infer_tracked_article_pressure_guard,
     _has_broad_emotional_release_focus,
     _has_everyday_warmth_return_focus,
+    _has_resilience_reconstruction_focus,
 )
 from app.services.tone_profile_presets import (
     DEFAULT_TONE_PROFILE_PRESET,
@@ -2482,6 +2483,55 @@ _ABSTRACT_EVERYDAY_WARMTH_PRESSURE_TOKENS = (
     "追债",
     "自我照料",
 )
+_ABSTRACT_EVERYDAY_WARMTH_RELATIONSHIP_TOKENS = (
+    "有人等你回应",
+    "等你回应",
+    "把关系接住",
+    "关系接住",
+    "回应顺序",
+    "先接住关系",
+    "失去什么",
+    "成年女性",
+)
+_ABSTRACT_EVERYDAY_WARMTH_GROWTH_TOKENS = (
+    "重建的是生活托底感",
+    "生活托底感",
+    "意义供给",
+    "高光退潮",
+    "成长转向",
+    "怎么办",
+    "中年以后",
+    "更需要重估哪些事",
+    "重估哪些事",
+)
+_EVERYDAY_WARMTH_TOPIC_ANCHOR_TOKENS = (
+    "大事",
+    "小事",
+    "陪伴",
+    "晚饭",
+    "接孩子",
+    "父母",
+    "晚安",
+    "人间烟火",
+    "祛魅",
+    "热汤",
+    "夜灯",
+    "一家老小",
+    "回家",
+)
+_ABSTRACT_RESILIENCE_SELF_HELP_TOKENS = (
+    "女性",
+    "把自己放最后",
+    "把自己排到最后",
+    "列表最底下",
+    "提醒列表",
+    "先照顾别人",
+    "照顾别人",
+    "兜底",
+    "自我照顾",
+    "先把自己",
+    "排回前面",
+)
 
 
 def _compact_pressure_topic_cue(sentence: str) -> str:
@@ -2663,7 +2713,13 @@ def _should_rewrite_everyday_warmth_return_topic(payload: Mapping[str, object], 
     if not title and not angle:
         return False
     combined = f"{title} {angle}"
-    return any(token in combined for token in _ABSTRACT_EVERYDAY_WARMTH_PRESSURE_TOKENS)
+    if (
+        any(token in combined for token in _ABSTRACT_EVERYDAY_WARMTH_PRESSURE_TOKENS)
+        or any(token in combined for token in _ABSTRACT_EVERYDAY_WARMTH_RELATIONSHIP_TOKENS)
+        or any(token in combined for token in _ABSTRACT_EVERYDAY_WARMTH_GROWTH_TOKENS)
+    ):
+        return True
+    return not any(token in combined for token in _EVERYDAY_WARMTH_TOPIC_ANCHOR_TOKENS)
 
 
 def _rewrite_everyday_warmth_return_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> dict[str, str]:
@@ -2688,6 +2744,42 @@ def _rewrite_everyday_warmth_return_topic(payload: Mapping[str, object], ai_resu
         new_angle = "从人为什么总把重要感押在更大的目标上切入，写我们往前赶了很久以后，才怎样被一顿晚饭、一次接孩子、几句家常话重新提醒：真正托住生活的，往往是那些最普通的陪伴。"
     else:
         new_angle = "从成就叙事为什么总会在某个阶段突然祛魅切入，写人慢下来以后，怎样重新看见那些不起眼却最能托住生活的小事和陪伴。"
+    return {"title": new_title, "angle": new_angle}
+
+
+def _should_rewrite_resilience_reconstruction_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> bool:
+    if not _has_resilience_reconstruction_focus(payload):
+        return False
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+    if not title and not angle:
+        return False
+    combined = f"{title} {angle}"
+    return any(token in combined for token in _ABSTRACT_RESILIENCE_SELF_HELP_TOKENS)
+
+
+def _rewrite_resilience_reconstruction_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> dict[str, str]:
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+
+    body_markdown = str(payload.get("body_markdown") or "")
+    structure_notes = str(payload.get("structure_notes") or "")
+    summary = str(payload.get("summary") or "")
+    corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
+
+    if any(token in corpus for token in ("多划11下", "11下", "泳池", "划水")):
+        new_title = "那些总要多划11下的人，最后是怎样把自己从命运里撑出来的"
+    elif any(token in corpus for token in ("不被定义", "残缺", "破碎中重建")):
+        new_title = "命运想用残缺定义你时，真正托住人的往往是那股不肯松掉的韧性"
+    else:
+        new_title = "被命运反复重击的人，后来都是怎样一点点把自己重新站起来的"
+
+    if any(token in corpus for token in ("手术台", "车祸", "剧痛", "刺穿")) and any(
+        token in corpus for token in ("泳池", "训练", "多划11下", "划水")
+    ):
+        new_angle = "从命运怎样把一个人早早推上手术台切入，写她又怎样在泳池里一次次多划那11下，把疼痛、训练和不肯认输的劲，慢慢熬成重新站起来的人生。"
+    else:
+        new_angle = "从人被命运迎头重击以后，为什么还能在训练、疼痛和反复重来里一点点重建自己切入，写真正的韧性不是嘴上给自己打气，而是拒绝被残缺、低谷和外界定义收走人生。"
     return {"title": new_title, "angle": new_angle}
 
 
@@ -3097,6 +3189,8 @@ def generate_topic_from_tracked_article(article_slug: str) -> TopicItem:
             ai_result = _rewrite_everyday_warmth_return_topic(topic_payload, ai_result)
         if _should_rewrite_emotional_release_topic(topic_payload, ai_result):
             ai_result = _rewrite_emotional_release_topic(topic_payload, ai_result)
+        if _should_rewrite_resilience_reconstruction_topic(topic_payload, ai_result):
+            ai_result = _rewrite_resilience_reconstruction_topic(topic_payload, ai_result)
         connection.execute(
             """
             INSERT INTO topics (slug, trend_slug, source_type, source_ref_slug, title, angle, status)
