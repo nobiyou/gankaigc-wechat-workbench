@@ -753,6 +753,51 @@ def test_generate_topic_from_tracked_article_rewrites_happiness_release_article_
     assert "放手" in payload["angle"] or "不再强求" in payload["angle"] or "已经拥有" in payload["angle"]
 
 
+def test_generate_topic_from_tracked_article_rewrites_memory_reflux_phrase_out_of_emotional_release_topic(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总会冒出“要是他还在就好了”的人，心里卡着一段没被收尾的关系",
+                "angle": "从“要是他还在就好了”这句反复冒头的心声切入，拆开关系为何会在多年后仍回潮：真正挂住人的，常是没说完的话、没兑现的承诺和没被接住的自己。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "memory-reflux-reroute",
+            "source_name": "手动录入",
+            "title": "遗忘再长，也长不过明天和以后",
+            "url": "https://example.com/memory-reflux-reroute",
+            "author": "未知",
+            "summary": "文章围绕过去不会自动沉下去展开，重点不是复合，而是没收尾的关系为什么会在日常缝隙里反复回潮。",
+            "body_markdown": (
+                "又有多少个心绪翻涌的当下，你低眉叹息，因一点不起眼的小事，而不由自主地感慨，要是他还在就好了。\n\n"
+                "有些情有些人，却只适合收藏。过去再美好，也终究是过去了。\n\n"
+                "毕竟人生海海，缘分最奇妙的地方就在于，当你离一个人远去，也就意味着你离另一段际遇越来越近了。"
+            ),
+            "structure_notes": "先从旧事会回潮的判断切入，中段拆未完成关系如何反复触发想念，结尾回到带着遗憾往前走。",
+            "tags": ["旧关系", "回忆回潮", "未完成"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/memory-reflux-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert "要是他还在就好了" not in payload["title"]
+    assert "要是他还在就好了" not in payload["angle"]
+    assert "需要被接住" in payload["title"] or "旧关系" in payload["title"]
+    assert "没收好" in payload["title"] or "没收尾" in payload["title"] or "旧关系" in payload["title"]
+    assert "没收尾" in payload["angle"] or "没兑现的位置" in payload["angle"] or "生活顺序" in payload["angle"]
+
+
 def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_article_out_of_pressure_sink(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:

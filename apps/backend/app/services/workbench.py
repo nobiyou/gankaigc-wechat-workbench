@@ -2471,6 +2471,20 @@ _ABSTRACT_EMOTIONAL_RELEASE_RELATIONSHIP_TOKENS = (
     "再坚持一下",
     "止损",
 )
+_ABSTRACT_EMOTIONAL_RELEASE_MEMORY_TOKENS = (
+    "要是他还在",
+    "他还在就好了",
+    "还没来得及",
+    "很多时候",
+    "忘不掉",
+    "忘不了",
+    "回潮",
+    "意难平",
+    "没说完的话",
+    "没兑现的承诺",
+    "没被接住",
+    "未完成",
+)
 _ABSTRACT_EVERYDAY_WARMTH_PRESSURE_TOKENS = (
     "体检",
     "复查",
@@ -2684,7 +2698,9 @@ def _should_rewrite_emotional_release_topic(payload: Mapping[str, object], ai_re
     if not title and not angle:
         return False
     combined = f"{title} {angle}"
-    return any(token in combined for token in _ABSTRACT_EMOTIONAL_RELEASE_RELATIONSHIP_TOKENS)
+    return any(token in combined for token in _ABSTRACT_EMOTIONAL_RELEASE_RELATIONSHIP_TOKENS) or any(
+        token in combined for token in _ABSTRACT_EMOTIONAL_RELEASE_MEMORY_TOKENS
+    )
 
 
 def _rewrite_emotional_release_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> dict[str, str]:
@@ -2695,14 +2711,18 @@ def _rewrite_emotional_release_topic(payload: Mapping[str, object], ai_result: M
         return {"title": title, "angle": angle}
 
     joined_cues = " ".join(cues)
-    if "幸福" in joined_cues and any(token in joined_cues for token in ("放下", "不再强求", "强求")):
+    if any(token in joined_cues for token in ("要是他还在", "还在就好了", "没说完的话", "没兑现的承诺", "没被接住", "未完成")):
+        new_title = "总在需要被接住时先想到他的人，心里还卡着一段没收好的旧关系"
+    elif "幸福" in joined_cues and any(token in joined_cues for token in ("放下", "不再强求", "强求")):
         new_title = "你以为幸福是得到，后来才懂有些幸福叫放下"
     elif any(token in joined_cues for token in ("不再强求", "强求", "放手")):
         new_title = "人最容易错过的幸福，往往藏在不再强求以后"
     else:
         new_title = title
 
-    if any(token in joined_cues for token in ("珍惜", "知足", "拥有")):
+    if any(token in joined_cues for token in ("要是他还在", "还在就好了", "没说完的话", "没兑现的承诺", "没被接住", "未完成")):
+        new_angle = "从人为什么总在需要被接住的节点先想起旧关系切入，写那些没收尾的话、没兑现的位置和没被接住的时刻，怎样拖慢一个人重新建立当下生活顺序。"
+    elif any(token in joined_cues for token in ("珍惜", "知足", "拥有")):
         new_angle = "从人为什么总把幸福误解成继续争取切入，写我们怎样在强求和不甘心里耗尽自己，又怎样在放手后重新看见已经拥有的部分。"
     else:
         new_angle = "从人为什么总在得不到的东西上反复拉扯切入，写强求怎样一点点耗尽自己，以及放下为什么反而让人更接近真正的幸福。"

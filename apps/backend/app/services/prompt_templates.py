@@ -314,6 +314,14 @@ _BROAD_EMOTIONAL_RELEASE_PRIORITY_KEYWORDS = (
     "拥有",
     "已经拥有",
     "腾出位置",
+    "要是他还在",
+    "他还在就好了",
+    "没说完的话",
+    "没兑现的承诺",
+    "没被接住",
+    "未完成",
+    "回潮",
+    "意难平",
 )
 _BROAD_EMOTIONAL_RELEASE_THESIS_MARKERS = (
     "其实是",
@@ -325,6 +333,9 @@ _BROAD_EMOTIONAL_RELEASE_THESIS_MARKERS = (
     "不是失去",
     "腾出位置",
     "终于不再",
+    "只适合收藏",
+    "带着遗憾往前走",
+    "不会自动沉下去",
 )
 _BROAD_EMOTIONAL_RELEASE_EXAMPLE_PREFIXES = (
     "你有没有过这样的时刻",

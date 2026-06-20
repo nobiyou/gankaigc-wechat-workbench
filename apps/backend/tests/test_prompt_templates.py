@@ -1044,6 +1044,23 @@ def test_broad_emotional_release_focus_detects_hidden_reference_strategy_payload
     assert _has_broad_emotional_release_focus(payload) is True
 
 
+def test_broad_emotional_release_focus_detects_memory_reflux_article() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "遗忘再长，也长不过明天和以后",
+        "summary": "文章围绕过去不会自动沉下去展开，重点不是复合，而是没收尾的关系为什么会在日常缝隙里反复回潮。",
+        "body_markdown": (
+            "又有多少个心绪翻涌的当下，你低眉叹息，因一点不起眼的小事，而不由自主地感慨，要是他还在就好了。\n\n"
+            "有些情有些人，却只适合收藏。过去再美好，也终究是过去了。\n\n"
+            "请相信，今日所有的错失、意难平，都将成为来日幸福与喜乐的铺垫。"
+        ),
+        "structure_notes": "先从旧事会回潮的判断切入，中段拆未完成关系如何反复触发想念，结尾回到带着遗憾往前走。",
+        "tags": ["旧关系", "回忆回潮", "未完成"],
+    }
+
+    assert _has_broad_emotional_release_focus(payload) is True
+
+
 def test_everyday_warmth_return_focus_detects_small_things_article() -> None:
     payload = {
         "source_type": "tracked_article",
