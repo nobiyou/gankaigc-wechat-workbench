@@ -1379,6 +1379,7 @@ def test_generate_strategy_package_for_everyday_warmth_tracked_article_stays_on_
     assert "长期体谅" not in combined
     assert "继续等你的心气" not in combined
     assert "关系坏在冲突" not in combined
+    assert "才发现" not in combined
     assert "长期体谅" in constraints_text
     assert "吃饭、散步" not in payload["problem_brief"]["problem_statement_markdown"]
     assert "陪伴家人的具体场景" not in payload["problem_brief"]["problem_statement_markdown"]
@@ -1459,6 +1460,7 @@ def test_generate_strategy_package_for_everyday_warmth_tracked_article_uses_gene
     assert "没意思" not in combined
     assert "空心感" not in combined
     assert "情绪托底" not in combined
+    assert "才发现" not in combined
     assert "晚饭、陪伴、晚安" not in payload["problem_brief"]["problem_statement_markdown"]
 
 

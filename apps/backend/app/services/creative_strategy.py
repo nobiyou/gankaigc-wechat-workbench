@@ -812,7 +812,7 @@ def _build_reader_situation(topic_title: str, topic_angle: str, *, structure_mod
     if _uses_pressure_interface_mode(topic_angle=topic_angle, structure_mode=structure_mode):
         return "总把休息、体检、吃饭、回复和自己顺手往后挪的人"
     if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "一路追着更大的目标往前跑，后来才发现真正重要的东西一直在身边的人"
+        return "一路追着更大的目标往前跑，慢下来后才意识到真正重要的东西一直没走远的人"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "每次吵完都要自己消化情绪、把日子接回去的人"
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
@@ -880,7 +880,7 @@ def _build_observed_phenomenon(
             return f"`{primary_pressure_cue}` 这种信号已经冒出来了，人却还在把该停下来的那一步继续往后拖。"
         return "很多事会被一次次往后顺延，顺延久了，连该不该停下来都会慢慢判断不准"
     if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "很多人一路追着更大的目标往前跑，等真正慢下来以后，才突然看见那些最普通的陪伴和日常，原来才是最难被替代的部分"
+        return "很多人一路追着更大的目标往前跑，等真正慢下来以后，才慢慢认出那些最普通的陪伴和日常，其实一直在托住生活"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "很多关系表面还能照常过下去，可每次争执后的安抚、解释和修复都落在同一个人身上，久了连开口都变得很累"
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
@@ -1060,7 +1060,7 @@ def _build_feedback_entry(
     if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
             f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
-            "也会重新看见，那些不起眼的小事和普通陪伴，并不是附属品，而是自己这些年最该护住的生活底座。"
+            "也会重新衡量那些不起眼的小事和普通陪伴的分量，认出它们不是附属品，而是这些年最该护住的生活底座。"
         )
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
@@ -1121,7 +1121,7 @@ def _build_problem_explanation(
             )
         return f"这篇稿子要解释的，是为什么{observed_phenomenon}会一遍遍重演。"
     if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "这篇稿子要解释的，是为什么很多人明明已经拥有最重要的陪伴和日常，却总要在一路往前赶、差点错过之后，才承认它们才是生活里最难替代的部分。"
+        return "这篇稿子要解释的，是为什么很多人明明已经拥有最重要的陪伴和日常，却总在一路往前赶、差点错过之后，才肯重新给它们应有的分量。"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "这篇稿子要解释的，是为什么在有些关系里，架一吵完，总是同一个人先把话咽回去、把日常接回去，久了以后先退掉的往往是安全感和表达欲。"
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
