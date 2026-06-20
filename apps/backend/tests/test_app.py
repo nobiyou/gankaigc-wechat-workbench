@@ -804,6 +804,53 @@ def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_art
     assert "晚饭" in payload["angle"] or "接孩子" in payload["angle"] or "陪伴" in payload["angle"]
 
 
+def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_article_out_of_empty_life_sink(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总把回家往后排的人，为什么更容易突然觉得一切都没意思",
+                "angle": "从“总有更重要的事”这套排序切入，拆开成就感退潮后为什么会先出现空心感，以及晚饭、陪伴、晚安如何重新成为一个人的情绪托底。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "small-things-empty-life-reroute",
+            "source_name": "手动录入",
+            "title": "一生最重要的事，不是大事",
+            "url": "https://example.com/small-things-empty-life-reroute",
+            "author": "未知",
+            "summary": "文章把“做大事”的社会期待，与人在生活放慢后重新确认的日常幸福放在一起比较，重点不是空心感自救，而是成就祛魅之后，小事和陪伴怎样重新显出分量。",
+            "body_markdown": (
+                "年轻时，我们都想改变世界，觉得人生一定要轰轰烈烈，要做大事，要出人头地。可走过半生，才发现，这世界再喧嚣，最重要的事，不过是活在人间烟火里，陪在爱的人身边。\n\n"
+                "朋友是上市公司的高管，前些年，没日没夜地加班，最近因为身体不舒服做了个手术，在家休养。\n\n"
+                "他终于在日落之前，陪爱人做了一顿晚饭。他久违地去接孩子放学。那一刻，他突然觉得，那些拼了命追求的大事，好像瞬间祛魅了。\n\n"
+                "真正让人眼眶发热的，可能从来不是升职加薪、远大抱负，而是这些不起眼的、细碎的、平淡的日常瞬间。宏大叙事属于时代，而一碗热汤、一盏夜灯、一句晚安，才属于你我。"
+            ),
+            "structure_notes": "开头先摆出追逐成就的大命题，中段借停下来后的家庭陪伴完成价值转向，结尾回到普通日常和陪伴。",
+            "tags": ["日常治愈", "家庭陪伴", "价值重估"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/small-things-empty-life-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert "没意思" not in payload["title"]
+    assert "往后排" not in payload["title"]
+    assert "空心感" not in payload["angle"]
+    assert "情绪托底" not in payload["angle"]
+    assert "大事" in payload["title"] or "小事" in payload["title"] or "人这一生" in payload["title"]
+    assert "晚饭" in payload["angle"] or "陪伴" in payload["angle"] or "家常话" in payload["angle"]
+
+
 def test_generate_topic_from_tracked_article_rewrites_resilience_article_out_of_self_help_sink(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:
@@ -1326,6 +1373,80 @@ def test_generate_strategy_package_for_everyday_warmth_tracked_article_stays_on_
     assert "继续等你的心气" not in combined
     assert "关系坏在冲突" not in combined
     assert "长期体谅" in constraints_text
+
+
+def test_generate_strategy_package_for_everyday_warmth_tracked_article_uses_generated_topic_lane(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总把回家往后排的人，为什么更容易突然觉得一切都没意思",
+                "angle": "从“总有更重要的事”这套排序切入，拆开成就感退潮后为什么会先出现空心感，以及晚饭、陪伴、晚安如何重新成为一个人的情绪托底。",
+            }
+
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "small-things-generated-strategy-article",
+            "source_name": "手动录入",
+            "title": "一生最重要的事，不是大事",
+            "url": "https://example.com/small-things-generated-strategy-article",
+            "author": "未知",
+            "summary": "文章把“做大事”的社会期待，与人在生活放慢后重新确认的日常幸福放在一起比较，重点不是关系善后，也不是空心感自救，而是成就祛魅之后，小事和陪伴怎样重新显出分量。",
+            "body_markdown": (
+                "年轻时，我们都想改变世界，觉得人生一定要轰轰烈烈，要做大事，要出人头地。可走过半生，才发现，这世界再喧嚣，最重要的事，不过是活在人间烟火里，陪在爱的人身边。\n\n"
+                "朋友是上市公司的高管，前些年，没日没夜地加班，最近因为身体不舒服做了个手术，在家休养。\n\n"
+                "他终于在日落之前，陪爱人做了一顿晚饭。他久违地去接孩子放学。那一刻，他突然觉得，那些拼了命追求的大事，好像瞬间祛魅了。\n\n"
+                "真正让人眼眶发热的，可能从来不是升职加薪、远大抱负，而是这些不起眼的、细碎的、平淡的日常瞬间。宏大叙事属于时代，而一碗热汤、一盏夜灯、一句晚安，才属于你我。"
+            ),
+            "structure_notes": "开头先摆出追逐成就的大命题，中段借停下来后的家庭陪伴完成价值转向，结尾回到普通日常和陪伴。",
+            "tags": ["日常治愈", "家庭陪伴", "价值重估"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    topic_response = client.post("/api/tracked-articles/small-things-generated-strategy-article/generate-topic")
+    assert topic_response.status_code == 201
+    topic_payload = topic_response.json()
+    assert "没意思" not in topic_payload["title"]
+    assert "空心感" not in topic_payload["angle"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_payload['slug']}/create-project",
+        json={"slug": "small-things-generated-strategy-project", "title": "小事回归自动出题策略测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/small-things-generated-strategy-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    payload = strategy_response.json()
+
+    assert payload["strategy_card"]["structure_mode"] == "everyday_warmth_return"
+    combined = "\n".join(
+        [
+            topic_payload["title"],
+            topic_payload["angle"],
+            payload["problem_brief"]["clarified_problem"],
+            payload["problem_brief"]["observed_phenomenon"],
+            payload["problem_brief"]["writing_goal"],
+            payload["strategy_card"]["point_of_view"],
+            payload["strategy_card"]["conflict_frame"],
+            payload["strategy_card"]["emotional_path"],
+        ]
+    )
+
+    assert "祛魅" in combined
+    assert "陪伴" in combined
+    assert "晚饭" in combined or "回家" in combined or "晚安" in combined
+    assert "没意思" not in combined
+    assert "空心感" not in combined
+    assert "情绪托底" not in combined
 
 
 def test_generate_strategy_package_for_resilience_tracked_article_stays_on_reconstruction_lane() -> None:
