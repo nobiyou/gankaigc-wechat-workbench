@@ -465,6 +465,7 @@ def build_strategy_package(
         normalized_topic_angle=normalized_topic_angle,
         trend_title=trend_title,
         source_mode=source_mode,
+        structure_mode=structure_mode,
         observed_phenomenon=observed_phenomenon,
         writing_goal=writing_goal,
         reader_situation=reader_situation,
@@ -672,6 +673,19 @@ def _has_everyday_warmth_return_reference(*parts: str) -> bool:
     daily_hits = _count_keyword_hits(corpus, _EVERYDAY_WARMTH_RETURN_DAILY_KEYWORDS)
     thesis_hits = _count_keyword_hits(corpus, _EVERYDAY_WARMTH_RETURN_THESIS_MARKERS)
     return achievement_hits >= 2 and daily_hits >= 3 and thesis_hits >= 1
+
+
+def _build_reference_summary_for_strategy(
+    *,
+    structure_mode: str,
+    reference_summary: str,
+) -> str:
+    if structure_mode == "everyday_warmth_return":
+        return (
+            "参考文围绕成就叙事为什么会在某个阶段失重展开，重点不是复用某个家庭场景，"
+            "而是确认：被长期挪后的普通安排、低声量联系和在场动作，为什么会在慢下来以后重新显出分量。"
+        )
+    return reference_summary
 
 
 def _has_relationship_aftercare_reference(*parts: str) -> bool:
@@ -1292,7 +1306,7 @@ def _build_ending_move(topic_angle: str, structure_mode: str) -> str:
     if structure_mode == "pressure_interface_direct":
         return "结尾回到一个还没完全处理完的普通接口或轻微决定，不抛万能答案，也不写祝福式收束。"
     if structure_mode == "everyday_warmth_return":
-        return "结尾回到一个很小的陪伴动作或普通决定上，让分量自然落下来，不要写成身体告诫、口号总结或祝福式收束。"
+        return "结尾回到一个还没完全处理完的普通安排、关系余波或延迟代价上，让分量自然落下来，不要写成小动作清单、身体告诫、口号总结或祝福式收束。"
     if structure_mode == "relationship_aftercare":
         return "结尾回到一个还没被接住的小动作、沉默或没等来的回应上，不要写成万能关系鸡汤。"
     if structure_mode == "resilience_reconstruction":
@@ -1835,6 +1849,7 @@ def _build_problem_statement_markdown(
     normalized_topic_angle: str,
     trend_title: str,
     source_mode: str,
+    structure_mode: str,
     observed_phenomenon: str,
     writing_goal: str,
     reader_situation: str,
@@ -1879,13 +1894,17 @@ def _build_problem_statement_markdown(
         ]
     )
     if source_mode == "tracked_article":
+        reference_summary_for_strategy = _build_reference_summary_for_strategy(
+            structure_mode=structure_mode,
+            reference_summary=reference_summary,
+        )
         lines.extend(
             [
                 "",
                 "## 参考材料只承担什么作用",
                 f"- 来源：{reference_source_name or '手动录入'}",
                 f"- 原文标题：{reference_title or '无'}",
-                f"- 原文摘要线索：{reference_summary or '无'}",
+                f"- 原文摘要线索：{reference_summary_for_strategy or '无'}",
                 "- 可借的情绪线索：只借原文的压力类型、价值转向和情绪发动机，不借可识别的现成场景或家庭动作。",
                 "- 参考材料只用于确认赛道、冲突和读者处境，不得沿用原标题骨架、段落顺序、论断次序和结尾动作。",
             ]

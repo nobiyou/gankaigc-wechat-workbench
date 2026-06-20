@@ -1375,10 +1375,14 @@ def test_generate_strategy_package_for_everyday_warmth_tracked_article_stays_on_
     assert "祛魅" in combined
     assert "陪伴" in combined
     assert "低声量联系" in combined or "普通安排" in combined or "在场动作" in combined
+    assert "关系余波" in combined or "延迟代价" in combined
     assert "长期体谅" not in combined
     assert "继续等你的心气" not in combined
     assert "关系坏在冲突" not in combined
     assert "长期体谅" in constraints_text
+    assert "吃饭、散步" not in payload["problem_brief"]["problem_statement_markdown"]
+    assert "陪伴家人的具体场景" not in payload["problem_brief"]["problem_statement_markdown"]
+    assert "伴侣、孩子、父母" not in payload["problem_brief"]["problem_statement_markdown"]
 
 
 def test_generate_strategy_package_for_everyday_warmth_tracked_article_uses_generated_topic_lane(monkeypatch) -> None:
@@ -1444,15 +1448,18 @@ def test_generate_strategy_package_for_everyday_warmth_tracked_article_uses_gene
             payload["strategy_card"]["point_of_view"],
             payload["strategy_card"]["conflict_frame"],
             payload["strategy_card"]["emotional_path"],
+            payload["strategy_card"]["ending_move"],
         ]
     )
 
     assert "祛魅" in combined
     assert "陪伴" in combined
     assert "陪伴" in combined or "日常" in combined or "祛魅" in combined
+    assert "关系余波" in combined or "延迟代价" in combined
     assert "没意思" not in combined
     assert "空心感" not in combined
     assert "情绪托底" not in combined
+    assert "晚饭、陪伴、晚安" not in payload["problem_brief"]["problem_statement_markdown"]
 
 
 def test_generate_strategy_package_for_resilience_tracked_article_stays_on_reconstruction_lane() -> None:
