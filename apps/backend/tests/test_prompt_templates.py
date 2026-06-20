@@ -832,10 +832,75 @@ def test_everyday_warmth_return_focus_adds_guardrails_across_topic_outline_and_d
     assert "不要把它再抽象成“女性要重建生活托底感”“意义供给退潮后怎么办”这类泛成长标题。" in topic_template.instructions
     assert "不要写成“女人中年以后更需要重估哪些事”这类年龄阶段提问式抽象标题。" in topic_template.instructions
     assert "标题和切入角度优先围绕成就叙事为什么会祛魅、普通陪伴为什么反而最重要来重组" in topic_template.instructions
+    assert "被长期挪后的普通安排、低声量联系和在场动作" in topic_template.instructions
     assert "大纲不要自动缩成身体提醒追债稿。" in outline_template.instructions
     assert "中段至少留一段写普通陪伴和细小日常怎样托住生活" in outline_template.instructions
     assert "正文不要把手术、休养或身体提醒写成唯一主轴。" in draft_template.instructions
     assert "真正要写的是：那些被高估的大事为什么会慢慢祛魅" in draft_template.instructions
+    assert "不要复述参考文现成家庭动作" in draft_template.instructions
+
+
+def test_everyday_warmth_return_strategy_prompt_avoids_reference_daily_action_anchors() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "越会证明自己，越容易把日常过空",
+            "topic_angle": "从成就叙事为什么会在某个阶段突然祛魅切入，写人慢下来以后，怎样重新看见那些被长期挪后的普通安排和低声量联系。",
+            "project_title": "小事回归策略去锚点测试",
+            "source_type": "tracked_article",
+            "tone_profile": TONE_PROFILE,
+            "problem_brief": {
+                "problem_statement_markdown": "# 问题说明书\n\n## 现象\n- 很多人一路追着更大的目标往前跑，后来才看见被自己长期挪后的普通安排。",
+                "clarified_problem": "真正需要被看见的，不是该不该继续向上，而是为什么很多人总要慢下来以后，才承认低声量联系才是生活底座。",
+                "observed_phenomenon": "很多人一路追着更大的目标往前跑，等真正慢下来以后，才突然看见那些最普通的陪伴和日常，原来才是最难被替代的部分。",
+                "writing_goal": "把人为什么总把重要感押在更大的目标上讲清楚，也把人慢下来以后，为什么反而会被最普通的陪伴和日常重新托住讲清楚。",
+                "target_reader_situation": "一路追着更大的目标往前跑，后来才发现真正重要的东西一直在身边的人",
+                "core_conflict": "越把重要感押在更大的目标上，越容易在一路往前赶的时候，错过那些真正托住自己的陪伴和日常。",
+                "constraints": ["不要做近义词改写", "不要复用参考文顺序"],
+                "feedback_entry": "读者会重新看见，那些不起眼的小事和普通陪伴，并不是附属品，而是自己这些年最该护住的生活底座。",
+            },
+            "strategy_card": {
+                "reader_situation": "一路追着更大的目标往前跑，后来才发现真正重要的东西一直在身边的人",
+                "point_of_view": "不急着把文章写成健康告诫或人生箴言，先把那些被高估的大事为什么会慢慢祛魅、普通陪伴为什么反而更重要讲清楚。",
+                "conflict_frame": "真正让人后知后觉的，不是没做成更大的事，而是一路忙着往前赶的时候，把最能托住自己的日常和陪伴慢慢放轻了。",
+                "emotional_path": "先认出人为什么总把重要感押在更大的目标上，再看那些普通陪伴和细小日常，是怎样在慢下来以后重新显出分量的。",
+                "structure_mode": "everyday_warmth_return",
+                "opening_move": "开头先点破“更大的事未必更重要”这种误认，再用一个被长期挪后的普通安排或低声量联系托住判断；不要复述参考文现成的家庭动作，也不要铺成长场景。",
+                "body_shift": "中段先拆成就、体面、宏大目标为什么会在某个阶段突然祛魅，再把普通陪伴、微小日常和被重新看见的生活分量接回来，让被长期挪后的普通安排、低声量联系和在场动作承担分量回落。",
+                "ending_move": "结尾回到一个很小的陪伴动作或普通决定上，让分量自然落下来，不要写成身体告诫、口号总结或祝福式收束。",
+                "recomposition_recipe": [
+                    "标题和开头都换成新的现实入口：不用命令句，不直接复述题眼，先让一个具体接口、后果、身体提醒或当下卡点顶上来。",
+                    "前半篇先守住“大事 / 成就 / 体面 / 向上奔跑”为什么会慢慢失重，不要一上来就滑进某段关系谁更委屈、谁在长期体谅的善后逻辑。",
+                    "中段沿着“宏大叙事祛魅 -> 普通陪伴回到视野里 -> 被长期挪后的日常重新显出分量”推进，让低声量联系、普通安排和在场动作承担价值回落，不要回收参考文那组高识别度家庭动作。",
+                ],
+                "expression_constraints": [
+                    "不要用口号式收尾",
+                    "不要沿用参考文章的开头对象、推进顺序和结尾判断",
+                ],
+                "divergence_axes": [
+                    "标题骨架要换成新的现实入口或处境入口",
+                    "不要回收参考文里那组高识别度家庭动作，必须另建新的普通安排、低声量联系或在场接口",
+                ],
+                "execution_checklist": [
+                    "标题是否已经换成新的现实入口，而不是复述题眼。",
+                    "是否先拆成就祛魅，再把被长期挪后的普通安排、低声量联系和在场动作的分量接回来，而不是滑成长期体谅、关系排序或身体提醒告诫。",
+                ],
+                "benchmark_summary": "只借原文对应的生活压力类型和情绪发动机，不借原文标题、首段场景、推进顺序和结尾动作。",
+            },
+            "benchmarks": [],
+            "outline": {
+                "hook": "第三次把固定安排往后挪时，她才发现真正变薄的不是日程，是自己在生活里的在场感。",
+                "outline_body": "1. 成就叙事为什么会显得更响\n2. 被长期挪后的普通安排怎样慢慢失重\n3. 日常分量怎样重新回来",
+            },
+        }
+    )
+
+    assert "接孩子" not in template.prompt
+    assert "陪父母" not in template.prompt
+    assert "一句晚安" not in template.prompt
+    assert "说句晚安" not in template.prompt
+    assert "低声量联系" in template.prompt
+    assert "普通安排" in template.prompt
 
 
 def test_tracked_article_pressure_guard_does_not_misclassify_happiness_release_article() -> None:

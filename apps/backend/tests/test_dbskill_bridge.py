@@ -667,3 +667,4 @@ def test_build_strategy_package_uses_everyday_warmth_return_mode_for_small_thing
     assert "陪伴和日常" in result.problem_brief.problem_statement_markdown
     assert "普通陪伴" in result.strategy_card.body_shift or "细小日常" in result.strategy_card.body_shift
     assert "很小的陪伴动作" in result.strategy_card.ending_move
+    assert "高识别度家庭动作" in result.strategy_card.strategy_markdown

@@ -801,7 +801,7 @@ def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_art
     assert "等你回应" not in payload["title"]
     assert "托底感" not in payload["title"]
     assert "中年以后" not in payload["title"]
-    assert "晚饭" in payload["angle"] or "接孩子" in payload["angle"] or "陪伴" in payload["angle"]
+    assert "陪伴" in payload["angle"] or "日常" in payload["angle"] or "联系" in payload["angle"]
 
 
 def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_article_out_of_empty_life_sink(monkeypatch) -> None:
@@ -848,7 +848,7 @@ def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_art
     assert "空心感" not in payload["angle"]
     assert "情绪托底" not in payload["angle"]
     assert "大事" in payload["title"] or "小事" in payload["title"] or "人这一生" in payload["title"]
-    assert "晚饭" in payload["angle"] or "陪伴" in payload["angle"] or "家常话" in payload["angle"]
+    assert "陪伴" in payload["angle"] or "日常" in payload["angle"] or "联系" in payload["angle"]
 
 
 def test_generate_topic_from_tracked_article_rewrites_resilience_article_out_of_self_help_sink(monkeypatch) -> None:
@@ -1368,7 +1368,7 @@ def test_generate_strategy_package_for_everyday_warmth_tracked_article_stays_on_
 
     assert "祛魅" in combined
     assert "陪伴" in combined
-    assert "晚饭" in combined or "回家" in combined or "晚安" in combined
+    assert "低声量联系" in combined or "普通安排" in combined or "在场动作" in combined
     assert "长期体谅" not in combined
     assert "继续等你的心气" not in combined
     assert "关系坏在冲突" not in combined
@@ -1443,7 +1443,7 @@ def test_generate_strategy_package_for_everyday_warmth_tracked_article_uses_gene
 
     assert "祛魅" in combined
     assert "陪伴" in combined
-    assert "晚饭" in combined or "回家" in combined or "晚安" in combined
+    assert "陪伴" in combined or "日常" in combined or "祛魅" in combined
     assert "没意思" not in combined
     assert "空心感" not in combined
     assert "情绪托底" not in combined

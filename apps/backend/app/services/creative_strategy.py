@@ -1225,7 +1225,7 @@ def _build_opening_move(
             return f"开头先落 `{cue}` 这种已经开始出代价的接口或身体后果，不要先抛终局问题或价值赦免。"
         return "开头先落一个已经开始出代价的接口：被改期的体检、没吃完的饭、没回的消息，或突然发钝的身体提醒；不要先抛终局问题或价值赦免。"
     if structure_mode == "everyday_warmth_return":
-        return "开头先点破“更大的事未必更重要”这种误认，再用一顿晚饭、一次接孩子、陪父母走一段路这类普通日常托住判断；不要铺成长场景。"
+        return "开头先点破“更大的事未必更重要”这种误认，再用一个被长期挪后的普通安排或低声量联系托住判断；不要复述参考文现成的家庭动作，也不要铺成长场景。"
     if structure_mode == "relationship_aftercare":
         return "开头先落一个吵完之后还得照常上班、做饭、回消息，但胸口还紧着的小接口，不要先抽象讲“爱不爱”或“成熟关系”。"
     if structure_mode == "resilience_reconstruction":
@@ -1268,7 +1268,7 @@ def _build_body_shift(
             return f"中段沿着 `{cues[0]}` 这条代价线推进：哪件事先被顺手往后挪，当时怎么处理，后面又留下什么新的失序。"
         return "中段沿着 1 到 2 条压力链推进：哪件事先被顺手往后挪，当时怎么处理，后面又留下什么代价、误差或新的失序。"
     if structure_mode == "everyday_warmth_return":
-        return "中段先拆成就、体面、宏大目标为什么会在某个阶段突然祛魅，再把普通陪伴、微小日常和被重新看见的生活分量接回来，让晚饭、回家、陪父母这些小动作承担分量回落。"
+        return "中段先拆成就、体面、宏大目标为什么会在某个阶段突然祛魅，再把普通陪伴、微小日常和被重新看见的生活分量接回来，让被长期挪后的普通安排、低声量联系和在场动作承担分量回落。"
     if structure_mode == "relationship_aftercare":
         return "中段先写每次吵完谁先把话咽回去、谁先恢复正常、谁先试探气氛，再写长期单人善后怎样让表达欲、期待感和安全感一点点退掉。"
     if structure_mode == "resilience_reconstruction":
@@ -1504,7 +1504,7 @@ def _build_recomposition_recipe(
         recipe = [
             opening_step,
             "前半篇先守住“大事 / 成就 / 体面 / 向上奔跑”为什么会慢慢失重，不要一上来就滑进某段关系谁更委屈、谁在长期体谅的善后逻辑。",
-            "中段沿着“宏大叙事祛魅 -> 普通陪伴回到视野里 -> 小日常重新显出分量”推进，让晚饭、回家、晚安、陪父母这类动作承担价值回落。",
+            "中段沿着“宏大叙事祛魅 -> 普通陪伴回到视野里 -> 被长期挪后的日常重新显出分量”推进，让低声量联系、普通安排和在场动作承担价值回落，不要回收参考文那组高识别度家庭动作。",
             "不要把身体不适、手术或停下来写成主要问题，它们只负责提供转折证据；也不要把正文改写成“别人还在等你回应”的关系排序稿。",
             ending_step,
         ]
@@ -1582,6 +1582,7 @@ def _build_divergence_axes(*, source_mode: str, structure_mode: str) -> list[str
         axes.append("不要把普通接口重新抬成终局问题、人生总结或价值赦免台词，要让代价从过程里自己长出来")
     if structure_mode == "everyday_warmth_return":
         axes.append("不要把小事回归文改写成长期体谅、关系善后或术后恢复自我照料稿，主线必须留在成就祛魅和日常分量回归上")
+        axes.append("不要回收参考文里那组高识别度家庭动作，必须另建新的普通安排、低声量联系或在场接口")
     if structure_mode == "relationship_aftercare":
         axes.append("不要把关系修复文改写成泛内耗、自我成长或单人稳情绪稿，主线必须留在吵后谁来善后和谁在回避修复")
     if structure_mode == "resilience_reconstruction":
@@ -1634,7 +1635,7 @@ def _build_execution_checklist(*, structure_mode: str, reference_shell_signals: 
             ]
             if structure_mode == "pressure_interface_direct"
             else [
-                "是否先拆成就祛魅，再把晚饭、回家、陪伴这类小日常的分量接回来，而不是滑成长期体谅、关系排序或身体提醒告诫。",
+                "是否先拆成就祛魅，再把被长期挪后的普通安排、低声量联系和在场动作的分量接回来，而不是滑成长期体谅、关系排序或身体提醒告诫。",
             ]
             if structure_mode == "everyday_warmth_return"
             else [
@@ -1885,7 +1886,7 @@ def _build_problem_statement_markdown(
                 f"- 来源：{reference_source_name or '手动录入'}",
                 f"- 原文标题：{reference_title or '无'}",
                 f"- 原文摘要线索：{reference_summary or '无'}",
-                f"- 可借的情绪线索：{tracked_article_scene or '无'}",
+                "- 可借的情绪线索：只借原文的压力类型、价值转向和情绪发动机，不借可识别的现成场景或家庭动作。",
                 "- 参考材料只用于确认赛道、冲突和读者处境，不得沿用原标题骨架、段落顺序、论断次序和结尾动作。",
             ]
         )
@@ -2000,7 +2001,7 @@ def _build_strategy_markdown(
                 "## 参考文章消化说明",
                 f"- 来源账号：{reference_source_name or '手动录入'}",
                 f"- 参考标题：{reference_title or '无'}",
-                f"- 可借的原文情绪线索：{tracked_article_scene or '无'}",
+                "- 可借的原文情绪线索：只借原文的压力类型、价值转向和情绪发动机，不借可识别的现成场景或家庭动作。",
                 "- 必须主动拉开距离的维度：标题骨架、开头入口、中段顺序、结尾落点。",
             ]
         )
