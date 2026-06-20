@@ -1522,6 +1522,115 @@ def test_generate_cover_image_retries_with_second_variant_after_timeout(monkeypa
     assert calls[1]["timeout"] == 240.0
 
 
+def test_generate_cover_image_retries_with_ratio_size_after_numeric_size_rejected(monkeypatch) -> None:
+    generator = build_generator()
+    calls: list[dict[str, object]] = []
+    request = httpx.Request("POST", "https://example.com/v1/images")
+    response = httpx.Response(
+        400,
+        request=request,
+        json={
+            "error": {
+                "message": 'Invalid option: expected one of "auto"|"1:1"|"16:9"|"9:16"|"4:3"|"3:4"|"3:2"|"2:3"|"5:4"|"4:5"|"2:1"|"1:2"|"21:9"|"9:21"'
+            }
+        },
+    )
+
+    class FakeImages:
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise openai.BadRequestError(
+                    "Invalid image size",
+                    response=response,
+                    body={
+                        "error": {
+                            "message": 'size: Invalid option: expected one of "auto"|"1:1"|"16:9"|"9:16"|"4:3"|"3:4"|"3:2"|"2:3"|"5:4"|"4:5"|"2:1"|"1:2"|"21:9"|"9:21"'
+                        }
+                    },
+                )
+
+            class FakeImage:
+                b64_json = base64.b64encode(b"ratio-variant").decode("utf-8")
+
+            class FakeResponse:
+                data = [FakeImage()]
+
+            return FakeResponse()
+
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
+
+    result = generator.generate_cover_image({"cover_prompt": "prompt"})
+
+    assert result == b"ratio-variant"
+    assert len(calls) == 2
+    assert calls[0]["size"] == "1536x1024"
+    assert calls[1]["size"] == "3:2"
+
+
+def test_generate_cover_image_retries_without_unrecognized_output_keys(monkeypatch) -> None:
+    generator = build_generator()
+    calls: list[dict[str, object]] = []
+    request = httpx.Request("POST", "https://example.com/v1/images")
+    response = httpx.Response(
+        400,
+        request=request,
+        json={"error": {"message": 'Unrecognized keys: "output_format", "quality"'}},
+    )
+
+    class FakeImages:
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise openai.BadRequestError(
+                    "Unsupported request keys",
+                    response=response,
+                    body={"error": {"message": 'Unrecognized keys: "output_format", "quality"'}},
+                )
+
+            class FakeImage:
+                b64_json = base64.b64encode(b"provider-compatible").decode("utf-8")
+
+            class FakeResponse:
+                data = [FakeImage()]
+
+            return FakeResponse()
+
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
+
+    result = generator.generate_cover_image({"cover_prompt": "prompt"})
+
+    assert result == b"provider-compatible"
+    assert len(calls) == 2
+    assert calls[0]["output_format"] == "png"
+    assert calls[0]["quality"] == "low"
+    assert "output_format" not in calls[1]
+    assert "quality" not in calls[1]
+    assert calls[1]["size"] == "1536x1024"
+
+
+def test_generate_cover_image_surfaces_async_task_provider_response(monkeypatch) -> None:
+    generator = build_generator()
+
+    class FakeResponse:
+        id = "task_123"
+        status = "processing"
+        data = None
+
+    class FakeImages:
+        def generate(self, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
+
+    with pytest.raises(RuntimeError) as excinfo:
+        generator.generate_cover_image({"cover_prompt": "prompt"})
+
+    assert "async task" in str(excinfo.value)
+    assert "task_id=task_123" in str(excinfo.value)
+    assert "status=processing" in str(excinfo.value)
+
+
 def test_get_ai_config_summary_masks_secret_but_reports_runtime_fields() -> None:
     summary = get_ai_config_summary(
         Settings(

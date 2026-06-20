@@ -4,7 +4,9 @@ import base64
 from functools import lru_cache
 import json
 from json import JSONDecodeError
+import re
 import time
+from typing import Any
 from typing import TypeVar
 
 import openai
@@ -148,28 +150,72 @@ class OpenAIWorkbenchGenerator:
         last_error: Exception | None = None
         for variant in request_variants:
             try:
-                response = self._image_client.images.generate(
-                    model=self._image_model,
-                    prompt=prompt,
-                    output_format="png",
-                    size=variant["size"],
-                    quality=variant["quality"],
-                    timeout=max(self._image_request_timeout_seconds, float(variant["timeout"])),
-                )
-                if not response.data:
-                    raise RuntimeError("OpenAI returned no image data")
-
-                image = response.data[0]
-                if image.b64_json:
-                    return base64.b64decode(image.b64_json)
-                raise RuntimeError("OpenAI returned no base64 image payload")
+                return self._generate_cover_image_with_variant(prompt, variant)
             except APITimeoutError as exc:
                 last_error = exc
                 continue
+            except openai.BadRequestError as exc:
+                last_error = exc
+                if not _is_image_size_validation_error(exc):
+                    raise
+                fallback_variant = _build_ratio_cover_image_variant(variant)
+                if fallback_variant is None:
+                    continue
+                try:
+                    return self._generate_cover_image_with_variant(prompt, fallback_variant)
+                except APITimeoutError as retry_exc:
+                    last_error = retry_exc
+                    continue
+                except openai.BadRequestError as retry_exc:
+                    last_error = retry_exc
+                    continue
 
         if last_error is not None:
             raise last_error
         raise RuntimeError("OpenAI image generation failed without a captured exception")
+
+    def _generate_cover_image_with_variant(self, prompt: str, variant: dict[str, object]) -> bytes:
+        request_kwargs = _build_cover_image_request_kwargs(
+            model=self._image_model,
+            prompt=prompt,
+            variant=variant,
+            timeout_seconds=self._image_request_timeout_seconds,
+        )
+        while True:
+            response = None
+            try:
+                response = self._image_client.images.generate(**request_kwargs)
+            except openai.BadRequestError as exc:
+                unsupported_keys = _extract_unrecognized_image_request_keys(exc)
+                if unsupported_keys:
+                    changed = False
+                    for key in unsupported_keys:
+                        if key in request_kwargs:
+                            del request_kwargs[key]
+                            changed = True
+                    if changed:
+                        continue
+
+                if _is_image_size_validation_error(exc):
+                    fallback_size = _resolve_ratio_cover_image_size(request_kwargs.get("size"))
+                    if fallback_size and str(request_kwargs.get("size")) != fallback_size:
+                        request_kwargs["size"] = fallback_size
+                        continue
+                raise
+
+            if not response.data:
+                async_task = _extract_async_image_task_payload(response)
+                if async_task is not None:
+                    raise RuntimeError(
+                        "Image provider accepted the request as an async task but did not expose a retrievable image result "
+                        f"(task_id={async_task['id']}, status={async_task['status']})."
+                    )
+                raise RuntimeError("OpenAI returned no image data")
+
+            image = response.data[0]
+            if image.b64_json:
+                return base64.b64decode(image.b64_json)
+            raise RuntimeError("OpenAI returned no base64 image payload")
 
     def generate_publish_package(self, payload: dict[str, object]) -> dict[str, object]:
         prompt_template = build_publish_package_prompt(payload)
@@ -471,6 +517,95 @@ def _extract_openai_error_message(error: Exception) -> str:
     if message:
         return message
     return error.__class__.__name__
+
+
+_NUMERIC_IMAGE_SIZE_PATTERN = re.compile(r"^\d+x\d+$")
+_IMAGE_RATIO_FALLBACKS = {
+    "1536x1024": "3:2",
+    "1024x1024": "1:1",
+}
+_UNRECOGNIZED_IMAGE_KEYS_PATTERN = re.compile(r'Unrecognized keys:\s*"?([^"]+)"?(.*)$', re.IGNORECASE)
+
+
+def _is_image_size_validation_error(error: Exception) -> bool:
+    message = _extract_openai_error_message(error)
+    if not message:
+        return False
+    normalized = message.lower()
+    return "size" in normalized and "expected one of" in normalized
+
+
+def _build_ratio_cover_image_variant(variant: dict[str, object]) -> dict[str, object] | None:
+    size = str(variant.get("size") or "").strip()
+    fallback_size = _resolve_ratio_cover_image_size(size)
+    if not fallback_size:
+        return None
+    return {
+        **variant,
+        "size": fallback_size,
+    }
+
+
+def _resolve_ratio_cover_image_size(size: object) -> str | None:
+    normalized_size = str(size or "").strip()
+    if not normalized_size or not _NUMERIC_IMAGE_SIZE_PATTERN.match(normalized_size):
+        return None
+    return _IMAGE_RATIO_FALLBACKS.get(normalized_size)
+
+
+def _extract_unrecognized_image_request_keys(error: Exception) -> list[str]:
+    message = _extract_openai_error_message(error)
+    if not message:
+        return []
+    match = _UNRECOGNIZED_IMAGE_KEYS_PATTERN.search(message)
+    if not match:
+        return []
+    tail = "".join(part for part in match.groups() if part)
+    keys = re.findall(r'"([^"]+)"', tail)
+    first_key = match.group(1).strip().strip('"')
+    all_keys = [first_key, *keys]
+    normalized_keys: list[str] = []
+    for key in all_keys:
+        cleaned = key.strip()
+        if cleaned and cleaned not in normalized_keys:
+            normalized_keys.append(cleaned)
+    return normalized_keys
+
+
+def _build_cover_image_request_kwargs(
+    *,
+    model: str,
+    prompt: str,
+    variant: dict[str, object],
+    timeout_seconds: float,
+) -> dict[str, object]:
+    request_kwargs: dict[str, object] = {
+        "model": model,
+        "prompt": prompt,
+        "size": str(variant["size"]),
+        "timeout": max(timeout_seconds, float(variant["timeout"])),
+    }
+    quality = variant.get("quality")
+    if quality is not None:
+        request_kwargs["quality"] = str(quality)
+    request_kwargs["output_format"] = "png"
+    return request_kwargs
+
+
+def _extract_async_image_task_payload(response: object) -> dict[str, str] | None:
+    response_id = getattr(response, "id", None)
+    status = getattr(response, "status", None)
+    if not isinstance(response_id, str) or not response_id.strip():
+        return None
+    if not response_id.startswith("task_"):
+        return None
+    normalized_status = str(status or "").strip()
+    if not normalized_status:
+        return None
+    return {
+        "id": response_id.strip(),
+        "status": normalized_status,
+    }
 
 
 def run_ai_config_check(config: Settings = settings) -> AIConfigCheckResult:
