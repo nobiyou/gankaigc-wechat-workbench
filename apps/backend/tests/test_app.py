@@ -801,6 +801,9 @@ def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_art
     assert "等你回应" not in payload["title"]
     assert "托底感" not in payload["title"]
     assert "中年以后" not in payload["title"]
+    assert "晚饭" not in payload["angle"]
+    assert "接孩子" not in payload["angle"]
+    assert "晚安" not in payload["angle"]
     assert "陪伴" in payload["angle"] or "日常" in payload["angle"] or "联系" in payload["angle"]
 
 
@@ -847,6 +850,9 @@ def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_art
     assert "往后排" not in payload["title"]
     assert "空心感" not in payload["angle"]
     assert "情绪托底" not in payload["angle"]
+    assert "晚饭" not in payload["angle"]
+    assert "接孩子" not in payload["angle"]
+    assert "晚安" not in payload["angle"]
     assert "大事" in payload["title"] or "小事" in payload["title"] or "人这一生" in payload["title"]
     assert "陪伴" in payload["angle"] or "日常" in payload["angle"] or "联系" in payload["angle"]
 

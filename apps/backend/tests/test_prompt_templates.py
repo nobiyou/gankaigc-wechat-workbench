@@ -832,12 +832,48 @@ def test_everyday_warmth_return_focus_adds_guardrails_across_topic_outline_and_d
     assert "不要把它再抽象成“女性要重建生活托底感”“意义供给退潮后怎么办”这类泛成长标题。" in topic_template.instructions
     assert "不要写成“女人中年以后更需要重估哪些事”这类年龄阶段提问式抽象标题。" in topic_template.instructions
     assert "标题和切入角度优先围绕成就叙事为什么会祛魅、普通陪伴为什么反而最重要来重组" in topic_template.instructions
+    assert "不要把题眼收缩成某个可直接映回原文的单一家庭场景或日常动作名词" in topic_template.instructions
     assert "被长期挪后的普通安排、低声量联系和在场动作" in topic_template.instructions
     assert "大纲不要自动缩成身体提醒追债稿。" in outline_template.instructions
     assert "中段至少留一段写普通陪伴和细小日常怎样托住生活" in outline_template.instructions
     assert "正文不要把手术、休养或身体提醒写成唯一主轴。" in draft_template.instructions
     assert "真正要写的是：那些被高估的大事为什么会慢慢祛魅" in draft_template.instructions
     assert "不要复述参考文现成家庭动作" in draft_template.instructions
+    assert "不要把普通陪伴重新写成三四个轻小动作的并列清单或排比" in draft_template.instructions
+    assert "不要用直给的顿悟提示句直接翻牌" in draft_template.instructions
+
+
+def test_everyday_warmth_return_topic_prompt_abstracts_reference_daily_actions() -> None:
+    template = build_topic_prompt(
+        {
+            "source_type": "tracked_article",
+            "source_ref_slug": "small-things-reroute",
+            "source_name": "手动录入",
+            "article_title": "一生最重要的事，不是大事",
+            "author": "未知",
+            "summary": "文章把“做大事”的期待，与人在慢下来后重新确认的日常幸福放在一起比较，核心判断是普通陪伴和细碎日常才最能托住生活。",
+            "body_markdown": (
+                "年轻时，我们都想改变世界，觉得人生一定要轰轰烈烈，要做大事，要出人头地。可走过半生，才发现最重要的事，不过是活在人间烟火里，陪在爱的人身边。\n\n"
+                "朋友因为身体不舒服做了个手术，在家休养。他终于陪爱人做了一顿晚饭，去接孩子放学，也陪父母慢慢散步。\n\n"
+                "那些拼了命追求的大事，好像忽然祛魅了，剩下来的反而是一顿饭、一句晚安、一个陪伴动作。"
+            ),
+            "structure_notes": "先写大事叙事，再用手术后的慢下来做转折，中段回到晚饭、接孩子、陪父母这些普通日常，结尾回到小事才最重要。",
+            "tags": ["人间烟火", "陪伴", "小事", "日常", "祛魅"],
+            "tone_profile": TONE_PROFILE,
+        }
+    )
+
+    assert "参考文章正文抓手候选：" in template.prompt
+    assert "成就叙事为什么会在某个阶段突然失重" in template.prompt
+    assert "被长期挪后的普通安排怎样慢慢暴露日子被挤空" in template.prompt
+    assert "低声量联系和在场动作为什么重新显出分量" in template.prompt
+    combined_text = f"{template.instructions}\n{template.prompt}"
+    assert "他终于陪爱人做了一顿晚饭" not in template.prompt
+    assert "晚饭" not in combined_text
+    assert "接孩子" not in combined_text
+    assert "陪父母" not in combined_text
+    assert "一句晚安" not in combined_text
+    assert "不要把题眼压回某个可直接映回原文的单一家庭场景" in template.prompt
 
 
 def test_everyday_warmth_return_strategy_prompt_avoids_reference_daily_action_anchors() -> None:

@@ -1416,6 +1416,44 @@ def _extract_tracked_article_topic_cues(
     return _extract_tracked_article_body_cues(payload, max_items=max_items)
 
 
+def _build_tracked_article_topic_summary(payload: Mapping[str, object]) -> str:
+    if _has_everyday_warmth_return_focus(payload):
+        return (
+            "文章把成就叙事与慢下来后的价值重估放在一起比较，重点不是某一个具体家庭动作，"
+            "而是更大的目标为什么会失重，被长期挪后的普通安排和低声量联系为什么重新显出分量。"
+        )
+    return _as_clean_text(payload.get("summary"))
+
+
+def _build_tracked_article_topic_structure_notes(payload: Mapping[str, object]) -> str:
+    if _has_everyday_warmth_return_focus(payload):
+        return "先写成就叙事，再用慢下来后的价值转向做转折，中段回到普通陪伴和日常分量，结尾回到小事为什么更重要。"
+    return _as_clean_text(payload.get("structure_notes"))
+
+
+def _build_tracked_article_topic_body_cue_section(payload: Mapping[str, object]) -> str:
+    if _has_everyday_warmth_return_focus(payload):
+        return (
+            "参考文章正文抓手候选：\n"
+            "- 成就叙事为什么会在某个阶段突然失重\n"
+            "- 被长期挪后的普通安排怎样慢慢暴露日子被挤空\n"
+            "- 慢下来以后，低声量联系和在场动作为什么重新显出分量\n"
+            "优先围绕这些抓手类型重组新选题，不要把题眼压回某个可直接映回原文的单一家庭场景，"
+            "优先把它上提成被长期挪后的普通安排、低声量联系或在场动作。\n"
+        )
+
+    body_cues = _extract_tracked_article_topic_cues(payload)
+    if not body_cues:
+        return ""
+
+    cue_lines = "\n".join(f"- {cue}" for cue in body_cues)
+    return (
+        "参考文章正文抓手候选：\n"
+        f"{cue_lines}\n"
+        "优先围绕这些现实接口、身体提醒或代价线索重组新选题，不要再把它们抹平成抽象人生判断。\n"
+    )
+
+
 def _render_outline_target_wording(tone_profile: Mapping[str, object] | None) -> str:
     target_word_count = tone_profile.get("target_word_count") if tone_profile else None
     if not target_word_count:
@@ -1665,6 +1703,8 @@ def _build_tracked_article_everyday_warmth_guard_instructions(payload: Mapping[s
             "不要写成“女人中年以后更需要重估哪些事”这类年龄阶段提问式抽象标题。"
             "文中的手术、停下来和休养只是价值转向的触发点，不是整篇唯一主命题。"
             "标题和切入角度优先围绕成就叙事为什么会祛魅、普通陪伴为什么反而最重要来重组；"
+            "不要把题眼收缩成某个可直接映回原文的单一家庭场景或日常动作名词，"
+            "优先把它上提成一类被长期挪后的普通安排、低声量联系或在场动作。"
             "尽量把被长期挪后的普通安排、低声量联系和在场动作当成情绪证明，而不是把重点压回体检、复查和身体追债。"
         )
     if stage == "outline":
@@ -1678,7 +1718,9 @@ def _build_tracked_article_everyday_warmth_guard_instructions(payload: Mapping[s
             "如果参考文章重心是“大事祛魅”和日常陪伴回归，正文不要把手术、休养或身体提醒写成唯一主轴。"
             "它们只是价值转向的触发点，真正要写的是：那些被高估的大事为什么会慢慢祛魅，普通陪伴和微小日常为什么反而最能托住一个人。"
             "开头可以直接点破这种误认，但需要留 1 到 2 个被长期挪后的普通安排、低声量联系或在场动作作情绪证明；不要复述参考文现成家庭动作，也不要把它们铺成大段场景。"
-            "结尾回到一个很小的陪伴动作或日常决定上，不要又拐回身体告警、自我责备或万能祝福。"
+            "不要把普通陪伴重新写成三四个轻小动作的并列清单或排比，优先挑一个新的现实接口、关系余波或延迟代价，把分量落在位置变化和后续影响上。"
+            "不要用直给的顿悟提示句直接翻牌，让价值转向贴着前后反应、联系变稀和开口变生疏这些后效自己长出来。"
+            "结尾回到一个尚未处理完的普通安排、关系余波或日常决定上，不要又拐回身体告警、自我责备或万能祝福。"
         )
     return ""
 
@@ -2654,23 +2696,17 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     resilience_guard_instructions = _build_tracked_article_resilience_guard_instructions(payload, stage="topic")
     relationship_aftercare_guard_instructions = _build_tracked_article_relationship_aftercare_guard_instructions(payload, stage="topic")
     if source_type == "tracked_article":
-        body_cues = _extract_tracked_article_topic_cues(payload)
-        body_cue_section = ""
-        if body_cues:
-            cue_lines = "\n".join(f"- {cue}" for cue in body_cues)
-            body_cue_section = (
-                "参考文章正文抓手候选：\n"
-                f"{cue_lines}\n"
-                "优先围绕这些现实接口、身体提醒或代价线索重组新选题，不要再把它们抹平成抽象人生判断。\n"
-            )
+        body_cue_section = _build_tracked_article_topic_body_cue_section(payload)
+        summary = _build_tracked_article_topic_summary(payload)
+        structure_notes = _build_tracked_article_topic_structure_notes(payload)
         source_prompt = (
             f"来源类型：{source_type}\n"
             f"参考文章 slug：{payload['source_ref_slug']}\n"
             f"参考文章标题：{payload['article_title']}\n"
             f"作者：{payload['author']}\n"
             f"来源账号：{payload['source_name'] or '未知公众号'}\n"
-            f"摘要：{payload['summary']}\n"
-            f"结构备注：{payload['structure_notes']}\n"
+            f"摘要：{summary}\n"
+            f"结构备注：{structure_notes}\n"
             f"标签：{' / '.join(payload.get('tags') or []) or '无'}\n"
             f"{body_cue_section}"
         )

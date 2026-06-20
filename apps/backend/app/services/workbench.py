@@ -2516,16 +2516,12 @@ _EVERYDAY_WARMTH_TOPIC_ANCHOR_TOKENS = (
     "大事",
     "小事",
     "陪伴",
-    "晚饭",
-    "接孩子",
-    "父母",
-    "晚安",
     "人间烟火",
     "祛魅",
-    "热汤",
-    "夜灯",
-    "一家老小",
-    "回家",
+    "普通安排",
+    "低声量联系",
+    "在场动作",
+    "日常",
 )
 _ABSTRACT_RESILIENCE_SELF_HELP_TOKENS = (
     "女性",
@@ -2748,10 +2744,7 @@ def _rewrite_everyday_warmth_return_topic(payload: Mapping[str, object], ai_resu
     else:
         new_title = "原来一生里最重要的，常常都是那些不起眼的小事"
 
-    if any(token in corpus for token in ("晚饭", "接孩子", "父母", "爱人", "一家老小", "晚安")):
-        new_angle = "从人为什么总把重要感押在更大的目标上切入，写我们往前赶了很久以后，才怎样被一顿晚饭、一次接孩子、几句家常话重新提醒：真正托住生活的，往往是那些最普通的陪伴。"
-    else:
-        new_angle = "从成就叙事为什么总会在某个阶段突然祛魅切入，写人慢下来以后，怎样重新看见那些不起眼却最能托住生活的小事和陪伴。"
+    new_angle = "从人为什么总把重要感押在更大的目标上切入，写我们往前赶了很久以后，才怎样重新看见那些被长期挪后的普通安排、低声量联系和在场动作：真正托住生活的，往往不是更大的目标，而是这些最容易被放轻的日常分量。"
     return {"title": new_title, "angle": new_angle}
 
 
