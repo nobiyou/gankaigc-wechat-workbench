@@ -1413,7 +1413,6 @@ def _build_structure_mode(
         if _has_pressure_interface_topic(normalized) or reference_has_pressure or any(
             signal in shell_signals
             for signal in (
-                "abstract_reflection_opening",
                 "dense_short_conclusion_chain",
                 "push_then_moral_chain",
                 "quoted_waiting_list",

@@ -1578,6 +1578,54 @@ def test_generate_strategy_package_for_resilience_tracked_article_stays_on_recon
     assert "术后恢复" in constraints_text
 
 
+def test_generate_strategy_package_for_regret_reference_tracked_article_stays_on_emotional_engine_lane() -> None:
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "regret-reference-strategy-article",
+            "source_name": "手动录入",
+            "title": "有些遗憾，不是忘不掉，而是总忍不住回头假设",
+            "url": "https://example.com/regret-reference-strategy-article",
+            "author": "未知",
+            "summary": "文章围绕人为什么会被未完成的告别和没走成的路反复牵住，重点是遗憾、回头设想和把心重新收回今天，不是把普通错过抬成人生终局问题。",
+            "body_markdown": (
+                "如果当初那班车没有开走，她也许不会隔着这么多年，还在心里追问那天要是再晚一点离开，会不会不一样。\n\n"
+                "后来她才发现，人真正困住自己的，不一定是那次错过本身，而是把所有没走成的路都拿回来反复比较。\n\n"
+                "旧裙子也好，旧合影也好，真正需要放下的不是一个物件，而是总想替过去改写结局的那股劲。"
+            ),
+            "structure_notes": "开头先给如果当初的回头假设，中段拆开人为什么会被未发生的另一种可能牵住，结尾回到如何把遗憾安放回今天。",
+            "tags": ["遗憾", "回头", "释怀", "错过"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/regret-reference-strategy-article/to-topic",
+        json={
+            "slug": "regret-reference-strategy-topic",
+            "title": "总想替过去改写结局的人，为什么更难把心收回今天",
+            "angle": "从如果当初这类回头假设切入，拆开人为什么会被没说完的话和没走成的路持续牵住，以及真正的前行为什么不是否认遗憾，而是重新安放它。",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "regret-reference-strategy-project", "title": "遗憾回望策略测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/regret-reference-strategy-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    payload = strategy_response.json()
+
+    assert payload["strategy_card"]["structure_mode"] == "emotional_engine_direct"
+    constraints_text = "\n".join(payload["strategy_card"]["expression_constraints"])
+
+    assert "抽象反思" in constraints_text
+
+
 def test_create_project_from_topic_and_advance_stage() -> None:
     create_response = client.post(
         "/api/topics/relationship-boundary-reset-playbook/create-project",

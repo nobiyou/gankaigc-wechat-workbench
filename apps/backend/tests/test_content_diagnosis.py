@@ -171,3 +171,47 @@ def test_originality_script_overlap_report_uses_backend_diagnosis_owner() -> Non
     assert overlap["char_8gram_jaccard"] == 1.0
     assert overlap["reference_originality_risk_level"] == "high"
     assert overlap["danger_fragment_hit_count"] > 0
+
+
+def test_reference_originality_report_ignores_regret_reflection_question_stub() -> None:
+    report = build_reference_originality_report(
+        source_title="后来困住人的，往往不是错过本身",
+        source_markdown=(
+            "# 后来困住人的，往往不是错过本身\n\n"
+            "她反复回想那天的告别，最怕的不是失去，而是会不会不被理解。\n\n"
+            "人真正放不下的，也常常不是已经结束的关系，而是沿着另一种结局反复设想。"
+        ),
+        draft_title="真正让人走不出去的，是一直替过去改写结局",
+        draft_markdown=(
+            "# 真正让人走不出去的，是一直替过去改写结局\n\n"
+            "夜深的时候，人还是会追着那个问题打转：会不会不甘心。\n\n"
+            "让人困在原地的，也不是告别本身，而是反复设想另一种可能，然后不肯把目光收回今天。"
+        ),
+    )
+
+    assert report.risk_level == "low"
+    assert report.danger_fragment_hits == []
+    assert report.quality_signals["danger_fragment_count"] == 0
+    assert report.quality_signals["surface_reuse_detected"] is False
+    assert report.quality_signals["functional_equivalence_ready"] is True
+
+
+def test_reference_originality_report_ignores_generic_short_have_phrase() -> None:
+    report = build_reference_originality_report(
+        source_title="有些时候，遗憾不会立刻退场",
+        source_markdown=(
+            "# 有些时候，遗憾不会立刻退场\n\n"
+            "有些时候会突然明白，人不是一下子放下，而是在照常过日子的时候慢慢把手松开。"
+        ),
+        draft_title="放下并不是一夜之间的决定",
+        draft_markdown=(
+            "# 放下并不是一夜之间的决定\n\n"
+            "有些时候也得承认，故事已经翻页了，然后才会把那点不甘慢慢放回普通生活里。"
+        ),
+    )
+
+    assert report.risk_level == "low"
+    assert report.danger_fragment_hits == []
+    assert report.quality_signals["danger_fragment_count"] == 0
+    assert report.quality_signals["surface_reuse_detected"] is False
+    assert report.quality_signals["functional_equivalence_ready"] is True

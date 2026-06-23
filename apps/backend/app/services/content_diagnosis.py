@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 _SENTENCE_SPLIT_RE = re.compile(r"[。！？!?；;\n]")
 _CHINESE_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
+_NON_CJK_FRAGMENT_RE = re.compile(r"[^\u4e00-\u9fff]")
 _COMMON_SHORT_FRAGMENTS = {
     "这个时候",
     "很多人",
@@ -16,6 +17,11 @@ _COMMON_SHORT_FRAGMENTS = {
     "不是工作",
     "这篇稿子",
     "所以这篇",
+}
+_GENERIC_SHORT_HAVE_FRAGMENT_RE = re.compile(r"^有些[\u4e00-\u9fff]{2,5}$")
+_GENERIC_SHORT_REFLECTIVE_FRAGMENTS = {
+    "会不会不",
+    "反复设想",
 }
 
 
@@ -689,9 +695,14 @@ def _find_danger_fragment_hits(
 
 
 def _is_noise_fragment(fragment: str) -> bool:
-    if fragment in _COMMON_SHORT_FRAGMENTS:
+    normalized_fragment = _NON_CJK_FRAGMENT_RE.sub("", fragment)
+    if normalized_fragment in _COMMON_SHORT_FRAGMENTS:
         return True
-    chinese_chars = _CHINESE_CHAR_RE.findall(fragment)
+    if normalized_fragment in _GENERIC_SHORT_REFLECTIVE_FRAGMENTS:
+        return True
+    if _GENERIC_SHORT_HAVE_FRAGMENT_RE.match(normalized_fragment):
+        return True
+    chinese_chars = _CHINESE_CHAR_RE.findall(normalized_fragment)
     if len(chinese_chars) < 3:
         return True
     if len(set(chinese_chars)) <= 1:
