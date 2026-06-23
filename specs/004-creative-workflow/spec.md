@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-30
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "将 dbskill 的完整创作编排迁移到公众号内容工作台，新增选题立案、问题说明书、对标分析、创作策略卡、内容诊断、AI 指纹检测、定向精修、复盘报告和经验沉淀能力"
 
@@ -126,3 +126,18 @@ As the operator, I want to save selected lessons from one project into a reusabl
 - The new creative workflow is additive; operators may still use the existing direct writing path when speed matters more than full prewriting rigor.
 - Benchmark materials may come from manually selected references or existing tracked content; automated acquisition of new benchmark sources is outside this feature's scope.
 - Reusable patterns start as operator-curated knowledge rather than autonomous system-generated rules.
+
+## Implementation Status
+
+- Implementation audited against the current codebase on 2026-06-23.
+- Core delivered capabilities now include:
+  - prewriting strategy package generation and adoption
+  - draft diagnosis with AI-fingerprint and reference-isolation signals
+  - diagnosis-driven polish that records the chosen objective
+  - creative review reports on project history
+  - reusable pattern promotion and listing
+- Automated verification completed on 2026-06-23:
+  - `python -m pytest apps/backend/tests/test_app.py apps/backend/tests/test_creative_strategy.py apps/backend/tests/test_content_diagnosis.py apps/backend/tests/test_creative_reports.py`
+  - `cd apps/frontend && npm test && npm run build`
+- A local end-to-end content run also completed on 2026-06-23 through `published / approved`, covering tracked article import, topic and project creation, strategy generation and adoption, outline, draft, diagnosis, diagnosis-driven polish, assets, publish package generation, and publish approval.
+- Scope boundary: this feature implements the workbench-native creative workflow inspired by `magic-distillation`; it does not attempt a 1:1 port of that repository's standalone skill/tool bundle layout.

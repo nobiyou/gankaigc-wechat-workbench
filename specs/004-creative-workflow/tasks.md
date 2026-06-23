@@ -21,15 +21,20 @@
 - Frontend app root: `apps/frontend/src/`
 - Feature docs: `specs/004-creative-workflow/`
 
+## Status Update
+
+- As of 2026-06-23, implementation, automated verification, and manual browser acceptance are complete through T045.
+- Verified flows include strategy generation/adoption, diagnosis-driven polish, creative review reporting, reusable pattern promotion, and legacy `missing_strategy` project compatibility.
+
 ---
 
 ## Phase 1: Setup (Shared Infrastructure)
 
 **Purpose**: Establish module ownership and route placeholders for the creative workflow slice.
 
-- [ ] T001 Create backend creative-workflow module skeletons in `apps/backend/app/schemas/creative_workflow.py`, `apps/backend/app/services/creative_strategy.py`, `apps/backend/app/services/content_diagnosis.py`, `apps/backend/app/services/creative_reports.py`, and `apps/backend/app/services/creative_patterns.py`
-- [ ] T002 [P] Create reusable-pattern API router scaffolding and register it in `apps/backend/app/api/creative_patterns.py` and `apps/backend/app/api/__init__.py`
-- [ ] T003 [P] Add frontend creative-workflow API and settings-navigation placeholders in `apps/frontend/src/api/workbench.ts` and `apps/frontend/src/app/navigation.ts`
+- [x] T001 Create backend creative-workflow module skeletons in `apps/backend/app/schemas/creative_workflow.py`, `apps/backend/app/services/creative_strategy.py`, `apps/backend/app/services/content_diagnosis.py`, `apps/backend/app/services/creative_reports.py`, and `apps/backend/app/services/creative_patterns.py`
+- [x] T002 [P] Create reusable-pattern API router scaffolding and register it in `apps/backend/app/api/creative_patterns.py` and `apps/backend/app/api/__init__.py`
+- [x] T003 [P] Add frontend creative-workflow API and settings-navigation placeholders in `apps/frontend/src/api/workbench.ts` and `apps/frontend/src/app/navigation.ts`
 
 ---
 
@@ -39,11 +44,11 @@
 
 **⚠️ CRITICAL**: No user story work should start until this phase is complete.
 
-- [ ] T004 Add SQLite schema migrations and hydration scaffolding for problem briefs, benchmark references, strategy cards, diagnosis reports, creative review reports, and reusable patterns in `apps/backend/app/services/workbench.py`
-- [ ] T005 [P] Extend backend response schemas for creative-workflow detail, version, and action payloads in `apps/backend/app/schemas/projects.py` and `apps/backend/app/schemas/creative_workflow.py`
-- [ ] T006 [P] Add foundational backend regression coverage for legacy null-state loading and extended version payloads in `apps/backend/tests/test_app.py`
-- [ ] T007 Wire project detail and version loading for new creative-workflow artifacts in `apps/backend/app/services/workbench.py` and `apps/backend/app/api/projects.py`
-- [ ] T008 Extend frontend project detail, version, and action typing assumptions in `apps/frontend/src/api/workbench.ts`, `apps/frontend/src/view-models/workbenchStages.ts`, and `apps/frontend/src/view-models/workbenchActions.ts`
+- [x] T004 Add SQLite schema migrations and hydration scaffolding for problem briefs, benchmark references, strategy cards, diagnosis reports, creative review reports, and reusable patterns in `apps/backend/app/services/workbench.py`
+- [x] T005 [P] Extend backend response schemas for creative-workflow detail, version, and action payloads in `apps/backend/app/schemas/projects.py` and `apps/backend/app/schemas/creative_workflow.py`
+- [x] T006 [P] Add foundational backend regression coverage for legacy null-state loading and extended version payloads in `apps/backend/tests/test_app.py`
+- [x] T007 Wire project detail and version loading for new creative-workflow artifacts in `apps/backend/app/services/workbench.py` and `apps/backend/app/api/projects.py`
+- [x] T008 Extend frontend project detail, version, and action typing assumptions in `apps/frontend/src/api/workbench.ts`, `apps/frontend/src/view-models/workbenchStages.ts`, and `apps/frontend/src/view-models/workbenchActions.ts`
 
 **Checkpoint**: The workbench can now load empty or populated creative-workflow artifacts without breaking legacy projects.
 
@@ -57,18 +62,18 @@
 
 ### Tests for User Story 1
 
-- [ ] T009 [P] [US1] Add backend tests for strategy package generation, ambiguous-input handling, and strategy adoption in `apps/backend/tests/test_app.py` and `apps/backend/tests/test_creative_strategy.py`
-- [ ] T010 [P] [US1] Add frontend tests for topic-stage strategy actions and stage recommendation behavior in `apps/frontend/src/view-models/workbenchActions.test.ts` and `apps/frontend/src/view-models/workbenchStages.test.ts`
+- [x] T009 [P] [US1] Add backend tests for strategy package generation, ambiguous-input handling, and strategy adoption in `apps/backend/tests/test_app.py` and `apps/backend/tests/test_creative_strategy.py`
+- [x] T010 [P] [US1] Add frontend tests for topic-stage strategy actions and stage recommendation behavior in `apps/frontend/src/view-models/workbenchActions.test.ts` and `apps/frontend/src/view-models/workbenchStages.test.ts`
 
 ### Implementation for User Story 1
 
-- [ ] T011 [P] [US1] Implement problem-brief, benchmark, and strategy-card generation logic in `apps/backend/app/services/creative_strategy.py`
-- [ ] T012 [US1] Persist strategy artifacts, active-strategy adoption state, and outline-generation strategy lookup in `apps/backend/app/services/workbench.py`
-- [ ] T013 [US1] Add strategy generation and strategy adoption routes in `apps/backend/app/api/projects.py` and `apps/backend/app/schemas/creative_workflow.py`
-- [ ] T014 [US1] Extend frontend client calls and payload types for strategy actions in `apps/frontend/src/api/workbench.ts`
-- [ ] T015 [US1] Surface topic-stage strategy actions and state transitions in `apps/frontend/src/view-models/workbenchActions.ts` and `apps/frontend/src/view-models/workbenchStages.ts`
-- [ ] T016 [US1] Render problem brief, benchmark references, and strategy-card panels in `apps/frontend/src/pages/WorkbenchPage.tsx` and `apps/frontend/src/view-models/workbenchPreview.ts`
-- [ ] T017 [US1] Add topic-stage strategy layout and review-state styling in `apps/frontend/src/styles.css`
+- [x] T011 [P] [US1] Implement problem-brief, benchmark, and strategy-card generation logic in `apps/backend/app/services/creative_strategy.py`
+- [x] T012 [US1] Persist strategy artifacts, active-strategy adoption state, and outline-generation strategy lookup in `apps/backend/app/services/workbench.py`
+- [x] T013 [US1] Add strategy generation and strategy adoption routes in `apps/backend/app/api/projects.py` and `apps/backend/app/schemas/creative_workflow.py`
+- [x] T014 [US1] Extend frontend client calls and payload types for strategy actions in `apps/frontend/src/api/workbench.ts`
+- [x] T015 [US1] Surface topic-stage strategy actions and state transitions in `apps/frontend/src/view-models/workbenchActions.ts` and `apps/frontend/src/view-models/workbenchStages.ts`
+- [x] T016 [US1] Render problem brief, benchmark references, and strategy-card panels in `apps/frontend/src/pages/WorkbenchPage.tsx` and `apps/frontend/src/view-models/workbenchPreview.ts`
+- [x] T017 [US1] Add topic-stage strategy layout and review-state styling in `apps/frontend/src/styles.css`
 
 **Checkpoint**: Operators can generate a reviewable strategy package and use it before outline generation.
 
@@ -82,18 +87,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T018 [P] [US2] Add backend tests for diagnosis separation, AI fingerprint findings, and diagnosis-driven polish in `apps/backend/tests/test_app.py` and `apps/backend/tests/test_content_diagnosis.py`
-- [ ] T019 [P] [US2] Add frontend tests for diagnosis actions and diagnosis-preview states in `apps/frontend/src/view-models/workbenchActions.test.ts` and `apps/frontend/src/view-models/workbenchPreview.test.ts`
+- [x] T018 [P] [US2] Add backend tests for diagnosis separation, AI fingerprint findings, and diagnosis-driven polish in `apps/backend/tests/test_app.py` and `apps/backend/tests/test_content_diagnosis.py`
+- [x] T019 [P] [US2] Add frontend tests for diagnosis actions and diagnosis-preview states in `apps/frontend/src/view-models/workbenchActions.test.ts` and `apps/frontend/src/view-models/workbenchPreview.test.ts`
 
 ### Implementation for User Story 2
 
-- [ ] T020 [P] [US2] Implement multi-dimensional diagnosis and AI fingerprint aggregation in `apps/backend/app/services/content_diagnosis.py` and `apps/backend/app/services/ai_flavor.py`
-- [ ] T021 [US2] Persist diagnosis reports and directional-polish links in `apps/backend/app/services/workbench.py`
-- [ ] T022 [US2] Add diagnose-draft and diagnosis-driven polish request handling in `apps/backend/app/api/projects.py` and `apps/backend/app/schemas/projects.py`
-- [ ] T023 [US2] Extend frontend API payloads for diagnosis requests and diagnosis-driven polish in `apps/frontend/src/api/workbench.ts`
-- [ ] T024 [US2] Surface draft-stage diagnosis actions and objective selection in `apps/frontend/src/pages/WorkbenchPage.tsx` and `apps/frontend/src/view-models/workbenchActions.ts`
-- [ ] T025 [US2] Render diagnosis findings and linked revision history in `apps/frontend/src/view-models/workbenchPreview.ts` and `apps/frontend/src/view-models/workbenchHistory.ts`
-- [ ] T026 [US2] Add draft-stage diagnosis and directional-polish styling in `apps/frontend/src/styles.css`
+- [x] T020 [P] [US2] Implement multi-dimensional diagnosis and AI fingerprint aggregation in `apps/backend/app/services/content_diagnosis.py` and `apps/backend/app/services/ai_flavor.py`
+- [x] T021 [US2] Persist diagnosis reports and directional-polish links in `apps/backend/app/services/workbench.py`
+- [x] T022 [US2] Add diagnose-draft and diagnosis-driven polish request handling in `apps/backend/app/api/projects.py` and `apps/backend/app/schemas/projects.py`
+- [x] T023 [US2] Extend frontend API payloads for diagnosis requests and diagnosis-driven polish in `apps/frontend/src/api/workbench.ts`
+- [x] T024 [US2] Surface draft-stage diagnosis actions and objective selection in `apps/frontend/src/pages/WorkbenchPage.tsx` and `apps/frontend/src/view-models/workbenchActions.ts`
+- [x] T025 [US2] Render diagnosis findings and linked revision history in `apps/frontend/src/view-models/workbenchPreview.ts` and `apps/frontend/src/view-models/workbenchHistory.ts`
+- [x] T026 [US2] Add draft-stage diagnosis and directional-polish styling in `apps/frontend/src/styles.css`
 
 **Checkpoint**: Operators can see what is wrong with a draft and launch a revision tied to a specific diagnosis objective.
 
@@ -107,16 +112,16 @@
 
 ### Tests for User Story 3
 
-- [ ] T027 [P] [US3] Add backend tests for creative review reports on full and legacy projects in `apps/backend/tests/test_app.py` and `apps/backend/tests/test_creative_reports.py`
-- [ ] T028 [P] [US3] Add frontend tests for publish-stage creative report actions and preview rendering in `apps/frontend/src/view-models/workbenchActions.test.ts` and `apps/frontend/src/view-models/workbenchPreview.test.ts`
+- [x] T027 [P] [US3] Add backend tests for creative review reports on full and legacy projects in `apps/backend/tests/test_app.py` and `apps/backend/tests/test_creative_reports.py`
+- [x] T028 [P] [US3] Add frontend tests for publish-stage creative report actions and preview rendering in `apps/frontend/src/view-models/workbenchActions.test.ts` and `apps/frontend/src/view-models/workbenchPreview.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T029 [P] [US3] Implement creative review report synthesis in `apps/backend/app/services/creative_reports.py`
-- [ ] T030 [US3] Persist and load creative review report artifacts in `apps/backend/app/services/workbench.py`
-- [ ] T031 [US3] Add creative review report route and response wiring in `apps/backend/app/api/projects.py` and `apps/frontend/src/api/workbench.ts`
-- [ ] T032 [US3] Surface publish-stage report generation and report preview in `apps/frontend/src/pages/WorkbenchPage.tsx` and `apps/frontend/src/view-models/workbenchPreview.ts`
-- [ ] T033 [US3] Add publish-stage creative-report styling and empty states in `apps/frontend/src/styles.css`
+- [x] T029 [P] [US3] Implement creative review report synthesis in `apps/backend/app/services/creative_reports.py`
+- [x] T030 [US3] Persist and load creative review report artifacts in `apps/backend/app/services/workbench.py`
+- [x] T031 [US3] Add creative review report route and response wiring in `apps/backend/app/api/projects.py` and `apps/frontend/src/api/workbench.ts`
+- [x] T032 [US3] Surface publish-stage report generation and report preview in `apps/frontend/src/pages/WorkbenchPage.tsx` and `apps/frontend/src/view-models/workbenchPreview.ts`
+- [x] T033 [US3] Add publish-stage creative-report styling and empty states in `apps/frontend/src/styles.css`
 
 **Checkpoint**: A project can produce one review artifact that explains how the article was framed and revised.
 
@@ -130,17 +135,17 @@
 
 ### Tests for User Story 4
 
-- [ ] T034 [P] [US4] Add backend tests for reusable-pattern promotion and listing in `apps/backend/tests/test_app.py` and `apps/backend/tests/test_creative_reports.py`
-- [ ] T035 [P] [US4] Add frontend tests for settings-level pattern navigation and project reuse hints in `apps/frontend/src/app/navigation.test.ts` and `apps/frontend/src/view-models/workbenchPreview.test.ts`
+- [x] T034 [P] [US4] Add backend tests for reusable-pattern promotion and listing in `apps/backend/tests/test_app.py` and `apps/backend/tests/test_creative_reports.py`
+- [x] T035 [P] [US4] Add frontend tests for settings-level pattern navigation and project reuse hints in `apps/frontend/src/app/navigation.test.ts` and `apps/frontend/src/view-models/workbenchPreview.test.ts`
 
 ### Implementation for User Story 4
 
-- [ ] T036 [P] [US4] Implement reusable-pattern promotion and listing services in `apps/backend/app/services/creative_patterns.py` and `apps/backend/app/services/creative_reports.py`
-- [ ] T037 [US4] Add reusable-pattern routes and promotion payload handling in `apps/backend/app/api/creative_patterns.py`, `apps/backend/app/api/projects.py`, and `apps/backend/app/api/__init__.py`
-- [ ] T038 [US4] Extend frontend API clients and data types for reusable patterns in `apps/frontend/src/api/workbench.ts`
-- [ ] T039 [US4] Add settings navigation and reusable-pattern management views in `apps/frontend/src/app/navigation.ts` and `apps/frontend/src/pages/SettingsPage.tsx`
-- [ ] T040 [US4] Surface reusable-pattern hints during strategy setup in `apps/frontend/src/pages/WorkbenchPage.tsx` and `apps/frontend/src/view-models/workbenchPreview.ts`
-- [ ] T041 [US4] Add reusable-pattern management and strategy-hint styling in `apps/frontend/src/styles.css`
+- [x] T036 [P] [US4] Implement reusable-pattern promotion and listing services in `apps/backend/app/services/creative_patterns.py` and `apps/backend/app/services/creative_reports.py`
+- [x] T037 [US4] Add reusable-pattern routes and promotion payload handling in `apps/backend/app/api/creative_patterns.py`, `apps/backend/app/api/projects.py`, and `apps/backend/app/api/__init__.py`
+- [x] T038 [US4] Extend frontend API clients and data types for reusable patterns in `apps/frontend/src/api/workbench.ts`
+- [x] T039 [US4] Add settings navigation and reusable-pattern management views in `apps/frontend/src/app/navigation.ts` and `apps/frontend/src/pages/SettingsPage.tsx`
+- [x] T040 [US4] Surface reusable-pattern hints during strategy setup in `apps/frontend/src/pages/WorkbenchPage.tsx` and `apps/frontend/src/view-models/workbenchPreview.ts`
+- [x] T041 [US4] Add reusable-pattern management and strategy-hint styling in `apps/frontend/src/styles.css`
 
 **Checkpoint**: Lessons can be promoted from one project and safely reused as optional references in another.
 
@@ -150,10 +155,10 @@
 
 **Purpose**: Validate the feature end-to-end, clean up null-state handling, and confirm compatibility with legacy projects.
 
-- [ ] T042 [P] Harden null-state and compatibility handling across `apps/backend/app/services/workbench.py`, `apps/frontend/src/pages/WorkbenchPage.tsx`, and `apps/frontend/src/view-models/workbenchPreview.ts`
-- [ ] T043 [P] Run backend verification with `python -m pytest apps/backend/tests/test_app.py apps/backend/tests/test_creative_strategy.py apps/backend/tests/test_content_diagnosis.py apps/backend/tests/test_creative_reports.py`
-- [ ] T044 [P] Run frontend verification with `cd apps/frontend && npm test && npm run build`
-- [ ] T045 Run manual quickstart verification from `specs/004-creative-workflow/quickstart.md`
+- [x] T042 [P] Harden null-state and compatibility handling across `apps/backend/app/services/workbench.py`, `apps/frontend/src/pages/WorkbenchPage.tsx`, and `apps/frontend/src/view-models/workbenchPreview.ts`
+- [x] T043 [P] Run backend verification with `python -m pytest apps/backend/tests/test_app.py apps/backend/tests/test_creative_strategy.py apps/backend/tests/test_content_diagnosis.py apps/backend/tests/test_creative_reports.py`
+- [x] T044 [P] Run frontend verification with `cd apps/frontend && npm test && npm run build`
+- [x] T045 Run manual quickstart verification from `specs/004-creative-workflow/quickstart.md`
 
 ---
 
