@@ -1,5 +1,16 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.creative_workflow import (
+    BenchmarkReferenceItem,
+    CreativeReviewReportItem,
+    DraftQualitySummaryItem,
+    DirectionalPolishLinkItem,
+    DraftDiagnosisReportItem,
+    ProblemBriefItem,
+    ReusablePatternItem,
+    StrategyCardItem,
+)
+
 
 class ProjectItem(BaseModel):
     slug: str
@@ -164,7 +175,13 @@ class PublishReviewAction(BaseModel):
 
 
 class DraftPolishAction(BaseModel):
-    instruction: str
+    instruction: str | None = None
+    diagnosis_report_version: int | None = None
+    objective_key: str | None = None
+
+
+class DiagnoseDraftAction(BaseModel):
+    draft_version: int | None = None
 
 
 class GenerateAssetsAction(BaseModel):
@@ -202,6 +219,14 @@ class ProjectDetail(BaseModel):
     assets: AssetItem | None
     publish_package: PublishPackageItem | None
     retro: ProjectRetroItem | None
+    problem_brief: ProblemBriefItem | None = None
+    benchmarks: list[BenchmarkReferenceItem] = Field(default_factory=list)
+    strategy_card: StrategyCardItem | None = None
+    diagnosis_report: DraftDiagnosisReportItem | None = None
+    creative_review_report: CreativeReviewReportItem | None = None
+    draft_quality_summary: DraftQualitySummaryItem | None = None
+    reusable_patterns: list[ReusablePatternItem] = Field(default_factory=list)
+    reference_originality_report: dict[str, object] | None = None
 
 
 class ProjectVersions(BaseModel):
@@ -210,6 +235,10 @@ class ProjectVersions(BaseModel):
     drafts: list[DraftItem]
     assets: list[AssetItem]
     publish_packages: list[PublishPackageItem]
+    strategy_cards: list[StrategyCardItem] = Field(default_factory=list)
+    diagnosis_reports: list[DraftDiagnosisReportItem] = Field(default_factory=list)
+    directional_polish_links: list[DirectionalPolishLinkItem] = Field(default_factory=list)
+    creative_review_reports: list[CreativeReviewReportItem] = Field(default_factory=list)
 
 
 class BatchContinueProjectResult(BaseModel):

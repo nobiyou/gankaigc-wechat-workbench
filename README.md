@@ -11,7 +11,10 @@
 - 热点来源抓取与导入汇总
 - 参考文章池与公众号文章导入
 - 选题池、批量转选题、单条/批量建项目
+- 创作工作流：策略包、问题说明书、对标分析、策略卡采纳
 - 项目生产链：`outline -> draft -> assets -> publish package`
+- 草稿诊断、AI 指纹与原创隔离提示、按诊断目标精修
+- 创作复盘报告与可复用模式沉淀
 - 发布审核、退回重生成、版本恢复与任务日志
 - Settings 中的 AI 配置检测、风格配置、赛道包与 prompt 模板可见性
 
@@ -105,7 +108,7 @@ npm run build
 - `Projects`
   - 分组项目列表与检索筛选
 - `Workbench`
-  - 单项目生产工作台，支持生成、审核、回退与版本恢复
+  - 单项目生产工作台，支持策略生成、诊断精修、审核、回退与版本恢复
 - `Settings`
   - Tone Profiles、AI 配置检测、Domain Packs、Prompt Templates
 
@@ -136,9 +139,10 @@ npm run build
 
 - 查看项目分组、阶段与下一步动作
 - 进入单项目 Workbench
-- 执行 `generate-outline / generate-draft / polish-draft / generate-assets / build-publish-package`
+- 执行 `generate-strategy-package / adopt-strategy-card / generate-outline / generate-draft / diagnose-draft / polish-draft / generate-assets / build-publish-package`
 - 发布审核通过、退回修改、按审核意见后台重生成
 - 恢复历史版本并查看任务来源
+- 生成创作复盘并沉淀可复用模式
 
 ### `assets / publish`
 

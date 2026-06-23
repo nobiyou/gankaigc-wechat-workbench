@@ -5,6 +5,7 @@ class ToneProfileItem(BaseModel):
     id: int
     is_active: bool
     sort_order: int
+    preset_key: str | None = None
     name: str
     opening_style: str
     paragraph_rhythm: str
@@ -16,6 +17,7 @@ class ToneProfileItem(BaseModel):
 
 
 class ToneProfileUpsert(BaseModel):
+    preset_key: str | None = None
     name: str
     opening_style: str
     paragraph_rhythm: str

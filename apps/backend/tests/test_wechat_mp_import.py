@@ -1074,6 +1074,7 @@ def test_wechat_mp_client_finalize_login_persists_safe_session_status(tmp_path) 
 
 
 def test_wechat_mp_client_get_session_status_keeps_valid_logged_in_session(monkeypatch, tmp_path) -> None:
+    future_expires_at = "2099-05-31T12:00:00+08:00"
     session_store = WechatMpSessionStore(str(tmp_path / "wechat-session.json"))
     session_store.save(
         {
@@ -1081,7 +1082,7 @@ def test_wechat_mp_client_get_session_status_keeps_valid_logged_in_session(monke
             "cookie": "uuid=test; auth-key=abc",
             "token": "token-123",
             "nickname": "测试公众号",
-            "expires_at": "2026-05-31T12:00:00+08:00",
+            "expires_at": future_expires_at,
             "login_stage": "logged_in",
             "status_message": "登录成功",
         }
@@ -1118,7 +1119,7 @@ def test_wechat_mp_client_get_session_status_keeps_valid_logged_in_session(monke
     assert payload == {
         "logged_in": True,
         "nickname": "测试公众号",
-        "expires_at": "2026-05-31T12:00:00+08:00",
+        "expires_at": future_expires_at,
         "login_stage": "logged_in",
         "status_message": "登录成功",
     }

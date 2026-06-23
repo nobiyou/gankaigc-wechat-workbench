@@ -6,6 +6,10 @@ class AIConfigSummary(BaseModel):
     base_url: str | None
     model: str
     image_model: str
+    image_api_key_configured: bool
+    image_base_url: str | None
+    image_request_timeout_seconds: float
+    image_uses_dedicated_config: bool
     reasoning_effort: str | None
     request_timeout_seconds: float
 

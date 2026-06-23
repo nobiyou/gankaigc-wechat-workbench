@@ -19,8 +19,10 @@ export const taskTypeLabelMap: Record<string, string> = {
   outline_restored: "恢复大纲版本",
   draft_generation: "生成初稿",
   generate_draft: "生成初稿",
+  draft_diagnosed: "运行内容诊断",
   polish_draft: "原创增强精修",
   draft_polished: "原创增强精修",
+  draft_polished_from_diagnosis: "按诊断目标精修",
   draft_restored: "恢复初稿版本",
   polish_and_generate_assets: "原创增强后生成素材包",
   assets_generation: "生成素材",
@@ -36,6 +38,8 @@ export const taskTypeLabelMap: Record<string, string> = {
   request_publish_revision: "请求发布修改",
   regenerate_from_review: "按审核意见重生成",
   project_retro_recorded: "记录项目复盘",
+  creative_review_report_generated: "生成创作复盘",
+  creative_pattern_promoted: "推广创作模式",
 };
 
 export function getTaskTypeLabel(taskType?: string): string {

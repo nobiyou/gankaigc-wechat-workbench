@@ -36,6 +36,19 @@ const baseProject = {
   retro: null,
 };
 
+const baseCreativeDetail = {
+  project: baseProject,
+  outline: null,
+  draft: null,
+  assets: null,
+  publish_package: null,
+  retro: null,
+  problem_brief: null,
+  benchmarks: [],
+  strategy_card: null,
+  diagnosis_report: null,
+};
+
 test("buildWorkbenchActionPlan exposes outline generation when outline is missing", () => {
   const plan = buildWorkbenchActionPlan({
     stage: "outline",
@@ -120,11 +133,125 @@ test("buildWorkbenchActionPlan exposes draft generation and polish paths when dr
     historyEntryCount: 2,
   });
 
-  assert.equal(plan.primaryAction?.kind, "polish_draft");
-  assert.equal(plan.primaryAction?.label, "原创增强精修");
+  assert.equal(plan.primaryAction?.kind, "diagnose_draft");
+  assert.equal(plan.primaryAction?.label, "运行内容诊断");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "polish_draft"), true);
   assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_draft"), true);
   assert.equal(plan.showInstructionField, true);
   assert.equal(plan.canRestoreHistory, true);
+});
+
+test("buildWorkbenchActionPlan promotes diagnosis-driven polish after current draft diagnosis exists", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "draft",
+    detail: {
+      ...baseCreativeDetail,
+      project: {
+        ...baseProject,
+        current_chain_state: "draft_ready",
+        current_outline_version: 1,
+        current_draft_version: 2,
+      },
+      outline: {
+        project_slug: "demo-project",
+        version: 1,
+        hook: "hook",
+        outline_body: "1. a",
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      draft: {
+        project_slug: "demo-project",
+        outline_version: 1,
+        version: 2,
+        title: "第二版初稿",
+        body_markdown: "# body",
+        word_count: 1200,
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      diagnosis_report: {
+        project_slug: "demo-project",
+        draft_version: 2,
+        version: 1,
+        opening_strength: "weak",
+        scene_specificity: "medium",
+        viewpoint_clarity: "medium",
+        progression_efficiency: "weak",
+        ending_quality: "medium",
+        ai_fingerprint_level: "medium",
+        upstream_findings: ["开头切口偏弱"],
+        downstream_findings: ["推进效率偏低"],
+        recommended_next_action: "strengthen_opening_and_progression",
+        objective_summary: "先重写开头和中段推进",
+        recommended_polish_instruction: "请按内容诊断目标精修。",
+        created_at: "2026-06-19T00:00:00+00:00",
+      },
+    },
+    historyEntryCount: 1,
+  });
+
+  assert.equal(plan.primaryAction?.kind, "polish_draft");
+  assert.equal(plan.primaryAction?.label, "按诊断目标精修");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "diagnose_draft"), true);
+});
+
+test("buildWorkbenchActionPlan prioritizes reference isolation polish for risky reports", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "draft",
+    detail: {
+      ...baseCreativeDetail,
+      project: {
+        ...baseProject,
+        current_chain_state: "draft_ready",
+        current_outline_version: 1,
+        current_draft_version: 1,
+      },
+      outline: {
+        project_slug: "demo-project",
+        version: 1,
+        hook: "hook",
+        outline_body: "1. a",
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      draft: {
+        project_slug: "demo-project",
+        outline_version: 1,
+        version: 1,
+        title: "初稿",
+        body_markdown: "# body",
+        word_count: 1200,
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      reference_originality_report: {
+        risk_level: "high",
+        risk_label: "原创隔离风险高",
+        risk_score: 80,
+        originality_score: 20,
+        recommended_polish_instruction: "请执行参考文隔离精修。",
+        overlap_report: {
+          title_same: true,
+          title_similarity: 1,
+          heading_overlap: [],
+          exact_long_sentence_overlap_count: 1,
+          exact_long_sentence_overlap_samples: [],
+          char_8gram_jaccard: 0.2,
+          char_12gram_jaccard: 0.1,
+          longest_common_substring_length: 30,
+          longest_common_substring_sample: "",
+        },
+        danger_fragment_hits: [],
+        suggestions: [],
+        quality_signals: {},
+      },
+    },
+    historyEntryCount: 1,
+  });
+
+  assert.equal(plan.primaryAction?.kind, "diagnose_draft");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "polish_draft" && action.label === "参考文隔离精修"), true);
 });
 
 test("buildWorkbenchActionPlan exposes cover-only regeneration separately from full assets regeneration", () => {
@@ -274,6 +401,7 @@ test("buildWorkbenchActionPlan exposes publish review actions for ready packages
   assert.equal(plan.showPublishReviewForm, true);
   assert.equal(plan.primaryAction?.kind, "approve_publish_package");
   assert.equal(plan.secondaryActions.some((action) => action.kind === "request_publish_revision"), true);
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_creative_review_report"), true);
 });
 
 test("buildWorkbenchActionPlan exposes regenerate and retro actions in the right publish states", () => {
@@ -511,4 +639,73 @@ test("buildWorkbenchActionPlan keeps published-and-retro-complete workbench in r
   assert.equal(plan.primaryAction, null);
   assert.equal(plan.showRetroForm, false);
   assert.equal(plan.secondaryActions.some((action) => action.kind === "restore_publish_package"), true);
+});
+
+test("buildWorkbenchActionPlan exposes strategy generation on topic stage before any strategy exists", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "topic",
+    detail: {
+      ...baseCreativeDetail,
+    },
+    historyEntryCount: 0,
+  });
+
+  assert.equal(plan.primaryAction?.kind, "generate_strategy_package");
+  assert.equal(plan.primaryAction?.label, "生成策略包");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_outline"), true);
+  assert.equal(plan.showInstructionField, false);
+});
+
+test("buildWorkbenchActionPlan exposes strategy adoption on topic stage when a card exists but is not adopted", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "topic",
+    detail: {
+      ...baseCreativeDetail,
+      problem_brief: {
+        project_slug: "demo-project",
+        version: 2,
+        source_mode: "topic",
+        raw_goal: "写一篇关系文",
+        clarified_problem: "读者总在反复确认关系稳定性。",
+        target_reader_situation: "她总在等回复。",
+        core_conflict: "越想确认越不敢直接开口。",
+        unknowns: [],
+        status: "ready",
+        created_at: "2026-05-30T10:00:00Z",
+      },
+      benchmarks: [
+        {
+          project_slug: "demo-project",
+          strategy_version: 2,
+          reference_kind: "trend",
+          reference_label: "关系边界重设",
+          reference_pointer: "trend://relationship-boundary-reset",
+          borrow_focus: "情绪入口",
+          avoid_focus: "空泛喊话",
+          rationale: "能借鉴开头的具体处境。",
+          sort_order: 1,
+        },
+      ],
+      strategy_card: {
+        project_slug: "demo-project",
+        version: 2,
+        problem_brief_version: 2,
+        reader_situation: "深夜反复看对话框，却不知道怎么开口。",
+        point_of_view: "先承认不安，再拆开误会和期待。",
+        conflict_frame: "想被重视，却总用沉默逼对方证明。",
+        emotional_path: "嘴硬 -> 拉扯 -> 看见自己真正想要什么",
+        expression_constraints: ["不要鸡汤总结", "避免对称句"],
+        benchmark_summary: "借鉴情绪起手，避免模板化劝解。",
+        status: "ready",
+        created_at: "2026-05-30T10:02:00Z",
+        adopted_at: null,
+      },
+    },
+    historyEntryCount: 2,
+  });
+
+  assert.equal(plan.primaryAction?.kind, "adopt_strategy_card");
+  assert.equal(plan.primaryAction?.label, "采纳当前策略卡");
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_strategy_package"), true);
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "generate_outline"), true);
 });
