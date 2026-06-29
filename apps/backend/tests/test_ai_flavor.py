@@ -283,6 +283,32 @@ def test_extract_orphaned_rebound_tails_finds_broken_cleanup_residue() -> None:
     ]
 
 
+def test_extract_orphaned_rebound_tails_finds_scene_first_fragment_residue() -> None:
+    tails = extract_orphaned_rebound_tails(
+        "很多人的位置感，这样一点点往后退：当场没说，散会后再补。"
+        "真要把它算成在大事上突然失去的。它常常就。"
+        "现场不拦，回去自己消化。"
+    )
+
+    assert tails == ["真要把它算成在大事上突然失去的。它常常就。"]
+
+
+def test_extract_orphaned_rebound_tails_finds_broken_not_ab_tail_stub() -> None:
+    tails = extract_orphaned_rebound_tails(
+        "你太久没让那颗心落地。真要把它算成出了什么大问题。你只。"
+    )
+
+    assert tails == ["真要把它算成出了什么大问题。你只。"]
+
+
+def test_extract_orphaned_rebound_tails_finds_broken_hard_carry_tail_stub() -> None:
+    tails = extract_orphaned_rebound_tails(
+        "这在装作自己没事。真要把它算成硬扛。硬扛的人，通常。可真正把自己托住的人，更诚实。"
+    )
+
+    assert tails == ["真要把它算成硬扛。硬扛的人，通常。"]
+
+
 def test_evaluate_ai_flavor_risk_flags_orphaned_rebound_tails() -> None:
     summary = evaluate_ai_flavor_risk(
         title="那张没去复查的单子，通常比诊断书更早知道你扛不住了",
@@ -295,6 +321,19 @@ def test_evaluate_ai_flavor_risk_flags_orphaned_rebound_tails() -> None:
 
     assert any("断裂回钩尾句" in hit for hit in summary.hits)
     assert any("被拆断后单独残留的回钩尾句" in suggestion for suggestion in summary.suggestions)
+
+
+def test_evaluate_ai_flavor_risk_flags_broken_not_ab_tail_stub() -> None:
+    summary = evaluate_ai_flavor_risk(
+        title="心安这件事，比什么都重要",
+        body_markdown=(
+            "灯还亮着，人已经困了，饭热过一遍又一遍，还是没吃完。"
+            "你太久没让那颗心落地。真要把它算成出了什么大问题。你只。"
+            "很多人会把安心这件事，放到“等我想明白再说”后面。"
+        ),
+    )
+
+    assert any("断裂回钩尾句" in hit for hit in summary.hits)
 
 
 def test_extract_growth_cliches_finds_retry_targets() -> None:

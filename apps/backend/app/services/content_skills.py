@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 
@@ -80,6 +80,7 @@ DIRECT_ANSWER_SCENE_BUDGET_SKILL = ContentSkill(
         ),
         "draft": (
             "正文不需要含蓄，默认不用整段场景描写。"
+            "多数段落优先控制在 1 到 2 句；如果单段超过 3 句，先拆段，不要让解释挤成一整块。"
             "不要用生活场景冷启动，不要连续铺动作、环境、物件和氛围。"
             "例证优先一句事实、一个后果，或 1 到 2 个有情绪功能的现实细节，写完立刻回到判断、机制、答案或行动落点。"
             "例证不要单独拖成长段，不能保留只负责摆拍的孤立动作残留。"
@@ -88,11 +89,34 @@ DIRECT_ANSWER_SCENE_BUDGET_SKILL = ContentSkill(
         ),
         "assets": (
             "标题备选和导语要直接说清问题、答案入口或读者收益。"
+            "尽量短句化，不要铺成长导语。"
             "不要用含蓄氛围、场景感文案或暧昧留白来包装正文。"
         ),
         "publish_package": (
             "发布摘要、标签和编辑备注直接写清核心结论、信息增量和情绪价值。"
             "不要写成含蓄推荐语、氛围描述或需要读者自己猜的编辑备注。"
+        ),
+    },
+)
+
+
+TRACKED_ARTICLE_STRATEGY_DIRECT_ANSWER_SKILL = ContentSkill(
+    key="direct_answer_scene_budget",
+    label="参考文章策略优先直答节奏",
+    stages=("outline", "draft"),
+    instructions_by_stage={
+        "outline": (
+            "大纲仍然要直接，但这里的“直接”是先把真实卡点钉住，不是把所有稿子都压成整齐三段式。"
+            "开头优先落一个现实接口、顺序落差、身体反应或当下阻力，再推进判断。"
+            "如已有策略包，段落快慢、推进顺序和结尾动作优先服从策略模式。"
+            "结尾给方向感、位置感、现实落点或轻微余波即可，不强行把话说成标准答案。"
+        ),
+        "draft": (
+            "正文可以先让一个现实接口、动作后果、顺序落差或身体反应顶上来，不必第一句就把答案喊满。"
+            "多数段落仍保持短段，但允许前半篇出现 1 到 2 处一句一段的人话短句或可摘录句，不要把每段都写成同样宽度的成熟讲解段。"
+            "例证之后可以先给情绪承接、关系余波或位置感变化，再给判断，不必句句立刻落成结论。"
+            "如已有策略包，结构、节奏和情绪落点优先服从策略模式，不要统一写成“先讲结论、再展开讲解、最后完整收口”的厂牌样板。"
+            "结尾给方向感、位置感、现实落点或轻微余波即可，不强求口号式答案句。"
         ),
     },
 )
@@ -104,9 +128,37 @@ DEFAULT_CONTENT_SKILLS: tuple[ContentSkill, ...] = (
 )
 
 
+def _has_tracked_article_strategy_package(payload: Mapping[str, object] | None) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    if str(payload.get("source_type") or "").strip() != "tracked_article":
+        return False
+    return isinstance(payload.get("strategy_card"), Mapping) or isinstance(payload.get("problem_brief"), Mapping)
+
+
+def _resolve_content_skills(
+    *,
+    stage: str,
+    payload: Mapping[str, object] | None,
+    skills: Iterable[ContentSkill],
+) -> tuple[ContentSkill, ...]:
+    if stage not in {"outline", "draft"} or not _has_tracked_article_strategy_package(payload):
+        return tuple(skills)
+
+    resolved: list[ContentSkill] = []
+    for skill in skills:
+        if skill.key == DIRECT_ANSWER_SCENE_BUDGET_SKILL.key:
+            resolved.append(TRACKED_ARTICLE_STRATEGY_DIRECT_ANSWER_SKILL)
+            continue
+        resolved.append(skill)
+    return tuple(resolved)
+
+
 def build_content_skill_instructions(
     *,
     stage: str,
+    payload: Mapping[str, object] | None = None,
     skills: Iterable[ContentSkill] = DEFAULT_CONTENT_SKILLS,
 ) -> str:
-    return "".join(skill.instructions_for(stage) for skill in skills)
+    resolved_skills = _resolve_content_skills(stage=stage, payload=payload, skills=skills)
+    return "".join(skill.instructions_for(stage) for skill in resolved_skills)

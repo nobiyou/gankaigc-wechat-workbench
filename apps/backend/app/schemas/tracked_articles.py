@@ -12,6 +12,12 @@ class TrackedArticleItem(BaseModel):
     body_markdown: str = ""
     body_source: str = "missing"
     structure_notes: str
+    analysis_theme: str = ""
+    analysis_core_conflict: str = ""
+    analysis_emotional_exit: str = ""
+    analysis_structure_mode: str = ""
+    analysis_opening_pattern: str = ""
+    analysis_do_not_turn_into: str = ""
     created_at: str | None = None
     tags: list[str]
 

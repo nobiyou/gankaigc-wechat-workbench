@@ -12,11 +12,15 @@ _CHINESE_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 _NON_CJK_FRAGMENT_RE = re.compile(r"[^\u4e00-\u9fff]")
 _COMMON_SHORT_FRAGMENTS = {
     "这个时候",
+    "的时候",
     "很多人",
     "真正危险",
     "不是工作",
     "这篇稿子",
     "所以这篇",
+    "身边的人",
+    "身边的人也",
+    "也不会",
 }
 _GENERIC_SHORT_HAVE_FRAGMENT_RE = re.compile(r"^有些[\u4e00-\u9fff]{2,5}$")
 _GENERIC_SHORT_REFLECTIVE_FRAGMENTS = {
@@ -697,6 +701,10 @@ def _find_danger_fragment_hits(
 def _is_noise_fragment(fragment: str) -> bool:
     normalized_fragment = _NON_CJK_FRAGMENT_RE.sub("", fragment)
     if normalized_fragment in _COMMON_SHORT_FRAGMENTS:
+        return True
+    if len(normalized_fragment) >= 4 and any(
+        normalized_fragment in common_fragment for common_fragment in _COMMON_SHORT_FRAGMENTS
+    ):
         return True
     if normalized_fragment in _GENERIC_SHORT_REFLECTIVE_FRAGMENTS:
         return True

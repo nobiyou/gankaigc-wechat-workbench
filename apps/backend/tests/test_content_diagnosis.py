@@ -215,3 +215,26 @@ def test_reference_originality_report_ignores_generic_short_have_phrase() -> Non
     assert report.quality_signals["danger_fragment_count"] == 0
     assert report.quality_signals["surface_reuse_detected"] is False
     assert report.quality_signals["functional_equivalence_ready"] is True
+
+
+def test_reference_originality_report_ignores_generic_support_limit_fragments() -> None:
+    report = build_reference_originality_report(
+        source_title="有人也想开口，可现实未必刚好有空位",
+        source_markdown=(
+            "# 有人也想开口，可现实未必刚好有空位\n\n"
+            "人最慌的时候，常会发现身边的人也在各忙各的事。\n\n"
+            "你把难处说出来了，局面也不会立刻松下来。"
+        ),
+        draft_title="想被搭一把的时候，大家往往都在赶自己的路",
+        draft_markdown=(
+            "# 想被搭一把的时候，大家往往都在赶自己的路\n\n"
+            "很多低谷并不是没人关心，而是身边的人也刚好被别的安排拽住。\n\n"
+            "你开口以后，事情也不会马上变轻，所以更要先把今晚过稳。"
+        ),
+    )
+
+    assert report.risk_level == "low"
+    assert report.danger_fragment_hits == []
+    assert report.quality_signals["danger_fragment_count"] == 0
+    assert report.quality_signals["surface_reuse_detected"] is False
+    assert report.quality_signals["functional_equivalence_ready"] is True

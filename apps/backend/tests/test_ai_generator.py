@@ -40,6 +40,13 @@ def build_custom_base_url_generator() -> OpenAIWorkbenchGenerator:
     )
 
 
+def test_generator_clients_disable_sdk_internal_retries() -> None:
+    generator = build_generator()
+
+    assert generator._client.max_retries == 0
+    assert generator._image_client.max_retries == 0
+
+
 def test_generate_outline_prompt_mentions_target_word_count(monkeypatch) -> None:
     generator = build_generator()
     captured: dict[str, str] = {}
@@ -349,6 +356,162 @@ def test_parse_response_falls_back_to_chat_json_when_responses_parse_shape_is_in
     assert captured["messages"][1]["content"]
 
 
+def test_generate_draft_compact_mode_preserves_single_attempt_budget_in_chat_fallback(monkeypatch) -> None:
+    generator = build_generator()
+    captured: dict[str, object] = {"chat_calls": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/responses"))
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            captured["chat_calls"] += 1
+            captured["last_chat_kwargs"] = kwargs
+            raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/chat/completions"))
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    with pytest.raises(openai.APITimeoutError):
+        generator.generate_draft(
+            {
+                "trend_title": "办公室倦怠修复",
+                "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+                "topic_angle": "情绪识别",
+                "project_title": "办公室倦怠修复周更",
+                "outline": {
+                    "hook": "先接住身体发出的报警",
+                    "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+                },
+                "tone_profile": {
+                    "name": "女性成长克制陪伴风",
+                    "opening_style": "从具体场景冷启动切入",
+                    "paragraph_rhythm": "短段落，慢推进",
+                    "closing_style": "留白式收束",
+                    "forbidden_phrases": ["你必须", "立刻改变"],
+                    "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                    "target_word_count": 1400,
+                    "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+                },
+                "compact_strategy_mode": True,
+            }
+        )
+
+    assert captured["chat_calls"] == 1
+    assert captured["last_chat_kwargs"]["timeout"] == 60.0
+
+
+def test_generate_draft_strategy_first_mode_preserves_single_attempt_budget_in_chat_fallback(monkeypatch) -> None:
+    generator = build_generator()
+    captured: dict[str, object] = {"chat_calls": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/responses"))
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            captured["chat_calls"] += 1
+            captured["last_chat_kwargs"] = kwargs
+            raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/chat/completions"))
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    with pytest.raises(openai.APITimeoutError):
+        generator.generate_draft(
+            {
+                "trend_title": "参考文章 / 手动录入",
+                "topic_title": "外部支撑不稳时，最该补的，是把自己托住的能力",
+                "topic_angle": "当外部回应常常慢半拍、别人也各自承压时，低谷里最难的不是指望谁接住，而是把恢复权从等待里收回来。",
+                "project_title": "自救自渡主题验收",
+                "outline": {
+                    "hook": "你想找人说说的时候，手机那头常常只剩一句“我也快忙不过来了”。",
+                    "outline_body": "1. 外求落空\n2. 先把自己拉回可运转\n3. 再谈怎么往下过",
+                },
+                "tone_profile": {
+                    "name": "女性成长克制陪伴风",
+                    "opening_style": "从具体场景冷启动切入",
+                    "paragraph_rhythm": "短段落，慢推进",
+                    "closing_style": "留白式收束",
+                    "forbidden_phrases": ["你必须", "立刻改变"],
+                    "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                    "target_word_count": 1400,
+                    "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+                },
+                "source_type": "tracked_article",
+                "problem_brief": {"clarified_problem": "x"},
+                "strategy_card": {"structure_mode": "self_reliance_inward_support"},
+                "strategy_first_draft_mode": True,
+            }
+        )
+
+    assert captured["chat_calls"] == 1
+    assert captured["last_chat_kwargs"]["timeout"] == 60.0
+
+
+def test_generate_outline_falls_back_to_chat_json_when_responses_parse_returns_markdown(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            OutlineGenerationResult.model_validate_json("**hook**\\n你撤回的求助，往往不是情绪消失了。")
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"hook":"先写那个把情绪收回去的瞬间","outline_body":"1. 为什么会先说没事\\n2. 被推开以后会撤回什么\\n3. 关系怎么一点点降温"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_outline(
+        {
+            "trend_title": "被推开的那一刻",
+            "topic_title": "总在天亮前把自己缝好的人，最后会先撤回求助",
+            "topic_angle": "把一次次说没事之后的代价拆开",
+            "project_title": "被推开的那一刻",
+            "tone_profile": {
+                "name": "今晚有语",
+                "target_word_count": 1400,
+            },
+        }
+    )
+
+    assert result == {
+        "hook": "先写那个把情绪收回去的瞬间",
+        "outline_body": "1. 为什么会先说没事\n2. 被推开以后会撤回什么\n3. 关系怎么一点点降温",
+    }
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 1
+    assert "只返回一个 JSON 对象" in str(captured["extra_body"]["instructions"])
+
+
 def test_parse_response_falls_back_to_chat_json_when_output_parsed_is_none(monkeypatch) -> None:
     generator = build_generator()
     captured: dict[str, object] = {}
@@ -458,11 +621,19 @@ def test_parse_response_chat_json_fallback_retries_on_malformed_json(monkeypatch
 
 def test_parse_response_chat_json_fallback_retries_on_transient_connection_errors(monkeypatch) -> None:
     generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
     chat_calls = {"count": 0}
 
     class FakeResponses:
         def parse(self, **kwargs):
-            raise AssertionError("responses.parse should be skipped for draft generation on custom base URLs")
+            parse_calls["count"] += 1
+
+            class FakeParsedResponse:
+                output_parsed = None
+                output_text = ""
+                output = []
+
+            return FakeParsedResponse()
 
     class FakeChatCompletions:
         def create(self, **kwargs):
@@ -516,6 +687,7 @@ def test_parse_response_chat_json_fallback_retries_on_transient_connection_error
         "title": "先把卡住的那一刻写出来",
         "body_markdown": "# 标题\n\n正文",
     }
+    assert parse_calls["count"] == 1
     assert chat_calls["count"] == 3
 
 
@@ -923,13 +1095,22 @@ def test_parse_response_timeout_fallback_does_not_stick_for_future_calls(monkeyp
     assert chat_calls["count"] == 1
 
 
-def test_generate_draft_prefers_chat_json_first_for_custom_base_url(monkeypatch) -> None:
+def test_generate_draft_keeps_responses_parse_first_for_custom_base_url(monkeypatch) -> None:
     generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
     chat_calls = {"count": 0}
 
     class FakeResponses:
         def parse(self, **kwargs):
-            raise AssertionError("responses.parse should be skipped for draft generation on custom base URLs")
+            parse_calls["count"] += 1
+
+            class FakeParsedResponse:
+                output_parsed = DraftGenerationResult(
+                    title="先把卡住的那一刻写出来",
+                    body_markdown="# 标题\n\n正文",
+                )
+
+            return FakeParsedResponse()
 
     class FakeChatCompletions:
         def create(self, **kwargs):
@@ -979,7 +1160,84 @@ def test_generate_draft_prefers_chat_json_first_for_custom_base_url(monkeypatch)
         "title": "先把卡住的那一刻写出来",
         "body_markdown": "# 标题\n\n正文",
     }
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 0
+
+
+def test_generate_draft_falls_back_after_internal_server_error_on_custom_base_url(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+    request = httpx.Request("POST", "https://proxy.example/v1/responses")
+    response = httpx.Response(
+        502,
+        request=request,
+        json={"error": {"message": "Upstream request failed"}},
+    )
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise openai.InternalServerError(
+                "Upstream request failed",
+                response=response,
+                body={"error": {"message": "Upstream request failed"}},
+            )
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"title": "先把卡住的那一刻写出来", "body_markdown": "# 标题\\n\\n正文"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+    monkeypatch.setattr(ai_generator_module.time, "sleep", lambda *_args: None)
+
+    result = generator.generate_draft(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "outline": {
+                "hook": "先接住身体发出的报警",
+                "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+            },
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "opening_style": "从具体场景冷启动切入",
+                "paragraph_rhythm": "短段落，慢推进",
+                "closing_style": "留白式收束",
+                "forbidden_phrases": ["你必须", "立刻改变"],
+                "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                "target_word_count": 1400,
+                "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+            },
+        }
+    )
+
+    assert result == {
+        "title": "先把卡住的那一刻写出来",
+        "body_markdown": "# 标题\n\n正文",
+    }
+    assert parse_calls["count"] == 1
     assert chat_calls["count"] == 1
+    assert captured["response_format"] == {"type": "json_object"}
 
 
 def test_generate_topic_keeps_responses_parse_first_for_custom_base_url(monkeypatch) -> None:
@@ -1336,7 +1594,14 @@ def test_generate_tracked_article_metadata_retries_responses_parse_after_interna
             class FakeMessage:
                 content = (
                     '{"author":"毛姆摘引","summary":"文章围绕原谅与释怀展开，重点提醒人别让反复计较毁掉自己的心境。",'
-                    '"structure_notes":"名言起手 + 情绪后果拆解 + 释怀落点。","tags":["释怀","自我和解"]}'
+                    '"structure_notes":"名言起手 + 情绪后果拆解 + 释怀落点。",'
+                    '"analysis_theme":"文章真正想讲的是，人要学会把反复计较和恩怨纠缠放下，才能把自己从消耗里解救出来。",'
+                    '"analysis_core_conflict":"越想抓着那些让自己不痛快的人和事不放，越容易让内心一直被旧情绪啃食。",'
+                    '"analysis_emotional_exit":"从计较和怨怼里松手，把心腾出来重新装进轻松和希望。",'
+                    '"analysis_structure_mode":"emotional_engine_direct",'
+                    '"analysis_opening_pattern":"从名言和价值判断直接起笔。",'
+                    '"analysis_do_not_turn_into":"不要写成关系修复教程或身体告警提醒稿。",'
+                    '"tags":["释怀","自我和解"]}'
                 )
 
             class FakeChoice:
@@ -1373,6 +1638,12 @@ def test_generate_tracked_article_metadata_retries_responses_parse_after_interna
         "author": "毛姆摘引",
         "summary": "文章围绕原谅与释怀展开，重点提醒人别让反复计较毁掉自己的心境。",
         "structure_notes": "名言起手 + 情绪后果拆解 + 释怀落点。",
+        "analysis_theme": "文章真正想讲的是，人要学会把反复计较和恩怨纠缠放下，才能把自己从消耗里解救出来。",
+        "analysis_core_conflict": "越想抓着那些让自己不痛快的人和事不放，越容易让内心一直被旧情绪啃食。",
+        "analysis_emotional_exit": "从计较和怨怼里松手，把心腾出来重新装进轻松和希望。",
+        "analysis_structure_mode": "emotional_engine_direct",
+        "analysis_opening_pattern": "从名言和价值判断直接起笔。",
+        "analysis_do_not_turn_into": "不要写成关系修复教程或身体告警提醒稿。",
         "tags": ["释怀", "自我和解"],
     }
     assert parse_calls["count"] == 1

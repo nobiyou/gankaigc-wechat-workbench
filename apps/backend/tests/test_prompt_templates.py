@@ -12,6 +12,10 @@ from app.services.prompt_templates import (
     _infer_tracked_article_pressure_guard,
     _has_broad_emotional_release_focus,
     _has_everyday_warmth_return_focus,
+    _has_inner_settlement_focus,
+    _has_self_reliance_inward_support_focus,
+    _has_supportive_appreciation_focus,
+    _has_response_priority_focus,
     _has_resilience_reconstruction_focus,
     _has_relationship_aftercare_focus,
     build_assets_prompt,
@@ -19,6 +23,7 @@ from app.services.prompt_templates import (
     build_draft_prompt,
     build_outline_prompt,
     build_publish_package_prompt,
+    build_tracked_article_metadata_prompt,
     build_topic_prompt,
     render_tone_profile_section,
 )
@@ -49,7 +54,7 @@ JINWAN_YOUYU_TONE_PROFILE = {
     "preset_key": JINWAN_YOUYU_PRESET_KEY,
     "name": "今晚有语",
     "opening_style": "直接问题、现实接口或一句共鸣判断切入，直接点破问题和答案入口",
-    "paragraph_rhythm": "标准三段式直接推进，中段围绕 2 到 4 个明确判断展开；多数段落以 1 到 3 句为主，遇到动作变化、转折或落点就拆段；每个判断都要给出处境、依据或行动落点，少铺氛围",
+    "paragraph_rhythm": "标准三段式直接推进，中段围绕 2 到 4 个明确判断展开；多数段落以 1 到 2 句为主，只有需要补机制、后果或情绪承接时才放到 3 句，遇到动作变化、转折或落点就拆段；每个判断都要给出处境、依据或行动落点，少铺氛围",
     "closing_style": "直接结论或温暖祝福收束，给答案，不拖鸡汤尾音",
     "forbidden_phrases": ["你应该", "总之", "在当今社会"],
     "value_constraints": "面向25到45岁女性，直接有力，给出答案，温暖但不说教；必须带来信息增量或情绪价值，不含蓄收尾。",
@@ -139,25 +144,30 @@ def test_jinwan_youyu_style_injects_full_stage_rules_across_prompts() -> None:
     assert "必须带钩子，不能只是情绪陈述" in topic_template.instructions
     assert "判断可以明确，但先把答案落在真实接口上，不要只剩抽象结论。" in topic_template.instructions
 
-    assert "按标准三段式组织" in outline_template.instructions
+    assert "大纲按问题推进组织" in outline_template.instructions
     assert "这不是低成本三段式" in outline_template.instructions
     assert "中间部分展开 2 到 4 个论点" in outline_template.instructions
     assert "判断依据或行动落点" in outline_template.instructions
     assert "总字数目标控制在 1200 到 1800 字" in outline_template.instructions
     assert "大纲默认不规划整段场景描述" in outline_template.instructions
-    assert "开头要点破真实问题，中段要给新观察，结尾要有明确答案。" in outline_template.instructions
+    assert "开头要点破真实问题，中段要给新观察，结尾要有明确方向感。" in outline_template.instructions
     assert "有判断功能的现实细节" in outline_template.instructions
 
     assert "开头优先用直接问题、现实接口或一句共鸣判断切入" in draft_template.instructions
     assert "不要只靠空问句、空引用或泛共鸣占住开头位置。" in draft_template.instructions
     assert "不是让读者自己猜，你要直接把判断说出来，但要落在真实接口上。" in draft_template.instructions
-    assert "观点 + 例子 + 结论" in draft_template.instructions
+    assert "观点 + 依据/接口 + 推进" in draft_template.instructions
     assert "不能只重复标题情绪" in draft_template.instructions
+    assert "多数段落控制在 1 到 2 句" in draft_template.instructions
+    assert "如果单段超过 3 句，先拆段" in draft_template.instructions
+    assert "情绪价值要落在被看见、被松绑或被轻轻推动上" in draft_template.instructions
     assert "正文不需要含蓄，默认不用整段场景描写" in draft_template.instructions
     assert "正文都要让读者获得情绪价值" in draft_template.instructions
     assert "不用生活场景冷启动" in draft_template.instructions
     assert "有情绪功能的现实细节" in draft_template.instructions
     assert "例证不要单独拖成长段" in draft_template.instructions
+    assert "全文最好保住 1 处从具体处境里长出来、可以单独成段的可摘录短句或引用式表达" in draft_template.instructions
+    assert "如果状态允许，可以再留 1 处" in draft_template.instructions
     assert "连续两篇不能用同一个人" in draft_template.instructions
     assert "不要使用这些词：不禁、心想、暗想、默念、琢磨、纠结、暗自、默默" in draft_template.instructions
     assert "少用“像……一样”“如同”“仿佛”“宛如”“好似”这类明喻" in draft_template.instructions
@@ -167,6 +177,7 @@ def test_jinwan_youyu_style_injects_full_stage_rules_across_prompts() -> None:
 
     assert "导语要直接点破读者最在意的问题" in assets_template.instructions
     assert "不要写成空泛抒情 teaser" in assets_template.instructions
+    assert "最好一眼能截住读者" in assets_template.instructions
 
     assert "编辑备注要直接给出这篇稿子的核心答案和发布抓手" in publish_template.instructions
     assert "不要写成模糊抒情总结" in publish_template.instructions
@@ -190,15 +201,37 @@ def test_content_skills_define_platform_value_and_direct_scene_budget_rules() ->
     assert "正文每个主要段落都要承担新的内容价值" in draft_instructions
     assert "不管风格多直接或多克制，正文都要让读者获得情绪价值" in draft_instructions
     assert "正文默认不用整段场景描写" in draft_instructions
+    assert "如果单段超过 3 句，先拆段" in draft_instructions
     assert "不用生活场景冷启动" in draft_instructions
     assert "空动作残留" in draft_instructions
     assert "不要连续多段写环境、动作、光线、房间、夜晚等氛围" in draft_instructions
     assert "标题备选、封面文案和分发导语要准确呈现正文的信息增量或情绪价值" in assets_instructions
     assert "马上知道自己会被理解、被提醒或获得一个现实出口" in assets_instructions
+    assert "尽量短句化，不要铺成长导语" in assets_instructions
     assert "不要用含蓄氛围、场景感文案或暧昧留白来包装正文" in assets_instructions
     assert "发布摘要和编辑备注必须点明这篇稿子的核心信息增量或情绪价值" in publish_instructions
     assert "提供的情绪承接是什么" in publish_instructions
     assert "发布摘要、标签和编辑备注直接写清核心结论" in publish_instructions
+
+
+def test_content_skills_relax_direct_answer_for_tracked_article_strategy_package() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "problem_brief": {"clarified_problem": "为什么总在等待里替对方找补。"},
+        "strategy_card": {"structure_mode": "response_priority"},
+    }
+
+    outline_instructions = build_content_skill_instructions(stage="outline", payload=payload)
+    draft_instructions = build_content_skill_instructions(stage="draft", payload=payload)
+
+    assert "先把真实卡点钉住" in outline_instructions
+    assert "段落快慢、推进顺序和结尾动作优先服从策略模式" in outline_instructions
+    assert "不强行把话说成标准答案" in outline_instructions
+    assert "不必第一句就把答案喊满" in draft_instructions
+    assert "一句一段的人话短句或可摘录句" in draft_instructions
+    assert "不必句句立刻落成结论" in draft_instructions
+    assert "先讲结论、再展开讲解、最后完整收口" in draft_instructions
+    assert "不强求口号式答案句" in draft_instructions
 
 
 def test_content_skill_instructions_are_injected_across_public_account_prompts() -> None:
@@ -284,6 +317,12 @@ def test_build_topic_prompt_includes_source_specific_context_and_style_section()
             "summary": "摘要内容",
             "body_markdown": "她不是突然不想说话，只是把自己的疲惫一再往后放。\n\n后来连回家的力气都提不起来。",
             "structure_notes": "结构备注",
+            "analysis_theme": "文章真正想讲的是，一个人不是突然变冷淡，而是被长期推迟的疲惫慢慢抽空了回应能力。",
+            "analysis_core_conflict": "表面还在正常回应，心里的余量却已经被日常消耗和关系压力一点点磨没了。",
+            "analysis_emotional_exit": "先认出自己的耗尽，再把回应和照顾自己重新排回生活顺序里。",
+            "analysis_structure_mode": "pressure_interface_direct",
+            "analysis_opening_pattern": "从疲惫和回家无力的现实接口起笔。",
+            "analysis_do_not_turn_into": "不要写成泛关系评判或空泛自爱口号。",
             "tags": ["wechat-mp", "relationship"],
             "tone_profile": TONE_PROFILE,
         }
@@ -296,12 +335,45 @@ def test_build_topic_prompt_includes_source_specific_context_and_style_section()
     assert "至少要同时改掉原标题骨架、观察视角和情绪推进顺序中的两项" in template.instructions
     assert "切入角度只写 1 句话，控制在 40 到 80 个汉字" in template.instructions
     assert "如果参考文章正文里已经出现可用的现实接口、身体提醒、延迟代价或被反复往后放的动作" in template.instructions
+    assert "先读懂参考文章在讲什么，再决定新选题怎么组织" in template.instructions
+    assert "优先服从这些分析结论" in template.instructions
     assert "参考文章标题：听到伴侣说话就烦，不是你脾气差" in template.prompt
+    assert "分析主题：文章真正想讲的是，一个人不是突然变冷淡，而是被长期推迟的疲惫慢慢抽空了回应能力。" in template.prompt
+    assert "核心矛盾：表面还在正常回应，心里的余量却已经被日常消耗和关系压力一点点磨没了。" in template.prompt
+    assert "情绪出口：先认出自己的耗尽，再把回应和照顾自己重新排回生活顺序里。" in template.prompt
+    assert "结构模式：pressure_interface_direct" in template.prompt
+    assert "开头方式：从疲惫和回家无力的现实接口起笔。" in template.prompt
+    assert "不要写成：不要写成泛关系评判或空泛自爱口号。" in template.prompt
     assert "标签：wechat-mp / relationship" in template.prompt
     assert "参考文章正文抓手候选：" in template.prompt
     assert "她不是突然不想说话，只是把自己的疲惫一再往后放" in template.prompt
     assert "风格档案：女性成长克制陪伴风" in template.prompt
     assert "切入角度 angle（1 句话，控制在 40 到 80 个汉字）" in template.prompt
+
+
+def test_build_tracked_article_metadata_prompt_requires_analysis_before_field_completion() -> None:
+    template = build_tracked_article_metadata_prompt(
+        {
+            "source_kind": "manual",
+            "source_name": "夜读关系实验室",
+            "article_title": "真正让关系缓回来，不是解释，是先接住那一下失望",
+            "article_url": "https://example.com/slow-repair-template",
+            "author": "",
+            "summary": "",
+            "structure_notes": "",
+            "tags": [],
+            "body_source": "manual",
+            "body_markdown": "她那天没有继续解释，只是先停下来接住那一下失望。\n\n第二天才重新整理要说的话。",
+        }
+    )
+
+    assert "公众号内容分析编辑" in template.instructions
+    assert "先分析文章，再补字段；不要跳过分析直接写摘要。" in template.instructions
+    assert "结构模式只能从这些值里选一个" in template.instructions
+    assert "不要写成要明确提醒这篇参考文最不该被改写成什么主题或套路。" in template.instructions
+    assert "4. 分析主题 analysis_theme" in template.prompt
+    assert "7. 结构模式 analysis_structure_mode" in template.prompt
+    assert "9. 不要写成 analysis_do_not_turn_into" in template.prompt
 
 
 def test_outline_and_draft_prompts_consume_generated_dbskill_rules(monkeypatch, tmp_path: Path) -> None:
@@ -333,7 +405,7 @@ def test_outline_and_draft_prompts_consume_generated_dbskill_rules(monkeypatch, 
             "topic_title": "先接住失望，再谈道理",
             "topic_angle": "关系修复",
             "project_title": "慢修复关系稿",
-            "source_type": "tracked_article",
+            "source_type": "trend",
             "tone_profile": TONE_PROFILE,
             "problem_brief": {
                 "clarified_problem": "这篇文章要解释，为什么很多关系修复不是输在不会说，而是输在没先接住失望。",
@@ -357,7 +429,7 @@ def test_outline_and_draft_prompts_consume_generated_dbskill_rules(monkeypatch, 
             "topic_title": "先接住失望，再谈道理",
             "topic_angle": "关系修复",
             "project_title": "慢修复关系稿",
-            "source_type": "tracked_article",
+            "source_type": "trend",
             "tone_profile": TONE_PROFILE,
             "problem_brief": {
                 "clarified_problem": "这篇文章要解释，为什么很多关系修复不是输在不会说，而是输在没先接住失望。",
@@ -488,7 +560,7 @@ def test_build_outline_prompt_includes_detector_originality_rules() -> None:
     assert "不要先写“这件事说明了什么时代症候”或“折射了更大的趋势”" in template.instructions
     assert "大纲里能合成两段职责的，不要机械拆成三段并列分论点" in template.instructions
     assert "不要安排“有人这样说”“很多人以为”“专家认为”这种模糊归因段" in template.instructions
-    assert "结尾不要设计成一句适合截图传播的金句" in template.instructions
+    assert "结尾不要为了传播性硬设计空口号金句" in template.instructions
     assert "大纲只写段落职责和推进动作" in template.instructions
     assert "outline_body 只写段落职责和推进动作，尽量控制在 220 字以内。" in template.prompt
     assert "outline_body（每段 1 行，单段尽量不超过 40 字）" in template.prompt
@@ -516,6 +588,7 @@ def test_build_draft_prompt_includes_humanizer_zh_review_rules() -> None:
     assert "不要频繁宣布写作动作，比如“先说结论”“接下来我们来看”“真正的问题是”" in draft_template.instructions
     assert "不要把普通处境硬拔成时代缩影、重要转折或更宏大的意义" in draft_template.instructions
     assert "如果一句话读起来像现成金句或适合被单独截图传播" in draft_template.instructions
+    assert "允许保留 1 处可摘录短句，最好单独成段，但不要把空结论单独抬成一段" in draft_template.instructions
 
 
 def test_build_outline_and_draft_prompt_surface_recomposition_recipe() -> None:
@@ -589,7 +662,7 @@ def test_build_draft_prompt_includes_detector_originality_rules() -> None:
     assert "如果一个段落只剩观点，就把它改写成过程" in template.instructions
     assert "不要把正文切成一串一两句的宣布式小段" in template.instructions
     assert "允许保留 1 到 3 个很短的独立段" in template.instructions
-    assert "如果要单独留一个短段，它应该像阻力线或动作残留" in template.instructions
+    assert "如果要单独留一个短段，它应该像阻力线、动作残留，或一处从前文动作和代价里长出来的可摘录短句" in template.instructions
     assert "像“这里面有条很清楚的线”“更麻烦的是”“有些代价是延迟出现的”这类负责宣布观点的过渡句" in template.instructions
     assert "不要把一句消息、对话、短信或引用写成整篇反复出现的展示段" in template.instructions
     assert "不要把“解释也来得很快：……”这类独立解释短段写成固定排版习惯" in template.instructions
@@ -709,7 +782,9 @@ def test_build_draft_prompt_adds_internal_pressure_guard_for_tracked_article() -
     assert "不要写成“深夜卡住 -> 回想过去 -> 第二天沟通 -> 关系缓和”的完整修复弧线。" in template.instructions
     assert "开头不要写成“你有没有过这种阶段”“你以为自己只是累吗”“人啊，总是这样”这类先分类、先下定义再讲理的讲稿起手。" in template.instructions
     assert "前两段至少有一段只让现实接口、动作后果或身体反应自己说话，不要连续两段都在对“你”解释为什么会这样。" in template.instructions
+    assert "前屏两到四段里，至少留一处一句一段的现实接口、身体信号或动作残留" in template.instructions
     assert "如果情绪价值已经落在判断、后果或身体反应里，就直接推进，不必先补一段没有信息增量的氛围场景。" in template.instructions
+    assert "如果要留可摘录短句，它必须从前文已经写出的代价、动作或没说出口的那一下里长出来" in template.instructions
 
 
 def test_build_draft_prompt_adds_relationship_aftercare_guard_for_quarrel_repair_article() -> None:
@@ -737,7 +812,16 @@ def test_build_draft_prompt_adds_relationship_aftercare_guard_for_quarrel_repair
     assert "正文不要自动改写成泛内耗、自我扛住、单人稳情绪或生活排序失衡主线。" in template.instructions
     assert "重点要落在：吵完以后谁回来沟通、谁把情绪和日常接回去" in template.instructions
     assert "整齐翻转句" in template.instructions
+    assert "前五段至少要有 2 处能单独成段的短句" in template.instructions
+    assert "第一屏最好压成 3 个短段" in template.instructions
+    assert "前六段最好至少有 3 处能单独成段的短句" in template.instructions
+    assert "前四段如果有解释性中长段，下一段就立刻换回一句一段的动作残留" in template.instructions
+    assert "前半篇最好留 1 句把关系位置、委屈顺位或单人善后的代价压成一句的短句" in template.instructions
+    assert "不要复用‘别人/旁人会觉得你……’这种外部评价壳子" in template.instructions
+    assert "能拆成两段的长段就拆" in template.instructions
     assert "不要用“先把自己排回前面”这类泛自我成长结论收束。" in template.instructions
+    assert "最后两段尽量一短一长" in template.instructions
+    assert "尾段不要急着教人怎么成熟、怎么放下" in template.instructions
 
 
 def test_build_topic_prompt_does_not_add_internal_pressure_guard_for_real_relationship_repair_article() -> None:
@@ -783,6 +867,107 @@ def test_build_topic_prompt_adds_relationship_aftercare_guard_for_quarrel_repair
     assert "争执过后为什么总是没人回来修复" in template.instructions
     assert "切入角度尽量用直述句，不要写成“不是……而是……”式对照句。" in template.instructions
     assert "不要把标题写成“这段关系已经在……”式整句判决" in template.instructions
+
+
+def test_response_priority_focus_adds_guardrails_across_topic_outline_and_draft() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "source_ref_slug": "no-time-priority-reroute",
+        "source_name": "手动录入",
+        "article_title": "没时间，不一定是真的没时间",
+        "author": "未知",
+        "summary": "文章借日常联系里的“没时间”现象，讨论一段关系里真实的优先级排序。核心判断是：多数迟迟不回应并非真的抽不出空，而是投入意愿不足，时间分配往往比语言更能说明在乎程度。",
+        "body_markdown": (
+            "听过一句话：“红灯30秒，我喝了一口水，拍了张照片，回了条消息，连上蓝牙，放了一首喜欢的歌，所以你告诉我，什么是没时间？”\n\n"
+            "真正的原因可能是，因为我们不够重要，所以对方漫不经心，爱搭不理。人对在乎的人，永远都有时间。\n\n"
+            "没时间，是因为你不在他心里，或者顺序没那么优先。一个人的时间在哪儿，他的心就在哪儿。"
+        ),
+        "structure_notes": "开头借红灯30秒的细节切入，中段拆“忙”和“在乎”并不等价，结尾落到时间分配如何显出真实顺序。",
+        "tags": ["关系优先级", "回应顺序", "时间分配"],
+        "tone_profile": TONE_PROFILE,
+    }
+    topic_template = build_topic_prompt(payload)
+    outline_template = build_outline_prompt(
+        {
+            **payload,
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "不是没时间，很多时候，是你根本没被排进他的优先级",
+            "topic_angle": "从“没时间”为什么很多时候说的不是日程，而是顺序切入，写时间分配和回应动作怎样显出一个人的真实在乎程度。",
+            "project_title": "回应优先级样稿",
+        }
+    )
+    draft_template = build_draft_prompt(
+        {
+            **payload,
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "不是没时间，很多时候，是你根本没被排进他的优先级",
+            "topic_angle": "从“没时间”为什么很多时候说的不是日程，而是顺序切入，写时间分配和回应动作怎样显出一个人的真实在乎程度。",
+            "project_title": "回应优先级样稿",
+            "outline": {
+                "hook": "有些人不是抽不出空，只是一直没把你排到前面。",
+                "outline_body": "1. 没时间这句托词为什么总让人迟迟不肯死心\n2. 时间投向怎样比解释更早给答案\n3. 该把时间慢慢收回谁那里",
+            },
+        }
+    )
+
+    assert "先根据参考文里“顺序、时间分配、在乎程度”这条主线重组新选题。" in topic_template.instructions
+    assert "为什么“没时间”很多时候说的是顺序" in topic_template.instructions
+    assert "大纲要继续顺着这条主线推进。" in outline_template.instructions
+    assert "中段至少要把回应顺序、投入意愿和关系优先级之间的关系讲清" in outline_template.instructions
+    assert "正文要继续守住这条主题主线。" in draft_template.instructions
+    assert "时间分配本身就是答案的一部分" in draft_template.instructions
+    assert "第一屏优先落一个回应接口、顺序落差或被安排先后的现实差别" in draft_template.instructions
+    assert "把情绪从等待感拉回位置感" in draft_template.instructions
+
+
+def test_response_priority_strategy_prompt_overrides_tone_profile_shape() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "总被放到最后才回复时，先看你的名字排在第几位",
+            "topic_angle": "从回消息、回电话、临时想起你这些细节，拆开关系里的优先级怎么显形，也帮读者判断自己等的是忙碌结束，还是一个始终轮不到你的靠前位置。",
+            "project_title": "回应优先级样稿",
+            "source_type": "tracked_article",
+            "reference_article_title": "听过一句话：什么是没时间",
+            "reference_article_summary": "文章重点是时间分配、回应动作和优先顺序怎样显出在乎程度。",
+            "reference_article_structure_notes": "从等待和找补切入，中段拆时间投向，结尾回到顺序。",
+            "reference_article_tags": ["回应顺序", "时间投向"],
+            "tone_profile": TONE_PROFILE,
+            "problem_brief": {
+                "clarified_problem": "真正需要被看见的，不是替谁定罪，而是为什么很多人总把偶尔的回应当成例外、把长期的顺序当成误会。",
+                "observed_phenomenon": "很多人不是看不懂“没时间”这句话，而是总想再等等看。",
+                "writing_goal": "把人为什么总会替“没时间”找补讲清楚，也让读者把位置感重新放回自己手里。",
+                "target_reader_situation": "总在等一个人回应，却慢慢意识到时间分配本身就是答案的人",
+                "core_conflict": "越替“他只是忙”找理由，越容易忽略时间和顺序早就把自己放在了什么位置。",
+            },
+            "strategy_card": {
+                "reader_situation": "总在等一个人回应，却慢慢意识到时间分配本身就是答案的人",
+                "point_of_view": "不急着替谁下判决，先把“没时间”为什么常常说的是顺序讲清楚。",
+                "conflict_frame": "真正让人清醒的，是时间和回应总把你排在后面。",
+                "emotional_path": "先认出为什么总会替对方找补，再把情绪从等待感拉回位置感。",
+                "structure_mode": "response_priority",
+                "opening_move": "开头先落一个回应顺序里的小接口。",
+                "body_shift": "中段写时间投向和回应动作怎样把真实位置慢慢暴露出来。",
+                "ending_move": "结尾回到位置感回正和时间该留给谁。",
+                "expression_constraints": ["不要用口号式收尾"],
+                "benchmark_summary": "只借压力类型和情绪发动机，不借原文标题骨架和结尾动作。",
+            },
+            "benchmarks": [],
+            "outline": {
+                "hook": "聊天框停在那儿很久没动的时候，人最容易先替对方找补。",
+                "outline_body": "1. 等待和找补\n2. 时间投向比解释更早给答案\n3. 把位置感慢慢收回来",
+            },
+        }
+    )
+
+    assert "开篇方式：先从一个被放到后面的回应接口切入" in template.prompt
+    assert "不急着把“你不重要”写成开场判词" in template.prompt
+    assert "段落要有快慢差" in template.prompt
+    assert "后半篇把情绪从等待感拉回位置感、选择感和时间回收感" in template.prompt
+    assert "收束方式：结尾落在位置感回正" in template.prompt
+    assert "给读者清醒后的轻一点" in template.prompt
+    assert "不必第一句就把答案喊满" in template.instructions
+    assert "不强求口号式答案句" in template.instructions
 
 
 def test_everyday_warmth_return_focus_adds_guardrails_across_topic_outline_and_draft() -> None:
@@ -982,6 +1167,45 @@ def test_resilience_reconstruction_focus_adds_topic_guardrails() -> None:
     assert "每一次划水都要比常人多划11下" in template.prompt
 
 
+def test_resilience_reconstruction_focus_adds_outline_and_draft_guardrails() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "source_ref_slug": "jiang-yuyan-reroute",
+        "source_name": "手动录入",
+        "article_title": "一个人最大的底气，不是美貌，也不是金钱，而是韧性",
+        "author": "未知",
+        "summary": "文章以残奥会冠军蒋裕燕的人生为例，重点写命运重击、长期疼痛、泳池训练和不被定义后的重建，而不是女性把自己放最后的情绪照顾。",
+        "body_markdown": (
+            "3岁那年，一场车祸无情夺走了蒋裕燕的右臂与右腿。从3岁到8岁，她每一年都要被迫走上手术台，接受锯掉新生骨头的剧痛。\n\n"
+            "为了康复，她走进了泳池。没有右臂维持平衡，没有右腿蹬水发力，她每一次划水都要比常人多划11下。\n\n"
+            "肩伤反复发作、背痛缠扰不休、炎症如影随形，可她从未停下前进的脚步。命运以痛吻她，她却在破碎中重建自己，不让任何人定义她能做的事情。"
+        ),
+        "structure_notes": "先写命运重击和手术台，再转到泳池里的训练硬撑，结尾回到不被定义和韧性重建。",
+        "tags": ["韧性", "残奥冠军", "命运重击", "训练", "不被定义"],
+        "tone_profile": TONE_PROFILE,
+        "trend_title": "残奥冠军蒋裕燕的韧性重建",
+        "topic_title": "手术台下来的人，后来为什么还要在水里多撑11下",
+        "topic_angle": "从重伤、复健到反复加练这条代价线切入，拆开一个人如何在长期疼痛里把“我还能主动一点”重新练回身体和意志。",
+        "project_title": "韧性交叉验证",
+        "outline": {
+            "hook": "拆线以后，人还是得回到水里。",
+            "outline_body": "1. 命运重击后的身体代价\n2. 训练怎样一次次逼人重来\n3. 为什么她还是不肯被定义",
+        },
+    }
+
+    outline_template = build_outline_prompt(payload)
+    draft_template = build_draft_prompt(payload)
+
+    assert "大纲不要滑成泛励志口号稿、术后恢复稿或轻量自助稿" in outline_template.instructions
+    assert "宁可把代价、反应和判断拆成相邻短段，也不要在单段里堆满时间线、伤痛细节和高位总结" in outline_template.instructions
+    assert "正文不要自动改写成泛励志样板文、术后恢复文或“先照顾自己”的情绪照料稿" in draft_template.instructions
+    assert "人物事实密度高时，多用相邻短段推进" in draft_template.instructions
+    assert "不要把手术、伤病、训练、恢复和价值判断全塞进一个长段里" in draft_template.instructions
+    assert "只要一个段落里同时出现三类以上信息" in draft_template.instructions
+    assert "凡是超过 4 句的人物事实段" in draft_template.instructions
+    assert "结尾回到一个还在继续的训练动作、身体反应或没松掉的念头上" in draft_template.instructions
+
+
 def test_extract_tracked_article_body_cues_skips_supportive_healthy_body_sentence() -> None:
     payload = {
         "source_type": "tracked_article",
@@ -1080,6 +1304,25 @@ def test_everyday_warmth_return_focus_detects_small_things_article() -> None:
     assert _infer_tracked_article_pressure_guard(payload) == ""
 
 
+def test_inner_settlement_focus_detects_heart_settled_article() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "此心安处，才是一个人最好的归宿",
+        "summary": "文章把外界起伏和内心安顿放在一起比较，重点不是某段关系有没有结果，也不是身体有没有告警，而是心为什么一直安不下来，人怎样把自己慢慢安顿回当下。",
+        "body_markdown": (
+            "杨绛先生说：人生最曼妙的风景，竟是内心的淡定与从容。心若不安，到哪里都是流浪；心若不定，遇见谁都是过客。\n\n"
+            "有时候，看似过不去的坎儿，其实是心结难解。把心抚平了，脚下自有坦途；把心看透了，郁结自会消散。\n\n"
+            "真正的心安，是于一餐一饮中品味生活，于一呼一吸间安顿灵魂，于岁岁年年中与内心相拥。此心安处是吾乡。"
+        ),
+        "structure_notes": "先写心为什么一直悬着，再拆人为什么总想把一切想明白，中段回到一餐一饮和一呼一吸怎样让生活重新有轻重。",
+        "tags": ["心安", "内在归处", "与内心和解", "安顿自己"],
+    }
+
+    assert _has_inner_settlement_focus(payload) is True
+    assert _has_broad_emotional_release_focus(payload) is False
+    assert _infer_tracked_article_pressure_guard(payload) == ""
+
+
 def test_relationship_aftercare_focus_detects_quarrel_repair_article() -> None:
     payload = {
         "source_type": "tracked_article",
@@ -1096,6 +1339,115 @@ def test_relationship_aftercare_focus_detects_quarrel_repair_article() -> None:
 
     assert _has_relationship_aftercare_focus(payload) is True
     assert _infer_tracked_article_pressure_guard(payload) == ""
+
+
+def test_relationship_aftercare_focus_detects_pushed_away_vulnerability_article() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "你推开我的那一刻，我就学会不再示弱",
+        "summary": "文章借“情绪很累却不被理解”的时刻，写亲密关系里最伤人的并不是争吵，而是在脆弱时被嫌烦、被推开。它的判断很明确：一个人不是突然冷下来，而是在多次求助落空后，慢慢学会不再向你袒露软弱。",
+        "body_markdown": (
+            "有时候，会莫名其妙地觉得累。\n\n"
+            "可真正让人寒心的，不是生活本身的压力，而是在求助和示弱时，被最亲近的人嫌烦、推开。\n\n"
+            "当你在一个人最无助的时候选择推开他，下一次，他就不会再在你面前脆弱了。"
+        ),
+        "structure_notes": "开头先从成年人常见的情绪透支感切入，写出表面正常、内里耗尽的状态；中段把这种疲惫放进亲密关系里，转向“对方把脆弱误判成无理取闹”的具体场景；结尾落在一次被推开的后果上，强调失望积累后，人会主动收起依赖和示弱。",
+        "tags": ["亲密关系", "脆弱误读", "求助落空", "不再示弱"],
+    }
+
+    assert _has_relationship_aftercare_focus(payload) is True
+    assert _infer_tracked_article_pressure_guard(payload) == ""
+
+
+def test_supportive_appreciation_focus_detects_soft_hearted_article() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "如果你身边有这样一个心软的人，请一定要牵紧他的手",
+        "summary": "文章重点不是谁在关系里耗空自己，而是心软为什么常被误解，以及那些明明拎得清、却还是愿意包容和体谅别人的人，为什么最值得被珍惜。",
+        "body_markdown": (
+            "有一种人，习惯了燃烧自己，去照亮别人。你对他好，他会对你更好；你给他温暖，他会回馈给你更多的温暖。\n\n"
+            "心软的人并不傻，他们的心里比谁都拎得清。不去计较，是因为心里在乎，不想与爱的人争辩输赢、对错和得失。\n\n"
+            "那些愿意包容你的人，一定很爱你。如果你身边有这样一个心软的人，请你一定要牵紧他的手。"
+        ),
+        "structure_notes": "先写心软的人总会先替别人着想，再拆这种柔软为什么常被误读，结尾回到这样的人最值得被珍惜。",
+        "tags": ["心软", "包容", "体谅", "值得珍惜"],
+    }
+
+    assert _has_supportive_appreciation_focus(payload) is True
+    assert _has_relationship_aftercare_focus(payload) is False
+
+
+def test_supportive_appreciation_focus_adds_guardrails_across_topic_outline_and_draft() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "source_ref_slug": "soft-hearted-reroute",
+        "source_name": "手动录入",
+        "article_title": "如果你身边有这样一个心软的人，请一定要牵紧他的手",
+        "author": "未知",
+        "summary": "文章重点不是谁在关系里耗空自己，而是心软为什么常被误解，以及那些明明拎得清、却还是愿意包容和体谅别人的人，为什么最值得被珍惜。",
+        "body_markdown": (
+            "有一种人，习惯了燃烧自己，去照亮别人。\n\n"
+            "心软的人并不傻，他们的心里比谁都拎得清。\n\n"
+            "那些愿意包容你的人，一定很爱你。如果你身边有这样一个心软的人，请你一定要牵紧他的手。"
+        ),
+        "structure_notes": "先写心软的人总会先替别人着想，再拆这种柔软为什么常被误读，结尾回到这样的人最值得被珍惜。",
+        "tags": ["心软", "包容", "体谅", "值得珍惜"],
+        "tone_profile": TONE_PROFILE,
+        "trend_title": "参考文章 / 手动录入",
+        "topic_title": "那些明明拎得清、却还是愿意包容你的人，最值得被珍惜",
+        "topic_angle": "从人为什么总把心软误认成好说话切入，写那些明明拎得清、却还是愿意体谅和包容别人的人，为什么反而最值得被认真珍惜。",
+        "project_title": "心软的人",
+        "outline": {"hook": "有些人不是不懂分寸，只是总把体谅放在了自己前面。"},
+    }
+
+    topic_template = build_topic_prompt(payload)
+    outline_template = build_outline_prompt(payload)
+    draft_template = build_draft_prompt(payload)
+
+    assert "标题和切入角度优先围绕：心软为什么不是傻、柔软为什么常被误读、真正稀缺的为什么是温柔却不糊涂的人。" in topic_template.instructions
+    assert "先根据参考文的主题和矛盾组织新选题，不要跳开原文主线另起一个新问题。" in topic_template.instructions
+    assert "大纲要继续围绕这条主线推进。" in outline_template.instructions
+    assert "结尾回到被认真回应、被珍惜或被牵紧的方向" in outline_template.instructions
+    assert "正文要继续守住这条主题主线。" in draft_template.instructions
+    assert "第一屏优先把那个先放软、先让一步、先照顾别人感受的小接口顶上来，让读者先看见柔软本身" in draft_template.instructions
+    assert "明明拎得清为什么还愿意体谅和包容" in draft_template.instructions
+
+
+def test_response_priority_focus_detects_no_time_article() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "没时间，不一定是真的没时间",
+        "summary": "文章借日常联系里的“没时间”现象，讨论一段关系里真实的优先级排序。核心判断是：多数迟迟不回应并非真的抽不出空，而是投入意愿不足，时间分配往往比语言更能说明在乎程度。",
+        "body_markdown": (
+            "听过一句话：“红灯30秒，我喝了一口水，拍了张照片，回了条消息，连上蓝牙，放了一首喜欢的歌，所以你告诉我，什么是没时间？”\n\n"
+            "真正的原因可能是，因为我们不够重要，所以对方漫不经心，爱搭不理。人对在乎的人，永远都有时间。\n\n"
+            "没时间，是因为你不在他心里，或者顺序没那么优先。俗话说，一个人的时间在哪儿，他的心就在哪儿。"
+        ),
+        "structure_notes": "开头借红灯30秒的细节切入，中段拆“忙”和“在乎”并不等价，结尾落到时间分配如何显出真实顺序。",
+        "tags": ["关系优先级", "回应顺序", "时间分配"],
+    }
+
+    assert _has_response_priority_focus(payload) is True
+    assert _has_relationship_aftercare_focus(payload) is False
+
+
+def test_extract_tracked_article_topic_cues_prioritizes_response_priority_thesis() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "没时间，不一定是真的没时间",
+        "summary": "文章借日常联系里的“没时间”现象，讨论一段关系里真实的优先级排序。",
+        "body_markdown": (
+            "听过一句话：“红灯30秒，我喝了一口水，拍了张照片，回了条消息，连上蓝牙，放了一首喜欢的歌，所以你告诉我，什么是没时间？”\n\n"
+            "人对在乎的人，永远都有时间。即便这会儿真没时间，过会儿也要挤出时间。\n\n"
+            "一个人的时间在哪儿，他的心就在哪儿。"
+        ),
+        "structure_notes": "从没时间这句托词切入，拆顺序和在乎程度之间的关系。",
+        "tags": ["关系优先级", "回应顺序", "时间分配"],
+    }
+
+    topic_cues = _extract_tracked_article_topic_cues(payload)
+
+    assert any("红灯30秒" in cue or "永远都有时间" in cue or "时间在哪儿" in cue for cue in topic_cues)
 
 
 def test_extract_tracked_article_topic_cues_prioritizes_relationship_aftercare_thesis() -> None:
@@ -1117,6 +1469,25 @@ def test_extract_tracked_article_topic_cues_prioritizes_relationship_aftercare_t
     assert any("冷暴力" in cue or "吵架后的态度" in cue or "继续走下去" in cue for cue in topic_cues)
 
 
+def test_extract_tracked_article_topic_cues_prioritizes_supportive_appreciation_thesis() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "如果你身边有这样一个心软的人，请一定要牵紧他的手",
+        "summary": "文章重点不是谁在关系里耗空自己，而是心软为什么常被误解，以及那些明明拎得清、却还是愿意包容和体谅别人的人，为什么最值得被珍惜。",
+        "body_markdown": (
+            "心软的人并不傻，他们的心里比谁都拎得清。\n\n"
+            "那些愿意包容你的人，一定很爱你。\n\n"
+            "如果你身边有这样一个心软的人，请你一定要牵紧他的手。"
+        ),
+        "structure_notes": "先写心软的人总会先替别人着想，再拆这种柔软为什么常被误读，结尾回到这样的人最值得被珍惜。",
+        "tags": ["心软", "包容", "体谅", "值得珍惜"],
+    }
+
+    topic_cues = _extract_tracked_article_topic_cues(payload)
+
+    assert any("心软不是傻" in cue or "值得被认真珍惜" in cue or "温柔却不糊涂" in cue for cue in topic_cues)
+
+
 def test_extract_tracked_article_topic_cues_prioritizes_everyday_warmth_return_thesis() -> None:
     payload = {
         "source_type": "tracked_article",
@@ -1135,6 +1506,26 @@ def test_extract_tracked_article_topic_cues_prioritizes_everyday_warmth_return_t
 
     assert any("大事" in cue or "宏大叙事" in cue or "日常瞬间" in cue for cue in topic_cues)
     assert all("手术" not in cue for cue in topic_cues[:1])
+
+
+def test_extract_tracked_article_topic_cues_prioritizes_inner_settlement_thesis() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "此心安处，才是一个人最好的归宿",
+        "summary": "文章把外界起伏和内心安顿放在一起比较，重点不是放手某段关系，而是心为什么一直安不下来。",
+        "body_markdown": (
+            "心若不安，到哪里都是流浪；心若不定，遇见谁都是过客。\n\n"
+            "已经过去的事儿，既然改变不了，不如轻轻放下温柔落锁；还没发生的事儿，反正预测不到，不如不骄不躁静待花开。\n\n"
+            "真正的心安，是于一餐一饮中品味生活，于一呼一吸间安顿灵魂。"
+        ),
+        "structure_notes": "先写心为什么一直悬着，再转到如何慢慢安顿回来。",
+        "tags": ["心安", "内心归处", "安顿自己"],
+    }
+
+    topic_cues = _extract_tracked_article_topic_cues(payload)
+
+    assert any("心若不安" in cue or "真正的心安" in cue or "一餐一饮" in cue for cue in topic_cues)
+    assert all("放手" not in cue for cue in topic_cues)
 
 
 def test_extract_tracked_article_topic_cues_prioritizes_broad_emotional_release_thesis_over_relationship_example() -> None:
@@ -1229,6 +1620,130 @@ def test_build_outline_prompt_keeps_broad_emotional_release_guard_when_reference
     assert "前两段里至少有一段主职责必须落在关系之外的生活秩序、身体代价或已经拥有却被忽略的部分" in template.instructions
 
 
+def test_inner_settlement_focus_adds_guardrails_across_topic_outline_and_draft() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "source_ref_slug": "heart-settled-reroute",
+        "source_name": "手动录入",
+        "article_title": "此心安处，才是一个人最好的归宿",
+        "author": "未知",
+        "summary": "文章把外界起伏和内心安顿放在一起比较，重点不是某段关系有没有结果，也不是身体有没有告警，而是心为什么一直安不下来，人怎样把自己慢慢安顿回当下。",
+        "body_markdown": (
+            "杨绛先生说：人生最曼妙的风景，竟是内心的淡定与从容。心若不安，到哪里都是流浪；心若不定，遇见谁都是过客。\n\n"
+            "有时候，看似过不去的坎儿，其实是心结难解。把心抚平了，脚下自有坦途；把心看透了，郁结自会消散。\n\n"
+            "真正的心安，是于一餐一饮中品味生活，于一呼一吸间安顿灵魂，于岁岁年年中与内心相拥。此心安处是吾乡。"
+        ),
+        "structure_notes": "先写心为什么一直悬着，再拆人为什么总想把一切想明白，中段回到一餐一饮和一呼一吸怎样让生活重新有轻重。",
+        "tags": ["心安", "内在归处", "与内心和解", "安顿自己"],
+        "tone_profile": TONE_PROFILE,
+    }
+    topic_template = build_topic_prompt(payload)
+    outline_template = build_outline_prompt(
+        {
+            **payload,
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "很多事迟迟过不去，往往不是事情本身，而是那颗一直没松下来的心",
+            "topic_angle": "从人为什么总想把过去想透、把未来想明白切入，写很多时候外界未必最糟，真正拖住人的，是那颗一直悬着的心；也写人怎样慢慢把自己安顿回当下。",
+            "project_title": "心安归位样稿",
+            "problem_brief": {
+                "clarified_problem": "真正需要被看见的，不是事情到底有没有标准答案，而是为什么很多人总把心放在悬空处，忘了先让自己落地；也要让读者看见，当那颗心慢慢安顿下来，很多事会重新有了轻重。",
+                "observed_phenomenon": "很多人明明没有被某件大事彻底压垮，心里却一直松不下来，白天装没事，夜里还在反复琢磨。",
+                "writing_goal": "把人为什么总在事情未必最糟的时候，先把自己困在那颗一直绷着的心里讲清楚，也让读者看见心安不是放弃，而是把自己慢慢安放回生活。",
+                "target_reader_situation": "明明事情不算最糟，却一直被心里的拉扯拖住，怎么也松不下来的人",
+                "core_conflict": "真正把人拖累的，很多时候不是事情本身，而是那颗一直绷着、总想把一切想明白却迟迟不肯松下来的心。",
+                "constraints": ["不要写成口号文"],
+                "feedback_entry": "读者会松一口气，知道自己不是非得把一切想透，才有资格慢慢松下来。",
+            },
+            "strategy_card": {
+                "reader_situation": "明明事情不算最糟，却一直被心里的拉扯拖住，怎么也松不下来的人",
+                "point_of_view": "不急着劝人立刻看开，先把那颗心为什么一直落不下来讲清楚，再把读者慢慢带回她真正想安顿的地方。",
+                "conflict_frame": "真正把人拖累的，很多时候不是事情本身，而是那颗一直绷着、总想把一切想明白却迟迟不肯松下来的心。",
+                "emotional_path": "先认出那颗心为什么总悬着、总想先把一切想稳，再看人怎样从反复较劲里慢慢松下来，重新住回一餐一饮和眼前的日常。",
+                "structure_mode": "inner_settlement",
+                "opening_move": "开头先落一个心还没完全跟上日子的现实接口：事情过去了，心还留在原地；人已经坐下来了，脑子还在回放。第一屏以短段为主，不要先讲大道理、关系结果、身体告警或幸福定义。",
+                "body_shift": "中段先拆那颗心为什么总想把一切想稳、想透或想明白，结果越想越难放下；再写人怎样从现实余波里慢慢回稳，把心一点点放回眼前正在过的生活。",
+                "ending_move": "结尾回到一个心终于稍微放平下来的轻动作，不要写成关系结果、身体提醒或祝福收束。",
+                "recomposition_recipe": [
+                    "前半篇先守住一个心没安下来带出的现实卡点，不要一上来就滑去关系等待、身体告警或幸福公式。",
+                    "中段沿着“外界未必最糟 -> 心里一直在拧 -> 人怎样把自己慢慢放回日常”推进。",
+                ],
+                "expression_constraints": ["不要用名言抚慰直接翻牌"],
+                "divergence_axes": ["不要回收参考文里的名言、祝福口吻或现成心灵判断"],
+                "execution_checklist": ["是否先守住心没安下来带出的现实卡点，再推进把自己放回一餐一饮和一呼一吸。"],
+                "benchmark_summary": "只借原文对应的内在拉扯类型和心安归位主线，不借原文标题、名言排布和结尾动作。",
+            },
+        }
+    )
+    draft_template = build_draft_prompt(
+        {
+            **payload,
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "很多事迟迟过不去，往往不是事情本身，而是那颗一直没松下来的心",
+            "topic_angle": "从人为什么总想把过去想透、把未来想明白切入，写很多时候外界未必最糟，真正拖住人的，是那颗一直悬着的心；也写人怎样慢慢把自己安顿回当下。",
+            "project_title": "心安归位样稿",
+            "problem_brief": {
+                "clarified_problem": "真正需要被看见的，不是事情到底有没有标准答案，而是为什么很多人总把心放在悬空处，忘了先让自己落地；也要让读者看见，当那颗心慢慢安顿下来，很多事会重新有了轻重。",
+                "observed_phenomenon": "很多人明明没有被某件大事彻底压垮，心里却一直松不下来，白天装没事，夜里还在反复琢磨。",
+                "writing_goal": "把人为什么总在事情未必最糟的时候，先把自己困在那颗一直绷着的心里讲清楚，也让读者看见心安不是放弃，而是把自己慢慢安放回生活。",
+                "target_reader_situation": "明明事情不算最糟，却一直被心里的拉扯拖住，怎么也松不下来的人",
+                "core_conflict": "真正把人拖累的，很多时候不是事情本身，而是那颗一直绷着、总想把一切想明白却迟迟不肯松下来的心。",
+                "constraints": ["不要写成口号文"],
+                "feedback_entry": "读者会松一口气，知道自己不是非得把一切想透，才有资格慢慢松下来。",
+            },
+            "strategy_card": {
+                "reader_situation": "明明事情不算最糟，却一直被心里的拉扯拖住，怎么也松不下来的人",
+                "point_of_view": "不急着劝人立刻看开，先把那颗心为什么一直落不下来讲清楚，再把读者慢慢带回她真正想安顿的地方。",
+                "conflict_frame": "真正把人拖累的，很多时候不是事情本身，而是那颗一直绷着、总想把一切想明白却迟迟不肯松下来的心。",
+                "emotional_path": "先认出那颗心为什么总悬着、总想先把一切想稳，再看人怎样从反复较劲里慢慢松下来，重新住回一餐一饮和眼前的日常。",
+                "structure_mode": "inner_settlement",
+                "opening_move": "开头先落一个心还没完全跟上日子的现实接口：事情过去了，心还留在原地；人已经坐下来了，脑子还在回放。第一屏以短段为主，不要先讲大道理、关系结果、身体告警或幸福定义。",
+                "body_shift": "中段先拆那颗心为什么总想把一切想稳、想透或想明白，结果越想越难放下；再写人怎样从现实余波里慢慢回稳，把心一点点放回眼前正在过的生活。",
+                "ending_move": "结尾回到一个心终于稍微放平下来的轻动作，不要写成关系结果、身体提醒或祝福收束。",
+                "recomposition_recipe": [
+                    "前半篇先守住一个心没安下来带出的现实卡点，不要一上来就滑去关系等待、身体告警或幸福公式。",
+                    "中段沿着“外界未必最糟 -> 心里一直在拧 -> 人怎样把自己慢慢放回日常”推进。",
+                ],
+                "expression_constraints": ["不要用名言抚慰直接翻牌"],
+                "divergence_axes": ["不要回收参考文里的名言、祝福口吻或现成心灵判断"],
+                "execution_checklist": ["是否先守住心没安下来带出的现实卡点，再推进把自己放回一餐一饮和一呼一吸。"],
+                "benchmark_summary": "只借原文对应的内在拉扯类型和心安归位主线，不借原文标题、名言排布和结尾动作。",
+            },
+            "benchmarks": [],
+            "outline": {
+                "hook": "很多事没有真的压垮你，只是那颗心一直没肯松下来。",
+                "outline_body": "1. 心为什么一直悬着\n2. 总想把一切想明白的人，先被自己拖住\n3. 一餐一饮怎样把人慢慢放回当下",
+            },
+        }
+    )
+
+    assert _has_inner_settlement_focus(payload) is True
+    assert "先根据参考文里“心为什么一直安不下来、又怎样慢慢放回日常”这条主线重组新选题。" in topic_template.instructions
+    assert "标题尽量给出回稳、回到日子里、有地方放的方向感" in topic_template.instructions
+    assert "外界未必最糟时，人为什么还是会先把自己留在悬着的状态里" in topic_template.prompt
+    assert "标题和切入角度优先围绕心为什么一直安不下来、人为什么总想先把自己说服明白或把日子安排妥帖、又怎样慢慢把自己安放回当下来重组。" in topic_template.instructions
+    assert "若策略包要求心安归位推进，大纲先守住一个外界未必最糟、心却一直没松下来的时刻" in outline_template.instructions
+    assert "前半篇尽量早点给读者一个被理解、被接住的落点。" in outline_template.instructions
+    assert "大纲要继续顺着这条主线推进。" in outline_template.instructions
+    assert "开头第一屏先落一个还没被安放好、却已经想慢慢回位的现实接口" in draft_template.instructions
+    assert "不要顺手排成胸口发紧、胃口变浅、睡不沉这类症状化句群。" in draft_template.instructions
+    assert "不要顺手排成胸口、胃口、睡眠这类症状清单。" in draft_template.instructions
+    assert "若策略包要求心安归位推进，正文第一屏先落一个还没被安放好的现实接口" in draft_template.instructions
+    assert "开头第一屏先落一个还没被安放好、却已经想慢慢回位的现实接口" in draft_template.instructions
+    assert "开篇方式：先从那颗心还没完全落回今天的现实接口起笔" in draft_template.prompt
+    assert "至少保住 2 处可摘录短句" in draft_template.prompt
+    assert "收束方式：结尾回到一个心终于稍微放平下来的轻动作、现实余波或继续生活的安排" in draft_template.prompt
+    assert "不要固定滑向灯光、饭点、水杯、房间这组物件" in draft_template.instructions
+    assert "第一屏最好压成 3 到 4 个短段" in draft_template.instructions
+    assert "第 2 到第 4 段之间，至少要有一句直接把读者从自责、僵着或反复较劲里接住" in draft_template.instructions
+    assert "前六段至少留 2 处能单独成段的短句" in draft_template.instructions
+    assert "不要反复复用同一句骨架" in draft_template.instructions
+    assert "中后段多写松下来、落地、重新住回日子、终于有地方放这类回暖感" in draft_template.instructions
+    assert "最后两段至少有一段要明显比前文更暖" in draft_template.instructions
+    assert "灯还亮着、人已经很困" not in draft_template.instructions
+    assert "你不是有问题，你只是太久没歇下来" not in outline_template.instructions
+    assert "人想休息，心不批准" not in draft_template.instructions
+
+
 def test_build_draft_prompt_includes_broad_emotional_release_guard() -> None:
     template = build_draft_prompt(
         {
@@ -1284,6 +1799,108 @@ def test_build_draft_prompt_includes_broad_emotional_release_guard() -> None:
     assert "不要把正文压成聊天框、等回复、试探态度这一类单一关系等待戏" in template.instructions
     assert "至少留一段专门写“人原本已经拥有、后来却在拉扯中慢慢忽略掉的东西”" in template.instructions
     assert "开头第一屏不要只剩消息框、对话框、回没回这类关系界面" in template.instructions
+
+
+def test_self_reliance_focus_detector_and_prompt_guards() -> None:
+    payload = {
+        "trend_title": "参考文章 / 手动录入",
+        "topic_title": "即使没有帮助，也要学会自救自渡",
+        "topic_angle": "从成年人想向外找安慰却发现别人也各自承压切入，写一个人怎样慢慢把自己托过去。",
+        "project_title": "自救自渡样稿",
+        "source_type": "tracked_article",
+        "source_ref_slug": "self-reliance-guard-demo",
+        "tone_profile": TONE_PROFILE,
+        "article_title": "即使没有帮助，也要学会自救自渡",
+        "author": "未知",
+        "source_name": "手动录入",
+        "summary": "文章从想找人倾诉却发现身边人也自顾不暇的场景切入，写成年人在低谷里对外求助常常得不到及时回应，于是逐渐学会收起委屈、转向自我消化和自我修复。核心落点不是拒绝他人，而是提醒人在不被接住的时候，也要有把自己托起来的能力。",
+        "body_markdown": (
+            "相信你也有过这样的时刻：心情不好的时候想找朋友倾诉，却发现朋友也愁眉不展。\n\n"
+            "只有向内求，才能自我疗愈，生生不息。只有靠自己，你才能有所顿悟、有所收获、有所改变。\n\n"
+            "即使没有帮助，也不会孤立无援，而是能够自救自渡。"
+        ),
+        "structure_notes": "先写想倾诉却发现别人也各自承压的现实处境，中段再拆为什么外求未必总能接住人，结尾回到向内稳住、自救自渡和慢慢把自己托起来。",
+        "tags": ["自我疗愈", "情绪自救", "成年人压力", "低谷时刻", "自我支撑"],
+    }
+
+    assert _has_self_reliance_inward_support_focus(payload) is True
+
+    topic_template = build_topic_prompt(payload)
+    outline_template = build_outline_prompt(payload)
+    draft_template = build_draft_prompt(
+        {
+            **payload,
+            "problem_brief": {
+                "clarified_problem": "真正需要被看见的，不是为什么没人总能立刻来帮你，而是为什么人在外求落空以后，仍然要学会把自己慢慢托过去。",
+                "observed_phenomenon": "很多人想找人倾诉时，先看到的却是别人也各自承压，于是只好把委屈收回来。",
+                "writing_goal": "把成年人为什么会从向外等安慰，慢慢转向向内求冷静、沉淀和成长讲清楚。",
+                "target_reader_situation": "在低谷里想找支撑，却慢慢发现真正能长期托住自己的还是自己的人",
+                "core_conflict": "外部支撑未必总能及时到位，可人又不能永远停在原地等谁来救。",
+                "constraints": ["不要写成口号文"],
+                "feedback_entry": "读者会意识到，自救自渡不是逞强，而是把自己慢慢托过去。",
+            },
+            "strategy_card": {
+                "reader_situation": "在低谷里想找支撑，却慢慢发现真正能长期托住自己的还是自己的人",
+                "point_of_view": "不急着劝人硬扛，先把外面的帮扶为什么未必总能及时赶上讲清楚。",
+                "conflict_frame": "真正难的，不是承认自己需要帮助，而是当帮助没有及时到位时，怎样不让自己一直塌下去。",
+                "emotional_path": "先认出外求落空的失落，再看一个人怎样一点点把依靠收回自己身上。",
+                "structure_mode": "self_reliance_inward_support",
+                "opening_move": "先落一个想找人说说，却发现别人也各自承压的现实接口。",
+                "body_shift": "中段先拆为什么外面的帮扶未必总能及时赶上一个人，再写向内求冷静、沉淀和成长。",
+                "ending_move": "结尾回到自救自渡和慢慢把自己托过去。",
+                "expression_constraints": ["不要用口号式收尾"],
+                "divergence_axes": ["标题骨架要换成新的现实入口或处境入口"],
+                "execution_checklist": ["是否守住了外求未必及时和向内求这条主线。"],
+                "benchmark_summary": "只借原文对应的低谷压力和向内支撑主线，不借标题骨架和关系沟通外壳。",
+            },
+            "outline": {
+                "hook": "不是每一次难过，都能刚好等到一个有空的人。",
+                "outline_body": "1. 外求落空的现实感\n2. 为什么别人也接不住你\n3. 把依靠收回自己身上\n4. 自救自渡不是硬扛",
+            },
+        }
+    )
+
+    assert "不要把选题收窄成关系里说不出口、边界表达、误解修复" in topic_template.instructions
+    assert "不要把题眼改写成“需要说得很轻”" in topic_template.instructions
+    assert "标题尽量带一点把自己安顿住、把日子接回来的温度" in topic_template.instructions
+    assert "大纲不要自动滑成关系误会、表达退缩或求助技巧稿" in outline_template.instructions
+    assert "开头钩子不要默认写成界面细节或等一句表态" in outline_template.instructions
+    assert "不要复用“连借一只手都要排队”这类把注意力钉回求援姿态的旧钩子" in outline_template.instructions
+    assert "前四段附近就要给出第一个回稳动作" in outline_template.instructions
+    assert "正文不要自动改写成关系误会、表达退缩或求助技巧稿" in draft_template.instructions
+    assert "第一屏优先写现实承压和外援来不及" in draft_template.instructions
+    assert "第一屏不要把界面细节、输入状态或等一句表态这类旧镜头当主画面" in draft_template.instructions
+    assert "不要把主题偷换成谁回没回、谁听没听见" in draft_template.instructions
+    assert "不要把一句悬着没落地的话当成开头主镜头或结尾收束" in draft_template.instructions
+    assert "不要复用“谁都没法分神来接你一下”“消息还在往前推”“我快撑不住了”“说出口也未必有人接得住”“身边的人也都在”“大家都在忙”这类旧骨架" in draft_template.instructions
+    assert "不要把电话打出去一圈、回得慢一点、语气短一点、等回音、随叫随到这类回应戏写成主推进" in draft_template.instructions
+    assert "不要把“等消息、等回音、等什么时候轮到我”这类等待戏重新带回来" in draft_template.instructions
+    assert "前六段至少留 2 处能单独成段的短句" in draft_template.instructions
+    assert "不要连续两段都在解释“为什么最后还是得靠自己”" in draft_template.instructions
+    assert "最迟从第 4 到第 6 段之间开始转向可运转状态、顺序恢复和自我托底" in draft_template.instructions
+    assert "不要写成“第一步往往很小”“方法也不复杂”“你能做的，是”这类教程口吻" in draft_template.instructions
+    assert "只挑 1 到 2 个贴着处境的动作" in draft_template.instructions
+    assert "不要连续三句都用“先”起手" in draft_template.instructions
+    assert "同一段里如果前一句已经用了“先”，后一句尽量改成直接动作或结果" in draft_template.instructions
+    assert "不要把“等……等……等……”排成三拍等待句" in draft_template.instructions
+    assert "少用“一点、一下、一件、一条”这类泛量词去托节奏" in draft_template.instructions
+    assert "一句一段也要保持句子完整，不要留下半截句" in draft_template.instructions
+    assert "不要顺手排成胸口发紧、胃口变浅、睡不沉这类症状串" in draft_template.instructions
+    assert "如果要留可摘录短句，优先写成贴着现实压力长出来的人话" in draft_template.instructions
+    assert "最后两段至少有一段要比前文更暖一点" in draft_template.instructions
+    assert "结尾要给人被稳住的感觉" in draft_template.instructions
+
+    effective_tone_profile = draft_template.prompt
+    assert "先从一个现实阻力已经顶上来的接口切入" in effective_tone_profile
+    assert "不要把主镜头钉在聊天界面、输入状态或一句悬着没落地的话上" in effective_tone_profile
+    assert "段落要短，前六段至少留 2 处一句一段的人话短句" in effective_tone_profile
+    assert "不要连续两段都在解释机制" in effective_tone_profile
+    assert "最迟到第 4 段附近就要给出第一个自我托底动作或顺序恢复动作" in effective_tone_profile
+    assert "独立短句也要是完整人话，不要为了停顿感留下半截句" in effective_tone_profile
+    assert "不要顺手排成胸口、胃口、睡眠这类症状句群" in effective_tone_profile
+    assert "结尾落在一个把自己托住的普通动作上" in effective_tone_profile
+    assert "最后不要收在悬着的情绪上" in effective_tone_profile
+    assert "标题、首屏和短句尽量写得温一点" in effective_tone_profile
 
 
 def test_build_draft_prompt_keeps_broad_emotional_release_guard_when_reference_is_hidden() -> None:
@@ -1665,6 +2282,54 @@ def test_build_draft_prompt_describes_fragment_chain_structure_mode() -> None:
     assert "不要把这 2 到 4 个接口顺着时间缝成一个人从早到晚一路推进的完整日程线" in template.instructions
 
 
+def test_build_scene_first_prompts_hold_first_two_to_three_beats_inside_the_scene() -> None:
+    payload = {
+        "trend_title": "参考文章 / 手动录入",
+        "topic_title": "很多关系真正远掉，不是吵散了，是那句该问的话总被留在现场后面",
+        "topic_angle": "从接驳车、地铁口和没发出去的话切入，写关系怎样在一次次先算了里慢慢变轻。",
+        "project_title": "场景优先推进验证稿",
+        "tone_profile": TONE_PROFILE,
+        "problem_brief": {
+            "clarified_problem": "这篇文章要解释，为什么很多关系不是突然变淡，而是在一次次没问出口里慢慢拉远。",
+            "target_reader_situation": "总在该问时先算了的人",
+            "core_conflict": "明明察觉到了变化，却总在现场里先把更重要的话压回去。",
+        },
+        "strategy_card": {
+            "reader_situation": "总在该问时先算了的人",
+            "point_of_view": "先让读者跟着现场进去，再把那句没问出口的话讲明白。",
+            "conflict_frame": "不是吵散了，而是每次想问的时候都先算了。",
+            "emotional_path": "从现场停顿进入，再慢慢走到敢开口面对真实。",
+            "structure_mode": "scene_first_progression",
+            "opening_move": "开头先落地铁口和没发出去的话。",
+            "body_shift": "中段再拆为什么那句话总被压回去。",
+            "ending_move": "结尾回到一次更小但真实的开口动作。",
+            "expression_constraints": ["不要一上来平铺道理"],
+            "divergence_axes": ["不要把第二段改成抽象总括"],
+            "execution_checklist": ["前两到三段先守住现场"],
+            "benchmark_summary": "先让动作、停顿和位置变化带路，再让判断长出来。",
+        },
+        "benchmarks": [],
+    }
+
+    outline_template = build_outline_prompt(payload)
+    draft_template = build_draft_prompt(
+        {
+            **payload,
+            "outline": {
+                "hook": "车门快关上的时候，她还是没把那句话发出去。",
+                "outline_body": "1. 现场停顿\n2. 关系怎么慢慢变轻\n3. 重新开口",
+            },
+        }
+    )
+
+    assert "若策略包强调场景优先推进，大纲前两到三行先沿同一个现场顺着动作、停顿、物件或位置变化往前走，" in outline_template.instructions
+    assert "判断必须从现场里自己长出来，不要第二行就改成泛关系结论，也不要直接平铺观点。" in outline_template.instructions
+    assert "若策略包强调场景优先推进，正文前两到三段必须继续沿同一个现场顺着动作、停顿、物件、界面或位置变化往前走，" in draft_template.instructions
+    assert "不要第一段给场景、第二段立刻抽象讲“很多人”“关系里”“其实”。" in draft_template.instructions
+    assert "判断要从当场没说出口、没继续做下去或被压回去的那一下里慢慢长出来，再逐步展开，" in draft_template.instructions
+    assert "不要直接平铺观点，也不要写成标准答案讲解稿。" in draft_template.instructions
+
+
 def test_build_draft_prompt_compacts_tracked_article_strategy_payload() -> None:
     template = build_draft_prompt(
         {
@@ -1726,7 +2391,7 @@ def test_build_draft_prompt_compacts_tracked_article_strategy_payload() -> None:
     assert len(template.prompt) < 2600
 
 
-def test_build_draft_prompt_uses_full_strategy_payload_by_default_for_tracked_article() -> None:
+def test_build_draft_prompt_uses_strategy_first_draft_mode_by_default_for_tracked_article() -> None:
     template = build_draft_prompt(
         {
             "trend_title": "参考文章 / 手动录入",
@@ -1771,19 +2436,64 @@ def test_build_draft_prompt_uses_full_strategy_payload_by_default_for_tracked_ar
         }
     )
 
-    assert "大纲内容：" in template.prompt
-    assert "大纲锚点：" not in template.prompt
-    assert "观察到的现象：" in template.prompt
-    assert "观察焦点：" not in template.prompt
-    assert "原创距离最低要求：同时改掉标题骨架、开头入口、中段推进顺序和结尾动作，缺一项就继续重写。" in template.prompt
-    assert "执行时只保留这些策略结论，不回看参考文章原始标题、摘要、段落顺序或问题说明书全文。" in template.prompt
-    assert "写前约束：" in template.prompt
-    assert "拉开距离检查：" in template.prompt
-    assert "写作执行：" in template.prompt
-    assert "返回前自检：" in template.prompt
+    assert "当前任务是参考文章策略稿的首稿阶段。" in template.instructions
+    assert "不要抢着把去 AI 味、平台包装、漂亮收尾和完整示范文腔一次做满" in template.instructions
+    assert "大纲锚点：" in template.prompt
+    assert "大纲内容：" not in template.prompt
+    assert "观察焦点：" in template.prompt
+    assert "观察到的现象：" not in template.prompt
+    assert "执行原则：沿着这些策略结论写，不回收参考文原句、原顺序和原结尾。" in template.prompt
+    assert "写前约束：" not in template.prompt
+    assert "拉开距离检查：" not in template.prompt
+    assert "写作执行：" not in template.prompt
+    assert "返回前自检：" not in template.prompt
+    assert "原创不是把现成观点换一批近义词，而是重新建立观察路径、场景重心和句子节奏。" not in template.instructions
+    assert "按中文公众号 AI 味风险检查表达：" not in template.instructions
+    assert "正文要更贴近真实公众号作者写作，而不是模型一次性生成的标准成品。" not in template.instructions
+    assert "请把选题和大纲扩写成一篇中文首稿。" in template.instructions
+    assert len(template.instructions) < 2600
+    assert len(template.prompt) < 2600
+
+
+def test_build_draft_prompt_keeps_full_owner_stack_for_non_tracked_article_strategy_payload() -> None:
+    template = build_draft_prompt(
+        {
+            "trend_title": "热点 / 夜读观察",
+            "topic_title": "关系里总在解释的人，后来都学会了沉默",
+            "topic_angle": "从一次次解释无效的处境切入，拆开人为什么会慢慢收声。",
+            "project_title": "解释疲惫观察",
+            "source_type": "trend",
+            "tone_profile": TONE_PROFILE,
+            "problem_brief": {
+                "clarified_problem": "这篇文章要解释，为什么很多人会在关系里越解释越沉默。",
+                "observed_phenomenon": "每次想说清楚，最后都变成一场自我消耗。",
+                "writing_goal": "把解释疲惫是怎么堆起来的讲清楚。",
+                "target_reader_situation": "总在关系里解释自己的人。",
+                "core_conflict": "越想被理解，越容易先把力气耗光。",
+                "constraints": ["不要写成鸡汤"],
+                "feedback_entry": "让读者先认出自己为什么越来越不想说话。",
+            },
+            "strategy_card": {
+                "reader_situation": "总在关系里解释自己的人。",
+                "point_of_view": "先写解释为什么失效，再写沉默怎么长出来。",
+                "conflict_frame": "不是一次闭嘴，而是很多次解释以后慢慢收回去。",
+                "emotional_path": "从解释无效，到承认心累。",
+                "structure_mode": "single_window_scene",
+                "opening_move": "先落一次解释到一半又停下来的现场。",
+                "body_shift": "中段拆开失效和疲惫。",
+                "ending_move": "结尾收在一次没继续解释的小动作。",
+            },
+            "outline": {
+                "hook": "她把打好的那段话又删掉了。",
+                "outline_body": "1. 解释到一半停下\n2. 为什么越解释越累\n3. 沉默是怎么长出来的",
+            },
+        }
+    )
+
+    assert "当前任务是参考文章策略稿的首稿阶段。" not in template.instructions
     assert "原创不是把现成观点换一批近义词，而是重新建立观察路径、场景重心和句子节奏。" in template.instructions
-    assert "输出前必须做一次静默自检" in template.instructions
-    assert len(template.instructions) > 3200
+    assert "按中文公众号 AI 味风险检查表达：" in template.instructions
+    assert "正文要更贴近真实公众号作者写作，而不是模型一次性生成的标准成品。" in template.instructions
 
 
 def test_build_draft_prompt_compacts_tracked_article_polish_payload() -> None:
@@ -2106,8 +2816,9 @@ def test_jinwan_youyu_internal_pressure_overrides_opening_style_in_prompt_sectio
         }
     )
 
-    assert "开篇方式：如果题材是自我消耗、生活排序失衡、健康透支或身体提醒，开头先落到一个真实接口、后果或身体信号，不要先写成空泛答案句；可以直接，但不要把答案先钉死在抽象判断上。" in template.prompt
-    assert "段落节奏：先用真实接口带路，再给判断与落点；多数段落以 1 到 3 句为主，中段可以明确，但不要一上来就写成通用讲解稿，也不要把几层意思压成一个长段；每段都要能让读者认出自己当下正在经历的那一下。" in template.prompt
+    assert "开篇方式：如果题材是自我消耗、生活排序失衡、健康透支或身体提醒，开头先落到一个真实接口、被顺手往后放的安排或已经露出的代价，不要先写成空泛答案句；可以直接，但不要把答案先钉死在抽象判断上。" in template.prompt
+    assert "段落节奏：先用真实接口带路，再给判断与落点；多数段落以 1 到 2 句为主" in template.prompt
+    assert "每段都要能让读者认出自己当下正在经历的那一下" in template.prompt
     assert "收束方式：收束时优先落在一个现实动作、后果余波或轻微决定上，可以给判断，但不要把结尾写成已经讲完题的标准答案。" in template.prompt
 
 
@@ -2131,9 +2842,18 @@ def test_jinwan_youyu_internal_pressure_draft_rules_do_not_prioritize_question_o
         }
     )
 
-    assert "开头先落一个现实接口、后果或身体信号，不要先用问句、引用或共鸣替读者下定义。" in template.instructions
+    assert "开头先落一个现实接口、被顺手往后放的安排或已经露出的代价，不要先用问句、引用或共鸣替读者下定义。" in template.instructions
     assert "判断可以直接，但不要一上来就把答案说成空泛结论，要让读者先认出自己正在付出的代价。" in template.instructions
-    assert "结尾优先落在一个现实动作、后果余波或轻微决定上，不要把答案写成空泛总结。" in template.instructions
+    assert "前两到三段里，至少有一段只让动作、后果或现实余波自己说话，不要句句都抢着解释。" in template.instructions
+    assert "前四段里，至少保住 1 处一句一段的现实接口、动作后果或被挪走的安排" in template.instructions
+    assert "多数段落控制在 1 到 2 句" in template.instructions
+    assert "但每个判断最多只补一层解释" in template.instructions
+    assert "不要连续两个中长解释段挨着出现" in template.instructions
+    assert "除非参考文主冲突本来就建立在身体代价上，否则不要把正文排成胸口、胃口、睡眠这类症状清单。" in template.instructions
+    assert "前半篇至少保住 1 句从真实代价里长出来、可以单独成段的可摘录短句或引用式短句" in template.instructions
+    assert "如果状态允许，可以再留 1 句，但要把关系位置、代价排序或没被接住的事实压进去，不要连发口号。" in template.instructions
+    assert "结尾优先落在一个现实动作、后果余波、没等来的回应或轻微决定上，不要把答案写成空泛总结。" in template.instructions
+    assert "尾段不要替读者把情绪讲完，尽量留一点没说满的关系余波" in template.instructions
     assert "开头优先使用问句、引用或共鸣开场" not in template.instructions
 
 
@@ -2164,8 +2884,8 @@ def test_jinwan_youyu_internal_pressure_polish_instruction_is_harmonized() -> No
 
     assert "开头用问句、引用或共鸣迅速点题" not in template.prompt
     assert "开头用直接问题、现实接口或一句共鸣判断迅速点题" not in template.prompt
-    assert "开头先落一个现实接口、后果或身体信号，不要先用问句、引用或共鸣替读者下定义" in template.prompt
-    assert "请保留直接感，但把空泛答案句改成真实接口、后果或身体信号" in template.prompt
+    assert "开头先落一个现实接口、被顺手往后放的安排或已经露出的代价，不要先用问句、引用或共鸣替读者下定义" in template.prompt
+    assert "请保留直接感，但把空泛答案句改成真实接口、被顺手往后放的安排或已经露出的代价" in template.prompt
 
 
 def test_draft_prompt_includes_anti_ai_flavor_guardrails() -> None:
@@ -2364,6 +3084,7 @@ def test_polish_prompt_allows_structure_recomposition_without_old_anchors() -> N
     assert "原稿结构锚点（精修后应尽量保留这些顺序与案例，不要求逐字复用）：" not in template.prompt
     assert "必须保留小节标题：别用健康换明天" not in template.prompt
     assert "独立短段尽量压到 2 处以内" in template.instructions
+    assert "如果要保留 1 处可摘录短句，必须来自前文已有动作、代价或关系余波，优先单独成段" in template.instructions
     assert "不要把一句消息、对话、短信或引用写成整篇反复出现的展示段" in template.instructions
 
 

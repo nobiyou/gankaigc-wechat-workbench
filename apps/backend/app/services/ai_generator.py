@@ -62,6 +62,12 @@ class TrackedArticleMetadataGenerationResult(BaseModel):
     summary: str
     structure_notes: str
     tags: list[str]
+    analysis_theme: str = ""
+    analysis_core_conflict: str = ""
+    analysis_emotional_exit: str = ""
+    analysis_structure_mode: str = ""
+    analysis_opening_pattern: str = ""
+    analysis_do_not_turn_into: str = ""
 
 
 ResponseModelT = TypeVar("ResponseModelT", bound=BaseModel)
@@ -76,11 +82,13 @@ class OpenAIWorkbenchGenerator:
         if config.openai_base_url:
             client_kwargs["base_url"] = config.openai_base_url
         client_kwargs["timeout"] = config.openai_request_timeout_seconds
+        client_kwargs["max_retries"] = 0
 
         self._client = OpenAI(**client_kwargs)
         image_client_kwargs: dict[str, object] = {
             "api_key": config.effective_openai_image_api_key,
             "timeout": config.effective_openai_image_request_timeout_seconds,
+            "max_retries": 0,
         }
         effective_image_base_url = config.effective_openai_image_base_url
         if effective_image_base_url:
@@ -233,7 +241,7 @@ class OpenAIWorkbenchGenerator:
             prompt=prompt_template.prompt,
             response_format=TrackedArticleMetadataGenerationResult,
         )
-        return result.model_dump()
+        return result.model_dump(exclude_defaults=True)
 
     def _parse_response(
         self,
@@ -286,6 +294,7 @@ class OpenAIWorkbenchGenerator:
                     prompt=prompt,
                     response_format=response_format,
                     timeout_seconds=timeout_seconds,
+                    max_attempts=max_attempts,
                 )
             except TypeError as exc:
                 if "'NoneType' object is not iterable" not in str(exc):
@@ -296,6 +305,16 @@ class OpenAIWorkbenchGenerator:
                     prompt=prompt,
                     response_format=response_format,
                     timeout_seconds=timeout_seconds,
+                    max_attempts=max_attempts,
+                )
+            except ValidationError:
+                self._remember_chat_json_preference(response_format)
+                return self._parse_response_with_chat_json_fallback(
+                    instructions=instructions,
+                    prompt=prompt,
+                    response_format=response_format,
+                    timeout_seconds=timeout_seconds,
+                    max_attempts=max_attempts,
                 )
             except APITimeoutError:
                 return self._parse_response_with_chat_json_fallback(
@@ -303,6 +322,7 @@ class OpenAIWorkbenchGenerator:
                     prompt=prompt,
                     response_format=response_format,
                     timeout_seconds=timeout_seconds,
+                    max_attempts=max_attempts,
                 )
             except (openai.InternalServerError, openai.APIConnectionError) as exc:
                 if self._should_fallback_to_chat_json_after_parse_error(
@@ -315,6 +335,7 @@ class OpenAIWorkbenchGenerator:
                         prompt=prompt,
                         response_format=response_format,
                         timeout_seconds=timeout_seconds,
+                        max_attempts=max_attempts,
                     )
                 last_error = exc
                 if attempt == max_attempts - 1:
@@ -342,7 +363,7 @@ class OpenAIWorkbenchGenerator:
         self._prefer_chat_json_for_formats.add(response_format)
 
     def _should_default_to_chat_json(self, response_format: type[ResponseModelT]) -> bool:
-        return self._uses_custom_base_url and response_format is DraftGenerationResult
+        return False
 
     def _should_fallback_to_chat_json_after_parse_error(
         self,
@@ -375,6 +396,7 @@ class OpenAIWorkbenchGenerator:
         if any(
             bool(payload.get(flag))
             for flag in (
+                "strategy_first_draft_mode",
                 "compact_strategy_mode",
                 "compact_polish_mode",
                 "timeout_recovery_mode",
@@ -390,6 +412,7 @@ class OpenAIWorkbenchGenerator:
         if any(
             bool(payload.get(flag))
             for flag in (
+                "strategy_first_draft_mode",
                 "compact_strategy_mode",
                 "compact_polish_mode",
                 "full_fallback_single_attempt_mode",

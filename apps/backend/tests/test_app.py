@@ -491,6 +491,70 @@ def test_generate_topic_from_tracked_article_uses_ai_and_persists(monkeypatch) -
     assert call_payload["tags"] == ["表达修复", "关系修复"]
 
 
+def test_generate_topic_from_tracked_article_auto_enriches_analysis_before_topic(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("tracked_article_metadata", payload))
+            return {
+                "author": "北岛",
+                "summary": "从关系修复案例提炼表达顺序。",
+                "structure_notes": "案例开头 + 情绪拆解 + 动作建议。",
+                "analysis_theme": "关系修复里，先接住失望比立刻解释更重要。",
+                "analysis_core_conflict": "双方都想说明白时，最容易漏掉当下需要被安顿的情绪。",
+                "analysis_emotional_exit": "把关系从对错争执里带回能继续开口的位置。",
+                "analysis_structure_mode": "relationship_aftercare",
+                "analysis_opening_pattern": "从一次没继续解释的现场起笔。",
+                "analysis_do_not_turn_into": "不要写成泛沟通技巧或谁输谁赢的辩论稿。",
+                "tags": ["表达修复", "关系修复"],
+            }
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "比解释更重要的，是先接住关系里的那一下失望",
+                "angle": "修复顺序",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "slow-repair-auto-analyze",
+            "source_name": "夜读关系实验室",
+            "title": "真正让关系缓回来，不是解释，是先接住那一下失望",
+            "url": "https://example.com/slow-repair-auto-analyze",
+            "author": "北岛",
+            "summary": "从关系修复案例提炼表达顺序。",
+            "body_markdown": "她那天没有继续解释，只是先停下来接住那一下失望。\n\n第二天才重新整理要说的话。",
+            "structure_notes": "案例开头 + 情绪拆解 + 动作建议。",
+            "tags": ["表达修复", "关系修复"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/slow-repair-auto-analyze/generate-topic")
+    assert response.status_code == 201
+
+    assert [call[0] for call in fake_generator.calls] == ["tracked_article_metadata", "topic"]
+    topic_payload = fake_generator.calls[1][1]
+    assert topic_payload["analysis_theme"] == "关系修复里，先接住失望比立刻解释更重要。"
+    assert topic_payload["analysis_core_conflict"] == "双方都想说明白时，最容易漏掉当下需要被安顿的情绪。"
+    assert topic_payload["analysis_emotional_exit"] == "把关系从对错争执里带回能继续开口的位置。"
+    assert topic_payload["analysis_structure_mode"] == "relationship_aftercare"
+    assert topic_payload["analysis_opening_pattern"] == "从一次没继续解释的现场起笔。"
+    assert topic_payload["analysis_do_not_turn_into"] == "不要写成泛沟通技巧或谁输谁赢的辩论稿。"
+
+    tracked_article = next(
+        article for article in client.get("/api/tracked-articles").json() if article["slug"] == "slow-repair-auto-analyze"
+    )
+    assert tracked_article["analysis_theme"] == "关系修复里，先接住失望比立刻解释更重要。"
+    assert tracked_article["analysis_structure_mode"] == "relationship_aftercare"
+
+
 def test_generate_topic_from_tracked_article_rewrites_abstract_internal_pressure_angle_with_body_cues(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:
@@ -798,6 +862,50 @@ def test_generate_topic_from_tracked_article_rewrites_memory_reflux_phrase_out_o
     assert "没收尾" in payload["angle"] or "没兑现的位置" in payload["angle"] or "生活顺序" in payload["angle"]
 
 
+def test_generate_topic_from_tracked_article_rewrites_withdrawn_aftercare_topic_out_of_self_processing_sink(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总在天亮前把自己哄好的人，后来会慢慢失去求助能力",
+                "angle": "从“天亮前先把情绪收拾好”这个自我处理动作切入，拆开长期独自消化的人为什么会在关系里越来越少开口，也越来越难相信有人能接住她。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "withdrawn-aftercare-reroute",
+            "source_name": "手动录入",
+            "title": "你推开我的那一刻，我就学会不再示弱",
+            "url": "https://example.com/withdrawn-aftercare-reroute",
+            "author": "未知",
+            "summary": "文章借“情绪很累却不被理解”的时刻，写亲密关系里最伤人的并不是争吵，而是在脆弱时被嫌烦、被推开。它的判断很明确：一个人不是突然冷下来，而是在多次求助落空后，慢慢学会不再向你袒露软弱。",
+            "body_markdown": (
+                "有时候，会莫名其妙地觉得累。\n\n"
+                "可真正让人寒心的，不是生活本身的压力，而是在求助和示弱时，被最亲近的人嫌烦、推开。\n\n"
+                "当你在一个人最无助的时候选择推开他，下一次，他就不会再在你面前脆弱了。"
+            ),
+            "structure_notes": "开头先从成年人常见的情绪透支感切入，写出表面正常、内里耗尽的状态；中段把这种疲惫放进亲密关系里，转向“对方把脆弱误判成无理取闹”的具体场景；结尾落在一次被推开的后果上，强调失望积累后，人会主动收起依赖和示弱。",
+            "tags": ["亲密关系", "脆弱误读", "求助落空", "不再示弱"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/withdrawn-aftercare-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "被推开几次以后，很多人就不再开口了"
+    assert "最需要被接住的时候" in payload["angle"]
+    assert "谁误解了她" in payload["angle"]
+    assert "谁没有接住她" in payload["angle"]
+
+
 def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_article_out_of_pressure_sink(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:
@@ -902,6 +1010,295 @@ def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_art
     assert "陪伴" in payload["angle"] or "日常" in payload["angle"] or "联系" in payload["angle"]
 
 
+def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_out_of_relationship_sink(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "很多关系拖着不结束，真正消耗你的，是心里一直在等一个交代",
+                "angle": "从聊天框、没说出口的话和那句迟迟等不到的回应切入，写一个人为什么总在旧关系里耗着自己。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "heart-settled-reroute",
+            "source_name": "手动录入",
+            "title": "此心安处，才是一个人最好的归宿",
+            "url": "https://example.com/heart-settled-reroute",
+            "author": "未知",
+            "summary": "文章把外界起伏和内心安顿放在一起比较，重点不是某段关系有没有结果，也不是身体有没有告警，而是心为什么一直安不下来，人怎样把自己慢慢安顿回当下。",
+            "body_markdown": (
+                "杨绛先生说：人生最曼妙的风景，竟是内心的淡定与从容。心若不安，到哪里都是流浪；心若不定，遇见谁都是过客。\n\n"
+                "有时候，看似过不去的坎儿，其实是心结难解。把心抚平了，脚下自有坦途；把心看透了，郁结自会消散。\n\n"
+                "真正的心安，是于一餐一饮中品味生活，于一呼一吸间安顿灵魂，于岁岁年年中与内心相拥。此心安处是吾乡。"
+            ),
+            "structure_notes": "先写心为什么一直悬着，再拆人为什么总想把一切想明白，中段回到一餐一饮和一呼一吸怎样让生活重新有轻重。",
+            "tags": ["心安", "内在归处", "与内心和解", "安顿自己"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/heart-settled-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "人这一生真正想要的，不过是一颗终于有归处的心"
+    assert "总想先把一切想稳、想透、想明白" in payload["angle"]
+    assert "一餐一饮" in payload["angle"]
+    assert "一呼一吸" in payload["angle"]
+    assert "让生活重新有了轻重和归处" in payload["angle"]
+    assert "聊天框" not in payload["title"]
+    assert "交代" not in payload["title"]
+    assert "旧关系" not in payload["angle"]
+    assert "回应" not in payload["angle"]
+    assert "体检" not in payload["angle"]
+    assert "复查" not in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_out_of_diagnostic_sink(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "反复复盘过去、提前演练未来，心为什么更难落地",
+                "angle": "从总怕自己失控、总想把最坏结果先演练完切入，写一个人为什么会把自己长期留在悬着和戒备里。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "heart-settled-diagnostic-reroute",
+            "source_name": "手动录入",
+            "title": "此心安处，才是一个人最好的归宿",
+            "url": "https://example.com/heart-settled-diagnostic-reroute",
+            "author": "未知",
+            "summary": "文章把外界起伏和内心安顿放在一起比较，重点不是某段关系有没有结果，也不是身体有没有告警，而是心为什么一直安不下来，人怎样把自己慢慢安顿回当下。",
+            "body_markdown": (
+                "杨绛先生说：人生最曼妙的风景，竟是内心的淡定与从容。心若不安，到哪里都是流浪；心若不定，遇见谁都是过客。\n\n"
+                "有时候，看似过不去的坎儿，其实是心结难解。把心抚平了，脚下自有坦途；把心看透了，郁结自会消散。\n\n"
+                "真正的心安，是于一餐一饮中品味生活，于一呼一吸间安顿灵魂，于岁岁年年中与内心相拥。此心安处是吾乡。"
+            ),
+            "structure_notes": "先写心为什么一直悬着，再拆人为什么总想把一切想明白，中段回到一餐一饮和一呼一吸怎样让生活重新有轻重。",
+            "tags": ["心安", "内在归处", "与内心和解", "安顿自己"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/heart-settled-diagnostic-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "人这一生真正想要的，不过是一颗终于有归处的心"
+    assert "更难落地" not in payload["title"]
+    assert "安放回当下" not in payload["angle"]
+    assert "总想先把一切想稳、想透、想明白" in payload["angle"]
+    assert "生活重新有了轻重和归处" in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_when_only_title_stays_suspended(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总把确认留给别人，心就会一直悬着",
+                "angle": "很多不安并不是事情本身太难，而是我们把认可、结果和安全感都押在外部，连今天这一刻都没真正住进去；先把注意力收回到吃饭、呼吸和手头这件事上，心才会慢慢落地。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "heart-settled-title-suspended-reroute",
+            "source_name": "手动录入",
+            "title": "此心安处，才是一个人最好的归宿",
+            "url": "https://example.com/heart-settled-title-suspended-reroute",
+            "author": "未知",
+            "summary": "文章把外界起伏和内心安顿放在一起比较，重点不是某段关系有没有结果，也不是身体有没有告警，而是心为什么一直安不下来，人怎样把自己慢慢安顿回当下。",
+            "body_markdown": (
+                "杨绛先生说：人生最曼妙的风景，竟是内心的淡定与从容。心若不安，到哪里都是流浪；心若不定，遇见谁都是过客。\n\n"
+                "有时候，看似过不去的坎儿，其实是心结难解。把心抚平了，脚下自有坦途；把心看透了，郁结自会消散。\n\n"
+                "真正的心安，是于一餐一饮中品味生活，于一呼一吸间安顿灵魂，于岁岁年年中与内心相拥。此心安处是吾乡。"
+            ),
+            "structure_notes": "先写心为什么一直悬着，再拆人为什么总想把一切想明白，中段回到一餐一饮和一呼一吸怎样让生活重新有轻重。",
+            "tags": ["心安", "内在归处", "与内心和解", "安顿自己"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/heart-settled-title-suspended-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "人这一生真正想要的，不过是一颗终于有归处的心"
+    assert "总想先把一切想稳、想透、想明白" in payload["angle"]
+    assert "重新有了轻重和归处" in payload["angle"]
+    assert "悬着" not in payload["title"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_out_of_waiting_result_sink(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "把安稳交给结果的人，最容易在等待里把自己耗空",
+                "angle": "很多女性把情绪稳定交给回复、评价和结果，真正耗人的并不是事情没变，而是迟迟不肯把自己从等待里接回来。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "heart-settled-waiting-result-reroute",
+            "source_name": "手动录入",
+            "title": "此心安处，才是一个人最好的归宿",
+            "url": "https://example.com/heart-settled-waiting-result-reroute",
+            "author": "未知",
+            "summary": "文章把外界起伏和内心安顿放在一起比较，重点不是某段关系有没有结果，也不是身体有没有告警，而是心为什么一直安不下来，人怎样把自己慢慢安顿回当下。",
+            "body_markdown": (
+                "杨绛先生说：人生最曼妙的风景，竟是内心的淡定与从容。心若不安，到哪里都是流浪；心若不定，遇见谁都是过客。\n\n"
+                "有时候，看似过不去的坎儿，其实是心结难解。把心抚平了，脚下自有坦途；把心看透了，郁结自会消散。\n\n"
+                "真正的心安，是于一餐一饮中品味生活，于一呼一吸间安顿灵魂，于岁岁年年中与内心相拥。此心安处是吾乡。"
+            ),
+            "structure_notes": "先写心为什么一直悬着，再拆人为什么总想把一切想明白，中段回到一餐一饮和一呼一吸怎样让生活重新有轻重。",
+            "tags": ["心安", "内在归处", "与内心和解", "安顿自己"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/heart-settled-waiting-result-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "人这一生真正想要的，不过是一颗终于有归处的心"
+    assert "总想先把一切想稳、想透、想明白" in payload["angle"]
+    assert "一餐一饮" in payload["angle"]
+    assert "一呼一吸" in payload["angle"]
+    assert "等待里把自己耗空" not in payload["title"]
+    assert "交给回复、评价和结果" not in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_out_of_result_dependence_sink(
+    monkeypatch,
+) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "把安全感押在结果上的人，为什么总觉得日子落不了地",
+                "angle": "这篇稿子想拆开一种常见内耗：越想等外部确定了再松下来，越会把自己长期留在悬着的位置，真正的回稳往往从吃饭、呼吸和暂停解释开始。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "heart-settled-result-dependence-reroute",
+            "source_name": "手动录入",
+            "title": "此心安处，才是一个人最好的归宿",
+            "url": "https://example.com/heart-settled-result-dependence-reroute",
+            "author": "未知",
+            "summary": "文章把外界起伏和内心安顿放在一起比较，重点不是某段关系有没有结果，也不是身体有没有告警，而是心为什么一直安不下来，人怎样把自己慢慢安顿回当下。",
+            "body_markdown": (
+                "杨绛先生说：人生最曼妙的风景，竟是内心的淡定与从容。心若不安，到哪里都是流浪；心若不定，遇见谁都是过客。\n\n"
+                "有时候，看似过不去的坎儿，其实是心结难解。把心抚平了，脚下自有坦途；把心看透了，郁结自会消散。\n\n"
+                "真正的心安，是于一餐一饮中品味生活，于一呼一吸间安顿灵魂，于岁岁年年中与内心相拥。此心安处是吾乡。"
+            ),
+            "structure_notes": "先写心为什么一直悬着，再拆人为什么总想把一切想明白，中段回到一餐一饮和一呼一吸怎样让生活重新有轻重。",
+            "tags": ["心安", "内在归处", "与内心和解", "安顿自己"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/heart-settled-result-dependence-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "人这一生真正想要的，不过是一颗终于有归处的心"
+    assert "总想先把一切想稳、想透、想明白" in payload["angle"]
+    assert "一餐一饮" in payload["angle"]
+    assert "一呼一吸" in payload["angle"]
+    assert "安全感押在结果上" not in payload["title"]
+    assert "日子落不了地" not in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_self_reliance_article_out_of_relationship_expression_sink(
+    monkeypatch,
+) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "把需要说得很轻的人，常常等不到真正的帮助",
+                "angle": "很多人习惯先替别人考虑，把求助包装成‘顺手帮一下’，结果边界不清、需求不明，真正的支持反而更难落地。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "self-reliance-reroute",
+            "source_name": "手动录入",
+            "title": "即使没有帮助，也要学会自救自渡",
+            "url": "https://example.com/self-reliance-reroute",
+            "author": "未知",
+            "summary": "文章从想找人倾诉却发现身边人也自顾不暇的场景切入，写成年人在低谷里对外求助常常得不到及时回应，于是逐渐学会收起委屈、转向自我消化和自我修复。核心落点不是拒绝他人，而是提醒人在不被接住的时候，也要有把自己托起来的能力。",
+            "body_markdown": (
+                "相信你也有过这样的时刻：心情不好的时候想找朋友倾诉，却发现朋友也愁眉不展。\n\n"
+                "只有向内求，才能自我疗愈，生生不息。只有靠自己，你才能有所顿悟、有所收获、有所改变。\n\n"
+                "即使没有帮助，也不会孤立无援，而是能够自救自渡。"
+            ),
+            "structure_notes": "先写想倾诉却发现别人也各自承压的现实处境，中段再拆为什么外求未必总能接住人，结尾回到向内稳住、自救自渡和慢慢把自己托起来。",
+            "tags": ["自我疗愈", "情绪自救", "成年人压力", "低谷时刻", "自我支撑"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/self-reliance-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert "说得很轻" not in payload["title"]
+    assert "真正的帮助" not in payload["title"]
+    assert "顺手帮一下" not in payload["angle"]
+    assert "边界不清" not in payload["angle"]
+    assert "需求不明" not in payload["angle"]
+    assert (
+        "自己" in payload["title"]
+        or "自救自渡" in payload["title"]
+        or "托住" in payload["title"]
+        or "安顿好" in payload["title"]
+    )
+    assert "把依靠收回自己身上" in payload["angle"] or "先把情绪放稳" in payload["angle"]
+    assert "自救自渡" in payload["angle"] or "先把日子接回来" in payload["angle"]
+
+
 def test_generate_topic_from_tracked_article_rewrites_resilience_article_out_of_self_help_sink(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:
@@ -948,6 +1345,202 @@ def test_generate_topic_from_tracked_article_rewrites_resilience_article_out_of_
     assert "兜底" not in payload["angle"]
     assert "11下" in payload["title"] or "命运" in payload["title"] or "韧性" in payload["title"]
     assert "训练" in payload["angle"] or "命运" in payload["angle"] or "重建" in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_response_priority_article_out_of_aftercare_sink(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总让你等的人，也默认你会替这段关系善后",
+                "angle": "这篇稿子拆开一种常见失衡：反复被晾着的代价，不只是联系变少，而是等待的人会被迫接下解释、体谅和关系善后的全部工作。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "no-time-priority-reroute",
+            "source_name": "手动录入",
+            "title": "没时间，不一定是真的没时间",
+            "url": "https://example.com/no-time-priority-reroute",
+            "author": "未知",
+            "summary": "文章借日常联系里的“没时间”现象，讨论一段关系里真实的优先级排序。核心判断是：多数迟迟不回应并非真的抽不出空，而是投入意愿不足，时间分配往往比语言更能说明在乎程度。",
+            "body_markdown": (
+                "听过一句话：“红灯30秒，我喝了一口水，拍了张照片，回了条消息，连上蓝牙，放了一首喜欢的歌，所以你告诉我，什么是没时间？”\n\n"
+                "真正的原因可能是，因为我们不够重要，所以对方漫不经心，爱搭不理。人对在乎的人，永远都有时间。\n\n"
+                "没时间，是因为你不在他心里，或者顺序没那么优先。一个人的时间在哪儿，他的心就在哪儿。"
+            ),
+            "structure_notes": "开头借红灯30秒的细节切入，中段拆“忙”和“在乎”并不等价，结尾落到时间分配如何显出真实顺序。",
+            "tags": ["关系优先级", "回应顺序", "时间分配"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/no-time-priority-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert "善后" not in payload["title"]
+    assert "把日子重新接上" not in payload["title"]
+    assert "冷战" not in payload["angle"]
+    assert "修复" not in payload["angle"]
+    assert "没时间" in payload["title"] or "优先级" in payload["title"] or "时间" in payload["title"]
+    assert "顺序" in payload["angle"] or "时间分配" in payload["angle"] or "在乎程度" in payload["angle"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_supportive_appreciation_article_out_of_negative_exhaustion_sink(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总在替别人收拾情绪的人，最后最容易把自己耗空",
+                "angle": "从长期替关系兜底的人为什么会在反复原谅里慢慢失去自我感切入，拆开那种总先顾及别人感受的人，后来如何把自己放到越来越后面。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "soft-hearted-reroute",
+            "source_name": "手动录入",
+            "title": "如果你身边有这样一个心软的人，请一定要牵紧他的手",
+            "url": "https://example.com/soft-hearted-reroute",
+            "author": "未知",
+            "summary": "文章重点不是谁在关系里耗空自己，而是心软为什么常被误解，以及那些明明拎得清、却还是愿意包容和体谅别人的人，为什么最值得被珍惜。",
+            "body_markdown": (
+                "有一种人，习惯了燃烧自己，去照亮别人。你对他好，他会对你更好。\n\n"
+                "心软的人并不傻，他们的心里比谁都拎得清。不去计较，是因为心里在乎，不想与爱的人争辩输赢、对错和得失。\n\n"
+                "那些愿意包容你的人，一定很爱你。如果你身边有这样一个心软的人，请你一定要牵紧他的手。"
+            ),
+            "structure_notes": "先写心软的人总会先替别人着想，再拆这种柔软为什么常被误读，结尾回到这样的人最值得被珍惜。",
+            "tags": ["心软", "包容", "体谅", "值得珍惜"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/soft-hearted-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert "收拾情绪" not in payload["title"]
+    assert "耗空" not in payload["title"]
+    assert "失去自我" not in payload["angle"]
+    assert "兜底" not in payload["angle"]
+    assert any(token in payload["title"] for token in ("心软", "珍惜", "温柔"))
+    assert any(token in payload["angle"] for token in ("包容", "体谅", "珍惜", "温柔"))
+
+
+def test_generate_topic_from_tracked_article_rewrites_scene_first_office_topic_toward_continuous_scene_entry(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "散会后还在心里补那段发言的人，真正被耗掉的是表达时机感",
+                "angle": "从“会后才把该说的话在心里补完”这个接口切入，拆开女性在权威现场反复延迟表达后，如何一步步失去开口的内部时机。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "scene-first-office-topic-reroute",
+            "source_name": "手动录入",
+            "title": "很多话不是没想好，是总在那个要开口的会议室里被咽回去",
+            "url": "https://example.com/scene-first-office-topic-reroute",
+            "author": "未知",
+            "summary": "文章重点不是先讲职场道理，而是先让读者跟着会议前、中、后的连续现场走一遍，再意识到真正被压后的是什么。",
+            "body_markdown": (
+                "周一早会开始前，她站在投影幕布旁，把昨晚改好的方案又往后翻了一页。\n\n"
+                "主管进门，随手把咖啡放在桌角，先说了一句‘今天先按老方案过吧’，会议室里的人都低头去翻手里的资料。\n\n"
+                "散会以后，她还坐在原位，看着屏幕上的最后一页，直到清洁阿姨来收水杯，才把那句本来该在会上说出来的话关掉。\n\n"
+                "很多时候，问题不是没看见，而是一个人总在那个现场里先替气氛让路。"
+            ),
+            "structure_notes": "开头先让会议前后几个连续场景带路，后面再把总在现场里先让路这件事讲明白，不要一上来平铺观点。",
+            "analysis_theme": "这篇文章真正想讨论的是：很多职场沉默不是没想法，而是总有人在那个现场里先替秩序和气氛让路。",
+            "analysis_core_conflict": "明明知道有话该说，可一回到会议室和现场顺序里，人就先把更重要的话压后。",
+            "analysis_emotional_exit": "先让人认出自己是怎么一步步把发言机会让过去的，后面才谈表达和位置感。",
+            "analysis_structure_mode": "scene_first_progression",
+            "analysis_opening_pattern": "先从会议室前后连续现场切入，再慢慢提判断。",
+            "analysis_do_not_turn_into": "不要一开头就把它写成抽象职场说理文。",
+            "tags": ["会议室", "场景推进", "表达时机"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/scene-first-office-topic-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "每次都把话留到散会后的人，后来会先怀疑自己该不该占那个位置"
+    assert "会议开始前翻方案" in payload["angle"]
+    assert "散会后才把话在心里补完" in payload["angle"]
+    assert "现场切入" in payload["angle"] or "一整段现场" in payload["angle"]
+    assert "表达时机感" not in payload["title"]
+
+
+def test_generate_topic_from_tracked_article_rewrites_scene_first_friendship_topic_toward_continuous_scene_entry(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "关系会慢慢失联，常常卡在这一步：你先替对方决定了‘别说了’",
+                "angle": "把‘沉默’拆成一种常见的人际预判机制：你以为是在体谅、避嫌和保留分寸，实际也在反复撤回一次本可验证的靠近。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "scene-first-friendship-topic-reroute",
+            "source_name": "手动录入",
+            "title": "很多关系后来变淡，不是因为吵散了，是因为每次想说的时候都先算了",
+            "url": "https://example.com/scene-first-friendship-topic-reroute",
+            "author": "未知",
+            "summary": "文章重点不是先讲疏远道理，而是先让读者跟着地铁口、等车、上车后的连续现场走一遍，再意识到那句话为什么没问出口。",
+            "body_markdown": (
+                "雨停以后，她们站在地铁口等最后一班接驳车，手机屏幕上还停着那句没发出去的‘你最近是不是不太开心’。\n\n"
+                "朋友把围巾往上拉了拉，只说‘最近有点忙’，然后低头去看脚边那滩还没干透的水。\n\n"
+                "车来了，她们一前一后上去，坐定以后谁都没有再提刚才的话题，只剩窗户上被呵出来的一小团白雾。\n\n"
+                "很多疏远，不是从翻脸开始的，而是从这些明明看见了、却还是决定先不碰的瞬间开始的。"
+            ),
+            "structure_notes": "开头先让地铁口到车上的连续现场带路，后面再把想问又没问这件事讲明白，不要一上来平铺关系判断。",
+            "analysis_theme": "这篇文章真正想讨论的是：很多关系里的变淡，不是一次冲突决定的，而是一个人一次次先替对方决定别开口。",
+            "analysis_core_conflict": "明明看见了对方的低落，可一回到那个现场里，人就先把更重要的话收回去。",
+            "analysis_emotional_exit": "先让人认出自己是怎么一次次把靠近撤回去的，后面才谈关系为什么会慢慢变远。",
+            "analysis_structure_mode": "scene_first_progression",
+            "analysis_opening_pattern": "先从等车和上车的连续现场切入，再慢慢提判断。",
+            "analysis_do_not_turn_into": "不要一开头就把它写成抽象关系总结。",
+            "tags": ["地铁口", "场景推进", "关系变淡"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/scene-first-friendship-topic-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "真正把关系拉远的，常常不是争吵，是那句在地铁口还是没问出口的话"
+    assert "地铁口等车" in payload["angle"]
+    assert "上车后谁都没再提那句话" in payload["angle"]
+    assert "连续现场" in payload["angle"]
+    assert "人际预判机制" not in payload["angle"]
 
 
 def test_tracked_articles_can_be_created_listed_and_turned_into_topics() -> None:
@@ -1134,6 +1727,12 @@ def test_tracked_article_metadata_enrichment_uses_ai_and_persists(monkeypatch) -
                 "author": "晚舟",
                 "summary": "从一顿没说破的晚饭切入，拆开关系缓和时真正起作用的顺序。",
                 "structure_notes": "生活场景起笔，接着回看情绪卡点，最后落到能执行的表达动作。",
+                "analysis_theme": "关系修复里，真正起作用的常常不是解释，而是先接住当下那一下失望。",
+                "analysis_core_conflict": "两个人都急着说明白时，最先被漏掉的反而是当下的情绪承接。",
+                "analysis_emotional_exit": "把关系从对错争执里带回可被接住、可重新开口的位置。",
+                "analysis_structure_mode": "relationship_aftercare",
+                "analysis_opening_pattern": "从一顿没说破的晚饭现场起笔。",
+                "analysis_do_not_turn_into": "不要写成泛沟通技巧清单或谁更有道理的辩论稿。",
                 "tags": ["关系修复", "沟通节奏", "饭桌场景"],
             }
 
@@ -1147,6 +1746,12 @@ def test_tracked_article_metadata_enrichment_uses_ai_and_persists(monkeypatch) -
     assert payload["author"] == "晚舟"
     assert payload["summary"] == "从一顿没说破的晚饭切入，拆开关系缓和时真正起作用的顺序。"
     assert payload["structure_notes"] == "生活场景起笔，接着回看情绪卡点，最后落到能执行的表达动作。"
+    assert payload["analysis_theme"] == "关系修复里，真正起作用的常常不是解释，而是先接住当下那一下失望。"
+    assert payload["analysis_core_conflict"] == "两个人都急着说明白时，最先被漏掉的反而是当下的情绪承接。"
+    assert payload["analysis_emotional_exit"] == "把关系从对错争执里带回可被接住、可重新开口的位置。"
+    assert payload["analysis_structure_mode"] == "relationship_aftercare"
+    assert payload["analysis_opening_pattern"] == "从一顿没说破的晚饭现场起笔。"
+    assert payload["analysis_do_not_turn_into"] == "不要写成泛沟通技巧清单或谁更有道理的辩论稿。"
     assert payload["tags"] == ["关系修复", "沟通节奏", "饭桌场景"]
 
     list_response = client.get("/api/tracked-articles")
@@ -1155,6 +1760,8 @@ def test_tracked_article_metadata_enrichment_uses_ai_and_persists(monkeypatch) -
     assert tracked_article["author"] == "晚舟"
     assert tracked_article["summary"] == "从一顿没说破的晚饭切入，拆开关系缓和时真正起作用的顺序。"
     assert tracked_article["structure_notes"] == "生活场景起笔，接着回看情绪卡点，最后落到能执行的表达动作。"
+    assert tracked_article["analysis_theme"] == "关系修复里，真正起作用的常常不是解释，而是先接住当下那一下失望。"
+    assert tracked_article["analysis_structure_mode"] == "relationship_aftercare"
     assert tracked_article["tags"] == ["关系修复", "沟通节奏", "饭桌场景"]
 
     assert len(fake_generator.calls) == 1
@@ -1199,6 +1806,12 @@ def test_tracked_article_metadata_enrichment_reuses_same_flow_for_wechat_import(
                 "author": "不该覆盖的作者名",
                 "summary": "从关系里的无力感切入，把问题落到精力透支而非方法缺失。",
                 "structure_notes": "先写卡住感，再拆能量缺口，最后回到现实动作。",
+                "analysis_theme": "关系卡住时，很多人真正缺的不是方法，而是继续修复的心力。",
+                "analysis_core_conflict": "嘴上知道该怎么做，身体和情绪却已经没有余量把关系接回来了。",
+                "analysis_emotional_exit": "先承认没电，再把修复动作压回现实能做到的一小步。",
+                "analysis_structure_mode": "relationship_aftercare",
+                "analysis_opening_pattern": "先从关系里那种无力感和卡住感切入。",
+                "analysis_do_not_turn_into": "不要写成技巧课或单纯责怪谁不够努力。",
                 "tags": ["关系修复", "能量耗尽", "公众号参考"],
             }
 
@@ -1212,6 +1825,8 @@ def test_tracked_article_metadata_enrichment_reuses_same_flow_for_wechat_import(
     assert payload["author"] == "冷爱"
     assert payload["summary"] == "从关系里的无力感切入，把问题落到精力透支而非方法缺失。"
     assert payload["structure_notes"] == "先写卡住感，再拆能量缺口，最后回到现实动作。"
+    assert payload["analysis_theme"] == "关系卡住时，很多人真正缺的不是方法，而是继续修复的心力。"
+    assert payload["analysis_structure_mode"] == "relationship_aftercare"
     assert payload["tags"] == ["关系修复", "能量耗尽", "公众号参考"]
     assert payload["body_source"] == "content_noencode"
 
@@ -1624,6 +2239,448 @@ def test_generate_strategy_package_for_regret_reference_tracked_article_stays_on
     constraints_text = "\n".join(payload["strategy_card"]["expression_constraints"])
 
     assert "抽象反思" in constraints_text
+
+
+def test_generate_strategy_package_for_regret_reference_with_pressureish_topic_copy_stays_on_emotional_engine_lane() -> None:
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "regret-reference-pressureish-topic-article",
+            "source_name": "手动录入",
+            "title": "遗忘再长，也长不过明天和以后",
+            "url": "https://example.com/regret-reference-pressureish-topic-article",
+            "author": "未知",
+            "summary": "文章借邻居老人反复惦记一件旧裙子的细节，讨论人为什么会长期困在‘如果当初’的设想里。重点不在劝人强行忘记，而在提醒读者承认遗憾存在，同时把注意力慢慢挪回仍在继续的当下生活。",
+            "body_markdown": (
+                "傍晚下楼扔垃圾，撞见邻居阿婆正蹲在垃圾桶旁，对着一袋旧衣物发呆。\n\n"
+                "原来我们都一样，总爱攥着过去的遗憾不放，盯着没走成的路反复设想，却忘了脚下的路，从来都是朝前延伸的。\n\n"
+                "你看，放下从来都不是遗忘，而是给心找一个更轻盈的去处。"
+            ),
+            "structure_notes": "开头从生活场景切入，用旧裙子的细节带出对过往遗憾的停留；中段扩展到普遍心理；结尾回到阿婆买新裙子的后续，落到放下不是遗忘，而是继续生活。",
+            "analysis_theme": "这篇文章真正想谈的是：人该怎样和已经无法更改的遗憾相处，才能不再被过去持续消耗。",
+            "analysis_core_conflict": "一边是人对错过的人、事、选择反复设想、迟迟不肯松手；另一边是现实已经无法回退，继续沉溺只会占用当下和未来的生活感受。",
+            "analysis_emotional_exit": "不必否认曾经在意过，也不必逼自己立刻忘掉，而是允许过去被安放，再把心力转回新的日常、新的关系和新的期待里。",
+            "analysis_structure_mode": "emotional_engine_direct",
+            "analysis_opening_pattern": "从生活接口里的偶遇场景起笔，以邻居阿婆对旧衣物发呆的细节切入遗憾与回头心理。",
+            "analysis_do_not_turn_into": "不要改写成单纯鼓吹立刻断舍离、彻底忘掉过去的励志口号文。",
+            "tags": ["遗憾", "回头", "释怀", "错过"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/regret-reference-pressureish-topic-article/to-topic",
+        json={
+            "slug": "regret-reference-pressureish-topic-topic",
+            "title": "你反复回想的那件事，正在悄悄占用今天",
+            "angle": "从‘每天醒来还在接着想昨天那件事’的身体提醒切入，拆开遗憾为何会被大脑反复续播，以及怎样把心力从无效复盘挪回正在发生的生活。",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "regret-reference-pressureish-topic-project", "title": "遗憾释怀误伤回归测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/regret-reference-pressureish-topic-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    payload = strategy_response.json()
+
+    assert payload["strategy_card"]["structure_mode"] == "emotional_engine_direct"
+
+
+def test_generate_strategy_package_for_self_reliance_tracked_article_uses_self_reliance_lane() -> None:
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "self-reliance-strategy-article",
+            "source_name": "手动录入",
+            "title": "即使没有帮助，也要学会自救自渡",
+            "url": "https://example.com/self-reliance-strategy-article",
+            "author": "未知",
+            "summary": "文章从想找人倾诉却发现身边人也自顾不暇的场景切入，写成年人在低谷里对外求助常常得不到及时回应，于是逐渐学会收起委屈、转向自我消化和自我修复。核心落点不是拒绝他人，而是提醒人在不被接住的时候，也要有把自己托起来的能力。",
+            "body_markdown": (
+                "相信你也有过这样的时刻：心情不好的时候想找朋友倾诉，却发现朋友也愁眉不展。\n\n"
+                "只有向内求，才能自我疗愈，生生不息。只有靠自己，你才能有所顿悟、有所收获、有所改变。\n\n"
+                "即使没有帮助，也不会孤立无援，而是能够自救自渡。"
+            ),
+            "structure_notes": "先写想倾诉却发现别人也各自承压的现实处境，中段再拆为什么外求未必总能接住人，结尾回到向内稳住、自救自渡和慢慢把自己托起来。",
+            "analysis_theme": "文章真正讨论的是：成年人在困境中如何从依赖外界安慰，转向建立内在的自我支撑与恢复能力。",
+            "analysis_core_conflict": "想向外寻求安慰和帮助，但现实里身边的人也各自承压，外部支撑不稳定，只能重新把依靠收回到自己身上。",
+            "analysis_emotional_exit": "把读者从无助和失望带到一种更稳的状态：接受帮助未必及时，但自己也有能力慢慢把日子撑过去。",
+            "analysis_structure_mode": "emotional_engine_direct",
+            "analysis_opening_pattern": "从生活接口和现实压力切入，先写想倾诉却无人可依的具体处境。",
+            "analysis_do_not_turn_into": "不要写成鼓励一味硬扛、拒绝求助，或把自我成长说成空泛的鸡汤式宣言。",
+            "tags": ["自我疗愈", "情绪自救", "成年人压力", "低谷时刻", "自我支撑"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/self-reliance-strategy-article/to-topic",
+        json={
+            "slug": "self-reliance-strategy-topic",
+            "title": "低谷里，真正撑住人的，是回稳能力",
+            "angle": "当外部回应不稳定时，文章拆的是人怎样把失落感转成回稳步骤：先稳住身体和判断，再慢慢把自己托起来。",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "self-reliance-strategy-project-app", "title": "自救自渡策略测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/self-reliance-strategy-project-app/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    payload = strategy_response.json()
+
+    assert payload["strategy_card"]["structure_mode"] == "self_reliance_inward_support"
+    assert "先把自己安顿好" in payload["problem_brief"]["writing_goal"]
+    assert "把今天过完" in payload["strategy_card"]["emotional_path"]
+    assert "越想解释越说不出口" not in payload["strategy_card"]["body_shift"]
+
+
+def test_generate_strategy_package_for_response_priority_tracked_article_uses_response_priority_lane() -> None:
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "response-priority-strategy-article",
+            "source_name": "手动录入",
+            "title": "没时间，不一定是真的没时间",
+            "url": "https://example.com/response-priority-strategy-article",
+            "author": "未知",
+            "summary": "文章借日常联系里的“没时间”现象，讨论一段关系里真实的优先级排序。核心判断是：多数迟迟不回应并非真的抽不出空，而是投入意愿不足，时间分配往往比语言更能说明在乎程度。",
+            "body_markdown": (
+                "听过一句话：“红灯30秒，我喝了一口水，拍了张照片，回了条消息，连上蓝牙，放了一首喜欢的歌，所以你告诉我，什么是没时间？”\n\n"
+                "真正的原因可能是，因为我们不够重要，所以对方漫不经心，爱搭不理。人对在乎的人，永远都有时间。\n\n"
+                "没时间，是因为你不在他心里，或者顺序没那么优先。一个人的时间在哪儿，他的心就在哪儿。"
+            ),
+            "structure_notes": "开头借红灯30秒的细节切入，中段拆“忙”和“在乎”并不等价，结尾落到时间分配如何显出真实顺序。",
+            "tags": ["关系优先级", "回应顺序", "时间分配"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/response-priority-strategy-article/to-topic",
+        json={
+            "slug": "response-priority-strategy-topic",
+            "title": "不是没时间，很多时候，是你根本没被排进他的优先级",
+            "angle": "从“没时间”为什么很多时候说的不是日程，而是顺序切入，写时间分配和回应动作怎样显出一个人的真实在乎程度。",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "response-priority-strategy-project", "title": "回应优先级策略测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/response-priority-strategy-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    payload = strategy_response.json()
+
+    assert payload["strategy_card"]["structure_mode"] == "response_priority"
+    combined = "\n".join(
+        [
+            payload["problem_brief"]["clarified_problem"],
+            payload["problem_brief"]["observed_phenomenon"],
+            payload["problem_brief"]["writing_goal"],
+            payload["strategy_card"]["point_of_view"],
+            payload["strategy_card"]["conflict_frame"],
+            payload["strategy_card"]["emotional_path"],
+            payload["strategy_card"]["opening_move"],
+            payload["strategy_card"]["body_shift"],
+            payload["strategy_card"]["ending_move"],
+        ]
+    )
+
+    assert "没时间" in combined or "顺序" in combined or "时间分配" in combined
+    assert "在乎程度" in combined or "优先级" in combined or "时间投向" in combined
+    assert "善后" not in combined
+    assert "吵完" not in combined
+    assert "修复" not in combined
+    assert "位置感" in combined or "真正愿意回应的人" in combined or "把时间留给" in combined
+
+
+def test_generate_strategy_package_for_supportive_appreciation_tracked_article_stays_on_supportive_lane() -> None:
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "supportive-appreciation-strategy-article",
+            "source_name": "手动录入",
+            "title": "如果你身边有这样一个心软的人，请一定要牵紧他的手",
+            "url": "https://example.com/supportive-appreciation-strategy-article",
+            "author": "未知",
+            "summary": "文章重点不是谁在关系里耗空自己，而是心软为什么常被误解，以及那些明明拎得清、却还是愿意包容和体谅别人的人，为什么最值得被珍惜。",
+            "body_markdown": (
+                "有一种人，习惯了燃烧自己，去照亮别人。你对他好，他会对你更好。\n\n"
+                "心软的人并不傻，他们的心里比谁都拎得清。不去计较，是因为心里在乎，不想与爱的人争辩输赢、对错和得失。\n\n"
+                "那些愿意包容你的人，一定很爱你。如果你身边有这样一个心软的人，请你一定要牵紧他的手。"
+            ),
+            "structure_notes": "先写心软的人总会先替别人着想，再拆这种柔软为什么常被误读，结尾回到这样的人最值得被珍惜。",
+            "analysis_theme": "这篇文章真正想讨论的是：很多人把柔软误读成好说话，却忽略了那些明明拎得清、却还是愿意包容和体谅别人的人，其实最值得被认真珍惜。",
+            "analysis_core_conflict": "一边是心软的人总在关系里先让一步、先顾及别人感受；另一边是旁人把这种包容误认成没底线、好说话，忽略了它背后的分寸感和珍贵。",
+            "analysis_emotional_exit": "让读者重新看见：心软不是傻，真正稀缺的是那份明明看得清，却还是愿意把温柔给出来的分量。",
+            "analysis_structure_mode": "supportive_appreciation",
+            "analysis_opening_pattern": "先从心软的人总在关系里先让一步的常见处境切入，再慢慢提判断。",
+            "analysis_do_not_turn_into": "不要改写成谁在关系里耗空自己、谁总在善后或谁该先照顾自己的诊断稿。",
+            "tags": ["心软", "包容", "体谅", "值得珍惜"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/supportive-appreciation-strategy-article/to-topic",
+        json={
+            "slug": "supportive-appreciation-strategy-topic",
+            "title": "那些明明拎得清、却还是愿意包容你的人，最值得被珍惜",
+            "angle": "从人为什么总把心软误认成好说话切入，写那些明明拎得清、却还是愿意体谅和包容别人的人，为什么反而最值得被认真珍惜。",
+        },
+    )
+    assert create_topic.status_code == 201
+    topic_slug = create_topic.json()["slug"]
+
+    create_project = client.post(
+        f"/api/topics/{topic_slug}/create-project",
+        json={"slug": "supportive-appreciation-strategy-project", "title": "心软珍惜策略测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/supportive-appreciation-strategy-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    payload = strategy_response.json()
+
+    assert payload["strategy_card"]["structure_mode"] == "supportive_appreciation"
+    combined = "\n".join(
+        [
+            payload["problem_brief"]["clarified_problem"],
+            payload["problem_brief"]["observed_phenomenon"],
+            payload["problem_brief"]["writing_goal"],
+            payload["problem_brief"]["feedback_entry"],
+            payload["strategy_card"]["point_of_view"],
+            payload["strategy_card"]["conflict_frame"],
+            payload["strategy_card"]["emotional_path"],
+            payload["strategy_card"]["opening_move"],
+            payload["strategy_card"]["body_shift"],
+            payload["strategy_card"]["ending_move"],
+        ]
+    )
+
+    assert "柔软" in combined
+    assert "珍惜" in combined
+    assert "体谅" in combined or "包容" in combined
+    assert "越稳越累" not in combined
+    assert "失去自我" not in combined
+    assert "把日子接回去" not in combined
+    assert "收拾情绪" not in combined
+
+
+def test_generate_strategy_package_prefers_response_priority_signal_over_wrong_analysis_hint() -> None:
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "response-priority-analysis-hint-mismatch",
+            "source_name": "手动录入",
+            "title": "没时间，不一定是真的没时间",
+            "url": "https://example.com/response-priority-analysis-hint-mismatch",
+            "author": "未知",
+            "summary": "文章借日常联系里的“没时间”现象，讨论一段关系里真实的优先级排序。",
+            "body_markdown": (
+                "听过一句话：‘红灯30秒，我喝了一口水，拍了张照片，回了条消息。’\n\n"
+                "人对在乎的人，永远都有时间。\n\n"
+                "一个人的时间在哪儿，他的心就在哪儿。"
+            ),
+            "structure_notes": "开头借红灯30秒的细节切入，中段拆‘忙’和‘在乎’并不等价，结尾落到时间分配如何显出真实顺序。",
+            "analysis_theme": "文章真正想讨论的是，关系中的时间分配会暴露一个人的在意程度和优先级。",
+            "analysis_core_conflict": "表面上说忙，实际上是你总被排在后面。",
+            "analysis_emotional_exit": "少替别人找理由，把时间收回到值得回应的人和自己身上。",
+            "analysis_structure_mode": "pressure_interface_direct",
+            "analysis_opening_pattern": "从红灯30秒的生活接口起笔。",
+            "analysis_do_not_turn_into": "不要写成制造焦虑的情感审判文。",
+            "tags": ["关系优先级", "回应顺序", "时间分配"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/response-priority-analysis-hint-mismatch/to-topic",
+        json={
+            "slug": "response-priority-analysis-hint-mismatch-topic",
+            "title": "不是没时间，很多时候，是你根本没被排进他的优先级",
+            "angle": "从‘没时间’为什么很多时候说的不是日程，而是顺序切入，写时间分配和回应动作怎样显出一个人的真实在乎程度。",
+        },
+    )
+    assert create_topic.status_code == 201
+
+    create_project = client.post(
+        "/api/topics/response-priority-analysis-hint-mismatch-topic/create-project",
+        json={"slug": "response-priority-analysis-hint-mismatch-project", "title": "回应优先级误判回拉测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    strategy_response = client.post("/api/projects/response-priority-analysis-hint-mismatch-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    payload = strategy_response.json()
+
+    assert payload["strategy_card"]["structure_mode"] == "response_priority"
+
+
+def test_enrich_tracked_article_metadata_resolves_wrong_response_priority_hint_before_persist(monkeypatch) -> None:
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "response-priority-enrich-hint-fix",
+            "source_name": "手动录入",
+            "title": "没时间，不一定是真的没时间",
+            "url": "https://example.com/response-priority-enrich-hint-fix",
+            "author": "",
+            "summary": "",
+            "body_markdown": (
+                "听过一句话：‘红灯30秒，我喝了一口水，拍了张照片，回了条消息。’\n\n"
+                "人对在乎的人，永远都有时间。\n\n"
+                "一个人的时间在哪儿，他的心就在哪儿。"
+            ),
+            "structure_notes": "开头借红灯30秒切入，中段拆忙和在乎并不等价，结尾落到时间分配和优先级。",
+            "tags": [],
+        },
+    )
+
+    class FakeGenerator:
+        def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+            return {
+                "author": "",
+                "summary": "文章借日常联系里的‘没时间’现象，讨论一段关系里真实的优先级排序。",
+                "structure_notes": "开头借红灯30秒的细节切入，中段拆‘忙’和‘在乎’并不等价，结尾落到时间分配如何显出真实顺序。",
+                "analysis_theme": "文章真正想讨论的是，关系中的时间分配会暴露一个人的在意程度和优先级。",
+                "analysis_core_conflict": "表面上说忙，实际上是你总被排在后面。",
+                "analysis_emotional_exit": "少替别人找理由，把时间收回到值得回应的人和自己身上。",
+                "analysis_structure_mode": "pressure_interface_direct",
+                "analysis_opening_pattern": "从红灯30秒的生活接口起笔。",
+                "analysis_do_not_turn_into": "不要写成制造焦虑的情感审判文。",
+                "tags": ["关系优先级", "回应顺序", "时间分配"],
+            }
+
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: FakeGenerator(), raising=False)
+
+    enrich_response = client.post("/api/tracked-articles/response-priority-enrich-hint-fix/enrich-metadata")
+    assert enrich_response.status_code == 200
+    payload = enrich_response.json()
+    assert payload["analysis_structure_mode"] == "response_priority"
+
+    tracked_article = next(
+        article for article in client.get("/api/tracked-articles").json() if article["slug"] == "response-priority-enrich-hint-fix"
+    )
+    assert tracked_article["analysis_structure_mode"] == "response_priority"
+
+
+def test_enrich_tracked_article_metadata_resolves_withdrawn_aftercare_hint_before_persist(monkeypatch) -> None:
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "withdrawn-aftercare-enrich-hint-fix",
+            "source_name": "手动录入",
+            "title": "累的时候，最怕被最在乎的人推开",
+            "url": "https://example.com/withdrawn-aftercare-enrich-hint-fix",
+            "author": "",
+            "summary": "",
+            "body_markdown": (
+                "有时候，会莫名其妙的感到累，不是身体上的累，而是心里的累。\n\n"
+                "你可以不善言辞，但是当你爱的人红着眼站在你面前的时候，你只要给她一个拥抱就够了。\n\n"
+                "哪有人会莫名其妙的闹情绪，只不过是有点累，只不过是想要在你肩膀上靠一会。\n\n"
+                "当你在一个人最无助的时候选择推开他，下一次，他再也不会在你面前脆弱了。"
+            ),
+            "structure_notes": "开头从成年人被迫坚强、心累却说不出口的状态切入，中段转到关系里最需要的不是讲道理，而是被理解、被接住，结尾落在一次被推开后的后撤与沉默。",
+            "tags": [],
+        },
+    )
+
+    class FakeGenerator:
+        def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+            return {
+                "author": "",
+                "summary": "文章借情绪透支和关系错位，讨论很多人不是不想说，而是在最需要被接住的时候被推开以后，慢慢收回了求助和示弱。",
+                "structure_notes": "开头先写心累和硬撑，中段把重点转到亲密关系里对脆弱的误读，结尾落在被推开一次后的后撤与沉默。",
+                "analysis_theme": "这篇文章真正想讨论的是：人在情绪低谷时，一段关系里最重要的不是讲道理，而是有没有把脆弱接住。",
+                "analysis_core_conflict": "一个人在最想被接住、最需要关系托住的时候，另一方却把真实情绪误读成了闹脾气，结果不是问题被解决，而是关系里的求助通道失效。",
+                "analysis_emotional_exit": "一个人在最需要你时被拒绝和推开，之后就会把求助和示弱收回来，再也不愿意在你面前脆弱。",
+                "analysis_structure_mode": "pressure_interface_direct",
+                "analysis_opening_pattern": "先从疲惫、想躲起来、被迫坚强的状态切入，再把重点转到关系里的情绪回应失位上。",
+                "analysis_do_not_turn_into": "不要改写成一个人单独硬扛、自我强撑、自我疗伤，也不要写成冷冰冰地指责谁不够爱谁；重点是关系里最需要被接住时，情绪没有被接住。",
+                "tags": ["亲密关系", "脆弱误读", "求助落空", "不再示弱"],
+            }
+
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: FakeGenerator(), raising=False)
+
+    enrich_response = client.post("/api/tracked-articles/withdrawn-aftercare-enrich-hint-fix/enrich-metadata")
+    assert enrich_response.status_code == 200
+    payload = enrich_response.json()
+    assert payload["analysis_structure_mode"] == "relationship_aftercare"
+
+    tracked_article = next(
+        article
+        for article in client.get("/api/tracked-articles").json()
+        if article["slug"] == "withdrawn-aftercare-enrich-hint-fix"
+    )
+    assert tracked_article["analysis_structure_mode"] == "relationship_aftercare"
+
+
+def test_enrich_tracked_article_metadata_promotes_scene_first_from_body_before_persist(monkeypatch) -> None:
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "scene-first-enrich-hint-fix",
+            "source_name": "手动录入",
+            "title": "总有些话，卡在那个刚好能开口的时刻",
+            "url": "https://example.com/scene-first-enrich-hint-fix",
+            "author": "",
+            "summary": "",
+            "body_markdown": (
+                "夜里十点，她听见钥匙转动，先把茶几上的药盒往里推了推。\n\n"
+                "他弯腰换鞋，问了一句‘孩子睡了？’她点头，把那张揉皱的检查单重新压回杯子底下。\n\n"
+                "第二天送孩子出门前，她又看见那张单子露出一角，想开口，最后只说了句‘路上慢点’。\n\n"
+                "有些人不是不知道问题在那儿，而是每次走到那个场景里，就先把更重要的话往后放。\n\n"
+                "拖久了，卡住的就不只是一次开口，而是整段关系里谁都习惯了避开真正该面对的东西。"
+            ),
+            "structure_notes": "",
+            "tags": [],
+        },
+    )
+
+    class FakeGenerator:
+        def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+            return {
+                "author": "",
+                "summary": "文章重点不是先下结论，而是让读者先跟着一连串家庭现场慢慢走进去，再意识到真正卡住的是什么。",
+                "structure_notes": "开头先让连续场景带路，中段再把迟迟开不了口这件事讲明白，不要一上来平铺观点。",
+                "analysis_theme": "这篇文章真正想讨论的是：很多关系里的卡住，不是没有问题，而是总在那个该开口的现场里把更重要的话压后。",
+                "analysis_core_conflict": "明明知道有事该说，可一回到那个具体场景里，人就会先把更要紧的话咽回去。",
+                "analysis_emotional_exit": "先让人认出自己是怎么一步步错过开口时机的，后面才谈表达和面对。",
+                "analysis_structure_mode": "emotional_engine_direct",
+                "analysis_opening_pattern": "先从家里的连续现场切入，再慢慢提判断。",
+                "analysis_do_not_turn_into": "不要一开头就把它写成抽象关系道理。",
+                "tags": ["场景推进", "关系沉默", "开口时机"],
+            }
+
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: FakeGenerator(), raising=False)
+
+    enrich_response = client.post("/api/tracked-articles/scene-first-enrich-hint-fix/enrich-metadata")
+    assert enrich_response.status_code == 200
+    payload = enrich_response.json()
+    assert payload["analysis_structure_mode"] == "scene_first_progression"
+
+    tracked_article = next(
+        article for article in client.get("/api/tracked-articles").json() if article["slug"] == "scene-first-enrich-hint-fix"
+    )
+    assert tracked_article["analysis_structure_mode"] == "scene_first_progression"
 
 
 def test_create_project_from_topic_and_advance_stage() -> None:
@@ -2928,7 +3985,7 @@ def test_generate_draft_auto_polish_for_custom_provider_keeps_strategy_bundle_on
     initial_payloads = [payload for payload in draft_payloads if payload.get("polish_instruction") in {None, ""}]
     polished_payloads = [payload for payload in draft_payloads if payload.get("polish_instruction") not in {None, ""}]
 
-    assert len(initial_payloads) >= 2
+    assert len(initial_payloads) == 1
     assert polished_payloads
 
     benchmark_label = "真正让关系缓回来，不是解释，是先接住那一下失望"
@@ -2946,7 +4003,7 @@ def test_generate_draft_auto_polish_for_custom_provider_keeps_strategy_bundle_on
     regular_initial_payloads = [payload for payload in initial_payloads if payload.get("compact_strategy_mode") is not True]
     compact_initial_payloads = [payload for payload in initial_payloads if payload.get("compact_strategy_mode") is True]
     assert regular_initial_payloads
-    assert compact_initial_payloads
+    assert not compact_initial_payloads
 
     for payload in polished_payloads:
         assert_tracked_article_strategy_bundle(payload)
@@ -3156,6 +4213,39 @@ def test_generate_initial_draft_candidates_runs_full_branch_when_compact_candida
     ]
 
 
+def test_generate_initial_draft_candidates_skips_compact_branches_for_strategy_first_draft_mode() -> None:
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(dict(payload))
+            return {
+                "title": "默认首稿",
+                "body_markdown": "默认首稿正文",
+            }
+
+    generator = FakeGenerator()
+    candidates = workbench._generate_initial_draft_candidates(
+        project={"source_type": "tracked_article", "slug": "strategy-first-draft-demo"},
+        generator=generator,
+        draft_payload={
+            "source_type": "tracked_article",
+            "problem_brief": {"version": 1, "clarified_problem": "先把顺序落差写清。"},
+            "strategy_card": {"version": 1, "structure_mode": "response_priority"},
+            "benchmarks": [{"reference_label": "原文"}],
+        },
+    )
+
+    assert len(generator.calls) == 1
+    assert "compact_strategy_mode" not in generator.calls[0]
+    assert "timeout_recovery_mode" not in generator.calls[0]
+    assert generator.calls[0]["strategy_first_draft_mode"] is True
+    assert candidates == [("默认首稿", "默认首稿正文")]
+
+
 def test_generate_initial_draft_candidates_falls_back_to_full_branch_when_compact_branch_times_out(
     caplog,
 ) -> None:
@@ -3265,6 +4355,11 @@ def test_generate_draft_skips_full_branch_when_compact_candidate_matches_fragmen
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post(
         "/api/tracked-articles",
@@ -3527,6 +4622,51 @@ def test_finalize_initial_draft_candidate_prefers_branch_with_better_post_cleanu
     assert result.reference_body_markdown == "regular raw"
 
 
+def test_finalize_initial_draft_candidate_rewrites_tracked_article_danger_fragment_from_reference_source(
+    monkeypatch,
+) -> None:
+    raw_body = "# 标题\n\n你会看见更多岔路、更多变量、更多还没发生的后果。"
+
+    monkeypatch.setattr(
+        workbench,
+        "_maybe_compress_draft_output",
+        lambda **kwargs: (kwargs["body_markdown"], kwargs["title"]),
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_maybe_auto_polish_ai_flavor_draft_output",
+        lambda **kwargs: (kwargs["body_markdown"], kwargs["title"]),
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_prefer_less_smoothed_tracked_article_variant",
+        lambda **kwargs: (kwargs["preferred_markdown"], kwargs["preferred_title"]),
+    )
+
+    result = workbench._finalize_initial_draft_candidate(
+        project_slug="demo",
+        tone_profile=SimpleNamespace(target_word_count=0),
+        project={
+            "source_type": "tracked_article",
+            "reference_article_body_markdown": "# 原文\n\n她总在惦记还没发生的那点风声。",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        review_comment=None,
+        reference_article_payload={},
+        strategy_bundle_payload={},
+        polish_instruction=None,
+        generator=object(),
+        title="标题",
+        body_markdown=raw_body,
+    )
+
+    assert result.reference_body_markdown == raw_body
+    assert result.cleanup_applied is True
+    assert result.cleanup_changed_steps == 1
+    assert "还没发生的" not in result.body_markdown
+    assert "尚未走到眼前的后果。" in result.body_markdown
+
+
 def test_apply_initial_draft_candidate_cleanups_strips_split_rebound_explainer_tails() -> None:
     raw_markdown = (
         "# 你已经很累了\n\n"
@@ -3548,6 +4688,547 @@ def test_apply_initial_draft_candidate_cleanups_strips_split_rebound_explainer_t
     assert "咖啡续到第三杯。" in cleaned_markdown
     assert "这一步看上去不激烈。" in cleaned_markdown
     assert "那股惯性还在。" in cleaned_markdown
+
+
+def test_apply_initial_draft_candidate_cleanups_rewrites_tracked_article_danger_fragment_overlap() -> None:
+    source_markdown = "# 原文\n\n她总在惦记还没发生的那点风声。"
+    raw_markdown = "# 标题\n\n你会看见更多岔路、更多变量、更多还没发生的后果。"
+
+    cleaned_markdown, changed_steps = workbench._apply_initial_draft_candidate_cleanups(
+        title="标题",
+        body_markdown=raw_markdown,
+        source_type="tracked_article",
+        reference_source_markdown=source_markdown,
+    )
+
+    assert changed_steps == 1
+    assert "还没发生的" not in cleaned_markdown
+    assert "尚未走到眼前的后果。" in cleaned_markdown
+
+
+def test_apply_initial_draft_candidate_cleanups_repairs_scene_first_fragment_residue() -> None:
+    raw_markdown = (
+        "# 你总在散会后补那句话\n\n"
+        "很多人的位置感，这样一点点往后退：当场没说，散会后再补。真要把它算成在大事上突然失去的。它常常就。现场不拦，回去自己消化；明明看见会压到自己，也先让流程顺过去。\n\n"
+        "你没说出口的，往往信息。只是你太习惯先把信息处理成‘不会让别人不舒服’的样子，才允许它出现。\n\n"
+        "它们给团队添堵。它们只是把本来就存在的成本，放回它该被看见的位置。"
+    )
+
+    cleaned_markdown, changed_steps = workbench._apply_initial_draft_candidate_cleanups(
+        title="你总在散会后补那句话",
+        body_markdown=raw_markdown,
+        source_type="tracked_article",
+    )
+
+    assert changed_steps >= 1
+    assert "真要把它算成在大事上突然失去的" not in cleaned_markdown
+    assert "它常常就。" not in cleaned_markdown
+    assert "你没说出口的，往往就是那些关键信息。" in cleaned_markdown
+    assert "它们不是在给团队添堵。" in cleaned_markdown
+    assert "现场不拦，回去自己消化；明明看见会压到自己，也先让流程顺过去。" in cleaned_markdown
+
+
+def test_apply_initial_draft_candidate_cleanups_repairs_self_reliance_expression_sink_residue() -> None:
+    raw_markdown = (
+        "# 即使没有帮助，也要学会自救自渡\n\n"
+        "你刚想松一口气，眼前却一下空了。身边的人也都在赶自己的生活，手里各有各的事，谁都没法分神来接你一下。\n\n"
+        "大家都在忙，先把自己稳住。\n\n"
+        "这一下最难受的，你明明也想靠一靠，可现实偏偏把每个人都卡在自己的位置上，临时腾不出空来。成年人走到低处时，常常缺一个刚好能停住的时刻——工作在催，家里在等，消息还在往前推，心里已经乱了，手却还是得先往回收。\n\n"
+        "人会先把那句“我快撑不住了”咽回去。那一刻说出口也未必有人接得住。话被压回去以后，事情就开始往后拖。\n\n"
+        "电话打出去一圈，没人能马上分神的时候，最先冒出来的往往慌。回你的速度慢一点，语气也短一点。\n\n"
+        "今晚借不到人，就先借流程。等别人来接，等回音，等消息，等一个刚好有空的人。\n\n"
+        "第一步往往很小。方法也不复杂。你能做的，是先把今天对付过去。\n\n"
+        "这随叫随到的。先说成逞强，倒更像止损。成年人的依靠，本来就不，反而太轻了。"
+    )
+
+    cleaned_markdown, changed_steps = workbench._apply_initial_draft_candidate_cleanups(
+        title="即使没有帮助，也要学会自救自渡",
+        body_markdown=raw_markdown,
+        source_type="tracked_article",
+    )
+
+    assert changed_steps >= 1
+    assert "接你一下" not in cleaned_markdown
+    assert "消息还在往前推" not in cleaned_markdown
+    assert "我快撑不住了" not in cleaned_markdown
+    assert "咽回去" not in cleaned_markdown
+    assert "接得住" not in cleaned_markdown
+    assert "电话打出去一圈" not in cleaned_markdown
+    assert "回你的速度慢一点" not in cleaned_markdown
+    assert "等别人来接" not in cleaned_markdown
+    assert "等回音" not in cleaned_markdown
+    assert "等消息" not in cleaned_markdown
+    assert "等一个刚好有空的人" not in cleaned_markdown
+    assert "第一步往往很小" not in cleaned_markdown
+    assert "方法也不复杂" not in cleaned_markdown
+    assert "你能做的，是" not in cleaned_markdown
+    assert "这随叫随到的" not in cleaned_markdown
+    assert "谁都腾不出空来多顾你一会儿" in cleaned_markdown
+    assert "手头的事还在往前推" in cleaned_markdown
+    assert "我得先缓一下" in cleaned_markdown
+    assert "刚好有人顾得上" in cleaned_markdown
+    assert "事情一下撞到眼前、四周都腾不出空的时候" in cleaned_markdown
+    assert "能分给你的那点空也少一点" in cleaned_markdown
+    assert "等外面来托" in cleaned_markdown
+    assert "等外面的动静" in cleaned_markdown
+    assert "等外面的空慢慢腾出来" in cleaned_markdown
+    assert "先把眼前这一小截接住" in cleaned_markdown
+    assert "先别把自己逼得太满" in cleaned_markdown
+    assert "人能先做的，常常只是" in cleaned_markdown
+    assert "今晚先不借别人，先借一点顺序" in cleaned_markdown
+    assert "它常常来得慢一点，也轻一点" in cleaned_markdown
+
+
+def test_repair_tracked_article_fragment_residue_preserves_paragraph_breaks() -> None:
+    raw_markdown = (
+        "# 标题\n\n"
+        "第一段。真要把它算成在大事上突然失去的。它常常就。后面还有一句。\n\n"
+        "第二段。你没说出口的，往往信息。\n\n"
+        "第三段。它们给团队添堵。它们只是把本来就存在的成本，放回它该被看见的位置。"
+    )
+
+    cleaned = workbench._repair_tracked_article_fragment_residue(
+        title="标题",
+        body_markdown=raw_markdown,
+    )
+
+    assert cleaned.count("\n\n") == raw_markdown.count("\n\n")
+    assert "第二段。你没说出口的，往往就是那些关键信息。" in cleaned
+    assert "第三段。它们不是在给团队添堵。" in cleaned
+
+
+def test_repair_tracked_article_fragment_residue_removes_broken_not_ab_tail_stub() -> None:
+    raw_markdown = (
+        "# 标题\n\n"
+        "灯还亮着，人已经困了，饭热过一遍又一遍，还是没吃完。\n\n"
+        "这种晚上，真正累人的，往往心还在值班。外面一切照常，工作做了，该回的话也回了，日子看着没失手。\n\n"
+        "你太久没让那颗心落地。真要把它算成出了什么大问题。你只。\n\n"
+        "很多人会把安心这件事，放到“等我想明白再说”后面。"
+    )
+
+    cleaned = workbench._repair_tracked_article_fragment_residue(
+        title="标题",
+        body_markdown=raw_markdown,
+    )
+
+    assert cleaned == raw_markdown
+    assert "你太久没让那颗心落地。" in cleaned
+    assert "很多人会把安心这件事" in cleaned
+    assert cleaned.count("\n\n") == raw_markdown.count("\n\n")
+
+
+def test_repair_tracked_article_fragment_residue_removes_broken_hard_carry_tail_stub() -> None:
+    raw_markdown = (
+        "# 标题\n\n"
+        "先别慌，先把自己站稳。\n\n"
+        "这在装作自己没事。真要把它算成硬扛。硬扛的人，通常。可真正把自己托住的人，反而更诚实一点：我先把今天过完。\n\n"
+        "很多难熬的日子，都是这样一点点接回来的。"
+    )
+
+    cleaned = workbench._repair_tracked_article_fragment_residue(
+        title="标题",
+        body_markdown=raw_markdown,
+    )
+
+    assert "真要把它算成硬扛" not in cleaned
+    assert "硬扛的人，通常" not in cleaned
+    assert "可真正把自己托住的人，反而更诚实一点：我先把今天过完。" in cleaned
+
+
+def test_final_ai_flavor_cleanup_triggers_for_orphaned_rebound_tail_stub() -> None:
+    candidate_body = (
+        "# 心安这件事，比什么都重要\n\n"
+        "灯还亮着，人已经困了，饭热过一遍又一遍，还是没吃完。\n\n"
+        "这种晚上，真正累人的，往往心还在值班。外面一切照常，工作做了，该回的话也回了，日子看着没失手。\n\n"
+        "你太久没让那颗心落地。真要把它算成出了什么大问题。你只。\n\n"
+        "很多人会把安心这件事，放到“等我想明白再说”后面。"
+    )
+
+    assert workbench._should_retry_for_final_ai_flavor_cleanup(
+        candidate_title="心安这件事，比什么都重要",
+        candidate_markdown=candidate_body,
+    )
+
+
+def test_pick_better_ai_flavor_candidate_prefers_retry_when_current_has_orphaned_rebound_tail() -> None:
+    current_body = (
+        "# 心安这件事，比什么都重要\n\n"
+        "灯还亮着，人已经困了，饭热过一遍又一遍，还是没吃完。\n\n"
+        "你太久没让那颗心落地。真要把它算成出了什么大问题。你只。\n\n"
+        "很多人会把安心这件事，放到“等我想明白再说”后面。"
+    )
+    retried_body = (
+        "# 心安这件事，比什么都重要\n\n"
+        "灯还亮着，人已经困了，饭热过一遍又一遍，还是没吃完。\n\n"
+        "你太久没让那颗心落地。\n\n"
+        "很多人会把安心这件事，放到“等我想明白再说”后面。"
+    )
+
+    chosen_markdown, chosen_title = workbench._pick_better_ai_flavor_candidate(
+        current_title="心安这件事，比什么都重要",
+        current_markdown=current_body,
+        retried_title="心安这件事，比什么都重要",
+        retried_markdown=retried_body,
+    )
+
+    assert chosen_title == "心安这件事，比什么都重要"
+    assert chosen_markdown == retried_body
+
+
+def test_split_resilience_dense_paragraph_residue_breaks_up_long_reconstruction_blocks() -> None:
+    raw_markdown = (
+        "# 拆线以后，她还在水里把那11下补回来\n\n"
+        "她又下水了。\n\n"
+        "难处不只在那场手术，也不只在某次伤病。更磨人的，是熟悉的身体被改过了，人和自己身体的关系也跟着变了。从前那些不用想就能做出来的动作，到了后来都要重新找。以前咬牙扛过去的长度，现在也得先看身体反应。训练没有替她把这件事抹平，只是一点点把协调感重新磨回来。抬手角度变了，转身顺序变了，发力路径也变了。每补一点，都像再跟自己谈一次条件。\n\n"
+        "她知道这事不会一夜翻篇。\n\n"
+        "“我可以被打断，但不想就这样被定义。”这句话放进训练里，分量很实。那11下，不是为了逞狠，也不是每次都要游出一个漂亮结果。只是她还想看看，身体被改掉以后，能不能继续往前推一点可能。很多人也会被这一点打中：命运不是只把人按进水里，更像把旧的边界突然挪走了。人得在陌生里重找自己的手感，重找和低谷相处的新办法。\n\n"
+        "上岸，擦干，肩背的酸还在。训练单也还在后面。"
+    )
+
+    cleaned = workbench._split_resilience_dense_paragraph_residue(
+        title="拆线以后，她还在水里把那11下补回来",
+        body_markdown=raw_markdown,
+    )
+
+    paragraphs = workbench._extract_non_heading_paragraphs(cleaned)
+    sentence_counts = [len(workbench._split_block_sentences(paragraph)) for paragraph in paragraphs]
+
+    assert cleaned != raw_markdown
+    assert max(sentence_counts) <= 3
+    assert "难处不只在那场手术，也不只在某次伤病。更磨人的，是熟悉的身体被改过了，人和自己身体的关系也跟着变了。" in cleaned
+    assert "以前咬牙扛过去的长度，现在也得先看身体反应。" in cleaned
+    assert "训练没有替她把这件事抹平，只是一点点把协调感重新磨回来。" in cleaned
+    assert "“我可以被打断，但不想就这样被定义。”这句话放进训练里，分量很实。" in cleaned
+    assert "很多人也会被这一点打中：命运不是只把人按进水里，更像把旧的边界突然挪走了。人得在陌生里重找自己的手感，重找和低谷相处的新办法。" in cleaned
+
+
+def test_split_resilience_dense_paragraph_residue_skips_non_resilience_tracked_article() -> None:
+    raw_markdown = (
+        "# 消息总停在昨天的人，不该再靠体谅撑着这段关系\n\n"
+        "朋友说他忙，我起初也信。后来次数多了，心里不是没有替他找理由，只是那点体谅慢慢也会变质。你会发现自己每次都在替对方补全空白，补到最后，难受的人反而总是你。\n\n"
+        "有些关系不是没有回应，只是回应永远落在你已经收起期待之后。你不是没给过机会，也不是没理解过对方的节奏。只是一次次等下来，心会先凉。"
+    )
+
+    cleaned = workbench._split_resilience_dense_paragraph_residue(
+        title="消息总停在昨天的人，不该再靠体谅撑着这段关系",
+        body_markdown=raw_markdown,
+    )
+
+    assert cleaned == raw_markdown
+
+
+def test_split_resilience_dense_paragraph_residue_catches_polished_training_blocks() -> None:
+    raw_markdown = (
+        "手术做完，麻烦才刚开始。刀口缝住了，训练没停，肩背的反应也没停。\n\n"
+        "多划11下，写在纸上只是个数字，落到水里很具体。动作会乱，肩会紧，第二天背更沉，练完还得站着缓口气，才接得上后面的安排。难不在那11下本身，难在它不会只来一次。今天补上，明天还得下水；今天顶过去，后面照样可能返工。人慢慢被拖住，先是被疼拖住，再被那种使了劲也不听使唤的感觉拖住。这时最容易发生的，是改口。\n\n"
+        "只要还肯把那11下补齐，她就还没把自己交给那场手术。韧性落到这里，和漂亮话没什么关系。它不昂扬，也不体面，里面全是代价：旧伤在，限制在，发力方式要重学，从前做得到的动作，现在得承认做不到。承认这件事，本身就很疼。很多人输在不愿意承认身体已经变了，练法要改，节奏要改，连对自己的期待，也得重新放。\n\n"
+        "训练表还在往后排。她也还得继续下水。"
+    )
+
+    cleaned = workbench._split_resilience_dense_paragraph_residue(
+        title="手术做完，麻烦才刚开始：多划11下以后，她怎么把自己重新托住",
+        body_markdown=raw_markdown,
+    )
+
+    paragraphs = workbench._extract_non_heading_paragraphs(cleaned)
+    sentence_counts = [len(workbench._split_block_sentences(paragraph)) for paragraph in paragraphs]
+
+    assert cleaned != raw_markdown
+    assert max(sentence_counts) <= 4
+    assert "多划11下，写在纸上只是个数字，落到水里很具体。动作会乱，肩会紧，第二天背更沉，练完还得站着缓口气，才接得上后面的安排。" in cleaned
+    assert "难不在那11下本身，难在它不会只来一次。今天补上，明天还得下水；" in cleaned
+    assert "今天顶过去，后面照样可能返工。" in cleaned
+    assert "人慢慢被拖住，先是被疼拖住，再被那种使了劲也不听使唤的感觉拖住。这时最容易发生的，是改口。" in cleaned
+    assert "只要还肯把那11下补齐，她就还没把自己交给那场手术。韧性落到这里，和漂亮话没什么关系。" in cleaned
+
+
+def test_soften_resilience_hook_echo_residue_rewrites_duplicate_anchor_phrase() -> None:
+    raw_markdown = (
+        "# 手术结束以后，真正难的是那11下还要自己补回去\n\n"
+        "多划11下，写在纸上只是数字，落到身体里很慢。\n\n"
+        "更常见的情况是，她没有把疼直接翻译成判决。多划11下，表面看是训练量，往里看，是她还愿意用动作回答那句“差不多了吧”。\n\n"
+        "残缺还是残缺，低谷也还是低谷，但它们没有直接长成结论。身体受限是真的，解释权还在她手里。"
+    )
+
+    cleaned = workbench._soften_resilience_hook_echo_residue(
+        title="手术结束以后，真正难的是那11下还要自己补回去",
+        body_markdown=raw_markdown,
+    )
+
+    assert cleaned.count("多划11下") == 1
+    assert "那11下，表面看是训练量，往里看，是她还愿意用动作回答那句“差不多了吧”。" in cleaned
+
+
+def test_soften_resilience_hook_echo_residue_keeps_heading_anchor_in_sync() -> None:
+    raw_markdown = (
+        "# 多划11下以后，她没有把自己交给那场手术\n\n"
+        "多划11下，这个细节听上去很利落，落到身体上却很慢。\n\n"
+        "真正起作用的，是她没有把疼直接翻译成判决。多划11下，表面上是训练量，往里看，是她还愿意用动作回答那句“差不多了吧”。"
+    )
+
+    cleaned = workbench._soften_resilience_hook_echo_residue(
+        title="多划11下以后，她没有把自己交给那场手术",
+        body_markdown=raw_markdown,
+    )
+
+    assert cleaned.startswith("# 多划11下以后，她没有把自己交给那场手术")
+    assert cleaned.count("多划11下") == 1
+    assert "那11下，表面上是训练量，往里看，是她还愿意用动作回答那句“差不多了吧”。" in cleaned
+
+
+def test_repair_repeated_phrase_typo_residue_fixes_visible_phrase_overlap() -> None:
+    raw_markdown = (
+        "# 标题\n\n"
+        "那两个字看着很轻，后面带着完整的一套动作：先稳住场面，先顾对方方不方便，先证明自己还能撑。"
+    )
+
+    cleaned = workbench._repair_repeated_phrase_typo_residue(
+        title="标题",
+        body_markdown=raw_markdown,
+    )
+
+    assert "对方方不方便" not in cleaned
+    assert "先顾对方不方便，先证明自己还能撑。" in cleaned
+
+
+def test_split_resilience_dense_paragraph_residue_repairs_dangling_semicolon_chunk() -> None:
+    raw_markdown = (
+        "手术做完，麻烦才刚开始。伤口缝上了，训练表还在往后排。\n\n"
+        "她能继续往前，不靠一口气撑到最后。训练计划还在，今天这组先做完；动作乱了，退回去重练；疼得厉害，就停半分钟。再下水，再发力。泳池边、复健室、计划表，这些东西都很硬，硬得没有漂亮话。可人在快散掉的时候，能把人往回拽的，常常也是这些硬东西。\n\n"
+        "多划11下以后，她没有把自己交给那场手术。"
+    )
+
+    cleaned = workbench._split_resilience_dense_paragraph_residue(
+        title="多划11下以后，她没有把自己交给那场手术",
+        body_markdown=raw_markdown,
+    )
+
+    assert "训练计划还在，今天这组先做完；动作乱了，退回去重练；\n\n疼得厉害" not in cleaned
+    assert "训练计划还在，今天这组先做完；动作乱了，退回去重练；疼得厉害，就停半分钟。" in cleaned
+
+
+def test_split_resilience_dense_paragraph_residue_splits_compact_five_sentence_tail() -> None:
+    raw_markdown = (
+        "命运改了她的身体，她没有把后半句也交给命运去写。训练表还在往后排。明天做多少，肩背会不会继续发紧，眼下没人能替她保证。但那副被改写过的身体，还在练。她也还握着自己的那部分解释权。"
+    )
+
+    cleaned = workbench._split_resilience_dense_paragraph_residue(
+        title="多划11下以后，她没有把自己交给那场手术",
+        body_markdown=raw_markdown,
+    )
+
+    assert cleaned != raw_markdown
+    assert "命运改了她的身体，她没有把后半句也交给命运去写。训练表还在往后排。" in cleaned
+    assert "明天做多少，肩背会不会继续发紧，眼下没人能替她保证。但那副被改写过的身体，还在练。她也还握着自己的那部分解释权。" in cleaned
+
+
+def test_soften_resilience_local_reference_echo_residue_varies_that_eleven_strokes() -> None:
+    raw_markdown = (
+        "# 多划11下以后，她没有把自己交给那场手术\n\n"
+        "那11下，这个细节听上去很干脆，落到身体上却很慢。那11下后面，可能是动作变形，是第二天更明显的酸胀，是训练完站着缓一会儿，才把毛巾拿起来。\n\n"
+        "做得差，流程还在；进度慢，流程还在；情绪掉下去，手边还有下一组。只要还能完成训练里的某个动作，哪怕只是补齐那11下，人就还没有被那场意外收走。\n\n"
+        "起作用的，是她没有把疼直接翻译成判决，没有把某次失败扩成身份说明。那11下，表面上是训练量，往里看，是她还愿意用动作去回答那句“差不多了吧”。"
+    )
+
+    cleaned = workbench._soften_resilience_local_reference_echo_residue(
+        title="多划11下以后，她没有把自己交给那场手术",
+        body_markdown=raw_markdown,
+    )
+
+    assert cleaned.count("那11下") == 1
+    assert "后面拖着的，往往是动作变形，是第二天更明显的酸胀" in cleaned
+    assert "哪怕只是把那组动作补齐" in cleaned
+    assert "补回来的这一组动作，表面上是训练量" in cleaned
+
+
+def test_split_resilience_process_anchor_residue_breaks_up_flow_anchor_block() -> None:
+    raw_markdown = (
+        "手术做完，麻烦没有结束。伤口缝上了，训练表还在往后排，肩膀照样发紧，背部照样发沉，原来顺手的动作忽然接不上。\n\n"
+        "泳池边、复健室、计划表，这些东西都很硬，也不负责安慰谁。可人在快散的时候，能把人往回拽住的，常常就是这些不讲情面的东西。做得差，流程还在；进度慢，流程还在；情绪掉下去，手边还有下一组。"
+    )
+
+    cleaned = workbench._split_resilience_process_anchor_residue(
+        title="手术之后，真正难的是把“我可能就这样”拦下来",
+        body_markdown=raw_markdown,
+    )
+
+    assert cleaned != raw_markdown
+    assert "泳池边、复健室、计划表，这些东西都很硬，也不负责安慰谁。可人在快散的时候，能把人往回拽住的，常常就是这些不讲情面的东西。" in cleaned
+    assert "做得差，流程还在；进度慢，流程还在；情绪掉下去，手边还有下一组。" in cleaned
+
+
+def test_split_tracked_article_dense_explainer_residue_breaks_time_priority_long_block() -> None:
+    raw_markdown = (
+        "很容易就活成这样：消息在等，安排在等，情绪也在等。关系走到这里，就算表面还在联系，也已经开始漏气。"
+        "没有吵，没有撕破，可每次点开对话框，身体先紧一下。这个反应，往往比道理更早知道答案。"
+        "也别急着走到另一个极端。谁回得慢都立刻划掉，这种判断也粗了，很多关系不是靠某次延迟看清的。"
+    )
+
+    cleaned = workbench._split_tracked_article_dense_explainer_residue(
+        title="消息总停在昨天的人，别再用体谅替关系续命",
+        body_markdown=raw_markdown,
+    )
+
+    paragraphs = workbench._extract_non_heading_paragraphs(cleaned)
+    sentence_counts = [len(workbench._split_block_sentences(paragraph)) for paragraph in paragraphs]
+
+    assert cleaned != raw_markdown
+    assert max(sentence_counts) <= 4
+    assert "很容易就活成这样：消息在等，安排在等，情绪也在等。关系走到这里，就算表面还在联系，也已经开始漏气。没有吵，没有撕破，可每次点开对话框，身体先紧一下。" in cleaned
+    assert "这个反应，往往比道理更早知道答案。也别急着走到另一个极端。谁回得慢都立刻划掉，这种判断也粗了，很多关系不是靠某次延迟看清的。" in cleaned
+
+
+def test_split_tracked_article_dense_explainer_residue_breaks_release_past_long_block() -> None:
+    raw_markdown = (
+        "这时候最磨人的，往往是那串停不下来的“要是当时”。要是当时多说一句，要是当时别退那步，要是当时再坚持一下。"
+        "可这条路没有回音，只有一遍遍验证不了的假设，想得越细，今天越难往前走。收尾的用处，就在这里。"
+        "它不是替过去翻案，也不是急着原谅谁，而是把那件事从一团乱里拎出来，认清它到底欠了你什么。"
+    )
+
+    cleaned = workbench._split_tracked_article_dense_explainer_residue(
+        title="每次又想起那段过去，卡住你的往往是没做完的收尾",
+        body_markdown=raw_markdown,
+    )
+
+    paragraphs = workbench._extract_non_heading_paragraphs(cleaned)
+    sentence_counts = [len(workbench._split_block_sentences(paragraph)) for paragraph in paragraphs]
+
+    assert cleaned != raw_markdown
+    assert max(sentence_counts) <= 4
+    assert "这时候最磨人的，往往是那串停不下来的“要是当时”。要是当时多说一句，要是当时别退那步，要是当时再坚持一下。可这条路没有回音，只有一遍遍验证不了的假设，想得越细，今天越难往前走。" in cleaned
+    assert "收尾的用处，就在这里。它不是替过去翻案，也不是急着原谅谁，而是把那件事从一团乱里拎出来，认清它到底欠了你什么。" in cleaned
+
+
+def test_split_tracked_article_dense_explainer_residue_breaks_relation_fade_long_block() -> None:
+    raw_markdown = (
+        "让人发沉的，是它反复出现。你发出去的话，总隔很久才落地；这边不断配合，那边总在有空时出现；"
+        "明明已经不舒服，最后还是自己收回去。关系不是忽然淡的，很多时候，就是这么一格一格退下去。"
+    )
+
+    cleaned = workbench._split_tracked_article_dense_explainer_residue(
+        title="消息总停在昨天的人，别再用体谅替关系续命",
+        body_markdown=raw_markdown,
+    )
+
+    paragraphs = workbench._extract_non_heading_paragraphs(cleaned)
+    sentence_counts = [len(workbench._split_block_sentences(paragraph)) for paragraph in paragraphs]
+
+    assert cleaned != raw_markdown
+    assert max(sentence_counts) <= 4
+    assert "让人发沉的，是它反复出现。你发出去的话，总隔很久才落地；这边不断配合，那边总在有空时出现；明明已经不舒服，最后还是自己收回去。" in cleaned
+    assert "关系不是忽然淡的，很多时候，就是这么一格一格退下去。" in cleaned
+
+
+def test_split_tracked_article_dense_explainer_residue_breaks_self_postponement_long_block() -> None:
+    raw_markdown = (
+        "睡不踏实，说话变短，别人多问两句，鼻子就发酸。表面上是忍住了，身体和关系都在替这份忍受付账。"
+        "更难的是，求助会被练生疏。平时什么都能安排，什么都能接住，工作急，先顾工作；孩子要接，先去接；"
+        "父母来电话，先回；群消息响了，先处理。轮到自己，常剩一句：\"等这阵过去再说。\""
+    )
+
+    cleaned = workbench._split_tracked_article_dense_explainer_residue(
+        title="那句\"我能处理\"说久了，连求助都会变慢",
+        body_markdown=raw_markdown,
+    )
+
+    paragraphs = workbench._extract_non_heading_paragraphs(cleaned)
+    sentence_counts = [len(workbench._split_block_sentences(paragraph)) for paragraph in paragraphs]
+
+    assert cleaned != raw_markdown
+    assert max(sentence_counts) <= 4
+    assert "睡不踏实，说话变短，别人多问两句，鼻子就发酸。表面上是忍住了，身体和关系都在替这份忍受付账。更难的是，求助会被练生疏。" in cleaned
+    assert "平时什么都能安排，什么都能接住，工作急，先顾工作；孩子要接，先去接；父母来电话，先回；群消息响了，先处理。" in cleaned
+    assert "轮到自己，常剩一句：\"等这阵过去再说。\"" in cleaned
+
+
+def test_split_tracked_article_dense_explainer_residue_breaks_expression_deformation_long_block() -> None:
+    raw_markdown = (
+        "拖到后面，表达也会变形。委屈攒久了，语气容易硬，话会乱，里面还夹着怨。"
+        "对方先接到的，是你的崩边，不是你的需要本身；他听见了情绪，却没及时听见那句更早就该出现的话。"
+        "这也是为什么，越想证明自己稳得住，心里越累。外面的事要扛，里面那股下坠感也得压着，两头都在用力，人当然会累。"
+    )
+
+    cleaned = workbench._split_tracked_article_dense_explainer_residue(
+        title="那句\"我能处理\"说久了，连求助都会变慢",
+        body_markdown=raw_markdown,
+    )
+
+    paragraphs = workbench._extract_non_heading_paragraphs(cleaned)
+    sentence_counts = [len(workbench._split_block_sentences(paragraph)) for paragraph in paragraphs]
+
+    assert cleaned != raw_markdown
+    assert max(sentence_counts) <= 4
+    assert "拖到后面，表达也会变形。委屈攒久了，语气容易硬，话会乱，里面还夹着怨。对方先接到的，是你的崩边，不是你的需要本身；他听见了情绪，却没及时听见那句更早就该出现的话。" in cleaned
+    assert "这也是为什么，越想证明自己稳得住，心里越累。外面的事要扛，里面那股下坠感也得压着，两头都在用力，人当然会累。" in cleaned
+
+
+def test_split_tracked_article_dense_explainer_residue_skips_resilience_candidate() -> None:
+    raw_markdown = (
+        "手术做完，麻烦才刚开始。伤口缝上了，训练表还在往后排。\n\n"
+        "多划11下，写在纸上只是个数字，落到水里很具体。动作会乱，肩会紧，第二天背更沉，练完还得站着缓口气，才接得上后面的安排。难不在那11下本身，难在它不会只来一次。今天补上，明天还得下水；今天顶过去，后面照样可能返工。人慢慢被拖住，先是被疼拖住，再被那种使了劲也不听使唤的感觉拖住。这时最容易发生的，是改口。"
+    )
+
+    cleaned = workbench._split_tracked_article_dense_explainer_residue(
+        title="手术做完，麻烦才刚开始：多划11下以后，她怎么把自己重新托住",
+        body_markdown=raw_markdown,
+    )
+
+    assert cleaned == raw_markdown
+
+
+def test_split_tracked_article_long_paragraph_residue_breaks_generic_emotional_long_block() -> None:
+    raw_markdown = (
+        "# 那句我能处理，说久了真的会变成一种习惯\n\n"
+        "白天照常回消息、开会、带孩子、顾家，流程没乱，身体先有反应：肩颈发硬，胃口乱掉。看起来很稳，里面其实一直绷着。当时每件事都能解释。事情一多，她先顾工作，再顾孩子，再顾家里。轮到自己，就把不舒服继续往后放。可这阵子很少真的过去。\n\n"
+        "她不是没有感觉，只是习惯把感觉往后放。"
+    )
+
+    cleaned = workbench._split_tracked_article_long_paragraph_residue(
+        title="那句我能处理，说久了真的会变成一种习惯",
+        body_markdown=raw_markdown,
+    )
+
+    paragraphs = workbench._extract_non_heading_paragraphs(cleaned)
+    sentence_counts = [len(workbench._split_block_sentences(paragraph)) for paragraph in paragraphs]
+
+    assert cleaned != raw_markdown
+    assert max(sentence_counts) <= 3
+    assert "白天照常回消息、开会、带孩子、顾家，流程没乱，身体先有反应：肩颈发硬，胃口乱掉。看起来很稳，里面其实一直绷着。当时每件事都能解释。" in cleaned
+    assert "事情一多，她先顾工作，再顾孩子，再顾家里。轮到自己，就把不舒服继续往后放。可这阵子很少真的过去。" in cleaned
+
+
+def test_split_tracked_article_scene_anchor_residue_breaks_scene_plus_explainer_block() -> None:
+    raw_markdown = (
+        "# 体检又改期、胃药先顶着，那个总能扛过去的人，先关掉的是求助\n\n"
+        "体检预约第三次改期，胃药放在手边先顶两天，消息写到一半又删掉。很多关系里的失联，从这些很小的接口开始：她已经难受了，但她先把求助这一步省掉。这类人表面上很稳。"
+    )
+
+    cleaned = workbench._split_tracked_article_scene_anchor_residue(
+        title="体检又改期、胃药先顶着，那个总能扛过去的人，先关掉的是求助",
+        body_markdown=raw_markdown,
+    )
+
+    paragraphs = workbench._extract_non_heading_paragraphs(cleaned)
+    sentence_counts = [len(workbench._split_block_sentences(paragraph)) for paragraph in paragraphs]
+
+    assert cleaned != raw_markdown
+    assert sentence_counts == [1, 2]
+    assert paragraphs[0] == "体检预约第三次改期，胃药放在手边先顶两天，消息写到一半又删掉。"
+    assert paragraphs[1] == "很多关系里的失联，从这些很小的接口开始：她已经难受了，但她先把求助这一步省掉。这类人表面上很稳。"
+
+
+def test_split_tracked_article_scene_anchor_residue_skips_abstract_judgment_lead() -> None:
+    raw_markdown = (
+        "# 体检又改期、胃药先顶着，那个总能扛过去的人，先关掉的是求助\n\n"
+        "关系里最先消失的，往往是求助信号，不一定是爱，也不一定是联系频率。这件事很要命的地方在于，它会制造一种假象：你看起来一直能扛，别人也就更容易相信你能扛。你越少开口，周围的人越不容易校准你的真实负荷。"
+    )
+
+    cleaned = workbench._split_tracked_article_scene_anchor_residue(
+        title="体检又改期、胃药先顶着，那个总能扛过去的人，先关掉的是求助",
+        body_markdown=raw_markdown,
+    )
+
+    assert cleaned == raw_markdown
 
 
 def test_maybe_retry_polish_for_final_ai_flavor_cleanup_prefers_retry_after_cleanup_preview(
@@ -4013,6 +5694,157 @@ def test_maybe_auto_polish_ai_flavor_draft_output_does_not_short_circuit_low_sco
     )
 
 
+def test_maybe_auto_polish_ai_flavor_draft_output_marks_nested_retry_payload_for_custom_base_url(
+    monkeypatch,
+) -> None:
+    summary = SimpleNamespace(score=18, level="低", hits=["命中：开头讲稿式先答后证 2/3"], suggestions=[])
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", lambda **_: summary)
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False)
+    monkeypatch.setattr(workbench, "_should_prefer_retried_candidate_after_cleanup_preview", lambda **_: True)
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_structure_drift", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_over_smoothing", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_article_shell_cleanup", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_remaining_ai_flavor", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+    monkeypatch.setattr(workbench, "_maybe_retry_polish_for_final_ai_flavor_cleanup", lambda **kwargs: (kwargs["candidate_body_markdown"], kwargs["candidate_title"]))
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(payload)
+            return {"title": "polished title", "body_markdown": "polished raw"}
+
+    fake_generator = FakeGenerator()
+
+    result_markdown, result_title = workbench._maybe_auto_polish_ai_flavor_draft_output(
+        title="tracked title",
+        body_markdown="tracked raw",
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+            "reference_article_body_markdown": "reference raw",
+            "reference_article_title": "reference title",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction=None,
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=fake_generator,
+    )
+
+    assert result_title == "polished title"
+    assert result_markdown == "polished raw"
+    assert len(fake_generator.calls) >= 1
+    assert fake_generator.calls[0]["compact_polish_mode"] is True
+
+
+def test_maybe_retry_polish_for_structure_drift_marks_nested_retry_payload_for_custom_base_url(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(workbench, "_find_missing_structure_headings", lambda **_: ["小标题一"])
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(payload)
+            return {"title": "retry title", "body_markdown": "retry body"}
+
+    fake_generator = FakeGenerator()
+
+    result_markdown, result_title = workbench._maybe_retry_polish_for_structure_drift(
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction="cleanup",
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=fake_generator,
+        source_draft_title="source title",
+        source_draft_body_markdown="source raw",
+        candidate_title="candidate title",
+        candidate_body_markdown="candidate raw",
+    )
+
+    assert result_title == "retry title"
+    assert result_markdown == "retry body"
+    assert len(fake_generator.calls) == 1
+    assert fake_generator.calls[0]["compact_polish_mode"] is True
+
+
+def test_maybe_compress_draft_output_marks_nested_retry_payload_for_custom_base_url(
+    monkeypatch,
+) -> None:
+    class FakeToneProfile:
+        target_word_count = 100
+
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 100}
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(payload)
+            return {"title": "compressed title", "body_markdown": "compressed body"}
+
+    fake_generator = FakeGenerator()
+
+    result_markdown, result_title = workbench._maybe_compress_draft_output(
+        project_slug="project-slug",
+        tone_profile=FakeToneProfile(),
+        title="title",
+        body_markdown="很长" * 80,
+        project={
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        review_comment=None,
+        reference_article_payload={},
+        generator=fake_generator,
+    )
+
+    assert result_title == "compressed title"
+    assert result_markdown == "compressed body"
+    assert len(fake_generator.calls) == 1
+    assert fake_generator.calls[0]["compact_polish_mode"] is True
+
+
 def test_maybe_auto_polish_ai_flavor_draft_output_short_circuits_low_risk_tracked_article_after_polish_when_no_retry_signals(
     monkeypatch,
 ) -> None:
@@ -4181,6 +6013,64 @@ def test_maybe_auto_polish_ai_flavor_draft_output_skips_low_risk_single_window_t
 
         def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
             raise AssertionError("low-risk single-window tracked article candidate should not enter auto polish")
+
+    result_markdown, result_title = workbench._maybe_auto_polish_ai_flavor_draft_output(
+        title="tracked title",
+        body_markdown=candidate_markdown,
+        project={
+            "source_type": "tracked_article",
+            "trend_title": "trend",
+            "topic_title": "topic",
+            "topic_angle": "angle",
+            "title": "project",
+            "domain_pack_key": "",
+            "reference_article_body_markdown": "reference raw",
+            "reference_article_title": "reference title",
+        },
+        outline_row={"hook": "", "outline_body": ""},
+        tone_profile=FakeToneProfile(),
+        review_comment=None,
+        polish_instruction=None,
+        strategy_bundle_payload={},
+        reference_article_payload={},
+        generator=FakeGenerator(),
+    )
+
+    assert result_title == "tracked title"
+    assert result_markdown == candidate_markdown
+
+
+def test_maybe_auto_polish_ai_flavor_draft_output_skips_low_risk_scene_first_tracked_article_candidate(
+    monkeypatch,
+) -> None:
+    candidate_markdown = (
+        "输入框里的话写好了，会议已经结束。你删过两次，最后发成私聊：我刚刚有个想法，怕打断流程，就没在会上展开。\n\n"
+        "消息发出去时，分工已经定了，下一轮也排好了。那句想法没有失效，只是从讨论的一部分，变成了补充说明。\n\n"
+        "晚的那半拍，脑子里先跑过去的，通常是后果。会不会把节奏弄乱，会不会显得自己准备得还不够。\n\n"
+        "于是动作很熟练：先等，先收一下，先放到会后。这样当然轻松，至少不用在当场承担不确定。\n\n"
+        "可代价也很具体。会后能补回信息，补不回当场的位子。"
+    )
+
+    class FakeSummary:
+        score = 0
+        level = "低"
+        hits: list[str] = []
+        suggestions: list[str] = []
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", lambda **_: FakeSummary())
+    monkeypatch.setattr(workbench, "extract_not_ab_skeletons", lambda _: [])
+    monkeypatch.setattr(workbench, "extract_generic_reflective_openers", lambda _: [])
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False)
+
+    class FakeToneProfile:
+        def model_dump(self) -> dict[str, object]:
+            return {"target_word_count": 0}
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            raise AssertionError("low-risk scene-first tracked article candidate should not enter auto polish")
 
     result_markdown, result_title = workbench._maybe_auto_polish_ai_flavor_draft_output(
         title="tracked title",
@@ -6139,6 +8029,132 @@ def test_pick_better_ai_flavor_candidate_prefers_non_over_smoothed_branch_for_tr
     assert chosen_markdown == retried_body
 
 
+def test_pick_better_ai_flavor_candidate_prefers_retry_when_current_uses_generic_opening_shell(
+    monkeypatch,
+) -> None:
+    current_body = (
+        "# 心安这件事，比什么都重要\n\n"
+        "消息还能回，班还能上，见了人也能把话接住。\n\n"
+        "灯还亮着，人已经困了，饭热过一遍又一遍，还是没吃完。\n\n"
+        "卡住人的，常常不是事情本身，而是那颗心一直没肯真正落下来。"
+    )
+    retried_body = (
+        "# 心安这件事，比什么都重要\n\n"
+        "那句话已经过去好几天了，你还是会在洗漱、开会走神、临睡前翻回来接着想。\n\n"
+        "事情未必更糟了，可心还停在原地，所以人怎么都松不下来。\n\n"
+        "真正的心安，不是逼自己一下想通，而是慢慢把那颗悬着的心带回今天。"
+    )
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    selection_context = {
+        "source_type": "tracked_article",
+        "reference_article_analysis_structure_mode": "inner_settlement",
+        "reference_article_analysis_theme": "很多时候外界未必最糟，真正拖住人的，是那颗一直悬着的心。",
+        "reference_article_analysis_opening_pattern": "从事情过去了，心还留在原地起笔。",
+        "reference_article_analysis_do_not_turn_into": "不要统一滑向灯光、饭点、水杯、房间这组固定物件。",
+    }
+
+    chosen_markdown, chosen_title = workbench._pick_better_ai_flavor_candidate(
+        current_title="心安这件事，比什么都重要",
+        current_markdown=current_body,
+        retried_title="心安这件事，比什么都重要",
+        retried_markdown=retried_body,
+        source_type="tracked_article",
+        selection_context=selection_context,
+    )
+
+    assert chosen_title == "心安这件事，比什么都重要"
+    assert chosen_markdown == retried_body
+
+
+def test_pick_better_ai_flavor_candidate_prefers_retry_when_inner_settlement_current_uses_result_dependence(
+    monkeypatch,
+) -> None:
+    current_body = (
+        "# 把安全感押在结果上的人，为什么总觉得日子落不了地\n\n"
+        "很多人不是事情真的出了大问题，才睡不安稳。\n\n"
+        "而是总想等一个结果落地，才允许自己松下来。外面还没定，心里就先跟着悬着，连今晚这顿饭都吃不踏实。"
+    )
+    retried_body = (
+        "# 人这一生真正想要的，不过是一颗终于有归处的心\n\n"
+        "很多时候，真正需要被安顿的，不是事情本身，而是那颗一直没肯坐下来的心。\n\n"
+        "你把饭先吃完，把呼吸放慢，把手头这一刻过稳，日子才会一点点重新有轻重。"
+    )
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    selection_context = {
+        "source_type": "tracked_article",
+        "reference_article_analysis_structure_mode": "inner_settlement",
+        "reference_article_analysis_theme": "一个人后半程真正需要追求的，不是外界认可和结果控制，而是把心安顿下来。",
+        "reference_article_analysis_opening_pattern": "从心还没真正回到当下的普通时刻起笔。",
+        "reference_article_analysis_do_not_turn_into": "不要改成等待结果、等回应、等表态的主镜头。",
+    }
+
+    chosen_markdown, chosen_title = workbench._pick_better_ai_flavor_candidate(
+        current_title="把安全感押在结果上的人，为什么总觉得日子落不了地",
+        current_markdown=current_body,
+        retried_title="人这一生真正想要的，不过是一颗终于有归处的心",
+        retried_markdown=retried_body,
+        source_type="tracked_article",
+        selection_context=selection_context,
+    )
+
+    assert chosen_title == "人这一生真正想要的，不过是一颗终于有归处的心"
+    assert chosen_markdown == retried_body
+
+
+def test_pick_better_ai_flavor_candidate_prefers_retry_when_current_theme_collapses_from_response_priority(
+    monkeypatch,
+) -> None:
+    current_body = (
+        "# 不是没时间，很多时候，是你根本没被排进他的优先级\n\n"
+        "灯还亮着，人已经困了，饭热过一遍又一遍，还是没吃完。\n\n"
+        "你总以为自己是在等一个回复，后来才发现，真正拖住你的，是那颗一直悬着的心。\n\n"
+        "事情过去了，人坐下来了，心还留在原地。"
+    )
+    retried_body = (
+        "# 不是没时间，很多时候，是你根本没被排进他的优先级\n\n"
+        "红灯30秒，我喝了一口水，拍了张照片，回了条消息。\n\n"
+        "所以你别再替“没时间”找理由了，很多时候它说的不是日程，而是顺序。\n\n"
+        "一个人把时间先给了谁，他的在乎就先落在谁身上。"
+    )
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+
+    selection_context = {
+        "source_type": "tracked_article",
+        "topic_title": "不是没时间，很多时候，是你根本没被排进他的优先级",
+        "topic_angle": "从‘没时间’为什么很多时候说的不是日程，而是顺序切入，写时间分配和回应动作怎样显出一个人的真实在乎程度。",
+        "reference_article_analysis_structure_mode": "response_priority",
+        "reference_article_analysis_theme": "文章真正想讨论的是，关系中的时间分配会暴露一个人的在意程度和优先级。",
+        "reference_article_analysis_opening_pattern": "从红灯30秒的生活接口起笔。",
+        "reference_article_analysis_do_not_turn_into": "不要写成制造焦虑的情感审判文。",
+    }
+
+    chosen_markdown, chosen_title = workbench._pick_better_ai_flavor_candidate(
+        current_title="不是没时间，很多时候，是你根本没被排进他的优先级",
+        current_markdown=current_body,
+        retried_title="不是没时间，很多时候，是你根本没被排进他的优先级",
+        retried_markdown=retried_body,
+        source_type="tracked_article",
+        selection_context=selection_context,
+    )
+
+    assert chosen_title == "不是没时间，很多时候，是你根本没被排进他的优先级"
+    assert chosen_markdown == retried_body
+
+
 def test_pick_better_article_shell_candidate_prefers_non_over_smoothed_retry(
     monkeypatch,
 ) -> None:
@@ -6591,6 +8607,24 @@ def test_collapse_short_long_cadence_residue_merges_middle_anchor_step_pairs() -
     assert not any("短句敲钟后接长解释的固定节拍" in hit for hit in after_summary.hits)
 
 
+def test_collapse_short_long_cadence_residue_attaches_short_self_reliance_anchor_to_next_block() -> None:
+    candidate_body = (
+        "事情一口气顶上来时，最先冒出来的，常常是那种发空的慌。你明明已经撑得很累了，还是会下意识想：如果这时候有人能替我分一点就好了。可现实没空，别人手里也有没放下的事，能腾出来的那点余力，往往刚好不够接住你。\n\n"
+        "真正难受的，不只是没人回应。是你已经站在那个位置上了，却等不到一个刚好能伸手的人。\n\n"
+        "先别急着把自己往下压。\n\n"
+        "很多人到这种时候会更安静一点，因为太清楚，眼前这堆事不会等情绪缓过来再继续。先别耽误别人，先别显得自己撑不住，先把事情顶过去——这套顺序一旦跑起来，人很容易把自己放到最后。"
+    )
+
+    collapsed = workbench._collapse_short_long_cadence_residue(
+        title="没有人能随时赶来时，记得先把自己安顿好",
+        body_markdown=candidate_body,
+    )
+
+    assert collapsed != candidate_body
+    assert "\n\n先别急着把自己往下压。\n\n很多人到这种时候会更安静一点" not in collapsed
+    assert "先别急着把自己往下压。很多人到这种时候会更安静一点" in collapsed
+
+
 def test_collapse_leading_short_long_cadence_residue_reflows_retry42_like_opening_pair() -> None:
     candidate_body = (
         "电梯门快要合上的时候，她伸手挡了一下。\n\n"
@@ -6923,6 +8957,46 @@ def test_soften_not_ab_residue_keeps_long_right_clause_without_mass_producing_re
     assert "真要把它算成病名本身" not in softened
 
 
+def test_soften_not_ab_residue_handles_five_residual_reversals_with_followup_cleanup() -> None:
+    candidate_body = (
+        "# 体检又改期、胃药先顶着，那个总能扛过去的人，先关掉的是求助\n\n"
+        "体检预约第三次改期，胃药放在手边先顶两天，消息写到一半又删掉。很多关系里的失联，不是从争吵开始的，是从这些很小的接口开始的：她已经难受了，但她先把求助这一步省掉。\n\n"
+        "该上班上班，该回家回家，该做饭做饭，甚至还能把别人的事接住。可有些东西已经在变钝了，最先变钝的通常不是情绪，是判断：这件事到底该不该停下来，这句话到底值不值得发出去，这次难受算不算严重。很多失序，都是这样堆出来的。\n\n"
+        "先被往后放的，往往不是大事，是吃饭、休息、复诊、回消息这种看起来随时都能补上的小事。\n\n"
+        "原本只是肩颈紧，到后面开始头疼，记性也乱了。她不是突然垮掉的，她是把很多次该停下来的提醒，都压成了\"先这样\"。\n\n"
+        "不少人身边其实有伴侣、有朋友、有同事，也有人问过\"你最近还好吗\"。只是她给出去的信号越来越弱了。别人问一句，她答\"没事\"；别人再问一句，她补一句\"已经处理好了\"；哪怕处理得并不好，她也会把门先关上。\n\n"
+        "关系里最先消失的，不是爱，也不是联系频率，是求助信号。\n\n"
+        "你会发现，很多关系并不是输在没感情上，是输在长期没有真实数据。"
+    )
+
+    before_summary = workbench.evaluate_ai_flavor_risk(
+        title="体检又改期、胃药先顶着，那个总能扛过去的人，先关掉的是求助",
+        body_markdown=candidate_body,
+    )
+
+    softened = workbench._soften_not_ab_residue(
+        title="体检又改期、胃药先顶着，那个总能扛过去的人，先关掉的是求助",
+        body_markdown=candidate_body,
+    )
+    softened = workbench._strip_rebound_explainer_tail_residue(
+        title="体检又改期、胃药先顶着，那个总能扛过去的人，先关掉的是求助",
+        body_markdown=softened,
+    )
+    softened = workbench._strip_orphaned_rebound_tail_residue(
+        title="体检又改期、胃药先顶着，那个总能扛过去的人，先关掉的是求助",
+        body_markdown=softened,
+    )
+
+    after_summary = workbench.evaluate_ai_flavor_risk(
+        title="体检又改期、胃药先顶着，那个总能扛过去的人，先关掉的是求助",
+        body_markdown=softened,
+    )
+
+    assert softened != candidate_body
+    assert after_summary.score < before_summary.score
+    assert not any("不是A，是B" in hit for hit in after_summary.hits)
+
+
 def test_strip_rebound_explainer_tail_residue_removes_repeated_rebound_tails() -> None:
     candidate_body = (
         "# 复查一拖再拖，身体就会替你把账记到后面\n\n"
@@ -7022,6 +9096,23 @@ def test_collapse_isolated_quote_example_residue_merges_quote_run() -> None:
     assert "发出去，先停在这里。" in cleaned
 
 
+def test_collapse_isolated_quote_example_residue_normalizes_single_quote_terminal_punctuation() -> None:
+    candidate_body = (
+        "# 标题\n\n"
+        "前文。\n\n"
+        "“我习惯了在需要冒头前，先把它压回去。”。\n\n"
+        "后文。"
+    )
+
+    cleaned = workbench._collapse_isolated_quote_example_residue(
+        title="标题",
+        body_markdown=candidate_body,
+    )
+
+    assert "“我习惯了在需要冒头前，先把它压回去。”" in cleaned
+    assert "“我习惯了在需要冒头前，先把它压回去。”。" not in cleaned
+
+
 def test_soften_direct_address_lecture_residue_rewrites_low_score_lecture_shell() -> None:
     candidate_body = (
         "# 等到话越来越少，很多亏欠已经落在自己身上了\n\n"
@@ -7084,9 +9175,9 @@ def test_soften_connector_residue_clears_minor_explanatory_connector_shell() -> 
 
     assert softened != candidate_body
     assert "表面看不出什么大问题，她自己也更容易" in softened
-    assert "。原来十分钟能做完的表格" in softened
-    assert "；以前能接住的话题" in softened
-    assert "；有人关心她一句“你最近还好吗”" in softened
+    assert "比如原来十分钟能做完的表格" in softened
+    assert "比如以前能接住的话题" in softened
+    assert "比如有人关心她一句“你最近还好吗”" in softened
     assert "所以她更容易用力把自己往“正常”里推" not in softened
     assert after_summary.score < before_summary.score
     assert not any("解释连接词偏多" in hit for hit in after_summary.hits)

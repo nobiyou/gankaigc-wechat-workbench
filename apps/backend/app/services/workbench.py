@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from typing import Callable, Mapping
 from urllib.parse import urlparse
 
 import httpx
@@ -73,6 +74,7 @@ from app.schemas.projects import (
     ProjectStageUpdate,
 )
 from app.services.content_diagnosis import (
+    _find_danger_fragment_hits,
     build_diagnosis_polish_instruction,
     build_draft_diagnosis_report,
     build_reference_originality_report,
@@ -81,7 +83,11 @@ from app.services.content_diagnosis import (
 from app.services.draft_quality_summary import build_draft_quality_summary
 from app.services.creative_reports import build_creative_review_report
 from app.services.creative_patterns import build_reusable_pattern_from_lesson, build_reusable_pattern_id
-from app.services.creative_strategy import build_strategy_package
+from app.services.creative_strategy import (
+    build_strategy_package,
+    normalize_structure_mode_hint,
+    resolve_tracked_article_structure_mode,
+)
 from app.schemas.tone_profiles import ToneProfileItem, ToneProfileReorder, ToneProfileUpsert
 from app.services.prompt_templates import DEFAULT_DOMAIN_PROMPT_PACK, get_domain_prompt_pack
 from app.services.prompt_templates import (
@@ -90,7 +96,13 @@ from app.services.prompt_templates import (
     _infer_tracked_article_pressure_guard,
     _has_broad_emotional_release_focus,
     _has_everyday_warmth_return_focus,
+    _has_inner_settlement_focus,
+    _has_self_reliance_inward_support_focus,
+    _has_supportive_appreciation_focus,
+    _has_relationship_aftercare_focus,
+    _has_response_priority_focus,
     _has_resilience_reconstruction_focus,
+    _should_use_tracked_article_strategy_first_draft_mode,
 )
 from app.services.tone_profile_presets import (
     DEFAULT_TONE_PROFILE_PRESET,
@@ -125,6 +137,9 @@ _COVER_PROMPT_LAYOUT_CONFLICT_PATTERN = re.compile(
 )
 _PROJECT_VERSION_LOCKS: dict[str, threading.Lock] = {}
 _PROJECT_VERSION_LOCKS_GUARD = threading.Lock()
+_TRACKED_ARTICLE_DANGER_FRAGMENT_REPLACEMENTS = {
+    "还没发生的": "尚未走到眼前的",
+}
 PIPELINE_BATCH_TASK_TYPES = (
     "batch_continue_projects",
     "batch_create_projects",
@@ -249,35 +264,25 @@ class _DirectionalPolishContext:
     objective_summary: str
 
 
+def _get_project_reference_source_markdown(project: sqlite3.Row | dict[str, object]) -> str:
+    try:
+        value = project["reference_article_body_markdown"]
+    except (LookupError, TypeError):
+        return ""
+    return str(value or "")
+
+
 def _apply_initial_draft_candidate_cleanups(
     *,
     title: str,
     body_markdown: str,
     source_type: str,
+    reference_source_markdown: str = "",
 ) -> tuple[str, int]:
     current_body = body_markdown
     changed_steps = 0
 
-    cleanup_fns = [_collapse_short_judgment_residue]
-    if source_type == "tracked_article":
-        cleanup_fns.extend(
-            (
-                _collapse_time_chain_shell_residue,
-                _collapse_embedded_banner_shell_residue,
-                _collapse_explanatory_bridge_residue,
-                _collapse_leading_short_long_cadence_residue,
-                _collapse_short_long_cadence_residue,
-                _soften_structural_ladder_residue,
-                _soften_direct_address_lecture_residue,
-                _collapse_over_segmented_shell_residue,
-                _collapse_light_segmented_shell_residue,
-                _soften_not_ab_residue,
-                _strip_rebound_explainer_tail_residue,
-                _strip_orphaned_rebound_tail_residue,
-                _collapse_isolated_quote_example_residue,
-                _soften_connector_residue,
-            )
-        )
+    cleanup_fns = [step_fn for _, step_fn in _get_initial_draft_candidate_cleanup_steps(source_type=source_type)]
 
     for cleanup_fn in cleanup_fns:
         collapsed_body = cleanup_fn(
@@ -288,7 +293,72 @@ def _apply_initial_draft_candidate_cleanups(
             changed_steps += 1
         current_body = collapsed_body
 
+    if source_type == "tracked_article" and reference_source_markdown:
+        rewritten_body = _rewrite_tracked_article_danger_fragments(
+            source_markdown=reference_source_markdown,
+            body_markdown=current_body,
+        )
+        if rewritten_body != current_body:
+            changed_steps += 1
+            current_body = rewritten_body
+
     return current_body, changed_steps
+
+
+def _rewrite_tracked_article_danger_fragments(
+    *,
+    source_markdown: str,
+    body_markdown: str,
+) -> str:
+    if not source_markdown.strip() or not body_markdown.strip():
+        return body_markdown
+
+    rewritten = body_markdown
+    for hit in _find_danger_fragment_hits(source_markdown, body_markdown):
+        replacement = _TRACKED_ARTICLE_DANGER_FRAGMENT_REPLACEMENTS.get(hit.fragment)
+        if not replacement or replacement == hit.fragment:
+            continue
+        rewritten = rewritten.replace(hit.fragment, replacement)
+    return rewritten
+
+
+def _get_initial_draft_candidate_cleanup_steps(
+    *,
+    source_type: str,
+) -> list[tuple[str, Callable[..., str]]]:
+    cleanup_steps: list[tuple[str, Callable[..., str]]] = [
+        ("collapse_short_judgment_residue", _collapse_short_judgment_residue),
+    ]
+    if source_type == "tracked_article":
+        cleanup_steps.extend(
+            (
+                ("collapse_time_chain_shell_residue", _collapse_time_chain_shell_residue),
+                ("collapse_embedded_banner_shell_residue", _collapse_embedded_banner_shell_residue),
+                ("collapse_explanatory_bridge_residue", _collapse_explanatory_bridge_residue),
+                ("collapse_leading_short_long_cadence_residue", _collapse_leading_short_long_cadence_residue),
+                ("collapse_short_long_cadence_residue", _collapse_short_long_cadence_residue),
+                ("soften_structural_ladder_residue", _soften_structural_ladder_residue),
+                ("soften_direct_address_lecture_residue", _soften_direct_address_lecture_residue),
+                ("collapse_over_segmented_shell_residue", _collapse_over_segmented_shell_residue),
+                ("collapse_light_segmented_shell_residue", _collapse_light_segmented_shell_residue),
+                ("soften_not_ab_residue", _soften_not_ab_residue),
+                ("strip_rebound_explainer_tail_residue", _strip_rebound_explainer_tail_residue),
+                ("strip_orphaned_rebound_tail_residue", _strip_orphaned_rebound_tail_residue),
+                ("repair_tracked_article_fragment_residue", _repair_tracked_article_fragment_residue),
+                ("repair_self_reliance_expression_sink_residue", _repair_self_reliance_expression_sink_residue),
+                ("collapse_isolated_quote_example_residue", _collapse_isolated_quote_example_residue),
+                ("repair_repeated_phrase_typo_residue", _repair_repeated_phrase_typo_residue),
+                ("soften_connector_residue", _soften_connector_residue),
+                ("split_tracked_article_dense_explainer_residue", _split_tracked_article_dense_explainer_residue),
+                ("split_resilience_dense_paragraph_residue", _split_resilience_dense_paragraph_residue),
+                ("split_resilience_process_anchor_residue", _split_resilience_process_anchor_residue),
+                ("soften_resilience_hook_echo_residue", _soften_resilience_hook_echo_residue),
+                ("soften_resilience_local_reference_echo_residue", _soften_resilience_local_reference_echo_residue),
+                ("split_tracked_article_long_paragraph_residue", _split_tracked_article_long_paragraph_residue),
+                ("split_tracked_article_scene_anchor_residue", _split_tracked_article_scene_anchor_residue),
+            )
+        )
+    return cleanup_steps
 
 
 def _build_initial_draft_candidate_result(
@@ -296,6 +366,7 @@ def _build_initial_draft_candidate_result(
     title: str,
     body_markdown: str,
     source_type: str,
+    reference_source_markdown: str = "",
 ) -> _InitialDraftCandidateResult:
     reference_title = title
     reference_body_markdown = body_markdown
@@ -303,6 +374,7 @@ def _build_initial_draft_candidate_result(
         title=title,
         body_markdown=body_markdown,
         source_type=source_type,
+        reference_source_markdown=reference_source_markdown,
     )
 
     if source_type == "tracked_article":
@@ -333,16 +405,20 @@ def _should_prefer_retried_candidate_after_cleanup_preview(
     retried_title: str,
     retried_markdown: str,
     source_type: str,
+    reference_source_markdown: str = "",
+    selection_context: Mapping[str, object] | None = None,
 ) -> bool:
     current_candidate = _build_initial_draft_candidate_result(
         title=current_title,
         body_markdown=current_markdown,
         source_type=source_type,
+        reference_source_markdown=reference_source_markdown,
     )
     retried_candidate = _build_initial_draft_candidate_result(
         title=retried_title,
         body_markdown=retried_markdown,
         source_type=source_type,
+        reference_source_markdown=reference_source_markdown,
     )
     return _should_prefer_retried_ai_flavor_candidate(
         current_title=current_candidate.title,
@@ -358,6 +434,7 @@ def _should_prefer_retried_candidate_after_cleanup_preview(
         retried_cleanup_applied=retried_candidate.cleanup_applied,
         retried_cleanup_changed_steps=retried_candidate.cleanup_changed_steps,
         source_type=source_type,
+        selection_context=selection_context,
     )
 
 
@@ -891,6 +968,12 @@ def _ensure_tracked_articles_schema(connection: sqlite3.Connection) -> None:
             body_markdown TEXT NOT NULL DEFAULT '',
             body_source TEXT NOT NULL DEFAULT 'missing',
             structure_notes TEXT NOT NULL,
+            analysis_theme TEXT NOT NULL DEFAULT '',
+            analysis_core_conflict TEXT NOT NULL DEFAULT '',
+            analysis_emotional_exit TEXT NOT NULL DEFAULT '',
+            analysis_structure_mode TEXT NOT NULL DEFAULT '',
+            analysis_opening_pattern TEXT NOT NULL DEFAULT '',
+            analysis_do_not_turn_into TEXT NOT NULL DEFAULT '',
             created_at TEXT DEFAULT NULL,
             tags TEXT NOT NULL
         )
@@ -912,6 +995,30 @@ def _ensure_tracked_articles_schema(connection: sqlite3.Connection) -> None:
     if "created_at" not in columns:
         connection.execute(
             "ALTER TABLE tracked_articles ADD COLUMN created_at TEXT DEFAULT NULL"
+        )
+    if "analysis_theme" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN analysis_theme TEXT NOT NULL DEFAULT ''"
+        )
+    if "analysis_core_conflict" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN analysis_core_conflict TEXT NOT NULL DEFAULT ''"
+        )
+    if "analysis_emotional_exit" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN analysis_emotional_exit TEXT NOT NULL DEFAULT ''"
+        )
+    if "analysis_structure_mode" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN analysis_structure_mode TEXT NOT NULL DEFAULT ''"
+        )
+    if "analysis_opening_pattern" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN analysis_opening_pattern TEXT NOT NULL DEFAULT ''"
+        )
+    if "analysis_do_not_turn_into" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN analysis_do_not_turn_into TEXT NOT NULL DEFAULT ''"
         )
 
 
@@ -1703,6 +1810,22 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
     summary = str(row["summary"])
     body_markdown = str(row["body_markdown"]) if "body_markdown" in row.keys() else ""
     body_source = str(row["body_source"]) if "body_source" in row.keys() else ("dom" if body_markdown else "missing")
+    analysis_theme = str(row["analysis_theme"]) if "analysis_theme" in row.keys() else ""
+    analysis_core_conflict = str(row["analysis_core_conflict"]) if "analysis_core_conflict" in row.keys() else ""
+    analysis_emotional_exit = str(row["analysis_emotional_exit"]) if "analysis_emotional_exit" in row.keys() else ""
+    analysis_opening_pattern = str(row["analysis_opening_pattern"]) if "analysis_opening_pattern" in row.keys() else ""
+    analysis_do_not_turn_into = str(row["analysis_do_not_turn_into"]) if "analysis_do_not_turn_into" in row.keys() else ""
+    analysis_structure_mode = resolve_tracked_article_structure_mode(
+        body_markdown=body_markdown,
+        summary=summary,
+        structure_notes=str(row["structure_notes"]),
+        analysis_structure_mode_hint=(str(row["analysis_structure_mode"]) if "analysis_structure_mode" in row.keys() else ""),
+        analysis_theme=analysis_theme,
+        analysis_core_conflict=analysis_core_conflict,
+        analysis_emotional_exit=analysis_emotional_exit,
+        analysis_opening_pattern=analysis_opening_pattern,
+        analysis_do_not_turn_into=analysis_do_not_turn_into,
+    )
     return TrackedArticleItem(
         slug=str(row["slug"]),
         source_kind=str(row["source_kind"]) if "source_kind" in row.keys() else "manual",
@@ -1714,6 +1837,12 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
         body_markdown=_normalize_wechat_text(body_markdown, preserve_paragraphs=True) if body_markdown else "",
         body_source=body_source,
         structure_notes=str(row["structure_notes"]),
+        analysis_theme=analysis_theme,
+        analysis_core_conflict=analysis_core_conflict,
+        analysis_emotional_exit=analysis_emotional_exit,
+        analysis_structure_mode=analysis_structure_mode,
+        analysis_opening_pattern=analysis_opening_pattern,
+        analysis_do_not_turn_into=analysis_do_not_turn_into,
         created_at=str(row["created_at"]) if "created_at" in row.keys() and row["created_at"] is not None else None,
         tags=json.loads(str(row["tags"])),
     )
@@ -1722,7 +1851,9 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
 def _get_tracked_article_row_by_slug(connection: sqlite3.Connection, article_slug: str) -> sqlite3.Row | None:
     return connection.execute(
         """
-        SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes, created_at, tags
+        SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
+               analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
+               analysis_opening_pattern, analysis_do_not_turn_into, created_at, tags
         FROM tracked_articles
         WHERE slug = ?
         """,
@@ -1736,7 +1867,9 @@ def _find_tracked_article_by_url(connection: sqlite3.Connection, url: str) -> Tr
         return None
     row = connection.execute(
         """
-        SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes, created_at, tags
+        SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
+               analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
+               analysis_opening_pattern, analysis_do_not_turn_into, created_at, tags
         FROM tracked_articles
         WHERE url = ?
         """,
@@ -1762,8 +1895,12 @@ def _create_tracked_article_in_connection(
     )
     connection.execute(
         """
-        INSERT INTO tracked_articles (slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes, created_at, tags)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO tracked_articles (
+            slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
+            analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
+            analysis_opening_pattern, analysis_do_not_turn_into, created_at, tags
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload.slug,
@@ -1776,6 +1913,12 @@ def _create_tracked_article_in_connection(
             payload.body_markdown,
             body_source,
             payload.structure_notes,
+            payload.analysis_theme,
+            payload.analysis_core_conflict,
+            payload.analysis_emotional_exit,
+            normalize_structure_mode_hint(payload.analysis_structure_mode),
+            payload.analysis_opening_pattern,
+            payload.analysis_do_not_turn_into,
             created_at,
             json.dumps(payload.tags, ensure_ascii=False),
         ),
@@ -2276,7 +2419,9 @@ def list_tracked_articles() -> list[TrackedArticleItem]:
     with _get_connection() as connection:
         rows = connection.execute(
             """
-            SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes, created_at, tags
+            SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
+                   analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
+                   analysis_opening_pattern, analysis_do_not_turn_into, created_at, tags
             FROM tracked_articles
             ORDER BY rowid DESC
             """
@@ -2378,7 +2523,9 @@ def refresh_tracked_article_body(
         connection.execute(
             """
             UPDATE tracked_articles
-            SET body_markdown = ?, body_source = ?
+            SET body_markdown = ?, body_source = ?,
+                analysis_theme = '', analysis_core_conflict = '', analysis_emotional_exit = '',
+                analysis_structure_mode = '', analysis_opening_pattern = '', analysis_do_not_turn_into = ''
             WHERE slug = ?
             """,
             (body_markdown, body_source, article_slug),
@@ -2402,6 +2549,10 @@ def _normalize_tracked_article_tags(tags: object) -> list[str]:
             continue
         normalized.append(value)
     return normalized
+
+
+def _tracked_article_has_analysis(article: TrackedArticleItem) -> bool:
+    return all(getattr(article, field, "").strip() for field in _TRACKED_ARTICLE_ANALYSIS_FIELDS[:4])
 
 
 _ABSTRACT_PRESSURE_TOPIC_ANGLE_TOKENS = (
@@ -2526,6 +2677,156 @@ _ABSTRACT_EVERYDAY_WARMTH_GROWTH_TOKENS = (
     "更需要重估哪些事",
     "重估哪些事",
 )
+_ABSTRACT_SCENE_FIRST_TITLE_TOKENS = (
+    "很多关系",
+    "为什么",
+    "真正被耗掉的是",
+    "真正失去的是",
+    "最难恢复的",
+    "慢慢失联",
+    "重要的话",
+    "表达时机感",
+)
+_ABSTRACT_SCENE_FIRST_ANGLE_TOKENS = (
+    "拆开一种",
+    "拆开女性在",
+    "拆成一种常见",
+    "为什么总",
+    "怎样一步步",
+    "如何一步步",
+    "慢慢失去",
+    "内部时机",
+    "人际预判机制",
+)
+_TRACKED_ARTICLE_ANALYSIS_FIELDS = (
+    "analysis_theme",
+    "analysis_core_conflict",
+    "analysis_emotional_exit",
+    "analysis_structure_mode",
+    "analysis_opening_pattern",
+    "analysis_do_not_turn_into",
+)
+_ABSTRACT_RESPONSE_PRIORITY_AFTERCARE_TOKENS = (
+    "善后",
+    "把日子重新接上",
+    "自己消化情绪",
+    "吵完架以后",
+    "回避修复",
+    "关系回暖",
+    "冷战",
+    "争执过后",
+)
+_ABSTRACT_INNER_SETTLEMENT_RELATIONSHIP_TOKENS = (
+    "等你回应",
+    "回应顺序",
+    "等一个交代",
+    "交代",
+    "旧关系",
+    "没收好的旧关系",
+    "聊天框",
+    "消息框",
+    "对话框",
+    "没被接住",
+    "他还在",
+)
+_ABSTRACT_INNER_SETTLEMENT_PRESSURE_TOKENS = (
+    "体检",
+    "复查",
+    "复诊",
+    "身体提醒",
+    "身体信号",
+    "求救信号",
+    "待办清单最后",
+    "排在待办清单最后",
+    "排在最后",
+    "身体追债",
+    "自我照料",
+    "排回前面",
+)
+_ABSTRACT_INNER_SETTLEMENT_HAPPINESS_TOKENS = (
+    "幸福是什么",
+    "幸福是得到",
+    "幸福是放下",
+    "不再强求",
+    "放手",
+    "得不到",
+    "别无所求",
+    "知足",
+)
+_INNER_SETTLEMENT_TOPIC_ANCHOR_TOKENS = (
+    "心安",
+    "安顿",
+    "归处",
+    "内心",
+    "与内心和解",
+    "把心放平",
+    "把事看淡",
+    "一餐一饮",
+    "一呼一吸",
+    "把自己放回",
+    "心里一直",
+    "心无挂碍",
+    "安稳",
+)
+_INNER_SETTLEMENT_POSITIVE_TOKENS = (
+    "安放",
+    "安稳",
+    "放平",
+    "松下来",
+    "归处",
+    "轻重",
+    "顺起来",
+    "住进去",
+)
+_INNER_SETTLEMENT_RETURN_ANCHOR_TOKENS = (
+    "心安",
+    "安顿",
+    "归处",
+    "回到当下",
+    "一餐一饮",
+    "一呼一吸",
+    "把自己放回",
+    "住回",
+    "轻重",
+)
+_INNER_SETTLEMENT_DIAGNOSTIC_TOKENS = (
+    "更难落地",
+    "卡住",
+    "卡在",
+    "悬着",
+    "复盘过去",
+    "演练未来",
+    "最坏的结果",
+    "值班",
+    "失控",
+)
+_INNER_SETTLEMENT_TITLE_WAITING_SINK_TOKENS = (
+    "把安稳交给结果",
+    "把心安交给结果",
+    "把安全感押在结果上",
+    "把安全感押在外部结果上",
+    "把平静押在结果上",
+    "把平静押在外部结果上",
+    "把确认留给别人",
+    "在等待里把自己耗空",
+    "等一个结果",
+    "等一个回应",
+    "等一个答案",
+)
+_INNER_SETTLEMENT_ANGLE_WAITING_SINK_TOKENS = (
+    "把情绪稳定交给回复",
+    "把情绪稳定交给评价",
+    "把情绪稳定交给回复、评价和结果",
+    "把平静押在关系、工作和他人评价的结论上",
+    "把平静押在结果上",
+    "把平静押在外部结果上",
+    "把安全感押在结果上",
+    "把安全感押在外部结果上",
+    "把安全感都押在外部",
+    "日子落不了地",
+    "从等待里接回来",
+    "迟迟不肯把自己从等待里接回来",
+)
 _EVERYDAY_WARMTH_TOPIC_ANCHOR_TOKENS = (
     "大事",
     "小事",
@@ -2550,8 +2851,67 @@ _ABSTRACT_RESILIENCE_SELF_HELP_TOKENS = (
     "先把自己",
     "排回前面",
 )
-
-
+_SELF_RELIANCE_RELATIONSHIP_SINK_TOKENS = (
+    "说得很轻",
+    "不好意思开口",
+    "不敢开口",
+    "想开口",
+    "说不出口",
+    "越想解释",
+    "被误解",
+    "边界不清",
+    "需求不明",
+    "关系里",
+    "真正的帮助",
+    "真正的支持",
+    "求助包装",
+    "顺手帮一下",
+)
+_SELF_RELIANCE_THEME_ANCHOR_TOKENS = (
+    "向内求",
+    "向内稳住",
+    "自我支撑",
+    "自我修复",
+    "自我托住",
+    "自救自渡",
+    "把自己托起来",
+    "把自己托过去",
+    "外求未必",
+    "外部支撑",
+    "别人也各自承压",
+)
+_ABSTRACT_RELATIONSHIP_AFTERCARE_WITHDRAWN_TOKENS = (
+    "求助能力",
+    "自我消化",
+    "独自消化",
+    "把自己哄好",
+    "把自己收拾好",
+    "先撤回依赖",
+    "关掉表达",
+    "不再说",
+)
+_RESPONSE_PRIORITY_TOPIC_ANCHOR_TOKENS = (
+    "没时间",
+    "优先级",
+    "回应",
+    "时间分配",
+    "在乎",
+    "顺序",
+    "时间在哪儿",
+    "心就在哪儿",
+    "排在前面",
+)
+_SUPPORTIVE_APPRECIATION_TOPIC_ANCHOR_TOKENS = (
+    "心软",
+    "柔软",
+    "包容",
+    "体谅",
+    "温柔",
+    "珍惜",
+    "值得被珍惜",
+    "不糊涂",
+    "拎得清",
+)
 def _compact_pressure_topic_cue(sentence: str) -> str:
     compact = re.sub(r"\s+", "", sentence).strip("。！？!?；;")
     if not compact:
@@ -2729,6 +3089,47 @@ def _rewrite_emotional_release_topic(payload: Mapping[str, object], ai_result: M
     return {"title": new_title, "angle": new_angle}
 
 
+def _should_rewrite_relationship_aftercare_withdrawn_topic(
+    payload: Mapping[str, object],
+    ai_result: Mapping[str, object],
+) -> bool:
+    if not _has_relationship_aftercare_focus(payload):
+        return False
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+    if not title and not angle:
+        return False
+    combined = f"{title} {angle}"
+    return any(token in combined for token in _ABSTRACT_RELATIONSHIP_AFTERCARE_WITHDRAWN_TOKENS)
+
+
+def _rewrite_relationship_aftercare_withdrawn_topic(
+    payload: Mapping[str, object],
+    ai_result: Mapping[str, object],
+) -> dict[str, str]:
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+
+    body_markdown = str(payload.get("body_markdown") or "")
+    structure_notes = str(payload.get("structure_notes") or "")
+    summary = str(payload.get("summary") or "")
+    corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
+
+    if any(token in corpus for token in ("推开", "不再示弱", "示弱")):
+        new_title = "被推开几次以后，很多人就不再开口了"
+    elif any(token in corpus for token in ("嫌烦", "不被理解", "误读")):
+        new_title = "总在脆弱时被嫌烦的人，后来会先把求助咽回去"
+    else:
+        new_title = "总在最想被接住时先说“没事”的人，后来会慢慢关掉求助"
+
+    new_angle = (
+        "从一个人为什么会在最需要被接住的时候先把话咽回去切入，"
+        "写她在关系里怎样一次次把求助、示弱和真实反应往后收；"
+        "重点放在谁误解了她、谁没有接住她，以及这份后撤后来怎样慢慢改写关系。"
+    )
+    return {"title": new_title, "angle": new_angle}
+
+
 def _should_rewrite_everyday_warmth_return_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> bool:
     if not _has_everyday_warmth_return_focus(payload):
         return False
@@ -2768,6 +3169,195 @@ def _rewrite_everyday_warmth_return_topic(payload: Mapping[str, object], ai_resu
     return {"title": new_title, "angle": new_angle}
 
 
+def _should_rewrite_response_priority_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> bool:
+    if not _has_response_priority_focus(payload):
+        return False
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+    if not title and not angle:
+        return False
+    combined = f"{title} {angle}"
+    if any(token in combined for token in _ABSTRACT_RESPONSE_PRIORITY_AFTERCARE_TOKENS):
+        return True
+    return False
+
+
+def _rewrite_response_priority_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> dict[str, str]:
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+
+    body_markdown = str(payload.get("body_markdown") or "")
+    structure_notes = str(payload.get("structure_notes") or "")
+    summary = str(payload.get("summary") or "")
+    corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
+
+    if any(token in corpus for token in ("红灯30秒", "红灯", "蓝牙")):
+        new_title = "不是没时间，很多时候，是你根本没被排进他的优先级"
+    elif any(token in corpus for token in ("24小时在线", "在乎的人", "永远都有时间")):
+        new_title = "一个人把时间给了谁，往往比嘴上说了什么更真实"
+    else:
+        new_title = "总说没时间的人，很多时候只是没把你排在前面"
+
+    new_angle = (
+        "从“没时间”这句话为什么常常说的不是日程，而是顺序切入，"
+        "写时间分配、回应动作和投入意愿怎样一点点显出一个人的真实在乎程度；"
+        "也写一个人该凭什么认清自己有没有被放在前面。"
+    )
+    return {"title": new_title, "angle": new_angle}
+
+
+def _should_rewrite_supportive_appreciation_topic(
+    payload: Mapping[str, object],
+    ai_result: Mapping[str, object],
+) -> bool:
+    if not _has_supportive_appreciation_focus(payload):
+        return False
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+    if not title and not angle:
+        return False
+    combined = f"{title} {angle}"
+    return not any(token in combined for token in _SUPPORTIVE_APPRECIATION_TOPIC_ANCHOR_TOKENS)
+
+
+def _rewrite_supportive_appreciation_topic(
+    payload: Mapping[str, object],
+    ai_result: Mapping[str, object],
+) -> dict[str, str]:
+    body_markdown = str(payload.get("body_markdown") or "")
+    structure_notes = str(payload.get("structure_notes") or "")
+    summary = str(payload.get("summary") or "")
+    corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
+
+    if any(token in corpus for token in ("一生难遇", "牵紧他的手", "这样的人")):
+        new_title = "如果你身边有这样一个心软的人，请一定要好好珍惜"
+    elif any(token in corpus for token in ("并不傻", "拎得清", "大度")):
+        new_title = "心软的人并不傻，只是一直把感情看得很重"
+    elif any(token in corpus for token in ("温柔", "不糊涂", "包容")):
+        new_title = "真正稀缺的，从来不是会说漂亮话的人，而是温柔却不糊涂的人"
+    else:
+        new_title = "那些明明拎得清、却还是愿意包容你的人，最值得被珍惜"
+
+    new_angle = (
+        "从人为什么总把心软误认成好说话切入，"
+        "写那些明明拎得清、却还是愿意体谅和包容别人的人，"
+        "为什么反而最值得被认真珍惜；"
+        "重点放在柔软被误读的代价，以及这种温柔真正稀缺的分量。"
+    )
+    return {"title": new_title, "angle": new_angle}
+
+
+def _should_rewrite_inner_settlement_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> bool:
+    if not _has_inner_settlement_focus(payload):
+        return False
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+    if not title and not angle:
+        return False
+    combined = f"{title} {angle}"
+    if any(token in combined for token in _ABSTRACT_INNER_SETTLEMENT_RELATIONSHIP_TOKENS):
+        return True
+    if any(token in combined for token in _ABSTRACT_INNER_SETTLEMENT_PRESSURE_TOKENS):
+        return True
+    if any(token in combined for token in _ABSTRACT_INNER_SETTLEMENT_HAPPINESS_TOKENS) and not any(
+        token in combined for token in _INNER_SETTLEMENT_TOPIC_ANCHOR_TOKENS
+    ):
+        return True
+    title_has_positive_signal = any(token in title for token in _INNER_SETTLEMENT_TOPIC_ANCHOR_TOKENS) or any(
+        token in title for token in _INNER_SETTLEMENT_POSITIVE_TOKENS
+    )
+    angle_has_positive_signal = any(token in angle for token in _INNER_SETTLEMENT_TOPIC_ANCHOR_TOKENS) or any(
+        token in angle for token in _INNER_SETTLEMENT_POSITIVE_TOKENS
+    )
+    title_has_return_anchor = any(token in title for token in _INNER_SETTLEMENT_RETURN_ANCHOR_TOKENS)
+    angle_has_return_anchor = any(token in angle for token in _INNER_SETTLEMENT_RETURN_ANCHOR_TOKENS)
+    if any(token in title for token in _INNER_SETTLEMENT_TITLE_WAITING_SINK_TOKENS) and not title_has_return_anchor:
+        return True
+    if any(token in angle for token in _INNER_SETTLEMENT_ANGLE_WAITING_SINK_TOKENS) and not angle_has_return_anchor:
+        return True
+    if any(token in title for token in _INNER_SETTLEMENT_DIAGNOSTIC_TOKENS) and not title_has_positive_signal:
+        return True
+    if any(token in angle for token in _INNER_SETTLEMENT_DIAGNOSTIC_TOKENS) and not angle_has_positive_signal:
+        return True
+    return False
+
+
+def _is_inner_settlement_result_dependence_theme(*, title: str, markdown: str) -> bool:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": title,
+        "body_markdown": markdown,
+    }
+    if not _has_inner_settlement_focus(payload):
+        return False
+    combined = f"{title}\n{markdown}"
+    return any(token in combined for token in _INNER_SETTLEMENT_TITLE_WAITING_SINK_TOKENS) or any(
+        token in combined for token in _INNER_SETTLEMENT_ANGLE_WAITING_SINK_TOKENS
+    )
+
+
+def _rewrite_inner_settlement_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> dict[str, str]:
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+
+    body_markdown = str(payload.get("body_markdown") or "")
+    structure_notes = str(payload.get("structure_notes") or "")
+    summary = str(payload.get("summary") or "")
+    corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
+
+    if any(token in corpus for token in ("此心安处", "吾乡", "心有归处", "心无挂碍")):
+        new_title = "人这一生真正想要的，不过是一颗终于有归处的心"
+    elif any(token in corpus for token in ("一餐一饮", "一呼一吸", "安顿灵魂")):
+        new_title = "当你把心放回一餐一饮里，日子才会慢慢有了轻重"
+    elif any(token in corpus for token in ("心若不安", "心若不定", "把心放平", "把事看淡", "与内心和解")):
+        new_title = "很多事会慢慢顺起来，是从那颗心终于肯安顿下来开始的"
+    else:
+        new_title = "人到最后最想守住的，不过是一颗能安安稳稳住回日子的心"
+
+    new_angle = (
+        "从人为什么总想先把一切想稳、想透、想明白切入，"
+        "写很多时候真正需要被安顿的，不是事情本身，而是那颗一直没有放平的心；"
+        "也写人怎样慢慢回到当下、回到一餐一饮和一呼一吸，让生活重新有了轻重和归处。"
+    )
+    return {"title": new_title, "angle": new_angle}
+
+
+def _should_rewrite_self_reliance_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> bool:
+    if not _has_self_reliance_inward_support_focus(payload):
+        return False
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+    if not title and not angle:
+        return False
+    combined = f"{title} {angle}"
+    if any(token in combined for token in _SELF_RELIANCE_RELATIONSHIP_SINK_TOKENS):
+        return True
+    has_anchor = any(token in combined for token in _SELF_RELIANCE_THEME_ANCHOR_TOKENS)
+    return not has_anchor
+
+
+def _rewrite_self_reliance_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> dict[str, str]:
+    body_markdown = str(payload.get("body_markdown") or "")
+    structure_notes = str(payload.get("structure_notes") or "")
+    summary = str(payload.get("summary") or "")
+    corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
+
+    if any(token in corpus for token in ("向内求", "默默向内求", "冷静、沉淀和成长")):
+        new_title = "没有人能随时赶来时，记得先把自己安顿好"
+    elif any(token in corpus for token in ("外求", "求而不得", "靠不到", "靠不住")):
+        new_title = "外面的帮扶慢一点，也别让自己一直悬着"
+    else:
+        new_title = "低谷来得突然时，先学会把今天好好过完"
+
+    new_angle = (
+        "从成年人想找人倾诉、想向外求助，却发现别人也各自承压切入，"
+        "写外面的帮扶为什么未必总能及时赶上；"
+        "也写一个人怎样在低谷里先把自己安顿住，"
+        "先把情绪放稳，先把日子接回来，再一点点长出继续往前的力气。"
+    )
+    return {"title": new_title, "angle": new_angle}
+
+
 def _should_rewrite_resilience_reconstruction_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> bool:
     if not _has_resilience_reconstruction_focus(payload):
         return False
@@ -2777,6 +3367,54 @@ def _should_rewrite_resilience_reconstruction_topic(payload: Mapping[str, object
         return False
     combined = f"{title} {angle}"
     return any(token in combined for token in _ABSTRACT_RESILIENCE_SELF_HELP_TOKENS)
+
+
+def _should_rewrite_scene_first_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> bool:
+    if str(payload.get("analysis_structure_mode") or "").strip() != "scene_first_progression":
+        return False
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+    if not title and not angle:
+        return False
+    combined = f"{title} {angle}"
+    return any(token in combined for token in _ABSTRACT_SCENE_FIRST_TITLE_TOKENS) or any(
+        token in combined for token in _ABSTRACT_SCENE_FIRST_ANGLE_TOKENS
+    )
+
+
+def _rewrite_scene_first_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> dict[str, str]:
+    body_markdown = str(payload.get("body_markdown") or "")
+    structure_notes = str(payload.get("structure_notes") or "")
+    summary = str(payload.get("summary") or "")
+    corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
+
+    if any(token in corpus for token in ("会议室", "投影幕布", "散会以后", "老方案", "资料")):
+        new_title = "每次都把话留到散会后的人，后来会先怀疑自己该不该占那个位置"
+        new_angle = (
+            "从会议开始前翻方案、会上顺着气氛点头、散会后才把话在心里补完这一整段现场切入，"
+            "写一个人怎样在权威和秩序面前一次次把关键表达往后放。"
+        )
+        return {"title": new_title, "angle": new_angle}
+
+    if any(token in corpus for token in ("地铁口", "围巾", "接驳车", "白雾")):
+        new_title = "真正把关系拉远的，常常不是争吵，是那句在地铁口还是没问出口的话"
+        new_angle = (
+            "从地铁口等车、想问又收回、上车后谁都没再提那句话的连续现场切入，"
+            "写很多关系怎样在一次次‘先算了’里慢慢失去继续靠近的机会。"
+        )
+        return {"title": new_title, "angle": new_angle}
+
+    if any(token in corpus for token in ("药盒", "检查单", "水壶", "孩子睡了")):
+        new_title = "很多重要的话，不是忘了说，是总在那个刚好能开口的晚上又被压回去了"
+        new_angle = (
+            "从夜里回家、看见药盒和检查单、第二天清晨还是没把话说出口的连续现场切入，"
+            "写重要问题怎样一次次输给维持秩序的本能。"
+        )
+        return {"title": new_title, "angle": new_angle}
+
+    title = str(ai_result.get("title") or "").strip()
+    angle = str(ai_result.get("angle") or "").strip()
+    return {"title": title, "angle": angle}
 
 
 def _rewrite_resilience_reconstruction_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> dict[str, str]:
@@ -2830,11 +3468,39 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
         updated_summary = str(ai_result.get("summary") or "").strip() or article.summary
         updated_structure_notes = str(ai_result.get("structure_notes") or "").strip() or article.structure_notes
         updated_tags = _normalize_tracked_article_tags(ai_result.get("tags")) or article.tags
+        updated_analysis_theme = str(ai_result.get("analysis_theme") or "").strip() or article.analysis_theme
+        updated_analysis_core_conflict = (
+            str(ai_result.get("analysis_core_conflict") or "").strip() or article.analysis_core_conflict
+        )
+        updated_analysis_emotional_exit = (
+            str(ai_result.get("analysis_emotional_exit") or "").strip() or article.analysis_emotional_exit
+        )
+        updated_analysis_structure_mode = resolve_tracked_article_structure_mode(
+            body_markdown=article.body_markdown,
+            summary=updated_summary,
+            structure_notes=updated_structure_notes,
+            analysis_structure_mode_hint=str(ai_result.get("analysis_structure_mode") or "").strip() or article.analysis_structure_mode,
+            analysis_theme=updated_analysis_theme,
+            analysis_core_conflict=updated_analysis_core_conflict,
+            analysis_emotional_exit=updated_analysis_emotional_exit,
+            analysis_opening_pattern=(str(ai_result.get("analysis_opening_pattern") or "").strip() or article.analysis_opening_pattern),
+            analysis_do_not_turn_into=(
+                str(ai_result.get("analysis_do_not_turn_into") or "").strip() or article.analysis_do_not_turn_into
+            ),
+        )
+        updated_analysis_opening_pattern = (
+            str(ai_result.get("analysis_opening_pattern") or "").strip() or article.analysis_opening_pattern
+        )
+        updated_analysis_do_not_turn_into = (
+            str(ai_result.get("analysis_do_not_turn_into") or "").strip() or article.analysis_do_not_turn_into
+        )
 
         connection.execute(
             """
             UPDATE tracked_articles
-            SET author = ?, summary = ?, structure_notes = ?, tags = ?
+            SET author = ?, summary = ?, structure_notes = ?, tags = ?,
+                analysis_theme = ?, analysis_core_conflict = ?, analysis_emotional_exit = ?,
+                analysis_structure_mode = ?, analysis_opening_pattern = ?, analysis_do_not_turn_into = ?
             WHERE slug = ?
             """,
             (
@@ -2842,6 +3508,12 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
                 updated_summary,
                 updated_structure_notes,
                 json.dumps(updated_tags, ensure_ascii=False),
+                updated_analysis_theme,
+                updated_analysis_core_conflict,
+                updated_analysis_emotional_exit,
+                updated_analysis_structure_mode,
+                updated_analysis_opening_pattern,
+                updated_analysis_do_not_turn_into,
                 article_slug,
             ),
         )
@@ -3165,18 +3837,24 @@ def generate_topic_from_trend(trend_slug: str) -> TopicItem:
 
 def generate_topic_from_tracked_article(article_slug: str) -> TopicItem:
     tone_profile = get_active_tone_profile()
+    article_for_analysis: TrackedArticleItem | None = None
+    generator = get_ai_generator()
     with _get_connection() as connection:
-        article = connection.execute(
-            """
-            SELECT slug, source_kind, source_name, title, author, summary, body_markdown, structure_notes, created_at, tags
-            FROM tracked_articles
-            WHERE slug = ?
-            """,
-            (article_slug,),
-        ).fetchone()
+        article_row = _get_tracked_article_row_by_slug(connection, article_slug)
+        if not article_row:
+            raise HTTPException(status_code=404, detail="Tracked article not found")
+        article_for_analysis = _hydrate_tracked_article_row(article_row)
+
+    if article_for_analysis is None:
+        raise HTTPException(status_code=404, detail="Tracked article not found")
+    if not _tracked_article_has_analysis(article_for_analysis) and hasattr(generator, "generate_tracked_article_metadata"):
+        article_for_analysis = enrich_tracked_article_metadata(article_slug)
+
+    with _get_connection() as connection:
+        article = _get_tracked_article_row_by_slug(connection, article_slug)
         if not article:
             raise HTTPException(status_code=404, detail="Tracked article not found")
-
+        hydrated_article = _hydrate_tracked_article_row(article)
         current = connection.execute(
             """
             SELECT COUNT(*) AS total
@@ -3188,17 +3866,23 @@ def generate_topic_from_tracked_article(article_slug: str) -> TopicItem:
         slug = f"{article_slug}-ai-topic-{int(current['total']) + 1}"
         topic_payload = {
             "source_type": "tracked_article",
-            "source_ref_slug": article["slug"],
-            "source_name": _normalize_tracked_article_source_name(str(article["source_name"])),
-            "article_title": article["title"],
-            "author": article["author"],
-            "summary": article["summary"],
-            "body_markdown": article["body_markdown"],
-            "structure_notes": article["structure_notes"],
-            "tags": json.loads(str(article["tags"])),
+            "source_ref_slug": hydrated_article.slug,
+            "source_name": hydrated_article.source_name,
+            "article_title": hydrated_article.title,
+            "author": hydrated_article.author,
+            "summary": hydrated_article.summary,
+            "body_markdown": hydrated_article.body_markdown,
+            "structure_notes": hydrated_article.structure_notes,
+            "analysis_theme": hydrated_article.analysis_theme,
+            "analysis_core_conflict": hydrated_article.analysis_core_conflict,
+            "analysis_emotional_exit": hydrated_article.analysis_emotional_exit,
+            "analysis_structure_mode": hydrated_article.analysis_structure_mode,
+            "analysis_opening_pattern": hydrated_article.analysis_opening_pattern,
+            "analysis_do_not_turn_into": hydrated_article.analysis_do_not_turn_into,
+            "tags": hydrated_article.tags,
             "tone_profile": tone_profile.model_dump(),
         }
-        ai_result = get_ai_generator().generate_topic(topic_payload)
+        ai_result = generator.generate_topic(topic_payload)
         if _should_rewrite_pressure_topic_title(topic_payload, ai_result):
             ai_result = {
                 "title": _rewrite_pressure_topic_title(topic_payload, ai_result),
@@ -3208,10 +3892,22 @@ def generate_topic_from_tracked_article(article_slug: str) -> TopicItem:
             ai_result = _rewrite_pressure_topic_angle(topic_payload, ai_result)
         if _should_rewrite_everyday_warmth_return_topic(topic_payload, ai_result):
             ai_result = _rewrite_everyday_warmth_return_topic(topic_payload, ai_result)
+        if _should_rewrite_response_priority_topic(topic_payload, ai_result):
+            ai_result = _rewrite_response_priority_topic(topic_payload, ai_result)
+        if _should_rewrite_supportive_appreciation_topic(topic_payload, ai_result):
+            ai_result = _rewrite_supportive_appreciation_topic(topic_payload, ai_result)
+        if _should_rewrite_inner_settlement_topic(topic_payload, ai_result):
+            ai_result = _rewrite_inner_settlement_topic(topic_payload, ai_result)
+        if _should_rewrite_self_reliance_topic(topic_payload, ai_result):
+            ai_result = _rewrite_self_reliance_topic(topic_payload, ai_result)
         if _should_rewrite_emotional_release_topic(topic_payload, ai_result):
             ai_result = _rewrite_emotional_release_topic(topic_payload, ai_result)
+        if _should_rewrite_relationship_aftercare_withdrawn_topic(topic_payload, ai_result):
+            ai_result = _rewrite_relationship_aftercare_withdrawn_topic(topic_payload, ai_result)
         if _should_rewrite_resilience_reconstruction_topic(topic_payload, ai_result):
             ai_result = _rewrite_resilience_reconstruction_topic(topic_payload, ai_result)
+        if _should_rewrite_scene_first_topic(topic_payload, ai_result):
+            ai_result = _rewrite_scene_first_topic(topic_payload, ai_result)
         connection.execute(
             """
             INSERT INTO topics (slug, trend_slug, source_type, source_ref_slug, title, angle, status)
@@ -3407,6 +4103,12 @@ def _get_project_context(project_slug: str) -> sqlite3.Row:
                 ta.summary AS reference_article_summary,
                 ta.body_markdown AS reference_article_body_markdown,
                 ta.structure_notes AS reference_article_structure_notes,
+                ta.analysis_theme AS reference_article_analysis_theme,
+                ta.analysis_core_conflict AS reference_article_analysis_core_conflict,
+                ta.analysis_emotional_exit AS reference_article_analysis_emotional_exit,
+                ta.analysis_structure_mode AS reference_article_analysis_structure_mode,
+                ta.analysis_opening_pattern AS reference_article_analysis_opening_pattern,
+                ta.analysis_do_not_turn_into AS reference_article_analysis_do_not_turn_into,
                 ta.tags AS reference_article_tags,
                 CASE
                     WHEN t.source_type = 'trend' THEN tr.title
@@ -3452,6 +4154,18 @@ def _build_reference_article_payload(
         except json.JSONDecodeError:
             tags = []
 
+    resolved_analysis_structure_mode = resolve_tracked_article_structure_mode(
+        body_markdown=str(project["reference_article_body_markdown"] or ""),
+        summary=str(project["reference_article_summary"] or ""),
+        structure_notes=str(project["reference_article_structure_notes"] or ""),
+        analysis_structure_mode_hint=str(project["reference_article_analysis_structure_mode"] or ""),
+        analysis_theme=str(project["reference_article_analysis_theme"] or ""),
+        analysis_core_conflict=str(project["reference_article_analysis_core_conflict"] or ""),
+        analysis_emotional_exit=str(project["reference_article_analysis_emotional_exit"] or ""),
+        analysis_opening_pattern=str(project["reference_article_analysis_opening_pattern"] or ""),
+        analysis_do_not_turn_into=str(project["reference_article_analysis_do_not_turn_into"] or ""),
+    )
+
     payload.update(
         {
             "reference_article_title": str(project["reference_article_title"] or ""),
@@ -3460,9 +4174,44 @@ def _build_reference_article_payload(
             "reference_article_summary": str(project["reference_article_summary"] or ""),
             "reference_article_body_markdown": str(project["reference_article_body_markdown"] or ""),
             "reference_article_structure_notes": str(project["reference_article_structure_notes"] or ""),
+            "reference_article_analysis_theme": str(project["reference_article_analysis_theme"] or ""),
+            "reference_article_analysis_core_conflict": str(project["reference_article_analysis_core_conflict"] or ""),
+            "reference_article_analysis_emotional_exit": str(project["reference_article_analysis_emotional_exit"] or ""),
+            "reference_article_analysis_structure_mode": resolved_analysis_structure_mode,
+            "reference_article_analysis_opening_pattern": str(project["reference_article_analysis_opening_pattern"] or ""),
+            "reference_article_analysis_do_not_turn_into": str(project["reference_article_analysis_do_not_turn_into"] or ""),
             "reference_article_tags": tags,
         }
     )
+    return payload
+
+
+def _build_draft_candidate_selection_context(
+    *,
+    project: sqlite3.Row | None = None,
+    source_type: str | None = None,
+    reference_source_markdown: str = "",
+    reference_article_payload: Mapping[str, object] | None = None,
+    strategy_bundle_payload: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    if project is not None:
+        payload.update(
+            {
+                "source_type": str(project["source_type"] or ""),
+                "topic_title": str(project["topic_title"] or ""),
+                "topic_angle": str(project["topic_angle"] or ""),
+                "project_title": str(project["title"] or ""),
+            }
+        )
+    elif source_type is not None:
+        payload["source_type"] = str(source_type or "")
+    if reference_article_payload:
+        payload.update(dict(reference_article_payload))
+    if strategy_bundle_payload:
+        payload.update(dict(strategy_bundle_payload))
+    if reference_source_markdown and not payload.get("reference_article_body_markdown"):
+        payload["reference_article_body_markdown"] = reference_source_markdown
     return payload
 
 
@@ -5322,6 +6071,11 @@ def _generate_draft(
                 **strategy_bundle_payload,
                 **reference_article_payload,
             }
+            candidate_selection_context = _build_draft_candidate_selection_context(
+                project=project,
+                reference_article_payload=reference_article_payload,
+                strategy_bundle_payload=strategy_bundle_payload,
+            )
             initial_candidates = _generate_initial_draft_candidates(
                 project=project,
                 generator=generator,
@@ -5386,6 +6140,7 @@ def _generate_draft(
                     retried_cleanup_applied=current_cleanup_applied,
                     retried_cleanup_changed_steps=current_cleanup_changed_steps,
                     source_type=str(project["source_type"]),
+                    selection_context=candidate_selection_context,
                 ):
                     best_body_markdown = current_body_markdown
                     best_title = current_title
@@ -5571,8 +6326,15 @@ def _generate_initial_draft_candidates(
     is_tracked_article = str(project["source_type"]) == "tracked_article"
     is_polish_mode = bool(draft_payload.get("polish_instruction"))
     uses_custom_base_url = bool(getattr(generator, "uses_custom_base_url", False))
+    strategy_first_draft_mode = _should_use_tracked_article_strategy_first_draft_mode(
+        draft_payload,
+        is_polish_mode=is_polish_mode,
+    )
+    if strategy_first_draft_mode:
+        draft_payload = dict(draft_payload)
+        draft_payload["strategy_first_draft_mode"] = True
 
-    if not is_tracked_article or is_polish_mode or not uses_custom_base_url:
+    if not is_tracked_article or is_polish_mode or not uses_custom_base_url or strategy_first_draft_mode:
         initial_result = generator.generate_draft(draft_payload)
         return [
             (
@@ -5669,6 +6431,17 @@ def _build_draft_timeout_recovery_payload(
     return recovery_payload
 
 
+def _build_nested_draft_retry_payload(
+    payload: Mapping[str, object],
+    *,
+    generator,
+) -> dict[str, object]:
+    nested_payload = dict(payload)
+    if bool(getattr(generator, "uses_custom_base_url", False)):
+        nested_payload["compact_polish_mode"] = True
+    return nested_payload
+
+
 def _finalize_initial_draft_candidate(
     *,
     project_slug: str,
@@ -5687,10 +6460,12 @@ def _finalize_initial_draft_candidate(
     def _finish(body: str, current_title: str) -> _InitialDraftCandidateResult:
         reference_title = current_title
         reference_body_markdown = body
+        reference_source_markdown = _get_project_reference_source_markdown(project)
         current_body, changed_steps = _apply_initial_draft_candidate_cleanups(
             title=current_title,
             body_markdown=body,
             source_type=str(project["source_type"]),
+            reference_source_markdown=reference_source_markdown,
         )
         return _InitialDraftCandidateResult(
             title=current_title,
@@ -5777,7 +6552,8 @@ def _maybe_compress_draft_output(
 
     try:
         compressed_result = generator.generate_draft(
-            {
+            _build_nested_draft_retry_payload(
+                {
                 "trend_title": project["trend_title"],
                 "topic_title": project["topic_title"],
                 "topic_angle": project["topic_angle"],
@@ -5795,7 +6571,9 @@ def _maybe_compress_draft_output(
                     "body_markdown": body_markdown,
                 },
                 **reference_article_payload,
-            }
+                },
+                generator=generator,
+            )
         )
     except Exception as exc:
         logger.warning(
@@ -6028,6 +6806,118 @@ def _looks_like_over_smoothed_tracked_article_candidate(markdown: str) -> bool:
     return True
 
 
+def _looks_like_scene_first_progression_candidate(markdown: str) -> bool:
+    paragraphs = _extract_non_heading_paragraphs(markdown)
+    if len(paragraphs) < 4:
+        return False
+
+    opening_blocks = paragraphs[:3]
+    scene_time_markers = (
+        "第二天",
+        "清晨",
+        "早上",
+        "傍晚",
+        "夜里",
+        "周一早会开始前",
+        "散会以后",
+        "午休回来",
+        "雨停以后",
+        "回到家",
+        "送孩子",
+        "出门前",
+        "车来了",
+        "推开门",
+        "会议已经结束",
+        "消息发出去时",
+    )
+    scene_action_markers = (
+        "推开门",
+        "放下",
+        "放在",
+        "坐下来",
+        "坐在原位",
+        "站在",
+        "听见",
+        "看见",
+        "看着",
+        "盯着",
+        "压回",
+        "换鞋",
+        "进门",
+        "翻了一页",
+        "低头",
+        "上去",
+        "拉了拉",
+        "问了一句",
+        "响了一下",
+        "删过",
+        "发成私聊",
+        "咽回去",
+        "收住",
+        "停在",
+        "刷卡",
+        "进站",
+    )
+    scene_object_markers = (
+        "餐桌",
+        "厨房",
+        "屋子",
+        "手机屏幕",
+        "药盒",
+        "检查单",
+        "茶几",
+        "玄关",
+        "会议",
+        "投影幕布",
+        "咖啡",
+        "资料",
+        "屏幕",
+        "水杯",
+        "地铁口",
+        "接驳车",
+        "围巾",
+        "窗户",
+        "白雾",
+        "输入框",
+        "私聊",
+        "消息框",
+    )
+    early_explainer_markers = (
+        "很多人",
+        "关系里",
+        "其实",
+        "说到底",
+        "人总是这样",
+        "我们总以为",
+    )
+
+    scene_like_blocks = 0
+    early_explainer_hits = 0
+
+    for index, block in enumerate(opening_blocks):
+        time_hits = sum(1 for marker in scene_time_markers if marker in block)
+        action_hits = sum(1 for marker in scene_action_markers if marker in block)
+        object_hits = sum(1 for marker in scene_object_markers if marker in block)
+        if (time_hits >= 1 and action_hits >= 1) or (action_hits >= 1 and object_hits >= 1):
+            scene_like_blocks += 1
+        if index < 2 and any(marker in block for marker in early_explainer_markers):
+            early_explainer_hits += 1
+
+    if scene_like_blocks < 2:
+        return False
+    if early_explainer_hits >= 2:
+        return False
+
+    summary = evaluate_ai_flavor_risk(title="tracked-scene-first-check", body_markdown=markdown)
+    if summary.score > 18:
+        return False
+    if extract_not_ab_skeletons(markdown):
+        return False
+    if len(extract_generic_reflective_openers(markdown)) >= 2:
+        return False
+    return True
+
+
 def _prefer_less_smoothed_tracked_article_variant(
     *,
     preferred_title: str,
@@ -6101,6 +6991,7 @@ def _should_retry_for_remaining_ai_flavor(
     residual_openers = extract_generic_reflective_openers(candidate_markdown)
     residual_cliches = extract_growth_cliches(candidate_markdown)
     residual_rebound_tails = extract_rebound_explainer_tails(candidate_markdown)
+    residual_orphaned_rebound_tails = extract_orphaned_rebound_tails(candidate_markdown)
     residual_short_judgments = extract_short_judgment_paragraphs(candidate_markdown)
     residual_cadence_pairs = count_short_long_cadence_pairs(candidate_markdown)
     residual_embedded_banners = extract_embedded_banner_paragraphs(candidate_markdown)
@@ -6184,6 +7075,7 @@ def _should_retry_for_final_ai_flavor_cleanup(
     residual_openers = extract_generic_reflective_openers(candidate_markdown)
     residual_cliches = extract_growth_cliches(candidate_markdown)
     residual_rebound_tails = extract_rebound_explainer_tails(candidate_markdown)
+    residual_orphaned_rebound_tails = extract_orphaned_rebound_tails(candidate_markdown)
     residual_short_judgments = extract_short_judgment_paragraphs(candidate_markdown)
     residual_cadence_pairs = count_short_long_cadence_pairs(candidate_markdown)
     residual_embedded_banners = extract_embedded_banner_paragraphs(candidate_markdown)
@@ -6193,7 +7085,13 @@ def _should_retry_for_final_ai_flavor_cleanup(
     repeated_explanatory_paragraphs = (
         len(residual_explanatory_paragraphs) if len(residual_explanatory_paragraphs) >= 2 else 0
     )
-    residual_total = len(residual_not_ab) + len(residual_openers) + len(residual_cliches) + len(residual_rebound_tails)
+    residual_total = (
+        len(residual_not_ab)
+        + len(residual_openers)
+        + len(residual_cliches)
+        + len(residual_rebound_tails)
+        + len(residual_orphaned_rebound_tails)
+    )
     residual_shape_total = residual_total + repeated_quote_paragraphs + repeated_explanatory_paragraphs
     explainer_shell_hits = [
         hit
@@ -6270,11 +7168,14 @@ def _should_retry_for_final_ai_flavor_cleanup(
         return True
     if opening_explainer_only_residue:
         return True
+    if residual_orphaned_rebound_tails:
+        return True
     if connector_only_residue or minor_residue_only:
         return False
     if (
         residual_shape_total == 0
         and len(residual_rebound_tails) == 0
+        and len(residual_orphaned_rebound_tails) == 0
         and len(residual_short_judgments) < 2
         and residual_cadence_pairs == 0
         and len(residual_embedded_banners) == 0
@@ -6284,7 +7185,12 @@ def _should_retry_for_final_ai_flavor_cleanup(
         return False
     if len(residual_not_ab) > 3 and not (allow_four_not_ab_only or allow_five_not_ab_only):
         return False
-    if len(residual_openers) > 2 or len(residual_cliches) > 2 or len(residual_rebound_tails) > 4:
+    if (
+        len(residual_openers) > 2
+        or len(residual_cliches) > 2
+        or len(residual_rebound_tails) > 4
+        or len(residual_orphaned_rebound_tails) > 0
+    ):
         return False
     if len(residual_short_judgments) > 4 or residual_cadence_pairs > 2:
         return False
@@ -6305,6 +7211,717 @@ def _extract_non_heading_paragraphs(markdown: str) -> list[str]:
     return paragraphs
 
 
+def _split_block_sentences(block: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", block).strip()
+    if not normalized:
+        return []
+    return [item.strip() for item in re.findall(r"[^。！？!?；;\n]+[。！？!?；;]?", normalized) if item.strip()]
+
+
+def _is_resilience_reconstruction_cleanup_candidate(*, title: str, body_markdown: str) -> bool:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": title,
+        "body_markdown": body_markdown,
+        "reference_article_title": title,
+        "reference_article_body_markdown": body_markdown,
+    }
+    if _has_resilience_reconstruction_focus(payload):
+        return True
+
+    paragraphs = _extract_non_heading_paragraphs(body_markdown)
+    long_dense_paragraph_signal = any(
+        len(_split_block_sentences(paragraph)) >= 5 and _count_resilience_dense_categories(paragraph) >= 2
+        for paragraph in paragraphs
+    )
+    if not long_dense_paragraph_signal:
+        return False
+
+    compact = re.sub(r"\s+", "", f"{title}\n{body_markdown}")
+    training_or_adversity_hits = sum(
+        1
+        for keyword in (
+            "训练",
+            "泳池",
+            "划水",
+            "蹬水",
+            "转身",
+            "万米",
+            "11下",
+            "手术",
+            "车祸",
+            "伤病",
+            "拆线",
+        )
+        if keyword in compact
+    )
+    identity_or_rebuild_hits = sum(
+        1
+        for keyword in (
+            "不被定义",
+            "定义",
+            "命运",
+            "重建",
+            "低谷",
+            "边界",
+            "可能性",
+            "补回来",
+            "托住",
+            "主动权",
+            "解释权",
+            "交给",
+        )
+        if keyword in compact
+    )
+    return training_or_adversity_hits >= 2 and identity_or_rebuild_hits >= 1
+
+
+def _count_resilience_dense_categories(text: str) -> int:
+    compact = re.sub(r"\s+", "", text)
+    category_keywords = (
+        ("手术", "车祸", "伤口", "残肢", "骨头", "刺穿", "伤病", "炎症", "拆线", "剧痛"),
+        ("训练", "泳池", "划水", "转身", "蹬水", "万米", "发力", "动作", "上岸", "补回来", "游"),
+        ("肩伤", "肩背", "肩", "背痛", "背", "发紧", "发沉", "酸", "疼", "痛", "呛水", "窒息", "重心", "疲惫", "身体反应"),
+        ("不被定义", "定义", "命运", "韧性", "低谷", "重建", "残缺", "边界", "拒绝", "可能性"),
+    )
+    return sum(1 for keywords in category_keywords if any(keyword in compact for keyword in keywords))
+
+
+def _build_resilience_sentence_chunk_sizes(sentence_count: int) -> list[int]:
+    if sentence_count <= 3:
+        return [sentence_count]
+    if sentence_count == 4:
+        return [2, 2]
+    if sentence_count == 5:
+        return [2, 3]
+    if sentence_count == 6:
+        return [2, 2, 2]
+    if sentence_count == 7:
+        return [2, 2, 3]
+
+    chunk_sizes = [2]
+    chunk_sizes.extend(_build_resilience_sentence_chunk_sizes(sentence_count - 2))
+    return chunk_sizes
+
+
+def _repair_resilience_dangling_semicolon_chunks(blocks: list[str]) -> list[str]:
+    if len(blocks) < 2:
+        return blocks
+
+    repaired_blocks = [block.strip() for block in blocks if block.strip()]
+    index = 0
+    while index < len(repaired_blocks) - 1:
+        current = repaired_blocks[index]
+        next_block = repaired_blocks[index + 1]
+        if current.endswith(("；", ";")):
+            current_sentences = _split_block_sentences(current)
+            next_sentences = _split_block_sentences(next_block)
+            moved = False
+            while current.endswith(("；", ";")) and len(current_sentences) < 4 and next_sentences:
+                current_sentences.append(next_sentences.pop(0))
+                current = "".join(current_sentences).strip()
+                moved = True
+            if moved:
+                repaired_blocks[index] = current
+                if next_sentences:
+                    repaired_blocks[index + 1] = "".join(next_sentences).strip()
+                else:
+                    del repaired_blocks[index + 1]
+                    continue
+        index += 1
+
+    return repaired_blocks
+
+
+def _is_tracked_article_dense_explainer_cleanup_candidate(*, title: str, body_markdown: str) -> bool:
+    if _is_resilience_reconstruction_cleanup_candidate(title=title, body_markdown=body_markdown):
+        return False
+
+    paragraphs = _extract_non_heading_paragraphs(body_markdown)
+    return any(
+        len(_split_block_sentences(paragraph)) >= 5 and len(re.sub(r"\s+", "", paragraph)) >= 80
+        for paragraph in paragraphs
+    )
+
+
+def _build_tracked_article_dense_sentence_chunk_sizes(sentence_count: int) -> list[int]:
+    if sentence_count <= 3:
+        return [sentence_count]
+    if sentence_count == 4:
+        return [2, 2]
+    if sentence_count == 5:
+        return [3, 2]
+    if sentence_count == 6:
+        return [3, 3]
+
+    chunk_sizes = [3]
+    chunk_sizes.extend(_build_tracked_article_dense_sentence_chunk_sizes(sentence_count - 3))
+    return chunk_sizes
+
+
+def _split_tracked_article_dense_explainer_residue(*, title: str, body_markdown: str) -> str:
+    if not _is_tracked_article_dense_explainer_cleanup_candidate(title=title, body_markdown=body_markdown):
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    changed = False
+    rebuilt_body_blocks: list[str] = []
+    original_sentence_counts: list[int] = []
+    rebuilt_sentence_counts: list[int] = []
+
+    split_markers = (
+        "关系不是突然",
+        "关系不是忽然",
+        "这个反应",
+        "更难的是",
+        "收尾的用处",
+        "这一步很伤",
+        "拖到后面",
+        "这也是为什么",
+        "这些动作看着普通",
+        "认出停住的位置",
+        "也别急着",
+        "可这条路",
+        "轮到自己",
+    )
+
+    for block in body_blocks:
+        normalized = block.strip()
+        if not normalized:
+            continue
+        if _looks_like_structure_heading(normalized):
+            rebuilt_body_blocks.append(normalized)
+            continue
+
+        sentences = _split_block_sentences(normalized)
+        sentence_count = len(sentences)
+        if sentence_count:
+            original_sentence_counts.append(sentence_count)
+
+        compact_len = len(re.sub(r"\s+", "", normalized))
+        should_split = (
+            sentence_count >= 5
+            and compact_len >= 80
+            and any(marker in normalized for marker in split_markers)
+        )
+        if not should_split:
+            rebuilt_body_blocks.append(normalized)
+            if sentence_count:
+                rebuilt_sentence_counts.append(sentence_count)
+            continue
+
+        chunk_sizes = _build_tracked_article_dense_sentence_chunk_sizes(sentence_count)
+        split_blocks: list[str] = []
+        cursor = 0
+        for chunk_size in chunk_sizes:
+            chunk = "".join(sentences[cursor : cursor + chunk_size]).strip()
+            cursor += chunk_size
+            if chunk:
+                split_blocks.append(chunk)
+        if len(split_blocks) <= 1:
+            rebuilt_body_blocks.append(normalized)
+            rebuilt_sentence_counts.append(sentence_count)
+            continue
+
+        changed = True
+        rebuilt_body_blocks.extend(split_blocks)
+        rebuilt_sentence_counts.extend(len(_split_block_sentences(chunk)) for chunk in split_blocks)
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_body_blocks = _repair_resilience_dangling_semicolon_chunks(rebuilt_body_blocks)
+    rebuilt_sentence_counts = [
+        len(sentences)
+        for block in rebuilt_body_blocks
+        for sentences in [_split_block_sentences(block)]
+        if sentences
+    ]
+
+    original_long_paragraphs = sum(1 for count in original_sentence_counts if count > 4)
+    rebuilt_long_paragraphs = sum(1 for count in rebuilt_sentence_counts if count > 4)
+    if rebuilt_long_paragraphs >= original_long_paragraphs:
+        return body_markdown
+
+    if rebuilt_sentence_counts and original_sentence_counts:
+        if max(rebuilt_sentence_counts) >= max(original_sentence_counts):
+            return body_markdown
+
+    rebuilt_blocks = ([heading_block] if heading_block else []) + rebuilt_body_blocks
+    cleaned_markdown = "\n\n".join(rebuilt_blocks)
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    cleaned_summary = evaluate_ai_flavor_risk(title=title, body_markdown=cleaned_markdown)
+    if cleaned_summary.score > original_summary.score:
+        return body_markdown
+
+    return cleaned_markdown
+
+
+def _split_tracked_article_long_paragraph_residue(*, title: str, body_markdown: str) -> str:
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    changed = False
+    rebuilt_body_blocks: list[str] = []
+    original_sentence_counts: list[int] = []
+    rebuilt_sentence_counts: list[int] = []
+
+    for block in body_blocks:
+        normalized = block.strip()
+        if not normalized:
+            continue
+        if _looks_like_structure_heading(normalized):
+            rebuilt_body_blocks.append(normalized)
+            continue
+
+        sentences = _split_block_sentences(normalized)
+        sentence_count = len(sentences)
+        if sentence_count:
+            original_sentence_counts.append(sentence_count)
+
+        compact_len = len(re.sub(r"\s+", "", normalized))
+        should_split = (
+            sentence_count >= 6 and compact_len >= 80
+        ) or (
+            sentence_count == 5 and compact_len >= 110
+        )
+        if not should_split:
+            rebuilt_body_blocks.append(normalized)
+            if sentence_count:
+                rebuilt_sentence_counts.append(sentence_count)
+            continue
+
+        chunk_sizes = _build_tracked_article_dense_sentence_chunk_sizes(sentence_count)
+        split_blocks: list[str] = []
+        cursor = 0
+        for chunk_size in chunk_sizes:
+            chunk = "".join(sentences[cursor : cursor + chunk_size]).strip()
+            cursor += chunk_size
+            if chunk:
+                split_blocks.append(chunk)
+        if len(split_blocks) <= 1:
+            rebuilt_body_blocks.append(normalized)
+            rebuilt_sentence_counts.append(sentence_count)
+            continue
+
+        changed = True
+        rebuilt_body_blocks.extend(split_blocks)
+        rebuilt_sentence_counts.extend(len(_split_block_sentences(chunk)) for chunk in split_blocks)
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_sentence_counts = [
+        len(sentences)
+        for block in rebuilt_body_blocks
+        for sentences in [_split_block_sentences(block)]
+        if sentences
+    ]
+
+    original_long_paragraphs = sum(1 for count in original_sentence_counts if count > 4)
+    rebuilt_long_paragraphs = sum(1 for count in rebuilt_sentence_counts if count > 4)
+    if rebuilt_long_paragraphs >= original_long_paragraphs:
+        return body_markdown
+
+    cleaned_markdown = "\n\n".join(([heading_block] if heading_block else []) + rebuilt_body_blocks)
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    cleaned_summary = evaluate_ai_flavor_risk(title=title, body_markdown=cleaned_markdown)
+    if cleaned_summary.score > original_summary.score:
+        return body_markdown
+
+    return cleaned_markdown
+
+
+def _split_tracked_article_scene_anchor_residue(*, title: str, body_markdown: str) -> str:
+    if _is_resilience_reconstruction_cleanup_candidate(title=title, body_markdown=body_markdown):
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    changed = False
+    rebuilt_body_blocks: list[str] = []
+    explainer_lead_pattern = re.compile(
+        r"^(?:可|但|只是|很多|这件事|这一步|时间久了|到后面|不少人|你会发现|别人看到的是|求助不是|前面那些|如果最近已经有一个接口开始出代价了|关系里)",
+        re.UNICODE,
+    )
+    abstract_starter_pattern = re.compile(
+        r"^(?:关系里|很多人|不少人|时间久了|你会发现|求助不是|前面那些|这件事|这一步|到后面)",
+        re.UNICODE,
+    )
+
+    def _compact_len(value: str) -> int:
+        return len(re.sub(r"\s+", "", value.strip().rstrip("。！？!?；;")))
+
+    for block in body_blocks:
+        normalized = block.strip()
+        if not normalized:
+            continue
+        if _looks_like_structure_heading(normalized):
+            rebuilt_body_blocks.append(normalized)
+            continue
+
+        sentences = _split_block_sentences(normalized)
+        if len(sentences) != 3:
+            rebuilt_body_blocks.append(normalized)
+            continue
+
+        compact_len = len(re.sub(r"\s+", "", normalized))
+        first_sentence = sentences[0].strip()
+        second_sentence = sentences[1].strip()
+        third_sentence = sentences[2].strip()
+        first_core = first_sentence.rstrip("。！？!?；;")
+        punctuation_count = sum(first_core.count(token) for token in ("，", "、", "："))
+        should_split = (
+            75 <= compact_len <= 220
+            and 16 <= _compact_len(first_sentence) <= 56
+            and not first_core.startswith(("“", '"', "‘", "'"))
+            and abstract_starter_pattern.match(first_sentence) is None
+            and punctuation_count >= 2
+            and _compact_len(second_sentence) >= 22
+            and (
+                explainer_lead_pattern.match(second_sentence) is not None
+                or "：" in second_sentence
+                or _compact_len(third_sentence) <= 22
+            )
+        )
+        if not should_split:
+            rebuilt_body_blocks.append(normalized)
+            continue
+
+        changed = True
+        rebuilt_body_blocks.append(first_sentence)
+        rebuilt_body_blocks.append(second_sentence + third_sentence)
+
+    if not changed:
+        return body_markdown
+
+    cleaned_markdown = "\n\n".join(([heading_block] if heading_block else []) + rebuilt_body_blocks)
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    cleaned_summary = evaluate_ai_flavor_risk(title=title, body_markdown=cleaned_markdown)
+    if cleaned_summary.score > original_summary.score:
+        return body_markdown
+
+    return cleaned_markdown
+
+
+def _split_resilience_dense_paragraph_residue(*, title: str, body_markdown: str) -> str:
+    if not _is_resilience_reconstruction_cleanup_candidate(title=title, body_markdown=body_markdown):
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    changed = False
+    rebuilt_body_blocks: list[str] = []
+    original_sentence_counts: list[int] = []
+    rebuilt_sentence_counts: list[int] = []
+
+    for block in body_blocks:
+        normalized = block.strip()
+        if not normalized:
+            continue
+        if _looks_like_structure_heading(normalized):
+            rebuilt_body_blocks.append(normalized)
+            continue
+
+        sentences = _split_block_sentences(normalized)
+        sentence_count = len(sentences)
+        if sentence_count:
+            original_sentence_counts.append(sentence_count)
+
+        compact_len = len(re.sub(r"\s+", "", normalized))
+        category_count = _count_resilience_dense_categories(normalized)
+        min_compact_len = 110 if sentence_count >= 6 else 85
+        should_split = (
+            sentence_count >= 5
+            and compact_len >= min_compact_len
+            and category_count >= 2
+            and (
+                sentence_count >= 6
+                or category_count >= 3
+                or (
+                    sentence_count == 5
+                    and compact_len >= 85
+                    and any(
+                        keyword in normalized
+                        for keyword in ("训练", "下水", "肩背", "动作", "发力", "转身", "训练表", "解释权", "命运")
+                    )
+                )
+            )
+        )
+        if not should_split:
+            rebuilt_body_blocks.append(normalized)
+            if sentence_count:
+                rebuilt_sentence_counts.append(sentence_count)
+            continue
+
+        chunk_sizes = _build_resilience_sentence_chunk_sizes(sentence_count)
+        split_blocks: list[str] = []
+        cursor = 0
+        for chunk_size in chunk_sizes:
+            chunk = "".join(sentences[cursor : cursor + chunk_size]).strip()
+            cursor += chunk_size
+            if chunk:
+                split_blocks.append(chunk)
+        if len(split_blocks) <= 1:
+            rebuilt_body_blocks.append(normalized)
+            rebuilt_sentence_counts.append(sentence_count)
+            continue
+
+        changed = True
+        rebuilt_body_blocks.extend(split_blocks)
+        rebuilt_sentence_counts.extend(len(_split_block_sentences(chunk)) for chunk in split_blocks)
+
+    if not changed:
+        return body_markdown
+
+    rebuilt_body_blocks = _repair_resilience_dangling_semicolon_chunks(rebuilt_body_blocks)
+    rebuilt_sentence_counts = [
+        len(sentences)
+        for block in rebuilt_body_blocks
+        for sentences in [_split_block_sentences(block)]
+        if sentences
+    ]
+
+    original_long_paragraphs = sum(1 for count in original_sentence_counts if count > 4)
+    rebuilt_long_paragraphs = sum(1 for count in rebuilt_sentence_counts if count > 4)
+    if rebuilt_long_paragraphs >= original_long_paragraphs:
+        return body_markdown
+
+    if rebuilt_sentence_counts and original_sentence_counts:
+        if max(rebuilt_sentence_counts) >= max(original_sentence_counts):
+            return body_markdown
+
+    rebuilt_blocks = ([heading_block] if heading_block else []) + rebuilt_body_blocks
+    cleaned_markdown = "\n\n".join(rebuilt_blocks)
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    cleaned_summary = evaluate_ai_flavor_risk(title=title, body_markdown=cleaned_markdown)
+    if cleaned_summary.score > original_summary.score:
+        return body_markdown
+
+    return cleaned_markdown
+
+
+def _is_resilience_process_anchor_cleanup_candidate(*, title: str, body_markdown: str) -> bool:
+    compact = re.sub(r"\s+", "", f"{title}\n{body_markdown}")
+    keyword_groups = (
+        ("手术", "伤口", "伤病", "车祸"),
+        ("训练", "训练表", "下水", "发力", "动作", "泳池", "复健"),
+        ("肩背", "肩膀", "背部", "发紧", "发沉", "疼", "痛"),
+        ("主动权", "解释权", "低谷", "命运", "重建", "定义"),
+    )
+    return sum(1 for keywords in keyword_groups if any(keyword in compact for keyword in keywords)) >= 2
+
+
+def _split_resilience_process_anchor_residue(*, title: str, body_markdown: str) -> str:
+    if not _is_resilience_process_anchor_cleanup_candidate(title=title, body_markdown=body_markdown):
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    changed = False
+    rebuilt_body_blocks: list[str] = []
+
+    for block in body_blocks:
+        normalized = block.strip()
+        if not normalized:
+            continue
+        if _looks_like_structure_heading(normalized):
+            rebuilt_body_blocks.append(normalized)
+            continue
+
+        sentence_count = len(_split_block_sentences(normalized))
+        marker_index = normalized.find("做得差，流程还在；")
+        should_split = (
+            sentence_count >= 5
+            and marker_index > 0
+            and "流程还在" in normalized
+            and "下一组" in normalized
+            and any(keyword in normalized for keyword in ("泳池边", "复健室", "计划表", "把人往回拽", "不讲情面的东西"))
+        )
+        if not should_split:
+            rebuilt_body_blocks.append(normalized)
+            continue
+
+        left = normalized[:marker_index].rstrip()
+        right = normalized[marker_index:].lstrip()
+        if not left or not right:
+            rebuilt_body_blocks.append(normalized)
+            continue
+
+        rebuilt_body_blocks.extend((left, right))
+        changed = True
+
+    if not changed:
+        return body_markdown
+
+    cleaned_markdown = "\n\n".join(([heading_block] if heading_block else []) + rebuilt_body_blocks)
+    original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+    cleaned_summary = evaluate_ai_flavor_risk(title=title, body_markdown=cleaned_markdown)
+    if cleaned_summary.score > original_summary.score:
+        return body_markdown
+
+    original_counts = [len(_split_block_sentences(block)) for block in _extract_non_heading_paragraphs(body_markdown)]
+    rebuilt_counts = [len(_split_block_sentences(block)) for block in _extract_non_heading_paragraphs(cleaned_markdown)]
+    if rebuilt_counts and original_counts and max(rebuilt_counts) >= max(original_counts):
+        return body_markdown
+
+    return cleaned_markdown
+
+
+def _replace_duplicate_exact_phrase(
+    text: str,
+    *,
+    phrase: str,
+    replacement: str,
+    keep_count: int,
+) -> str:
+    if keep_count < 0:
+        keep_count = 0
+
+    result_parts: list[str] = []
+    cursor = 0
+    seen = 0
+    while True:
+        index = text.find(phrase, cursor)
+        if index < 0:
+            result_parts.append(text[cursor:])
+            break
+        result_parts.append(text[cursor:index])
+        if seen < keep_count:
+            result_parts.append(phrase)
+        else:
+            result_parts.append(replacement)
+        seen += 1
+        cursor = index + len(phrase)
+    return "".join(result_parts)
+
+
+def _is_resilience_hook_echo_cleanup_candidate(*, title: str, body_markdown: str) -> bool:
+    keep_count = 0 if "多划11下" in title else 1
+    if body_markdown.count("多划11下") <= keep_count:
+        return False
+
+    compact = re.sub(r"\s+", "", f"{title}\n{body_markdown}")
+    keyword_groups = (
+        ("手术", "车祸", "伤病", "伤口", "拆线"),
+        ("训练", "泳池", "划水", "蹬水", "转身", "万米", "发力", "动作", "复健", "补回来"),
+        ("肩伤", "肩背", "肩膀", "背部", "酸胀", "发紧", "发沉", "疼", "痛", "身体受限"),
+        ("低谷", "解释权", "主动权", "重建", "托住", "命运", "定义", "不被定义"),
+    )
+    return sum(1 for keywords in keyword_groups if any(keyword in compact for keyword in keywords)) >= 2
+
+
+def _soften_resilience_hook_echo_residue(*, title: str, body_markdown: str) -> str:
+    if not _is_resilience_hook_echo_cleanup_candidate(title=title, body_markdown=body_markdown):
+        return body_markdown
+
+    blocks = _split_markdown_blocks(body_markdown)
+    if not blocks:
+        return body_markdown
+
+    heading_block: str | None = None
+    if blocks[0].lstrip().startswith("#"):
+        heading_block = blocks[0]
+        body_blocks = blocks[1:]
+    else:
+        body_blocks = blocks[:]
+
+    keep_count = 0 if "多划11下" in title else 1
+    cleaned_body = _replace_duplicate_exact_phrase(
+        "\n\n".join(body_blocks),
+        phrase="多划11下",
+        replacement="那11下",
+        keep_count=keep_count,
+    )
+    cleaned = "\n\n".join(([heading_block] if heading_block else []) + ([cleaned_body] if cleaned_body else []))
+    cleaned = cleaned.replace("它也还是自己的。", "它也还在自己手里。")
+
+    return cleaned
+
+
+def _is_resilience_local_reference_cleanup_candidate(*, title: str, body_markdown: str) -> bool:
+    if body_markdown.count("那11下") < 2:
+        return False
+
+    compact = re.sub(r"\s+", "", f"{title}\n{body_markdown}")
+    keyword_groups = (
+        ("手术", "车祸", "伤病", "伤口", "拆线"),
+        ("训练", "泳池", "划水", "蹬水", "转身", "万米", "发力", "动作", "复健", "补回来"),
+        ("肩伤", "肩背", "肩膀", "背部", "酸胀", "发紧", "发沉", "疼", "痛", "身体受限"),
+        ("低谷", "解释权", "主动权", "重建", "托住", "命运", "定义", "不被定义"),
+    )
+    return sum(1 for keywords in keyword_groups if any(keyword in compact for keyword in keywords)) >= 2
+
+
+def _soften_resilience_local_reference_echo_residue(*, title: str, body_markdown: str) -> str:
+    if not _is_resilience_local_reference_cleanup_candidate(title=title, body_markdown=body_markdown):
+        return body_markdown
+
+    cleaned = body_markdown
+    cleaned = cleaned.replace("那11下后面，可能是", "后面拖着的，往往是")
+    cleaned = cleaned.replace("哪怕只是补齐那11下", "哪怕只是把那组动作补齐")
+    cleaned = cleaned.replace("那11下，表面上是训练量", "那组补回来的动作，表面上是训练量")
+    cleaned = cleaned.replace("只要还能补齐那11下", "只要还能把这一组补齐")
+    cleaned = cleaned.replace("把那11下划完", "把这一组划完")
+    cleaned = cleaned.replace("那组补回来的动作", "补回来的这一组动作")
+    return cleaned
+
+
+def _repair_repeated_phrase_typo_residue(*, title: str, body_markdown: str) -> str:
+    replacements = {
+        "对方方不方便": "对方不方便",
+    }
+    cleaned = body_markdown
+    for typo, replacement in replacements.items():
+        cleaned = cleaned.replace(typo, replacement)
+    return cleaned
+
+
 def _collapse_short_judgment_residue(*, title: str, body_markdown: str) -> str:
     original_short_paragraphs = extract_short_judgment_paragraphs(body_markdown)
     if len(original_short_paragraphs) <= 2:
@@ -6323,9 +7940,24 @@ def _collapse_short_judgment_residue(*, title: str, body_markdown: str) -> str:
 
     def _is_short_judgment_block(block: str) -> bool:
         normalized = block.strip()
+        if _should_attach_to_next(normalized):
+            return extract_short_judgment_paragraphs(normalized) == [normalized]
         if _looks_like_structure_heading(normalized):
             return False
         return extract_short_judgment_paragraphs(normalized) == [normalized]
+
+    def _should_attach_to_next(block: str) -> bool:
+        normalized = block.strip().rstrip("。！？!?；;")
+        return any(
+            normalized.startswith(prefix)
+            for prefix in (
+                "先别",
+                "把明天",
+                "把今天",
+                "别急着",
+                "别把",
+            )
+        )
 
     def _short_judgment_count(items: list[str]) -> int:
         return sum(1 for item in items if _is_short_judgment_block(item))
@@ -6675,8 +8307,6 @@ def _collapse_banner_lead_sentence_block(block: str) -> str | None:
 
 def _collapse_short_long_cadence_residue(*, title: str, body_markdown: str) -> str:
     original_pairs = count_short_long_cadence_pairs(body_markdown)
-    if original_pairs < 2:
-        return body_markdown
 
     blocks = _split_markdown_blocks(body_markdown)
     if not blocks:
@@ -6697,9 +8327,33 @@ def _collapse_short_long_cadence_residue(*, title: str, body_markdown: str) -> s
 
     def _is_short_judgment_block(block: str) -> bool:
         normalized = block.strip()
+        if _should_attach_to_next(normalized):
+            return extract_short_judgment_paragraphs(normalized) == [normalized]
         if _looks_like_structure_heading(normalized):
             return False
         return extract_short_judgment_paragraphs(normalized) == [normalized]
+
+    def _should_attach_to_next(block: str) -> bool:
+        normalized = block.strip().rstrip("。！？!?；;")
+        return any(
+            normalized.startswith(prefix)
+            for prefix in (
+                "先别",
+                "把明天",
+                "把今天",
+                "别急着",
+                "别把",
+            )
+        )
+
+    has_attach_to_next_candidate = any(
+        _is_short_judgment_block(body_blocks[index].strip())
+        and _should_attach_to_next(body_blocks[index].strip())
+        and _compact_len(body_blocks[index + 1].strip()) >= 60
+        for index in range(1, len(body_blocks) - 1)
+    )
+    if original_pairs < 2 and not has_attach_to_next_candidate:
+        return body_markdown
 
     changed = False
     index = 1
@@ -6710,11 +8364,19 @@ def _collapse_short_long_cadence_residue(*, title: str, body_markdown: str) -> s
         if not _is_short_judgment_block(current_block):
             index += 1
             continue
-        if _compact_len(previous_block) < 60 or _compact_len(next_block) < 60:
+        attach_to_next = _should_attach_to_next(current_block)
+        if _compact_len(next_block) < 60:
             index += 1
             continue
-        body_blocks[index - 1] = body_blocks[index - 1].rstrip() + current_block
-        del body_blocks[index]
+        if not attach_to_next and _compact_len(previous_block) < 60:
+            index += 1
+            continue
+        if attach_to_next:
+            body_blocks[index + 1] = current_block + body_blocks[index + 1].lstrip()
+            del body_blocks[index]
+        else:
+            body_blocks[index - 1] = body_blocks[index - 1].rstrip() + current_block
+            del body_blocks[index]
         changed = True
         continue
 
@@ -7364,12 +9026,35 @@ def _soften_direct_address_lecture_residue(*, title: str, body_markdown: str) ->
 
 def _soften_not_ab_residue(*, title: str, body_markdown: str) -> str:
     original_not_ab = extract_not_ab_skeletons(body_markdown)
-    if not original_not_ab or len(original_not_ab) > 3:
+    if not original_not_ab or len(original_not_ab) > 5:
         return body_markdown
 
-    pattern = re.compile(r"不是(.{1,24}?)[，,、]?\s*(?:而?是)([^。；\n]{1,80})", re.UNICODE)
+    use_light_rewrite = len(original_not_ab) >= 4
+
+    heavy_pattern = re.compile(r"不是(.{1,24}?)[，,、]?\s*(?:而?是)([^。；\n]{1,80})", re.UNICODE)
+    light_pattern = re.compile(
+        r"(?:并)?不是(.{1,24}?)(?:[，,、]\s*(她|他|你|我))?\s*(?:(而是|只是|就是|(?<!不)是))([^。！？!?；;\n]{1,80})",
+        re.UNICODE,
+    )
+    pattern = light_pattern if use_light_rewrite else heavy_pattern
     if not pattern.search(body_markdown):
         return body_markdown
+
+    def _find_sentence_start(content: str, match_start: int) -> int:
+        separators = "。！？!?；;\n"
+        start = 0
+        for index in range(match_start - 1, -1, -1):
+            if content[index] in separators:
+                start = index + 1
+                break
+        return start
+
+    def _strip_right_leading_subject(text: str) -> str:
+        return re.sub(
+            r"^(?:我|你|他|她)(?=(?:先|就|会|得|想|要|能|把|开始|已经|也|还|再|总|正在|不|没))",
+            "",
+            text.strip(),
+        ).strip()
 
     def _normalize_not_ab_left_fragment(text: str) -> str:
         normalized = text.strip()
@@ -7396,6 +9081,78 @@ def _soften_not_ab_residue(*, title: str, body_markdown: str) -> str:
             return "真要说她是在藏，反而把那一下卡住写轻了"
         return f"真要把它算成{normalized}，反而把事情说浅了"
 
+    def _rewrite_not_ab_light(match: re.Match[str]) -> str:
+        left = match.group(1).strip()
+        subject = (match.group(2) or "").strip()
+        transition = match.group(3).strip()
+        right = match.group(4).strip()
+        sentence_start = _find_sentence_start(match.string, match.start())
+        prefix = match.string[sentence_start:match.start()]
+        prefix_compact = prefix.strip().rstrip("，,、：:")
+
+        right = re.sub(r"开始的(?=[:：，,]|$)", "开始", right)
+        core_right = _strip_right_leading_subject(right)
+
+        if subject:
+            if prefix_compact.endswith(subject):
+                return core_right
+            return right if right.startswith(subject) else f"{subject}{core_right}"
+
+        if any(token in left for token in ("没对象发", "没有对象发", "没人可发")) and prefix_compact.endswith("很多次都"):
+            return "有人可发，可一发出去就得解释"
+
+        if transition in ("只是", "就是"):
+            return right
+
+        if "不是" in left and "消失" in prefix_compact:
+            left_segments = [segment.strip(" ，,、") for segment in left.split("，") if segment.strip(" ，,、")]
+            first_segment = left_segments[0] if left_segments else ""
+            nested_segment = left.rsplit("不是", 1)[-1].strip(" ，,、")
+            disclaimers: list[str] = []
+            if first_segment:
+                disclaimers.append(f"不一定是{first_segment}")
+            if nested_segment and nested_segment != first_segment:
+                disclaimers.append(f"也不一定是{nested_segment}")
+                if disclaimers:
+                    return f"往往是{core_right}，{'，'.join(disclaimers)}"
+
+        if prefix_compact.endswith("失联") and core_right.startswith("从"):
+            return core_right
+
+        if prefix_compact == "这" and core_right == "校准":
+            return "更像一次校准"
+
+        if prefix_compact.endswith("很多关系") and core_right.startswith("输在"):
+            return f"到最后{core_right}"
+
+        if prefix_compact == "这":
+            return f"是{core_right}"
+
+        if core_right.startswith("从"):
+            return f"是{core_right}"
+
+        if core_right.startswith(("输在", "耗在", "落在", "卡在", "长在")):
+            return f"是{core_right}"
+
+        if prefix_compact.endswith(
+            (
+                "通常",
+                "往往",
+                "难的",
+                "最难的",
+                "第一反应",
+                "第一反应通常",
+                "最先变钝的",
+                "最先变钝的通常",
+                "这种迟钝",
+                "最先消失的",
+                "关系里最先消失的",
+            )
+        ):
+            return f"是{core_right}"
+
+        return f"是{core_right}"
+
     def _rewrite_not_ab(match: re.Match[str]) -> str:
         left = match.group(1).strip()
         right = match.group(2).strip()
@@ -7404,10 +9161,7 @@ def _soften_not_ab_residue(*, title: str, body_markdown: str) -> str:
             return f"{right}。{tail}" if tail else right
         return f"{right}。{tail}" if tail else right
 
-    softened_markdown = pattern.sub(
-        _rewrite_not_ab,
-        body_markdown,
-    )
+    softened_markdown = pattern.sub(_rewrite_not_ab_light if use_light_rewrite else _rewrite_not_ab, body_markdown)
     if softened_markdown == body_markdown:
         return body_markdown
 
@@ -7524,6 +9278,68 @@ def _strip_orphaned_rebound_tail_residue(*, title: str, body_markdown: str) -> s
     return cleaned_markdown
 
 
+def _repair_tracked_article_fragment_residue(*, title: str, body_markdown: str) -> str:
+    cleaned = body_markdown
+    cleaned = re.sub(
+        r"真要把它(?:算成|当成)[^。！？!?；;\n]{0,24}(?:的)?。?\s*(?:它常常就|这|要)。?",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(
+        r"这在装作自己没事。?\s*真要把它(?:算成|当成)[^。！？!?；;\n]{0,24}。?\s*[^。！？!?；;\n]{1,8}的人，通常。?",
+        "",
+        cleaned,
+    )
+    cleaned = cleaned.replace("你没说出口的，往往信息。", "你没说出口的，往往就是那些关键信息。")
+    cleaned = cleaned.replace("它们给团队添堵。它们只是把本来就存在的成本，放回它该被看见的位置。", "它们不是在给团队添堵。它们只是把本来就存在的成本，放回它该被看见的位置。")
+    cleaned = re.sub(r"([。！？!?])\s*([。！？!?])+", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    return cleaned if cleaned != body_markdown else body_markdown
+
+
+def _repair_self_reliance_expression_sink_residue(*, title: str, body_markdown: str) -> str:
+    if _resolve_tracked_article_candidate_mode(title=title, markdown=body_markdown) != "self_reliance_inward_support":
+        return body_markdown
+
+    cleaned = body_markdown
+    replacements = (
+        ("连借一只手都要排队", "连一点余力都得等一等"),
+        ("谁都没法分神来接你一下", "谁都腾不出空来多顾你一会儿"),
+        ("身边的人也都在赶自己的事", "眼前每个人都被自己的那摊事拽着"),
+        ("身边的人也都在赶自己的生活", "眼前每个人都在勉强顾自己的那摊事"),
+        ("大家都在忙，先把自己稳住", "先别慌，先把自己站稳"),
+        ("电话打出去一圈，没人能马上分神的时候，最先冒出来的往往慌", "事情一下撞到眼前、四周都腾不出空的时候，最先冒出来的往往是慌"),
+        ("消息还在往前推", "手头的事还在往前推"),
+        ("“我快撑不住了”咽回去", "“我得先缓一下”先压住"),
+        ("说出口也未必有人接得住", "开了口也未必刚好有人顾得上"),
+        ("话被压回去以后", "那阵慌乱先被按住以后"),
+        ("回你的速度慢一点，语气也短一点", "能分给你的那点空也少一点"),
+        ("等别人来接", "等外面来托"),
+        ("等回音", "等外面的动静"),
+        ("等消息", "等外面的动静"),
+        ("等一个刚好有空的人", "等外面的空慢慢腾出来"),
+        ("什么时候轮到我", "什么时候眼前这阵乱能先过去"),
+        ("该回的消息记在纸上，明天再回", "要紧的事先记下来，明天按顺序处理"),
+        ("实在撑不住，就先睡一觉", "实在乱得不行，就先睡一觉"),
+        ("那只手，多半赶不上", "那点外来的帮衬，多半赶不上"),
+        ("等外面那只手终于腾出空", "等外面的动静终于慢下来"),
+        ("第一步往往很小", "先把眼前这一小截接住"),
+        ("方法也不复杂", "先别把自己逼得太满"),
+        ("你能做的，是", "人能先做的，常常只是"),
+        (
+            "这随叫随到的。先说成逞强，倒更像止损。成年人的依靠，本来就不，反而太轻了。",
+            "这不叫逞强，倒更像止损。成年人的依靠，本来就不是随叫随到，它常常来得慢一点，也轻一点。",
+        ),
+        ("今晚借不到人，就先借流程", "今晚先不借别人，先借一点顺序"),
+    )
+    for source_text, target_text in replacements:
+        cleaned = cleaned.replace(source_text, target_text)
+
+    cleaned = re.sub(r"([。！？!?])\s*([。！？!?])+", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    return cleaned if cleaned != body_markdown else body_markdown
+
+
 def _collapse_isolated_quote_example_residue(*, title: str, body_markdown: str) -> str:
     blocks = _split_markdown_blocks(body_markdown)
     if not blocks:
@@ -7542,6 +9358,7 @@ def _collapse_isolated_quote_example_residue(*, title: str, body_markdown: str) 
     def _normalize_quote_terminal(block: str) -> str:
         normalized = block.strip()
         normalized = re.sub(r"([。！？!?])([”\"'’])\s*[。！？!?]+$", r"\1\2", normalized)
+        normalized = re.sub(r"([”\"'’])\s*[。！？!?]+$", r"\1", normalized)
         return normalized
 
     def _is_quote_only_block(block: str) -> bool:
@@ -7589,6 +9406,7 @@ def _collapse_isolated_quote_example_residue(*, title: str, body_markdown: str) 
         return body_markdown
 
     cleaned_markdown = "\n\n".join(([heading_block] if heading_block else []) + collapsed_blocks)
+    normalized_only_change = cleaned_markdown != body_markdown and len(collapsed_blocks) == len(body_blocks)
     cleaned_quotes = extract_isolated_quote_paragraphs(cleaned_markdown)
     if len(cleaned_quotes) > len(original_quotes):
         return body_markdown
@@ -7597,7 +9415,7 @@ def _collapse_isolated_quote_example_residue(*, title: str, body_markdown: str) 
     original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
     if cleaned_summary.score > original_summary.score:
         return body_markdown
-    if cleaned_summary.score == original_summary.score and len(collapsed_blocks) >= len(body_blocks):
+    if cleaned_summary.score == original_summary.score and len(collapsed_blocks) >= len(body_blocks) and not normalized_only_change:
         return body_markdown
 
     return cleaned_markdown
@@ -7637,7 +9455,7 @@ def _soften_connector_residue(*, title: str, body_markdown: str) -> str:
     softened_blocks: list[str] = []
     for block in body_blocks:
         softened_block = block
-        for connector in ("其实", "所以", "因此", "然后", "换句话说", "也就是说", "比如"):
+        for connector in ("其实", "所以", "因此", "然后", "换句话说", "也就是说"):
             softened_block = _strip_clause_connector(softened_block, connector)
         softened_block = re.sub(
             r"(^|[。！？!?；;，,、])\s*最后(?=还是)",
@@ -7841,6 +9659,14 @@ def _build_remaining_ai_flavor_retry_instruction(
     if residual_rebound_tails:
         retry_notes.append(f"这些回头补解释的尾句要直接拆掉：{' / '.join(residual_rebound_tails)}。")
 
+    residual_orphaned_rebound_tails = _format_retry_examples(
+        extract_orphaned_rebound_tails(candidate_markdown),
+        max_items=4,
+        max_length=26,
+    )
+    if residual_orphaned_rebound_tails:
+        retry_notes.append(f"这些断裂的回钩残句必须整句删掉，不要换词续写：{' / '.join(residual_orphaned_rebound_tails)}。")
+
     residual_short_judgments = _format_retry_examples(extract_short_judgment_paragraphs(candidate_markdown), max_items=4, max_length=18)
     if residual_short_judgments:
         retry_notes.append(f"这些独立短判断段要处理掉或并回前后段：{' / '.join(residual_short_judgments)}。")
@@ -7925,6 +9751,14 @@ def _build_final_ai_flavor_cleanup_instruction(
     residual_rebound_tails = _format_retry_examples(extract_rebound_explainer_tails(candidate_markdown), max_items=4, max_length=26)
     if residual_rebound_tails:
         retry_notes.append(f"把这些回头补解释的尾句直接拆掉：{' / '.join(residual_rebound_tails)}。")
+
+    residual_orphaned_rebound_tails = _format_retry_examples(
+        extract_orphaned_rebound_tails(candidate_markdown),
+        max_items=4,
+        max_length=26,
+    )
+    if residual_orphaned_rebound_tails:
+        retry_notes.append(f"把这些断裂回钩残句整句删掉，不要补成近义解释：{' / '.join(residual_orphaned_rebound_tails)}。")
 
     residual_short_judgments = _format_retry_examples(extract_short_judgment_paragraphs(candidate_markdown), max_items=4, max_length=18)
     if residual_short_judgments:
@@ -8054,6 +9888,134 @@ def _build_article_shell_retry_instruction(
     return base_instruction.strip() + " " + "".join(retry_notes)
 
 
+_TRACKED_ARTICLE_GENERIC_OPENING_SHELL_PHRASES = (
+    "灯还亮着",
+    "饭热过一遍又一遍",
+    "饭热了又凉",
+    "人已经困了",
+    "心还在值班",
+    "心没下班",
+    "消息还能回",
+    "班还能上",
+    "身体先开始交代",
+    "外面看不出异样",
+    "手机一亮先紧一下",
+)
+_TRACKED_ARTICLE_GENERIC_OPENING_OBJECT_TOKENS = (
+    "灯",
+    "饭",
+    "水杯",
+    "房间",
+    "阳台",
+)
+_TRACKED_ARTICLE_SELECTION_SUPPORTED_MODES = {
+    "inner_settlement",
+    "self_reliance_inward_support",
+    "response_priority",
+    "supportive_appreciation",
+    "everyday_warmth_return",
+    "relationship_aftercare",
+    "resilience_reconstruction",
+    "scene_first_progression",
+    "emotional_engine_direct",
+    "internal_pressure",
+}
+_TRACKED_ARTICLE_THEME_COLLAPSE_RISK_MODES: dict[str, set[str]] = {
+    "response_priority": {"inner_settlement", "internal_pressure", "relationship_aftercare"},
+    "supportive_appreciation": {"inner_settlement", "internal_pressure", "relationship_aftercare"},
+    "everyday_warmth_return": {
+        "inner_settlement",
+        "internal_pressure",
+        "relationship_aftercare",
+        "response_priority",
+    },
+    "relationship_aftercare": {"inner_settlement", "internal_pressure", "response_priority"},
+    "resilience_reconstruction": {
+        "inner_settlement",
+        "internal_pressure",
+        "supportive_appreciation",
+        "everyday_warmth_return",
+    },
+    "self_reliance_inward_support": {
+        "inner_settlement",
+        "internal_pressure",
+        "relationship_aftercare",
+        "response_priority",
+    },
+    "emotional_engine_direct": {"inner_settlement", "internal_pressure", "response_priority"},
+    "scene_first_progression": {"inner_settlement", "internal_pressure", "relationship_aftercare"},
+}
+
+
+def _resolve_tracked_article_expected_selection_mode(selection_context: Mapping[str, object] | None) -> str:
+    if not isinstance(selection_context, Mapping):
+        return ""
+    strategy_card = selection_context.get("strategy_card")
+    if isinstance(strategy_card, Mapping):
+        strategy_mode = str(strategy_card.get("structure_mode") or "").strip()
+        if strategy_mode in _TRACKED_ARTICLE_SELECTION_SUPPORTED_MODES:
+            return strategy_mode
+    reference_mode = str(selection_context.get("reference_article_analysis_structure_mode") or "").strip()
+    if reference_mode in _TRACKED_ARTICLE_SELECTION_SUPPORTED_MODES:
+        return reference_mode
+    if _has_resilience_reconstruction_focus(selection_context):
+        return "resilience_reconstruction"
+    if _has_everyday_warmth_return_focus(selection_context):
+        return "everyday_warmth_return"
+    if _has_response_priority_focus(selection_context):
+        return "response_priority"
+    if _has_supportive_appreciation_focus(selection_context):
+        return "supportive_appreciation"
+    if _has_relationship_aftercare_focus(selection_context):
+        return "relationship_aftercare"
+    if _has_inner_settlement_focus(selection_context):
+        return "inner_settlement"
+    if _has_self_reliance_inward_support_focus(selection_context):
+        return "self_reliance_inward_support"
+    if _has_broad_emotional_release_focus(selection_context):
+        return "emotional_engine_direct"
+    if _infer_tracked_article_pressure_guard(selection_context) == "internal_pressure":
+        return "internal_pressure"
+    return ""
+
+
+def _resolve_tracked_article_candidate_mode(*, title: str, markdown: str) -> str:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": title,
+        "body_markdown": markdown,
+    }
+    if _has_resilience_reconstruction_focus(payload):
+        return "resilience_reconstruction"
+    if _has_everyday_warmth_return_focus(payload):
+        return "everyday_warmth_return"
+    if _has_response_priority_focus(payload):
+        return "response_priority"
+    if _has_supportive_appreciation_focus(payload):
+        return "supportive_appreciation"
+    if _has_relationship_aftercare_focus(payload):
+        return "relationship_aftercare"
+    if _has_inner_settlement_focus(payload):
+        return "inner_settlement"
+    if _has_self_reliance_inward_support_focus(payload):
+        return "self_reliance_inward_support"
+    if _has_broad_emotional_release_focus(payload):
+        return "emotional_engine_direct"
+    if _infer_tracked_article_pressure_guard(payload) == "internal_pressure":
+        return "internal_pressure"
+    if _looks_like_scene_first_progression_candidate(markdown):
+        return "scene_first_progression"
+    return ""
+
+
+def _tracked_article_opening_shell_burden(markdown: str) -> tuple[int, int, int]:
+    opening_text = "\n".join(_extract_non_heading_paragraphs(markdown)[:3])
+    phrase_hits = sum(1 for phrase in _TRACKED_ARTICLE_GENERIC_OPENING_SHELL_PHRASES if phrase in opening_text)
+    object_hits = sum(1 for token in _TRACKED_ARTICLE_GENERIC_OPENING_OBJECT_TOKENS if token in opening_text)
+    burden = phrase_hits + max(0, object_hits - 1)
+    return burden, phrase_hits, object_hits
+
+
 def _should_prefer_retried_ai_flavor_candidate(
     *,
     current_title: str,
@@ -8069,6 +10031,7 @@ def _should_prefer_retried_ai_flavor_candidate(
     retried_cleanup_applied: bool | None = None,
     retried_cleanup_changed_steps: int | None = None,
     source_type: str | None = None,
+    selection_context: Mapping[str, object] | None = None,
 ) -> bool:
     def _short_paragraph_count(markdown: str) -> int:
         return sum(
@@ -8077,13 +10040,14 @@ def _should_prefer_retried_ai_flavor_candidate(
             if len(re.sub(r"\s+", "", paragraph)) <= 45
         )
 
-    def _hard_template_burden(markdown: str) -> tuple[int, int, int, int, int, int]:
+    def _hard_template_burden(markdown: str) -> tuple[int, int, int, int, int, int, int]:
         quote_paragraphs = max(0, len(extract_isolated_quote_paragraphs(markdown)) - 1)
         explanatory_paragraphs = max(0, len(extract_explanatory_bridge_paragraphs(markdown)) - 1)
         return (
             len(extract_not_ab_skeletons(markdown)),
             len(extract_generic_reflective_openers(markdown)),
             len(extract_growth_cliches(markdown)),
+            len(extract_orphaned_rebound_tails(markdown)),
             len(extract_embedded_banner_paragraphs(markdown)),
             quote_paragraphs,
             explanatory_paragraphs,
@@ -8093,7 +10057,7 @@ def _should_prefer_retried_ai_flavor_candidate(
         summary = evaluate_ai_flavor_risk(title=title, body_markdown=markdown)
         if summary.score > 22:
             return False
-        if _hard_template_burden(markdown) != (0, 0, 0, 0, 0, 0):
+        if _hard_template_burden(markdown) != (0, 0, 0, 0, 0, 0, 0):
             return False
         if len(extract_short_judgment_paragraphs(markdown)) > 2:
             return False
@@ -8115,6 +10079,7 @@ def _should_prefer_retried_ai_flavor_candidate(
             and len(extract_not_ab_skeletons(markdown)) <= 1
             and len(extract_generic_reflective_openers(markdown)) == 0
             and len(extract_growth_cliches(markdown)) == 0
+            and len(extract_orphaned_rebound_tails(markdown)) == 0
             and len(extract_embedded_banner_paragraphs(markdown)) == 0
             and count_short_long_cadence_pairs(markdown) <= 1
         )
@@ -8139,18 +10104,28 @@ def _should_prefer_retried_ai_flavor_candidate(
             )
         )
 
-    def _residual_burden(markdown: str) -> tuple[int, int, int, int, int, int, int, int, int]:
+    def _residual_burden(markdown: str) -> tuple[int, int, int, int, int, int, int, int, int, int]:
         not_ab = len(extract_not_ab_skeletons(markdown))
         openers = len(extract_generic_reflective_openers(markdown))
         cliches = len(extract_growth_cliches(markdown))
+        orphaned_rebound_tails = len(extract_orphaned_rebound_tails(markdown))
         short_judgments = len(extract_short_judgment_paragraphs(markdown))
         cadence_pairs = count_short_long_cadence_pairs(markdown)
         embedded_banners = len(extract_embedded_banner_paragraphs(markdown))
         quote_paragraphs = max(0, len(extract_isolated_quote_paragraphs(markdown)) - 1)
         explanatory_paragraphs = max(0, len(extract_explanatory_bridge_paragraphs(markdown)) - 1)
         return (
-            not_ab + openers + cliches + short_judgments + cadence_pairs + embedded_banners + quote_paragraphs + explanatory_paragraphs,
+            not_ab
+            + openers
+            + cliches
+            + orphaned_rebound_tails
+            + short_judgments
+            + cadence_pairs
+            + embedded_banners
+            + quote_paragraphs
+            + explanatory_paragraphs,
             embedded_banners,
+            orphaned_rebound_tails,
             short_judgments,
             cadence_pairs,
             not_ab,
@@ -8162,6 +10137,8 @@ def _should_prefer_retried_ai_flavor_candidate(
 
     current_summary = evaluate_ai_flavor_risk(title=current_title, body_markdown=current_markdown)
     retried_summary = evaluate_ai_flavor_risk(title=retried_title, body_markdown=retried_markdown)
+    current_orphaned_rebound_tails = len(extract_orphaned_rebound_tails(current_markdown))
+    retried_orphaned_rebound_tails = len(extract_orphaned_rebound_tails(retried_markdown))
     tracked_article_mode = source_type == "tracked_article"
     current_structure_headings = _extract_structure_headings(current_markdown)
     if len(current_structure_headings) >= 2 and _find_missing_structure_headings(
@@ -8183,8 +10160,39 @@ def _should_prefer_retried_ai_flavor_candidate(
         title=retried_reference_title or retried_title,
         body_markdown=retried_reference_markdown or retried_markdown,
     )
+    if current_orphaned_rebound_tails != retried_orphaned_rebound_tails:
+        return retried_orphaned_rebound_tails < current_orphaned_rebound_tails
     if current_over_smoothed != retried_over_smoothed:
         return not retried_over_smoothed
+    if tracked_article_mode:
+        expected_mode = _resolve_tracked_article_expected_selection_mode(selection_context)
+        current_mode = _resolve_tracked_article_candidate_mode(title=current_title, markdown=current_markdown)
+        retried_mode = _resolve_tracked_article_candidate_mode(title=retried_title, markdown=retried_markdown)
+        if expected_mode:
+            if expected_mode == "inner_settlement":
+                current_result_dependence = _is_inner_settlement_result_dependence_theme(
+                    title=current_title,
+                    markdown=current_markdown,
+                )
+                retried_result_dependence = _is_inner_settlement_result_dependence_theme(
+                    title=retried_title,
+                    markdown=retried_markdown,
+                )
+                if current_result_dependence != retried_result_dependence:
+                    return not retried_result_dependence
+            current_matches_expected = current_mode == expected_mode
+            retried_matches_expected = retried_mode == expected_mode
+            if current_matches_expected != retried_matches_expected:
+                return retried_matches_expected
+            collapse_risk_modes = _TRACKED_ARTICLE_THEME_COLLAPSE_RISK_MODES.get(expected_mode, set())
+            current_theme_collapsed = current_mode in collapse_risk_modes
+            retried_theme_collapsed = retried_mode in collapse_risk_modes
+            if current_theme_collapsed != retried_theme_collapsed:
+                return not retried_theme_collapsed
+        current_opening_shell = _tracked_article_opening_shell_burden(current_markdown)
+        retried_opening_shell = _tracked_article_opening_shell_burden(retried_markdown)
+        if current_opening_shell != retried_opening_shell and current_opening_shell[0] >= 3:
+            return retried_opening_shell < current_opening_shell
     if _has_only_minor_ai_flavor_residue(title=current_title, markdown=current_markdown):
         if (
             retried_summary.score < current_summary.score
@@ -8240,6 +10248,7 @@ def _pick_better_ai_flavor_candidate(
     retried_cleanup_applied: bool | None = None,
     retried_cleanup_changed_steps: int | None = None,
     source_type: str | None = None,
+    selection_context: Mapping[str, object] | None = None,
 ) -> tuple[str, str]:
     if _should_prefer_retried_ai_flavor_candidate(
         current_title=current_title,
@@ -8255,6 +10264,7 @@ def _pick_better_ai_flavor_candidate(
         retried_cleanup_applied=retried_cleanup_applied,
         retried_cleanup_changed_steps=retried_cleanup_changed_steps,
         source_type=source_type,
+        selection_context=selection_context,
     ):
         return retried_markdown, retried_title
     return current_markdown, current_title
@@ -8315,7 +10325,8 @@ def _maybe_retry_polish_for_structure_drift(
         return candidate_body_markdown, candidate_title
 
     retry_result = generator.generate_draft(
-        {
+        _build_nested_draft_retry_payload(
+            {
             "trend_title": project["trend_title"],
             "topic_title": project["topic_title"],
             "topic_angle": project["topic_angle"],
@@ -8340,7 +10351,9 @@ def _maybe_retry_polish_for_structure_drift(
             },
             **strategy_bundle_payload,
             **reference_article_payload,
-        }
+            },
+            generator=generator,
+        )
     )
     return str(retry_result["body_markdown"]), str(retry_result["title"])
 
@@ -8363,6 +10376,12 @@ def _maybe_retry_polish_for_over_smoothing(
     if not polish_instruction:
         return candidate_body_markdown, candidate_title
 
+    candidate_selection_context = _build_draft_candidate_selection_context(
+        project=project,
+        reference_source_markdown=_get_project_reference_source_markdown(project),
+        reference_article_payload=reference_article_payload,
+        strategy_bundle_payload=strategy_bundle_payload,
+    )
     excessive_openers = _find_excessive_generic_reflective_openers(
         source_markdown=source_draft_body_markdown,
         candidate_markdown=candidate_body_markdown,
@@ -8371,7 +10390,8 @@ def _maybe_retry_polish_for_over_smoothing(
         return candidate_body_markdown, candidate_title
 
     retry_result = generator.generate_draft(
-        {
+        _build_nested_draft_retry_payload(
+            {
             "trend_title": project["trend_title"],
             "topic_title": project["topic_title"],
             "topic_angle": project["topic_angle"],
@@ -8396,7 +10416,9 @@ def _maybe_retry_polish_for_over_smoothing(
             },
             **strategy_bundle_payload,
             **reference_article_payload,
-        }
+            },
+            generator=generator,
+        )
     )
     if not _preserves_structure_headings(
         source_markdown=source_draft_body_markdown,
@@ -8411,6 +10433,8 @@ def _maybe_retry_polish_for_over_smoothing(
         retried_title=retried_title,
         retried_markdown=retried_markdown,
         source_type=str(project["source_type"]),
+        reference_source_markdown=_get_project_reference_source_markdown(project),
+        selection_context=candidate_selection_context,
     ):
         return retried_markdown, retried_title
     return candidate_body_markdown, candidate_title
@@ -8442,7 +10466,8 @@ def _maybe_retry_polish_for_article_shell_cleanup(
         return candidate_body_markdown, candidate_title
 
     retry_result = generator.generate_draft(
-        {
+        _build_nested_draft_retry_payload(
+            {
             "trend_title": project["trend_title"],
             "topic_title": project["topic_title"],
             "topic_angle": project["topic_angle"],
@@ -8467,7 +10492,9 @@ def _maybe_retry_polish_for_article_shell_cleanup(
             },
             **strategy_bundle_payload,
             **reference_article_payload,
-        }
+            },
+            generator=generator,
+        )
     )
     return _pick_better_article_shell_candidate(
         current_title=candidate_title,
@@ -8495,6 +10522,12 @@ def _maybe_retry_polish_for_remaining_ai_flavor(
     if not polish_instruction:
         return candidate_body_markdown, candidate_title
 
+    candidate_selection_context = _build_draft_candidate_selection_context(
+        project=project,
+        reference_source_markdown=_get_project_reference_source_markdown(project),
+        reference_article_payload=reference_article_payload,
+        strategy_bundle_payload=strategy_bundle_payload,
+    )
     if not _should_retry_for_remaining_ai_flavor(
         source_title=source_draft_title,
         source_markdown=source_draft_body_markdown,
@@ -8504,7 +10537,8 @@ def _maybe_retry_polish_for_remaining_ai_flavor(
         return candidate_body_markdown, candidate_title
 
     retry_result = generator.generate_draft(
-        {
+        _build_nested_draft_retry_payload(
+            {
             "trend_title": project["trend_title"],
             "topic_title": project["topic_title"],
             "topic_angle": project["topic_angle"],
@@ -8530,7 +10564,9 @@ def _maybe_retry_polish_for_remaining_ai_flavor(
             },
             **strategy_bundle_payload,
             **reference_article_payload,
-        }
+            },
+            generator=generator,
+        )
     )
     if str(project["source_type"]) != "tracked_article" and not _preserves_structure_headings(
         source_markdown=source_draft_body_markdown,
@@ -8545,6 +10581,8 @@ def _maybe_retry_polish_for_remaining_ai_flavor(
         retried_title=retried_title,
         retried_markdown=retried_markdown,
         source_type=str(project["source_type"]),
+        reference_source_markdown=_get_project_reference_source_markdown(project),
+        selection_context=candidate_selection_context,
     ):
         return retried_markdown, retried_title
     return candidate_body_markdown, candidate_title
@@ -8568,6 +10606,12 @@ def _maybe_retry_polish_for_final_ai_flavor_cleanup(
     if not polish_instruction:
         return candidate_body_markdown, candidate_title
 
+    candidate_selection_context = _build_draft_candidate_selection_context(
+        project=project,
+        reference_source_markdown=_get_project_reference_source_markdown(project),
+        reference_article_payload=reference_article_payload,
+        strategy_bundle_payload=strategy_bundle_payload,
+    )
     current_title = candidate_title
     current_markdown = candidate_body_markdown
 
@@ -8579,7 +10623,8 @@ def _maybe_retry_polish_for_final_ai_flavor_cleanup(
             break
 
         retry_result = generator.generate_draft(
-            {
+            _build_nested_draft_retry_payload(
+                {
                 "trend_title": project["trend_title"],
                 "topic_title": project["topic_title"],
                 "topic_angle": project["topic_angle"],
@@ -8605,7 +10650,9 @@ def _maybe_retry_polish_for_final_ai_flavor_cleanup(
                 },
                 **strategy_bundle_payload,
                 **reference_article_payload,
-            }
+                },
+                generator=generator,
+            )
         )
         if str(project["source_type"]) != "tracked_article" and not _preserves_structure_headings(
             source_markdown=source_draft_body_markdown,
@@ -8620,6 +10667,8 @@ def _maybe_retry_polish_for_final_ai_flavor_cleanup(
             retried_title=next_title,
             retried_markdown=next_markdown,
             source_type=str(project["source_type"]),
+            reference_source_markdown=_get_project_reference_source_markdown(project),
+            selection_context=candidate_selection_context,
         ):
             break
         current_markdown = next_markdown
@@ -8683,6 +10732,12 @@ def _maybe_auto_polish_ai_flavor_draft_output(
     if review_comment or polish_instruction:
         return body_markdown, title
 
+    candidate_selection_context = _build_draft_candidate_selection_context(
+        project=project,
+        reference_source_markdown=_get_project_reference_source_markdown(project),
+        reference_article_payload=reference_article_payload,
+        strategy_bundle_payload=strategy_bundle_payload,
+    )
     summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
     is_tracked_article = str(project["source_type"]) == "tracked_article"
     has_opening_explainer_shell = any("开头讲稿式先答后证" in hit for hit in summary.hits)
@@ -8694,6 +10749,8 @@ def _maybe_auto_polish_ai_flavor_draft_output(
             tracked_shell_source_markdown = reference_body_markdown
             tracked_shell_source_title = str(project["reference_article_title"] or title)
         if _looks_like_tracked_article_fragment_chain_candidate(body_markdown):
+            return body_markdown, title
+        if _looks_like_scene_first_progression_candidate(body_markdown):
             return body_markdown, title
     needs_tracked_shell_cleanup = (
         is_tracked_article
@@ -8739,7 +10796,12 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         **strategy_bundle_payload,
         **reference_article_payload,
     }
-    polished_result = generator.generate_draft(polish_payload)
+    polished_result = generator.generate_draft(
+        _build_nested_draft_retry_payload(
+            polish_payload,
+            generator=generator,
+        )
+    )
     polished_title = str(polished_result["title"])
     polished_markdown = str(polished_result["body_markdown"])
     if _should_prefer_retried_candidate_after_cleanup_preview(
@@ -8748,6 +10810,8 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         retried_title=polished_title,
         retried_markdown=polished_markdown,
         source_type=str(project["source_type"]),
+        reference_source_markdown=_get_project_reference_source_markdown(project),
+        selection_context=candidate_selection_context,
     ):
         best_markdown, best_title = polished_markdown, polished_title
     else:
@@ -8767,6 +10831,8 @@ def _maybe_auto_polish_ai_flavor_draft_output(
             retried_title=compact_title,
             retried_markdown=compact_markdown,
             source_type=str(project["source_type"]),
+            reference_source_markdown=_get_project_reference_source_markdown(project),
+            selection_context=candidate_selection_context,
         ):
             working_markdown, working_title = compact_markdown, compact_title
         if _should_prefer_retried_candidate_after_cleanup_preview(
@@ -8775,6 +10841,8 @@ def _maybe_auto_polish_ai_flavor_draft_output(
             retried_title=working_title,
             retried_markdown=working_markdown,
             source_type=str(project["source_type"]),
+            reference_source_markdown=_get_project_reference_source_markdown(project),
+            selection_context=candidate_selection_context,
         ):
             best_markdown, best_title = working_markdown, working_title
 
@@ -8865,6 +10933,8 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         retried_title=retried_title,
         retried_markdown=retried_body_markdown,
         source_type=str(project["source_type"]),
+        reference_source_markdown=_get_project_reference_source_markdown(project),
+        selection_context=candidate_selection_context,
     ):
         return retried_body_markdown, retried_title
     return best_markdown, best_title

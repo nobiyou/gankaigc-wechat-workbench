@@ -418,57 +418,43 @@ def _build_structural_residue(markdown: str) -> dict[str, int]:
     return build_structural_residue_report(markdown)
 
 
+def _build_paragraph_sentence_stats(markdown: str) -> dict[str, Any]:
+    if str(BACKEND_ROOT) not in sys.path:
+        sys.path.insert(0, str(BACKEND_ROOT))
+
+    from app.services.workbench import _extract_non_heading_paragraphs, _split_block_sentences
+
+    paragraphs = _extract_non_heading_paragraphs(markdown)
+    sentence_counts = [len(_split_block_sentences(paragraph)) for paragraph in paragraphs]
+    return {
+        "paragraph_count": len(paragraphs),
+        "sentence_counts": sentence_counts,
+        "max_sentences": max(sentence_counts) if sentence_counts else 0,
+        "paragraphs_over_2_sentences": sum(1 for count in sentence_counts if count > 2),
+        "paragraphs_over_3_sentences": sum(1 for count in sentence_counts if count > 3),
+        "paragraphs_over_4_sentences": sum(1 for count in sentence_counts if count > 4),
+    }
+
+
 def _apply_current_compare_cleanups(*, title: str, draft_markdown: str) -> tuple[str, dict[str, Any]]:
     if str(BACKEND_ROOT) not in sys.path:
         sys.path.insert(0, str(BACKEND_ROOT))
 
     from app.services.ai_flavor import evaluate_ai_flavor_risk, extract_embedded_banner_paragraphs
     from app.services.workbench import (
-        _collapse_embedded_banner_shell_residue,
-        _collapse_explanatory_bridge_residue,
-        _collapse_isolated_quote_example_residue,
-        _collapse_light_segmented_shell_residue,
-        _collapse_leading_short_long_cadence_residue,
-        _collapse_over_segmented_shell_residue,
-        _collapse_short_long_cadence_residue,
-        _collapse_short_judgment_residue,
-        _collapse_time_chain_shell_residue,
-        _soften_connector_residue,
-        _soften_direct_address_lecture_residue,
-        _soften_not_ab_residue,
-        _soften_structural_ladder_residue,
-        _strip_orphaned_rebound_tail_residue,
-        _strip_rebound_explainer_tail_residue,
+        _get_initial_draft_candidate_cleanup_steps,
     )
 
     original_summary = evaluate_ai_flavor_risk(title=title, body_markdown=draft_markdown)
     current_markdown = draft_markdown
+    changed_steps = 0
     step_changes: list[dict[str, Any]] = []
-
-    for step_name, step_fn in (
-        ("collapse_short_judgment_residue", _collapse_short_judgment_residue),
-        ("collapse_time_chain_shell_residue", _collapse_time_chain_shell_residue),
-        ("collapse_embedded_banner_shell_residue", _collapse_embedded_banner_shell_residue),
-        ("collapse_explanatory_bridge_residue", _collapse_explanatory_bridge_residue),
-        ("collapse_leading_short_long_cadence_residue", _collapse_leading_short_long_cadence_residue),
-        ("collapse_short_long_cadence_residue", _collapse_short_long_cadence_residue),
-        ("collapse_over_segmented_shell_residue", _collapse_over_segmented_shell_residue),
-        ("collapse_light_segmented_shell_residue", _collapse_light_segmented_shell_residue),
-        ("soften_structural_ladder_residue", _soften_structural_ladder_residue),
-        ("soften_direct_address_lecture_residue", _soften_direct_address_lecture_residue),
-        ("soften_not_ab_residue", _soften_not_ab_residue),
-        ("strip_rebound_explainer_tail_residue", _strip_rebound_explainer_tail_residue),
-        ("strip_orphaned_rebound_tail_residue", _strip_orphaned_rebound_tail_residue),
-        ("collapse_isolated_quote_example_residue", _collapse_isolated_quote_example_residue),
-        ("soften_connector_residue", _soften_connector_residue),
-    ):
+    for step_name, step_fn in _get_initial_draft_candidate_cleanup_steps(source_type="tracked_article"):
         next_markdown = step_fn(title=title, body_markdown=current_markdown)
-        step_changes.append(
-            {
-                "name": step_name,
-                "changed": next_markdown != current_markdown,
-            }
-        )
+        changed = next_markdown != current_markdown
+        if changed:
+            changed_steps += 1
+        step_changes.append({"name": step_name, "changed": changed})
         current_markdown = next_markdown
 
     cleaned_summary = evaluate_ai_flavor_risk(title=title, body_markdown=current_markdown)
@@ -476,10 +462,13 @@ def _apply_current_compare_cleanups(*, title: str, draft_markdown: str) -> tuple
         "enabled": True,
         "applied": current_markdown != draft_markdown,
         "steps": step_changes,
+        "changed_steps": changed_steps,
         "original_ai_flavor": _ai_flavor_summary_to_dict(original_summary),
         "cleaned_ai_flavor": _ai_flavor_summary_to_dict(cleaned_summary),
         "original_structural_residue": _build_structural_residue(draft_markdown),
         "cleaned_structural_residue": _build_structural_residue(current_markdown),
+        "original_paragraph_sentence_stats": _build_paragraph_sentence_stats(draft_markdown),
+        "cleaned_paragraph_sentence_stats": _build_paragraph_sentence_stats(current_markdown),
         "original_embedded_banner_count": len(extract_embedded_banner_paragraphs(draft_markdown)),
         "cleaned_embedded_banner_count": len(extract_embedded_banner_paragraphs(current_markdown)),
     }
