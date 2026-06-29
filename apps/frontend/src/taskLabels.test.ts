@@ -23,10 +23,18 @@ test("getTaskTypeLabel falls back to original task type when unknown", () => {
 test("getTaskTypeLabel reuses dashboard-related batch and publish labels", () => {
   assert.equal(getTaskTypeLabel("batch_generate_topics"), "批量生成选题");
   assert.equal(getTaskTypeLabel("build_publish_package"), "生成发布包");
+  assert.equal(getTaskTypeLabel("enrich_tracked_articles_metadata"), "批量补全参考文章字段");
 });
 
 test("getTaskTypeLabel covers draft polished events recorded by backend", () => {
   assert.equal(getTaskTypeLabel("draft_polished"), "原创增强精修");
+  assert.equal(getTaskTypeLabel("draft_diagnosed"), "运行内容诊断");
+  assert.equal(getTaskTypeLabel("draft_polished_from_diagnosis"), "按诊断目标精修");
+});
+
+test("getTaskTypeLabel covers creative review report task", () => {
+  assert.equal(getTaskTypeLabel("creative_review_report_generated"), "生成创作复盘");
+  assert.equal(getTaskTypeLabel("creative_pattern_promoted"), "推广创作模式");
 });
 
 test("getTaskTypeLabel covers polish and generate assets task", () => {

@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useParams } from "react-router-dom";
 
 import {
+  adoptStrategyCard,
   approvePublishPackage,
+  diagnoseDraft,
   fetchBackgroundTask,
   buildPublishPackageInBackground,
   fetchDomainPacks,
@@ -11,9 +13,12 @@ import {
   fetchProjectVersions,
   fetchToneProfiles,
   generateAssets,
+  generateCreativeReviewReport,
   generateDraft,
   generateOutline,
+  generateStrategyPackage,
   polishDraft,
+  promoteCreativePattern,
   regenerateCoverImage,
   recordProjectRetro,
   regenerateFromReview,
@@ -57,12 +62,21 @@ type WorkbenchLoadState =
 
 function buildStageContent(stage: WorkbenchStage, detail: ProjectDetail): { title: string; body: string; meta: string[] } {
   if (stage === "topic") {
+    const strategyCard = detail.strategy_card ?? null;
+    const problemBrief = detail.problem_brief ?? null;
+
     return {
-      title: detail.project.title,
-      body: `选题 slug：${detail.project.topic_slug}`,
+      title: problemBrief?.clarified_problem ?? detail.project.title,
+      body: !strategyCard
+        ? "当前还没有前写作策略，先生成策略包，把问题、读者处境和表达边界明确下来。"
+        : strategyCard.adopted_at
+          ? `策略卡 v${strategyCard.version} 已采纳，后续生成大纲会自动带入这套前写作策略。`
+          : `策略卡 v${strategyCard.version} 已生成但尚未采纳，建议先确认这套策略，再进入大纲生成。`,
       meta: [
+        `选题 slug：${detail.project.topic_slug}`,
         `链路状态：${formatProjectChainStateLabel(detail.project.current_chain_state)}`,
         detail.project.preferred_tone_profile_name ? `风格：${detail.project.preferred_tone_profile_name}` : "风格：默认",
+        ...(problemBrief ? [`问题简述：${problemBrief.target_reader_situation}`] : []),
       ],
     };
   }
@@ -88,7 +102,7 @@ function buildStageContent(stage: WorkbenchStage, detail: ProjectDetail): { titl
   }
   if (stage === "assets") {
     return {
-      title: detail.assets?.title_options[0] ?? "还没有素材包",
+      title: detail.assets?.recommended_title || detail.assets?.title_options[0] || "还没有素材包",
       body: detail.assets?.cover_copy ?? "当前项目还没有素材包，可在生成后回到这里查看标题与封面文案。",
       meta: [detail.assets ? `版本：v${detail.assets.version}` : "未生成", detail.assets?.social_teaser ?? "暂无分发导语"],
     };
@@ -472,7 +486,9 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     stage,
     versions: loadState.versions,
     currentVersionNumber:
-      stage === "outline"
+      stage === "topic"
+        ? loadState.detail.strategy_card?.version
+        : stage === "outline"
         ? loadState.detail.project.current_outline_version
         : stage === "draft"
           ? loadState.detail.project.current_draft_version
@@ -516,7 +532,17 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     loadState.toneProfiles.find((profile) => profile.id === nextToneProfileId) ??
     loadState.toneProfiles.find((profile) => profile.is_active) ??
     null;
-  const effectiveDraftPolishInstruction = resolveDraftPolishInstruction(draftInstruction, activeProjectToneProfile);
+  const currentDiagnosisReport =
+    loadState.detail.draft && loadState.detail.diagnosis_report?.draft_version === loadState.detail.draft.version
+      ? loadState.detail.diagnosis_report
+      : null;
+  const referenceIsolationInstruction =
+    loadState.detail.reference_originality_report?.recommended_polish_instruction ?? "";
+  const effectiveDraftPolishInstruction = resolveDraftPolishInstruction(
+    draftInstruction,
+    activeProjectToneProfile,
+    currentDiagnosisReport?.recommended_polish_instruction || referenceIsolationInstruction,
+  );
 
   async function reloadWorkbench(projectSlugValue: string) {
     const [detail, versions, domainPacks, toneProfiles] = await Promise.all([
@@ -583,17 +609,39 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
       setActionError(null);
       setActionMessage(null);
 
-      if (actionKind === "generate_outline") {
+      if (actionKind === "generate_strategy_package") {
+        await generateStrategyPackage(projectSlug);
+      } else if (actionKind === "adopt_strategy_card") {
+        const currentStrategyVersion = loadState.status === "ready" ? loadState.detail.strategy_card?.version ?? null : null;
+        if (currentStrategyVersion == null) {
+          throw new Error("当前没有可采纳的策略卡。");
+        }
+        await adoptStrategyCard(projectSlug, currentStrategyVersion);
+      } else if (actionKind === "generate_outline") {
         await generateOutline(projectSlug);
       } else if (actionKind === "restore_outline" && versionNumber) {
         await restoreOutlineVersion(projectSlug, versionNumber);
       } else if (actionKind === "generate_draft") {
         await generateDraft(projectSlug);
+      } else if (actionKind === "diagnose_draft") {
+        const currentDraftVersion = loadState.status === "ready" ? loadState.detail.draft?.version ?? null : null;
+        if (currentDraftVersion == null) {
+          throw new Error("当前没有可诊断的草稿。");
+        }
+        await diagnoseDraft(projectSlug, { draft_version: currentDraftVersion });
       } else if (actionKind === "polish_draft") {
-        await polishDraft(
-          projectSlug,
-          effectiveDraftPolishInstruction,
-        );
+        const manualInstruction = draftInstruction.trim();
+        const diagnosisReport =
+          loadState.status === "ready" &&
+          loadState.detail.draft &&
+          loadState.detail.diagnosis_report?.draft_version === loadState.detail.draft.version
+            ? loadState.detail.diagnosis_report
+            : null;
+        await polishDraft(projectSlug, {
+          instruction: manualInstruction || (diagnosisReport ? null : effectiveDraftPolishInstruction),
+          diagnosis_report_version: manualInstruction ? null : diagnosisReport?.version ?? null,
+          objective_key: manualInstruction ? null : diagnosisReport?.recommended_next_action ?? null,
+        });
       } else if (actionKind === "polish_and_generate_assets") {
         await generateAssets(projectSlug, {
           polish_before_generate: true,
@@ -625,6 +673,8 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
         backgroundTaskSubmitted = true;
         setActionMessage(describeBackgroundTask(submission.job_type).submittedMessage);
         return;
+      } else if (actionKind === "generate_creative_review_report") {
+        await generateCreativeReviewReport(projectSlug);
       } else if (actionKind === "polish_and_build_publish_package") {
         const submission = await buildPublishPackageInBackground(projectSlug, {
           polish_before_generate: true,
@@ -673,7 +723,13 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
 
       await reloadWorkbench(projectSlug);
       setActionMessage(
-        actionKind === "restore_publish_package"
+        actionKind === "adopt_strategy_card"
+          ? "已采纳当前策略卡，后续生成大纲会自动带入这套前写作策略。"
+          : actionKind === "diagnose_draft"
+          ? "内容诊断已生成，当前草稿没有被改写。"
+          : actionKind === "generate_creative_review_report"
+          ? "创作复盘报告已生成，已汇总当前项目的策略、诊断、修订和保留经验。"
+          : actionKind === "restore_publish_package"
           ? "已基于所选历史版本重建新的发布包，当前阶段数据已刷新。"
           : "Workbench 已刷新，当前阶段数据已更新。",
       );
@@ -683,6 +739,39 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
       if (!shouldKeepWorkbenchActionActive(actionKind, backgroundTaskSubmitted)) {
         setActiveAction(null);
       }
+    }
+  }
+
+  async function handlePromoteCreativePattern(lessonIndex: number) {
+    if (!projectSlug) {
+      return;
+    }
+
+    if (loadState.status !== "ready") {
+      return;
+    }
+
+    const report = loadState.detail.creative_review_report;
+    if (!report) {
+      setActionError("当前没有可推广的创作复盘。");
+      return;
+    }
+
+    const actionKey = `promote_creative_pattern-${lessonIndex}`;
+    try {
+      setActiveAction(actionKey);
+      setActionError(null);
+      setActionMessage(null);
+      const promoted = await promoteCreativePattern(projectSlug, {
+        report_version: report.version,
+        lesson_index: lessonIndex,
+      });
+      await reloadWorkbench(projectSlug);
+      setActionMessage(`已推广为创作模式「${promoted.title}」，可在设置页模式库查看。`);
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "推广创作模式失败。");
+    } finally {
+      setActiveAction(null);
     }
   }
 
@@ -870,7 +959,13 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
                     }
                   />
                 </label>
-                {activeProjectToneProfile?.default_polish_instruction ? (
+                {referenceIsolationInstruction.trim() && !draftInstruction.trim() ? (
+                  <div className="workspace-note workspace-note--info">
+                    <p>当前将优先使用参考文隔离诊断生成的精修指令。</p>
+                    <p>{`诊断策略：${referenceIsolationInstruction}`}</p>
+                  </div>
+                ) : null}
+                {activeProjectToneProfile?.default_polish_instruction && !referenceIsolationInstruction.trim() ? (
                   <div className="workspace-note workspace-note--info">
                     <p>
                       {draftInstruction.trim()
@@ -977,6 +1072,49 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
               </div>
             ) : null}
 
+            {stage === "publish" && loadState.detail.creative_review_report?.retained_lessons.length ? (
+              <section className="workspace-subsection workspace-subsection--creative-patterns">
+                <div className="workspace-section__header">
+                  <div>
+                    <p className="workspace-section__eyebrow">Creative Patterns</p>
+                    <h4>保留经验</h4>
+                    <p className="workspace-section__description">把确认有复用价值的经验推广到设置页模式库，后续作为策略阶段参考。</p>
+                  </div>
+                  <span className="workspace-run-card__count">
+                    {loadState.detail.creative_review_report.retained_lessons.length}
+                  </span>
+                </div>
+                <div className="workspace-list">
+                  {loadState.detail.creative_review_report.retained_lessons.map((lesson, index) => {
+                    const actionKey = `promote_creative_pattern-${index}`;
+                    return (
+                      <article key={`${lesson.title}-${index}`} className="workspace-item">
+                        <div className="workspace-item__header">
+                          <div>
+                            <h4>{lesson.title}</h4>
+                            <p>{lesson.intended_use}</p>
+                          </div>
+                          <span className="workspace-pill">{lesson.pattern_type}</span>
+                        </div>
+                        <p>{lesson.pattern_content}</p>
+                        <p className="workspace-section__description">注意：{lesson.caution_notes}</p>
+                        <div className="workspace-actions workspace-actions--row">
+                          <button
+                            className="dashboard-button dashboard-button--ghost"
+                            type="button"
+                            onClick={() => void handlePromoteCreativePattern(index)}
+                            disabled={activeAction === actionKey}
+                          >
+                            {activeAction === actionKey ? "推广中..." : "推广为模式"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
+
             <div className="workspace-actions workspace-actions--row">
               {actionPlan.primaryAction ? (
                 <button
@@ -1065,7 +1203,17 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
                                   </div>
                                 ) : null}
                               </div>
-                              <span className="workspace-pill">{entry.restorable ? "可恢复" : "当前版本"}</span>
+                              <span className="workspace-pill">
+                                {stage === "topic"
+                                  ? entry.reviewState === "adopted"
+                                    ? "已采纳"
+                                    : entry.restorable
+                                      ? "历史候选"
+                                      : "当前策略"
+                                  : entry.restorable
+                                    ? "可恢复"
+                                    : "当前版本"}
+                              </span>
                             </div>
                             {entry.restorable && actionPlan.canRestoreHistory ? (
                               <div className="workspace-actions">

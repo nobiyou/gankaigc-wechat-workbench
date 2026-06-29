@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import httpx
 import openai
+import pytest
 
 from app.core.settings import Settings
 import app.services.ai_generator as ai_generator_module
@@ -10,6 +11,7 @@ from app.services.ai_generator import (
     DraftGenerationResult,
     OpenAIWorkbenchGenerator,
     OutlineGenerationResult,
+    TrackedArticleMetadataGenerationResult,
     TopicGenerationResult,
     get_ai_config_summary,
     run_ai_config_check,
@@ -20,17 +22,43 @@ def build_generator() -> OpenAIWorkbenchGenerator:
     return OpenAIWorkbenchGenerator(
         Settings(
             openai_api_key="test-key",
+            openai_base_url="",
             openai_model="test-model",
             openai_image_model="test-image-model",
         )
     )
 
 
+def build_custom_base_url_generator() -> OpenAIWorkbenchGenerator:
+    return OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://proxy.example/v1",
+            openai_model="test-model",
+            openai_image_model="test-image-model",
+        )
+    )
+
+
+def test_generator_clients_disable_sdk_internal_retries() -> None:
+    generator = build_generator()
+
+    assert generator._client.max_retries == 0
+    assert generator._image_client.max_retries == 0
+
+
 def test_generate_outline_prompt_mentions_target_word_count(monkeypatch) -> None:
     generator = build_generator()
     captured: dict[str, str] = {}
 
-    def fake_parse_response(*, instructions: str, prompt: str, response_format):
+    def fake_parse_response(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds_override=None,
+        max_attempts_override=None,
+    ):
         captured["instructions"] = instructions
         captured["prompt"] = prompt
         return OutlineGenerationResult(hook="hook", outline_body="1. a\n2. b")
@@ -70,7 +98,14 @@ def test_generate_draft_prompt_mentions_target_word_count_with_tolerance(monkeyp
     generator = build_generator()
     captured: dict[str, str] = {}
 
-    def fake_parse_response(*, instructions: str, prompt: str, response_format):
+    def fake_parse_response(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds_override=None,
+        max_attempts_override=None,
+    ):
         captured["instructions"] = instructions
         captured["prompt"] = prompt
         return DraftGenerationResult(title="title", body_markdown="# draft")
@@ -112,6 +147,9 @@ def test_generate_draft_prompt_mentions_target_word_count_with_tolerance(monkeyp
     assert "把抽象情绪落到动作停顿、物件光线、空间距离或身体反应上" in captured["instructions"]
     assert "避免每段都写成“观点句 + 解释句”" in captured["instructions"]
     assert "避免反复用“一点、一下、一些、一个、一种”去切分感受和动作" in captured["instructions"]
+    assert "不要每隔一两段就单独插一个很短的判断段或敲钟段" in captured["instructions"]
+    assert "不要反复使用“短句点一下，下一段再长解释”的固定节拍" in captured["instructions"]
+    assert "不要把起因、机制、代价、转机一次性讲透" in captured["instructions"]
     assert "结尾回到人物处境或心绪余波" in captured["instructions"]
 
 
@@ -119,7 +157,14 @@ def test_generate_draft_prompt_includes_polish_instruction_and_existing_draft(mo
     generator = build_generator()
     captured: dict[str, str] = {}
 
-    def fake_parse_response(*, instructions: str, prompt: str, response_format):
+    def fake_parse_response(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds_override=None,
+        max_attempts_override=None,
+    ):
         captured["instructions"] = instructions
         captured["prompt"] = prompt
         return DraftGenerationResult(title="title", body_markdown="# polished")
@@ -160,9 +205,12 @@ def test_generate_draft_prompt_includes_polish_instruction_and_existing_draft(mo
     assert "这不是局部润色任务，而是原创增强精修任务" in captured["instructions"]
     assert "必须重写开头段和结尾段" in captured["instructions"]
     assert "必须改写场景入口段、中段关键推进段和收束段" in captured["instructions"]
-    assert "如果原稿一上来就在讲道理，请改成先落画面再带判断" in captured["instructions"]
+    assert "如果原稿一上来就在讲道理，优先前置原稿里本来已有的例子、动作或处境" in captured["instructions"]
     assert "先判断原稿哪些段落最像模板话，再优先拆掉这些段落的原顺序重写" in captured["instructions"]
-    assert "至少把一个抽象判断段改写成可见场景段" in captured["instructions"]
+    assert "至少把一个抽象判断段改写成更可感知的表达" in captured["instructions"]
+    assert "如果原稿里有很多独立短判断段、敲钟段或一句话小结，至少合并掉一半" in captured["instructions"]
+    assert "不要按“短句点一下 + 下一段长解释”的节拍反复排版" in captured["instructions"]
+    assert "允许某些段落只停在动作、停顿、关系变化或身体反应" in captured["instructions"]
     assert "如果“一点、一下、一个、一种、一件”这类量词起手过密，主动改掉一半以上" in captured["instructions"]
     assert "不要只做同义词替换、语序微调或局部句子抛光" in captured["instructions"]
 
@@ -171,7 +219,14 @@ def test_generate_draft_prompt_allows_tone_profile_default_polish_instruction(mo
     generator = build_generator()
     captured: dict[str, str] = {}
 
-    def fake_parse_response(*, instructions: str, prompt: str, response_format):
+    def fake_parse_response(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds_override=None,
+        max_attempts_override=None,
+    ):
       captured["instructions"] = instructions
       captured["prompt"] = prompt
       return DraftGenerationResult(title="title", body_markdown="# polished")
@@ -252,11 +307,1058 @@ def test_parse_response_retries_transient_openai_failures(monkeypatch) -> None:
     assert attempts["count"] == 2
 
 
+def test_parse_response_falls_back_to_chat_json_when_responses_parse_shape_is_invalid(monkeypatch) -> None:
+    generator = build_generator()
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            raise TypeError("'NoneType' object is not iterable")
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"title": "先把话说清楚", "angle": "关系修复里的表达入口"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_topic(
+        {
+            "trend_slug": "relationship-bet",
+            "trend_title": "关系里的赌气",
+            "source": "manual",
+            "heat_score": 80,
+            "status": "screening",
+        }
+    )
+
+    assert result == {
+        "title": "先把话说清楚",
+        "angle": "关系修复里的表达入口",
+    }
+    assert captured["model"] == "test-model"
+    assert captured["response_format"] == {"type": "json_object"}
+    assert "只返回一个 JSON 对象" in captured["messages"][0]["content"]
+    assert captured["messages"][1]["content"]
+
+
+def test_generate_draft_compact_mode_preserves_single_attempt_budget_in_chat_fallback(monkeypatch) -> None:
+    generator = build_generator()
+    captured: dict[str, object] = {"chat_calls": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/responses"))
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            captured["chat_calls"] += 1
+            captured["last_chat_kwargs"] = kwargs
+            raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/chat/completions"))
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    with pytest.raises(openai.APITimeoutError):
+        generator.generate_draft(
+            {
+                "trend_title": "办公室倦怠修复",
+                "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+                "topic_angle": "情绪识别",
+                "project_title": "办公室倦怠修复周更",
+                "outline": {
+                    "hook": "先接住身体发出的报警",
+                    "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+                },
+                "tone_profile": {
+                    "name": "女性成长克制陪伴风",
+                    "opening_style": "从具体场景冷启动切入",
+                    "paragraph_rhythm": "短段落，慢推进",
+                    "closing_style": "留白式收束",
+                    "forbidden_phrases": ["你必须", "立刻改变"],
+                    "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                    "target_word_count": 1400,
+                    "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+                },
+                "compact_strategy_mode": True,
+            }
+        )
+
+    assert captured["chat_calls"] == 1
+    assert captured["last_chat_kwargs"]["timeout"] == 60.0
+
+
+def test_generate_draft_strategy_first_mode_preserves_single_attempt_budget_in_chat_fallback(monkeypatch) -> None:
+    generator = build_generator()
+    captured: dict[str, object] = {"chat_calls": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/responses"))
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            captured["chat_calls"] += 1
+            captured["last_chat_kwargs"] = kwargs
+            raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/chat/completions"))
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    with pytest.raises(openai.APITimeoutError):
+        generator.generate_draft(
+            {
+                "trend_title": "参考文章 / 手动录入",
+                "topic_title": "外部支撑不稳时，最该补的，是把自己托住的能力",
+                "topic_angle": "当外部回应常常慢半拍、别人也各自承压时，低谷里最难的不是指望谁接住，而是把恢复权从等待里收回来。",
+                "project_title": "自救自渡主题验收",
+                "outline": {
+                    "hook": "你想找人说说的时候，手机那头常常只剩一句“我也快忙不过来了”。",
+                    "outline_body": "1. 外求落空\n2. 先把自己拉回可运转\n3. 再谈怎么往下过",
+                },
+                "tone_profile": {
+                    "name": "女性成长克制陪伴风",
+                    "opening_style": "从具体场景冷启动切入",
+                    "paragraph_rhythm": "短段落，慢推进",
+                    "closing_style": "留白式收束",
+                    "forbidden_phrases": ["你必须", "立刻改变"],
+                    "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                    "target_word_count": 1400,
+                    "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+                },
+                "source_type": "tracked_article",
+                "problem_brief": {"clarified_problem": "x"},
+                "strategy_card": {"structure_mode": "self_reliance_inward_support"},
+                "strategy_first_draft_mode": True,
+            }
+        )
+
+    assert captured["chat_calls"] == 1
+    assert captured["last_chat_kwargs"]["timeout"] == 60.0
+
+
+def test_generate_outline_falls_back_to_chat_json_when_responses_parse_returns_markdown(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            OutlineGenerationResult.model_validate_json("**hook**\\n你撤回的求助，往往不是情绪消失了。")
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"hook":"先写那个把情绪收回去的瞬间","outline_body":"1. 为什么会先说没事\\n2. 被推开以后会撤回什么\\n3. 关系怎么一点点降温"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_outline(
+        {
+            "trend_title": "被推开的那一刻",
+            "topic_title": "总在天亮前把自己缝好的人，最后会先撤回求助",
+            "topic_angle": "把一次次说没事之后的代价拆开",
+            "project_title": "被推开的那一刻",
+            "tone_profile": {
+                "name": "今晚有语",
+                "target_word_count": 1400,
+            },
+        }
+    )
+
+    assert result == {
+        "hook": "先写那个把情绪收回去的瞬间",
+        "outline_body": "1. 为什么会先说没事\n2. 被推开以后会撤回什么\n3. 关系怎么一点点降温",
+    }
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 1
+    assert "只返回一个 JSON 对象" in str(captured["extra_body"]["instructions"])
+
+
+def test_parse_response_falls_back_to_chat_json_when_output_parsed_is_none(monkeypatch) -> None:
+    generator = build_generator()
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            class FakeParsedResponse:
+                output_parsed = None
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"title": "先说清正在发生什么", "angle": "从具体卡点重建表达入口"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_topic(
+        {
+            "trend_slug": "relationship-bet",
+            "trend_title": "关系里的赌气",
+            "source": "manual",
+            "heat_score": 80,
+            "status": "screening",
+        }
+    )
+
+    assert result == {
+        "title": "先说清正在发生什么",
+        "angle": "从具体卡点重建表达入口",
+    }
+    assert captured["model"] == "test-model"
+    assert captured["response_format"] == {"type": "json_object"}
+    assert "只返回一个 JSON 对象" in captured["messages"][0]["content"]
+    assert captured["messages"][1]["content"]
+
+
+def test_parse_response_chat_json_fallback_retries_on_malformed_json(monkeypatch) -> None:
+    generator = build_generator()
+    chat_calls = {"count": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            class FakeParsedResponse:
+                output_parsed = None
+                output_text = ""
+                output = []
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+
+            class FakeMessage:
+                content = (
+                    '{"title": "坏 JSON", "angle": "没收口}'
+                    if chat_calls["count"] == 1
+                    else '{"title": "先说清正在发生什么", "angle": "从具体卡点重建表达入口"}'
+                )
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_topic(
+        {
+            "trend_slug": "relationship-bet",
+            "trend_title": "关系里的赌气",
+            "source": "manual",
+            "heat_score": 80,
+            "status": "screening",
+        }
+    )
+
+    assert result == {
+        "title": "先说清正在发生什么",
+        "angle": "从具体卡点重建表达入口",
+    }
+    assert chat_calls["count"] == 2
+
+
+def test_parse_response_chat_json_fallback_retries_on_transient_connection_errors(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+
+            class FakeParsedResponse:
+                output_parsed = None
+                output_text = ""
+                output = []
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            if chat_calls["count"] == 1:
+                raise openai.APIConnectionError(request=httpx.Request("POST", "https://proxy.example/v1/chat/completions"))
+            if chat_calls["count"] == 2:
+                raise openai.APITimeoutError(request=httpx.Request("POST", "https://proxy.example/v1/chat/completions"))
+
+            class FakeMessage:
+                content = '{"title": "先把卡住的那一刻写出来", "body_markdown": "# 标题\\n\\n正文"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_draft(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "outline": {
+                "hook": "先接住身体发出的报警",
+                "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+            },
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "opening_style": "从具体场景冷启动切入",
+                "paragraph_rhythm": "短段落，慢推进",
+                "closing_style": "留白式收束",
+                "forbidden_phrases": ["你必须", "立刻改变"],
+                "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                "target_word_count": 1400,
+                "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+            },
+        }
+    )
+
+    assert result == {
+        "title": "先把卡住的那一刻写出来",
+        "body_markdown": "# 标题\n\n正文",
+    }
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 3
+
+
+def test_generate_draft_uses_configured_timeout_for_compact_or_recovery_payload(monkeypatch) -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="",
+            openai_model="test-model",
+            openai_image_model="test-image-model",
+            openai_request_timeout_seconds=60,
+        )
+    )
+    captured: list[tuple[float | None, int | None]] = []
+
+    def fake_parse_response(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds_override=None,
+        max_attempts_override=None,
+    ):
+        captured.append((timeout_seconds_override, max_attempts_override))
+        return DraftGenerationResult(title="title", body_markdown="# draft")
+
+    monkeypatch.setattr(generator, "_parse_response", fake_parse_response)
+
+    base_payload = {
+        "trend_title": "幸福是什么",
+        "topic_title": "幸福不是继续强求，而是看见自己已经拥有的东西",
+        "topic_angle": "从放手以后重新看见已拥有的部分切入",
+        "project_title": "幸福是什么",
+        "outline": {
+            "hook": "她把消息框关掉以后，才看见晚饭已经凉了。",
+            "outline_body": "1. 已拥有被忽略\n2. 幸福被误认成继续争取\n3. 生活秩序被拖空\n4. 放手以后空出来",
+        },
+        "tone_profile": {
+            "name": "女性成长克制陪伴风",
+            "opening_style": "从具体场景冷启动切入",
+            "paragraph_rhythm": "短段落，慢推进",
+            "closing_style": "留白式收束",
+            "forbidden_phrases": ["你必须", "立刻改变"],
+            "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+            "target_word_count": 1400,
+            "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+        },
+    }
+
+    generator.generate_draft({**base_payload, "compact_strategy_mode": True})
+    generator.generate_draft({**base_payload, "timeout_recovery_mode": True})
+    generator.generate_draft({**base_payload, "full_fallback_single_attempt_mode": True})
+    generator.generate_draft(base_payload)
+
+    assert captured == [(60, 1), (60, 1), (60, 1), (None, None)]
+
+
+def test_parse_response_uses_output_text_json_without_chat_fallback(monkeypatch) -> None:
+    generator = build_generator()
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            class FakeParsedResponse:
+                output_parsed = None
+                output_text = '{"title": "先接住身体发出的报警", "angle": "从具体卡顿切入"}'
+                output = []
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            raise AssertionError("chat fallback should not be called when output_text already contains JSON")
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_topic(
+        {
+            "trend_slug": "body-alarm",
+            "trend_title": "身体报警时的迟钝感",
+            "source": "manual",
+            "heat_score": 80,
+            "status": "screening",
+        }
+    )
+
+    assert result == {
+        "title": "先接住身体发出的报警",
+        "angle": "从具体卡顿切入",
+    }
+
+
+def test_parse_response_switches_to_chat_after_empty_completed_response(monkeypatch) -> None:
+    generator = build_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+
+            class FakeParsedResponse:
+                output_parsed = None
+                output_text = ""
+                output = []
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+
+            class FakeMessage:
+                content = '{"title": "先说清正在发生什么", "angle": "把空转状态钉成可见现象"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    first = generator.generate_topic(
+        {
+            "trend_slug": "body-alarm",
+            "trend_title": "身体报警时的迟钝感",
+            "source": "manual",
+            "heat_score": 80,
+            "status": "screening",
+        }
+    )
+    second = generator.generate_topic(
+        {
+            "trend_slug": "body-alarm-2",
+            "trend_title": "关系里的无力感",
+            "source": "manual",
+            "heat_score": 82,
+            "status": "screening",
+        }
+    )
+
+    assert first["title"] == "先说清正在发生什么"
+    assert second["angle"] == "把空转状态钉成可见现象"
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 2
+
+
+def test_parse_response_chat_preference_is_scoped_to_response_format(monkeypatch) -> None:
+    generator = build_generator()
+    parse_formats: list[type[object]] = []
+    chat_calls = {"count": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            response_format = kwargs["text_format"]
+            parse_formats.append(response_format)
+
+            if response_format is DraftGenerationResult:
+                class FakeParsedResponse:
+                    output_parsed = None
+                    output_text = ""
+                    output = []
+
+                return FakeParsedResponse()
+
+            class FakeParsedResponse:
+                output_parsed = TopicGenerationResult(
+                    title="先把眼前那一下不舒服说清楚",
+                    angle="从关系里的即时反应切入",
+                )
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+
+            class FakeMessage:
+                content = '{"title": "先把卡住的那一下写出来", "body_markdown": "# 标题\\n\\n正文"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    draft_result = generator.generate_draft(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "outline": {
+                "hook": "先接住身体发出的报警",
+                "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+            },
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "opening_style": "从具体场景冷启动切入",
+                "paragraph_rhythm": "短段落，慢推进",
+                "closing_style": "留白式收束",
+                "forbidden_phrases": ["你必须", "立刻改变"],
+                "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                "target_word_count": 1400,
+                "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+            },
+        }
+    )
+    topic_result = generator.generate_topic(
+        {
+            "trend_slug": "relationship-bet",
+            "trend_title": "关系里的赌气",
+            "source": "manual",
+            "heat_score": 80,
+            "status": "screening",
+        }
+    )
+
+    assert draft_result == {
+        "title": "先把卡住的那一下写出来",
+        "body_markdown": "# 标题\n\n正文",
+    }
+    assert topic_result == {
+        "title": "先把眼前那一下不舒服说清楚",
+        "angle": "从关系里的即时反应切入",
+    }
+    assert parse_formats == [DraftGenerationResult, TopicGenerationResult]
+    assert chat_calls["count"] == 1
+
+
+def test_parse_response_falls_back_immediately_on_timeout(monkeypatch) -> None:
+    generator = build_generator()
+    parse_calls = {"count": 0}
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/responses"))
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"title": "先把卡住的那一刻写出来", "body_markdown": "# 标题\\n\\n正文"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_draft(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "outline": {
+                "hook": "先接住身体发出的报警",
+                "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+            },
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "opening_style": "从具体场景冷启动切入",
+                "paragraph_rhythm": "短段落，慢推进",
+                "closing_style": "留白式收束",
+                "forbidden_phrases": ["你必须", "立刻改变"],
+                "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                "target_word_count": 1400,
+                "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+            },
+        }
+    )
+
+    assert result == {
+        "title": "先把卡住的那一刻写出来",
+        "body_markdown": "# 标题\n\n正文",
+    }
+    assert parse_calls["count"] == 1
+    assert captured["timeout"] == 90.0
+
+
+def test_parse_response_timeout_fallback_does_not_stick_for_future_calls(monkeypatch) -> None:
+    generator = build_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            if parse_calls["count"] == 1:
+                raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/responses"))
+
+            class FakeParsedResponse:
+                output_parsed = DraftGenerationResult(
+                    title="第二次直接走结构化响应",
+                    body_markdown="# 标题\n\n第二版正文",
+                )
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+
+            class FakeMessage:
+                content = '{"title": "第一次先用回退兜住", "body_markdown": "# 标题\\n\\n第一版正文"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    first = generator.generate_draft(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "outline": {
+                "hook": "先接住身体发出的报警",
+                "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+            },
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "opening_style": "从具体场景冷启动切入",
+                "paragraph_rhythm": "短段落，慢推进",
+                "closing_style": "留白式收束",
+                "forbidden_phrases": ["你必须", "立刻改变"],
+                "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                "target_word_count": 1400,
+                "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+            },
+        }
+    )
+    second = generator.generate_draft(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "outline": {
+                "hook": "先接住身体发出的报警",
+                "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+            },
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "opening_style": "从具体场景冷启动切入",
+                "paragraph_rhythm": "短段落，慢推进",
+                "closing_style": "留白式收束",
+                "forbidden_phrases": ["你必须", "立刻改变"],
+                "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                "target_word_count": 1400,
+                "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+            },
+        }
+    )
+
+    assert first == {
+        "title": "第一次先用回退兜住",
+        "body_markdown": "# 标题\n\n第一版正文",
+    }
+    assert second == {
+        "title": "第二次直接走结构化响应",
+        "body_markdown": "# 标题\n\n第二版正文",
+    }
+    assert parse_calls["count"] == 2
+    assert chat_calls["count"] == 1
+
+
+def test_generate_draft_keeps_responses_parse_first_for_custom_base_url(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+
+            class FakeParsedResponse:
+                output_parsed = DraftGenerationResult(
+                    title="先把卡住的那一刻写出来",
+                    body_markdown="# 标题\n\n正文",
+                )
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+
+            class FakeMessage:
+                content = '{"title": "先把卡住的那一刻写出来", "body_markdown": "# 标题\\n\\n正文"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_draft(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "outline": {
+                "hook": "先接住身体发出的报警",
+                "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+            },
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "opening_style": "从具体场景冷启动切入",
+                "paragraph_rhythm": "短段落，慢推进",
+                "closing_style": "留白式收束",
+                "forbidden_phrases": ["你必须", "立刻改变"],
+                "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                "target_word_count": 1400,
+                "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+            },
+        }
+    )
+
+    assert result == {
+        "title": "先把卡住的那一刻写出来",
+        "body_markdown": "# 标题\n\n正文",
+    }
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 0
+
+
+def test_generate_draft_falls_back_after_internal_server_error_on_custom_base_url(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+    request = httpx.Request("POST", "https://proxy.example/v1/responses")
+    response = httpx.Response(
+        502,
+        request=request,
+        json={"error": {"message": "Upstream request failed"}},
+    )
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise openai.InternalServerError(
+                "Upstream request failed",
+                response=response,
+                body={"error": {"message": "Upstream request failed"}},
+            )
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"title": "先把卡住的那一刻写出来", "body_markdown": "# 标题\\n\\n正文"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+    monkeypatch.setattr(ai_generator_module.time, "sleep", lambda *_args: None)
+
+    result = generator.generate_draft(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "outline": {
+                "hook": "先接住身体发出的报警",
+                "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+            },
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "opening_style": "从具体场景冷启动切入",
+                "paragraph_rhythm": "短段落，慢推进",
+                "closing_style": "留白式收束",
+                "forbidden_phrases": ["你必须", "立刻改变"],
+                "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                "target_word_count": 1400,
+                "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+            },
+        }
+    )
+
+    assert result == {
+        "title": "先把卡住的那一刻写出来",
+        "body_markdown": "# 标题\n\n正文",
+    }
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 1
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_generate_topic_keeps_responses_parse_first_for_custom_base_url(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+
+            class FakeParsedResponse:
+                output_parsed = TopicGenerationResult(
+                    title="先照顾情绪，再谈关系修复",
+                    angle="关系修复顺序",
+                )
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            raise AssertionError("chat fallback should not be called for topic generation when responses.parse succeeds")
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_topic(
+        {
+            "trend_slug": "office-burnout-recovery",
+            "trend_title": "办公室倦怠修复",
+            "source": "xiaohongshu",
+            "heat_score": 88,
+            "status": "screening",
+        }
+    )
+
+    assert result == {
+        "title": "先照顾情绪，再谈关系修复",
+        "angle": "关系修复顺序",
+    }
+    assert parse_calls["count"] == 1
+
+
+def test_generate_topic_retries_responses_parse_after_internal_server_error_on_custom_base_url(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+    request = httpx.Request("POST", "https://proxy.example/v1/responses")
+    response = httpx.Response(
+        502,
+        request=request,
+        json={"error": {"message": "Upstream access forbidden, please contact administrator"}},
+    )
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise openai.InternalServerError(
+                "Upstream access forbidden, please contact administrator",
+                response=response,
+                body={"error": {"message": "Upstream access forbidden, please contact administrator"}},
+            )
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"title": "先把拧着的那口气放下来", "angle": "从内耗关系里退一步，先把自己救出来"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+    monkeypatch.setattr(ai_generator_module.time, "sleep", lambda *_args: None)
+
+    result = generator.generate_topic(
+        {
+            "trend_slug": "life-order-drift",
+            "trend_title": "别把日子过反了",
+            "source": "manual",
+            "heat_score": 83,
+            "status": "screening",
+        }
+    )
+
+    assert result == {
+        "title": "先把拧着的那口气放下来",
+        "angle": "从内耗关系里退一步，先把自己救出来",
+    }
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 1
+    assert "只返回一个 JSON 对象" in str(captured["extra_body"]["instructions"])
+    assert "公众号选题编辑" in str(captured["extra_body"]["instructions"])
+
+
 def test_generate_topic_supports_tracked_article_payload(monkeypatch) -> None:
     generator = build_generator()
     captured: dict[str, str] = {}
 
-    def fake_parse_response(*, instructions: str, prompt: str, response_format):
+    def fake_parse_response(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds_override=None,
+        max_attempts_override=None,
+    ):
         captured["instructions"] = instructions
         captured["prompt"] = prompt
         return TopicGenerationResult(
@@ -274,6 +1376,7 @@ def test_generate_topic_supports_tracked_article_payload(monkeypatch) -> None:
             "article_title": "听到伴侣说话就烦，不是你讨厌他，也不是你脾气不好，而是你忽略了这个危机",
             "author": "一凡一尘",
             "summary": "很多人认为对伴侣没耐心就是感情变淡了，其实并不全是对的。",
+            "body_markdown": "她不是突然没耐心，只是先把自己的疲惫往后放了太久。",
             "structure_notes": "Imported from WeChat MP article list; structure notes pending review.",
             "tags": ["wechat-mp"],
             "tone_profile": {
@@ -290,13 +1393,88 @@ def test_generate_topic_supports_tracked_article_payload(monkeypatch) -> None:
     assert "参考文章标题：听到伴侣说话就烦" in captured["prompt"]
     assert "来源账号：未知公众号" in captured["prompt"]
     assert "风格档案：女性成长克制陪伴风" in captured["prompt"]
+    assert "参考文章正文抓手候选：" in captured["prompt"]
+
+
+def test_generate_outline_falls_back_after_internal_server_error_on_custom_base_url(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+    request = httpx.Request("POST", "https://proxy.example/v1/responses")
+    response = httpx.Response(
+        502,
+        request=request,
+        json={"error": {"message": "Upstream request failed"}},
+    )
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise openai.InternalServerError(
+                "Upstream request failed",
+                response=response,
+                body={"error": {"message": "Upstream request failed"}},
+            )
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"hook":"先写那种夜里停不下来的脑内追责","outline_body":"1. 为什么停不下来\\n2. 情绪怎样占满日常\\n3. 放下不是为谁开脱"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+    monkeypatch.setattr(ai_generator_module.time, "sleep", lambda *_args: None)
+
+    result = generator.generate_outline(
+        {
+            "trend_title": "原谅别人，也是放过自己",
+            "topic_title": "总在夜里反复翻旧账的人，该先处理的不是关系，是大脑停不下来的追责",
+            "topic_angle": "把“睡不好、想不停、身体一直绷着”当成情绪损耗的现实接口",
+            "project_title": "原谅别人，也是放过自己",
+            "tone_profile": {
+                "name": "今晚有语",
+                "target_word_count": 1400,
+            },
+        }
+    )
+
+    assert result == {
+        "hook": "先写那种夜里停不下来的脑内追责",
+        "outline_body": "1. 为什么停不下来\n2. 情绪怎样占满日常\n3. 放下不是为谁开脱",
+    }
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 1
+    assert "只返回一个 JSON 对象" in str(captured["extra_body"]["instructions"])
+    assert "公众号内容策划编辑" in str(captured["extra_body"]["instructions"])
 
 
 def test_generate_outline_prompt_includes_reference_article_guardrails(monkeypatch) -> None:
     generator = build_generator()
     captured: dict[str, str] = {}
 
-    def fake_parse_response(*, instructions: str, prompt: str, response_format):
+    def fake_parse_response(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds_override=None,
+        max_attempts_override=None,
+    ):
         captured["instructions"] = instructions
         captured["prompt"] = prompt
         return OutlineGenerationResult(hook="hook", outline_body="1. a\n2. b")
@@ -323,18 +1501,28 @@ def test_generate_outline_prompt_includes_reference_article_guardrails(monkeypat
         }
     )
 
-    assert "参考文章只用于提炼冲突、结构灵感和情绪线索" in captured["instructions"]
-    assert "禁止复写参考文章的标题、开头句、段落顺序" in captured["instructions"]
-    assert "参考文章标题：真正让关系缓回来，不是解释，是先接住那一下失望" in captured["prompt"]
-    assert "参考文章结构备注：案例开头 + 情绪拆解 + 动作建议。" in captured["prompt"]
-    assert "参考文章标签：表达修复 / 关系修复" in captured["prompt"]
+    assert "参考文章已经在选题阶段被消化成当前选题和角度" in captured["instructions"]
+    assert "只允许借用赛道冲突，不允许借用原标题骨架、开头入口、段落顺序、小节职责或结尾论断" in captured["instructions"]
+    assert "大纲必须同时拉开至少四处距离" in captured["instructions"]
+    assert "参考文章来源线索（仅用于确认赛道与冲突，不得继续沿用原文骨架）：" in captured["prompt"]
+    assert "来源账号：夜读关系实验室" in captured["prompt"]
+    assert "主题标签：表达修复 / 关系修复" in captured["prompt"]
+    assert "参考文章标题：" not in captured["prompt"]
+    assert "参考文章结构备注：" not in captured["prompt"]
 
 
 def test_generate_draft_prompt_includes_reference_article_guardrails(monkeypatch) -> None:
     generator = build_generator()
     captured: dict[str, str] = {}
 
-    def fake_parse_response(*, instructions: str, prompt: str, response_format):
+    def fake_parse_response(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds_override=None,
+        max_attempts_override=None,
+    ):
         captured["instructions"] = instructions
         captured["prompt"] = prompt
         return DraftGenerationResult(title="title", body_markdown="# draft")
@@ -365,22 +1553,114 @@ def test_generate_draft_prompt_includes_reference_article_guardrails(monkeypatch
         }
     )
 
-    assert "参考文章只用于提炼冲突、结构灵感和情绪线索" in captured["instructions"]
-    assert "不要沿用参考文章的句子，不要做逐段近义改写" in captured["instructions"]
-    assert "参考文章摘要：从关系修复案例提炼表达顺序。" in captured["prompt"]
-    assert "参考文章结构备注：案例开头 + 情绪拆解 + 动作建议。" in captured["prompt"]
-    assert "参考文章标签：表达修复 / 关系修复" in captured["prompt"]
+    assert "参考文章已经在选题和大纲阶段被消化，这一阶段默认你看不到原文" in captured["instructions"]
+    assert "不要再按原文标题、摘要措辞、结构备注或段落顺序组织正文" in captured["instructions"]
+    assert "起笔对象、主段顺序、案例排列和收束动作都必须重新组织" in captured["instructions"]
+    assert "参考文章来源线索（仅用于确认赛道与冲突，不得继续沿用原文骨架）：" in captured["prompt"]
+    assert "来源账号：夜读关系实验室" in captured["prompt"]
+    assert "主题标签：表达修复 / 关系修复" in captured["prompt"]
+    assert "参考文章摘要：" not in captured["prompt"]
+    assert "参考文章结构备注：" not in captured["prompt"]
+
+
+def test_generate_tracked_article_metadata_retries_responses_parse_after_internal_server_error_on_custom_base_url(
+    monkeypatch,
+) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+    request = httpx.Request("POST", "https://proxy.example/v1/responses")
+    response = httpx.Response(
+        502,
+        request=request,
+        json={"error": {"message": "Upstream access forbidden, please contact administrator"}},
+    )
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise openai.InternalServerError(
+                "Upstream access forbidden, please contact administrator",
+                response=response,
+                body={"error": {"message": "Upstream access forbidden, please contact administrator"}},
+            )
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = (
+                    '{"author":"毛姆摘引","summary":"文章围绕原谅与释怀展开，重点提醒人别让反复计较毁掉自己的心境。",'
+                    '"structure_notes":"名言起手 + 情绪后果拆解 + 释怀落点。",'
+                    '"analysis_theme":"文章真正想讲的是，人要学会把反复计较和恩怨纠缠放下，才能把自己从消耗里解救出来。",'
+                    '"analysis_core_conflict":"越想抓着那些让自己不痛快的人和事不放，越容易让内心一直被旧情绪啃食。",'
+                    '"analysis_emotional_exit":"从计较和怨怼里松手，把心腾出来重新装进轻松和希望。",'
+                    '"analysis_structure_mode":"emotional_engine_direct",'
+                    '"analysis_opening_pattern":"从名言和价值判断直接起笔。",'
+                    '"analysis_do_not_turn_into":"不要写成关系修复教程或身体告警提醒稿。",'
+                    '"tags":["释怀","自我和解"]}'
+                )
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+    monkeypatch.setattr(ai_generator_module.time, "sleep", lambda *_args: None)
+
+    result = generator.generate_tracked_article_metadata(
+        {
+            "source_kind": "manual",
+            "source_name": "手动录入",
+            "article_title": "别把日子过反了",
+            "article_url": "https://example.com/article",
+            "author": "",
+            "summary": "",
+            "structure_notes": "",
+            "tags": [],
+            "body_source": "manual",
+            "body_markdown": "她总说等忙完这阵，再去做那些真正重要的事。",
+        }
+    )
+
+    assert result == {
+        "author": "毛姆摘引",
+        "summary": "文章围绕原谅与释怀展开，重点提醒人别让反复计较毁掉自己的心境。",
+        "structure_notes": "名言起手 + 情绪后果拆解 + 释怀落点。",
+        "analysis_theme": "文章真正想讲的是，人要学会把反复计较和恩怨纠缠放下，才能把自己从消耗里解救出来。",
+        "analysis_core_conflict": "越想抓着那些让自己不痛快的人和事不放，越容易让内心一直被旧情绪啃食。",
+        "analysis_emotional_exit": "从计较和怨怼里松手，把心腾出来重新装进轻松和希望。",
+        "analysis_structure_mode": "emotional_engine_direct",
+        "analysis_opening_pattern": "从名言和价值判断直接起笔。",
+        "analysis_do_not_turn_into": "不要写成关系修复教程或身体告警提醒稿。",
+        "tags": ["释怀", "自我和解"],
+    }
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 1
+    assert "只返回一个 JSON 对象" in str(captured["extra_body"]["instructions"])
+    assert "公众号内容分析编辑" in str(captured["extra_body"]["instructions"])
 
 
 def test_generator_passes_configured_timeout_to_openai_client(monkeypatch) -> None:
-    captured: dict[str, object] = {}
+    captured_calls: list[dict[str, object]] = []
 
     class FakeClient:
         def __init__(self) -> None:
             self.responses = object()
 
     def fake_openai(**kwargs):
-        captured.update(kwargs)
+        captured_calls.append(dict(kwargs))
         return FakeClient()
 
     monkeypatch.setattr(ai_generator_module, "OpenAI", fake_openai)
@@ -391,11 +1671,57 @@ def test_generator_passes_configured_timeout_to_openai_client(monkeypatch) -> No
             openai_model="test-model",
             openai_image_model="test-image-model",
             openai_request_timeout_seconds=45.0,
+            openai_image_api_key="",
+            openai_image_base_url=None,
+            openai_image_request_timeout_seconds=None,
         )
     )
 
-    assert captured["api_key"] == "test-key"
-    assert captured["timeout"] == 45.0
+    assert len(captured_calls) == 2
+    assert captured_calls[0]["api_key"] == "test-key"
+    assert captured_calls[0]["timeout"] == 45.0
+    assert captured_calls[1]["api_key"] == "test-key"
+    assert captured_calls[1]["timeout"] == 45.0
+
+
+def test_generator_uses_dedicated_image_client_config_when_present(monkeypatch) -> None:
+    captured_calls: list[dict[str, object]] = []
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.responses = object()
+            self.images = object()
+
+    def fake_openai(**kwargs):
+        captured_calls.append(dict(kwargs))
+        return FakeClient()
+
+    monkeypatch.setattr(ai_generator_module, "OpenAI", fake_openai)
+
+    OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="text-key",
+            openai_base_url="https://text.example/v1",
+            openai_model="test-model",
+            openai_request_timeout_seconds=45.0,
+            openai_image_api_key="image-key",
+            openai_image_base_url="https://image.example/v1",
+            openai_image_request_timeout_seconds=120.0,
+            openai_image_model="test-image-model",
+        )
+    )
+
+    assert len(captured_calls) == 2
+    assert captured_calls[0] == {
+        "api_key": "text-key",
+        "base_url": "https://text.example/v1",
+        "timeout": 45.0,
+    }
+    assert captured_calls[1] == {
+        "api_key": "image-key",
+        "base_url": "https://image.example/v1",
+        "timeout": 120.0,
+    }
 
 
 def test_generate_cover_image_uses_low_quality_variant_first(monkeypatch) -> None:
@@ -414,7 +1740,7 @@ def test_generate_cover_image_uses_low_quality_variant_first(monkeypatch) -> Non
 
             return FakeResponse()
 
-    monkeypatch.setattr(generator._client, "images", FakeImages())
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
 
     result = generator.generate_cover_image(
         {
@@ -449,7 +1775,7 @@ def test_generate_cover_image_retries_with_second_variant_after_timeout(monkeypa
 
             return FakeResponse()
 
-    monkeypatch.setattr(generator._client, "images", FakeImages())
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
 
     result = generator.generate_cover_image(
         {
@@ -467,7 +1793,143 @@ def test_generate_cover_image_retries_with_second_variant_after_timeout(monkeypa
     assert calls[1]["timeout"] == 240.0
 
 
+def test_generate_cover_image_retries_with_ratio_size_after_numeric_size_rejected(monkeypatch) -> None:
+    generator = build_generator()
+    calls: list[dict[str, object]] = []
+    request = httpx.Request("POST", "https://example.com/v1/images")
+    response = httpx.Response(
+        400,
+        request=request,
+        json={
+            "error": {
+                "message": 'Invalid option: expected one of "auto"|"1:1"|"16:9"|"9:16"|"4:3"|"3:4"|"3:2"|"2:3"|"5:4"|"4:5"|"2:1"|"1:2"|"21:9"|"9:21"'
+            }
+        },
+    )
+
+    class FakeImages:
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise openai.BadRequestError(
+                    "Invalid image size",
+                    response=response,
+                    body={
+                        "error": {
+                            "message": 'size: Invalid option: expected one of "auto"|"1:1"|"16:9"|"9:16"|"4:3"|"3:4"|"3:2"|"2:3"|"5:4"|"4:5"|"2:1"|"1:2"|"21:9"|"9:21"'
+                        }
+                    },
+                )
+
+            class FakeImage:
+                b64_json = base64.b64encode(b"ratio-variant").decode("utf-8")
+
+            class FakeResponse:
+                data = [FakeImage()]
+
+            return FakeResponse()
+
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
+
+    result = generator.generate_cover_image({"cover_prompt": "prompt"})
+
+    assert result == b"ratio-variant"
+    assert len(calls) == 2
+    assert calls[0]["size"] == "1536x1024"
+    assert calls[1]["size"] == "3:2"
+
+
+def test_generate_cover_image_retries_without_unrecognized_output_keys(monkeypatch) -> None:
+    generator = build_generator()
+    calls: list[dict[str, object]] = []
+    request = httpx.Request("POST", "https://example.com/v1/images")
+    response = httpx.Response(
+        400,
+        request=request,
+        json={"error": {"message": 'Unrecognized keys: "output_format", "quality"'}},
+    )
+
+    class FakeImages:
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise openai.BadRequestError(
+                    "Unsupported request keys",
+                    response=response,
+                    body={"error": {"message": 'Unrecognized keys: "output_format", "quality"'}},
+                )
+
+            class FakeImage:
+                b64_json = base64.b64encode(b"provider-compatible").decode("utf-8")
+
+            class FakeResponse:
+                data = [FakeImage()]
+
+            return FakeResponse()
+
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
+
+    result = generator.generate_cover_image({"cover_prompt": "prompt"})
+
+    assert result == b"provider-compatible"
+    assert len(calls) == 2
+    assert calls[0]["output_format"] == "png"
+    assert calls[0]["quality"] == "low"
+    assert "output_format" not in calls[1]
+    assert "quality" not in calls[1]
+    assert calls[1]["size"] == "1536x1024"
+
+
+def test_generate_cover_image_surfaces_async_task_provider_response(monkeypatch) -> None:
+    generator = build_generator()
+
+    class FakeResponse:
+        id = "task_123"
+        status = "processing"
+        data = None
+
+    class FakeImages:
+        def generate(self, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
+
+    with pytest.raises(RuntimeError) as excinfo:
+        generator.generate_cover_image({"cover_prompt": "prompt"})
+
+    assert "async task" in str(excinfo.value)
+    assert "task_id=task_123" in str(excinfo.value)
+    assert "status=processing" in str(excinfo.value)
+
+
 def test_get_ai_config_summary_masks_secret_but_reports_runtime_fields() -> None:
+    summary = get_ai_config_summary(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://example.com/v1",
+            openai_model="test-model",
+            openai_image_api_key="image-key",
+            openai_image_base_url="https://images.example.com/v1",
+            openai_image_model="test-image-model",
+            openai_reasoning_effort="medium",
+            openai_request_timeout_seconds=45.0,
+            openai_image_request_timeout_seconds=90.0,
+        )
+    )
+
+    assert summary.api_key_configured is True
+    assert summary.base_url == "https://example.com/v1"
+    assert summary.model == "test-model"
+    assert summary.image_model == "test-image-model"
+    assert summary.image_api_key_configured is True
+    assert summary.image_base_url == "https://images.example.com/v1"
+    assert summary.image_request_timeout_seconds == 90.0
+    assert summary.image_uses_dedicated_config is True
+    assert summary.reasoning_effort == "medium"
+    assert summary.request_timeout_seconds == 45.0
+
+
+def test_get_ai_config_summary_falls_back_to_text_config_for_image_chain() -> None:
     summary = get_ai_config_summary(
         Settings(
             openai_api_key="test-key",
@@ -476,15 +1938,16 @@ def test_get_ai_config_summary_masks_secret_but_reports_runtime_fields() -> None
             openai_image_model="test-image-model",
             openai_reasoning_effort="medium",
             openai_request_timeout_seconds=45.0,
+            openai_image_api_key="",
+            openai_image_base_url=None,
+            openai_image_request_timeout_seconds=None,
         )
     )
 
-    assert summary.api_key_configured is True
-    assert summary.base_url == "https://example.com/v1"
-    assert summary.model == "test-model"
-    assert summary.image_model == "test-image-model"
-    assert summary.reasoning_effort == "medium"
-    assert summary.request_timeout_seconds == 45.0
+    assert summary.image_api_key_configured is True
+    assert summary.image_base_url == "https://example.com/v1"
+    assert summary.image_request_timeout_seconds == 45.0
+    assert summary.image_uses_dedicated_config is False
 
 
 def test_run_ai_config_check_returns_success_when_probe_passes(monkeypatch) -> None:

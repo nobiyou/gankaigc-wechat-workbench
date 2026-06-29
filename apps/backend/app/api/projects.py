@@ -1,8 +1,10 @@
 from fastapi import APIRouter, status
 
+from app.schemas.creative_workflow import PromoteCreativePatternAction
 from app.schemas.projects import (
     BatchContinueProjectsRequest,
     BuildPublishPackageAction,
+    DiagnoseDraftAction,
     DraftPolishAction,
     GenerateAssetsAction,
     ProjectRetroCreate,
@@ -11,14 +13,19 @@ from app.schemas.projects import (
 )
 from app.services.workbench import (
     approve_publish_package,
+    adopt_strategy_card,
     build_publish_package,
+    diagnose_draft,
+    generate_creative_review_report,
     generate_draft,
     generate_assets,
     generate_outline,
+    generate_strategy_package,
     get_project_detail,
     get_project_versions,
     list_projects,
     polish_draft,
+    promote_creative_pattern,
     record_project_retro,
     regenerate_from_review,
     restore_assets_version,
@@ -66,14 +73,47 @@ def post_generate_outline(project_slug: str) -> dict[str, object]:
     return generate_outline(project_slug).model_dump()
 
 
+@router.post("/{project_slug}/generate-strategy-package", status_code=201)
+def post_generate_strategy_package(project_slug: str) -> dict[str, object]:
+    return generate_strategy_package(project_slug).model_dump()
+
+
+@router.post("/{project_slug}/adopt-strategy-card/{version}")
+def post_adopt_strategy_card(project_slug: str, version: int) -> dict[str, object]:
+    return adopt_strategy_card(project_slug, version).model_dump()
+
+
 @router.post("/{project_slug}/generate-draft", status_code=201)
 def post_generate_draft(project_slug: str) -> dict[str, object]:
     return generate_draft(project_slug).model_dump()
 
 
+@router.post("/{project_slug}/generate-creative-review-report", status_code=201)
+def post_generate_creative_review_report(project_slug: str) -> dict[str, object]:
+    return generate_creative_review_report(project_slug).model_dump()
+
+
+@router.post("/{project_slug}/promote-creative-pattern", status_code=201)
+def post_promote_creative_pattern(project_slug: str, payload: PromoteCreativePatternAction) -> dict[str, object]:
+    return promote_creative_pattern(project_slug, payload).model_dump()
+
+
+@router.post("/{project_slug}/diagnose-draft", status_code=201)
+def post_diagnose_draft(project_slug: str, payload: DiagnoseDraftAction | None = None) -> dict[str, object]:
+    return diagnose_draft(
+        project_slug,
+        draft_version=payload.draft_version if payload else None,
+    ).model_dump()
+
+
 @router.post("/{project_slug}/polish-draft", status_code=201)
 def post_polish_draft(project_slug: str, payload: DraftPolishAction) -> dict[str, object]:
-    return polish_draft(project_slug, instruction=payload.instruction).model_dump()
+    return polish_draft(
+        project_slug,
+        instruction=payload.instruction,
+        diagnosis_report_version=payload.diagnosis_report_version,
+        objective_key=payload.objective_key,
+    ).model_dump()
 
 
 @router.post("/{project_slug}/generate-assets", status_code=201)

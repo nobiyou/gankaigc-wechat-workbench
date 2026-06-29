@@ -13,7 +13,7 @@ import { formatProjectDomainPackLabel } from "../domainPacks";
 import { formatProjectChainStateLabel, formatProjectNextStepLabel } from "../projectStatus";
 import { buildProjectConfigPreviewLines } from "../projectConfigPreview";
 import { formatProjectToneProfileLabel, hasProjectToneProfileSelectionChanged } from "../toneProfiles";
-import { buildProjectGroups } from "../view-models/projectGroups";
+import { buildProjectGroups, type ProjectGroupKey } from "../view-models/projectGroups";
 import { buildProjectWorkbenchTarget } from "../view-models/workbenchStages";
 
 type ProjectsLoadState =
@@ -31,6 +31,7 @@ export function ProjectsPage() {
   const [reloadToken, setReloadToken] = useState(0);
   const [query, setQuery] = useState("");
   const [owner, setOwner] = useState("");
+  const [activeGroupKey, setActiveGroupKey] = useState<"all" | ProjectGroupKey>("all");
   const [domainDrafts, setDomainDrafts] = useState<Record<string, string>>({});
   const [toneProfileDrafts, setToneProfileDrafts] = useState<Record<string, string>>({});
   const [expandedProjectSlug, setExpandedProjectSlug] = useState<string | null>(null);
@@ -106,6 +107,28 @@ export function ProjectsPage() {
     return [...new Set(loadState.projects.map((project) => project.owner).filter(Boolean))];
   }, [loadState]);
 
+  const groups = useMemo(() => {
+    if (loadState.status !== "ready") {
+      return [];
+    }
+    return buildProjectGroups({
+      projects: loadState.projects,
+      filters: {
+        query,
+        owner: owner || null,
+      },
+    });
+  }, [loadState, owner, query]);
+
+  useEffect(() => {
+    if (activeGroupKey === "all") {
+      return;
+    }
+    if (!groups.some((group) => group.groupKey === activeGroupKey)) {
+      setActiveGroupKey("all");
+    }
+  }, [activeGroupKey, groups]);
+
   if (loadState.status === "loading") {
     return (
       <section className="workspace-page">
@@ -135,13 +158,16 @@ export function ProjectsPage() {
     );
   }
 
-  const groups = buildProjectGroups({
-    projects: loadState.projects,
-    filters: {
-      query,
-      owner: owner || null,
-    },
-  });
+  const visibleGroups = activeGroupKey === "all" ? groups : groups.filter((group) => group.groupKey === activeGroupKey);
+  const filteredProjectCount = groups.reduce((sum, group) => sum + group.count, 0);
+  const groupFilterOptions: Array<{ key: "all" | ProjectGroupKey; label: string; count: number }> = [
+    { key: "all", label: "全部分组", count: filteredProjectCount },
+    ...groups.map((group) => ({
+      key: group.groupKey,
+      label: group.title,
+      count: group.count,
+    })),
+  ];
 
   return (
     <section className="workspace-page">
@@ -190,6 +216,30 @@ export function ProjectsPage() {
             </select>
           </label>
         </div>
+        {groups.length > 0 ? (
+          <>
+            <div className="workspace-toolbar__meta">
+              <span>分组快捷切换</span>
+              <span>切到单组后，只展示当前分组项目，减少长页面滚动。</span>
+            </div>
+            <div className="workspace-filter-row project-group-switcher">
+              {groupFilterOptions.map((item) => (
+                <button
+                  key={item.key}
+                  className={
+                    item.key === activeGroupKey
+                      ? "workspace-filter-button workspace-filter-button--active"
+                      : "workspace-filter-button"
+                  }
+                  type="button"
+                  onClick={() => setActiveGroupKey(item.key)}
+                >
+                  {`${item.label} ${item.count}`}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
       </section>
 
       {actionMessage ? <div className="workspace-note workspace-note--success"><p>{actionMessage}</p></div> : null}
@@ -202,7 +252,7 @@ export function ProjectsPage() {
           <p>可以清空搜索条件，或先去 Pipeline / 选题队列 把选题推进成项目。</p>
         </div>
       ) : (
-        groups.map((group) => (
+        visibleGroups.map((group) => (
           <section key={group.groupKey} className="workspace-section">
             <div className="workspace-section__header">
               <div>
@@ -230,15 +280,18 @@ export function ProjectsPage() {
                     <span>{formatProjectDomainPackLabel(project, loadState.domainPacks)}</span>
                     <span>{formatProjectToneProfileLabel(project)}</span>
                   </div>
-                  <div className="workspace-actions">
+                  <div className="workspace-actions workspace-actions--row project-card__actions">
                     <button
-                      className="dashboard-button dashboard-button--ghost"
+                      className="dashboard-button dashboard-button--ghost dashboard-button--compact"
                       type="button"
                       onClick={() => setExpandedProjectSlug((current) => (current === project.slug ? null : project.slug))}
                     >
                       {expandedProjectSlug === project.slug ? "收起配置" : "项目配置"}
                     </button>
-                    <Link className="dashboard-inline-link" to={buildProjectWorkbenchTarget(project)}>
+                    <Link
+                      className="dashboard-inline-link dashboard-inline-link--compact"
+                      to={buildProjectWorkbenchTarget(project)}
+                    >
                       打开 Workbench
                     </Link>
                   </div>

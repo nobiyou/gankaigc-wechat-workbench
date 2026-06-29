@@ -80,6 +80,20 @@ function buildPublishHistoryMeta(item: PublishPackageItem): string[] {
   return meta;
 }
 
+function buildStrategyHistoryMeta(item: { created_at?: string | null; adopted_at?: string | null; status: string }): string[] {
+  const meta: string[] = [];
+  const createdAtLabel = formatHistoryTimestamp(item.created_at ?? null);
+  if (createdAtLabel) {
+    meta.push(createdAtLabel);
+  }
+  meta.push(`状态：${item.status}`);
+  const adoptedAtLabel = formatHistoryTimestamp(item.adopted_at ?? null);
+  if (adoptedAtLabel) {
+    meta.push(adoptedAtLabel.replace("时间：", "采纳："));
+  }
+  return meta;
+}
+
 function buildSummaryText(summary: string): { summary: string; fullSummary: string; truncated: boolean } {
   const normalized = summary.trim();
   if (normalized.length <= HISTORY_SUMMARY_PREVIEW_LENGTH) {
@@ -119,6 +133,16 @@ export function buildWorkbenchHistoryEntries({
   versions: ProjectVersions;
   currentVersionNumber?: number | null;
 }): WorkbenchHistoryEntry[] {
+  if (stage === "topic") {
+    return (versions.strategy_cards ?? []).map((item) => ({
+      versionNumber: item.version,
+      ...buildSummaryText(`${item.point_of_view} · v${item.version}`),
+      restorable: item.version !== currentVersionNumber,
+      meta: buildStrategyHistoryMeta(item),
+      reviewState: item.adopted_at ? "adopted" : item.status,
+    }));
+  }
+
   if (stage === "outline") {
     return versions.outlines.map((item) => ({
       versionNumber: item.version,
@@ -142,7 +166,7 @@ export function buildWorkbenchHistoryEntries({
   if (stage === "assets") {
     return versions.assets.map((item) => ({
       versionNumber: item.version,
-      ...buildSummaryText(`${item.title_options[0] ?? "素材版本"} · ${item.cover_copy}`),
+      ...buildSummaryText(`${item.recommended_title || item.title_options[0] || "素材版本"} · ${item.cover_copy}`),
       restorable: item.version !== currentVersionNumber,
       meta: buildHistoryMeta(item),
       reviewState: null,

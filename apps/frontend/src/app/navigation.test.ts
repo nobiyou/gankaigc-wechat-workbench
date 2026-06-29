@@ -35,7 +35,7 @@ test("secondary navigation routes match the route contract", () => {
     PIPELINE_NAV_ITEMS.map((item) => item.to),
     ["/pipeline/topics", "/pipeline/runs", "/pipeline/tasks"],
   );
-  assert.deepEqual(SETTINGS_NAV_ITEMS.map((item) => item.to), ["/settings/tone-profiles"]);
+  assert.deepEqual(SETTINGS_NAV_ITEMS.map((item) => item.to), ["/settings/tone-profiles", "/settings/patterns"]);
 });
 
 test("resolvePrimaryNavKey maps workbench routes back to projects", () => {
@@ -44,6 +44,7 @@ test("resolvePrimaryNavKey maps workbench routes back to projects", () => {
   assert.equal(resolvePrimaryNavKey("/pipeline/tasks"), "pipeline");
   assert.equal(resolvePrimaryNavKey("/projects/demo-project/workbench/draft"), "projects");
   assert.equal(resolvePrimaryNavKey("/settings/tone-profiles"), "settings");
+  assert.equal(resolvePrimaryNavKey("/settings/patterns"), "settings");
 });
 
 test("workbench stages stay in the approved canonical order", () => {

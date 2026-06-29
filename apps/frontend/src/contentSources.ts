@@ -19,6 +19,20 @@ function normalizeSearchValue(value: string): string {
   return value.trim().toLowerCase();
 }
 
+const DEFAULT_TREND_SUMMARY_PREVIEW_LENGTH = 220;
+
+export function shouldCollapseTrendSummary(summary: string, maxLength: number = DEFAULT_TREND_SUMMARY_PREVIEW_LENGTH): boolean {
+  return summary.trim().length > maxLength;
+}
+
+export function buildTrendSummaryPreview(summary: string, maxLength: number = DEFAULT_TREND_SUMMARY_PREVIEW_LENGTH): string {
+  const normalized = summary.trim();
+  if (!shouldCollapseTrendSummary(normalized, maxLength)) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength).trimEnd()}…`;
+}
+
 export function filterTrendsByQuery(trends: TrendItem[], query: string): TrendItem[] {
   const normalizedQuery = normalizeSearchValue(query);
   if (!normalizedQuery) {
@@ -26,7 +40,9 @@ export function filterTrendsByQuery(trends: TrendItem[], query: string): TrendIt
   }
 
   return trends.filter((trend) =>
-    [trend.title, trend.source, trend.slug].some((field) => field.toLowerCase().includes(normalizedQuery)),
+    [trend.title, trend.source, trend.slug, trend.summary ?? "", trend.link ?? ""].some((field) =>
+      field.toLowerCase().includes(normalizedQuery),
+    ),
   );
 }
 

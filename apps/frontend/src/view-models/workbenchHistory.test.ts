@@ -147,6 +147,57 @@ test("buildWorkbenchHistoryEntries returns empty history for stages without pers
   assert.deepEqual(entries, []);
 });
 
+test("buildWorkbenchHistoryEntries exposes topic strategy history without restore actions", () => {
+  const entries = buildWorkbenchHistoryEntries({
+    stage: "topic",
+    currentVersionNumber: 2,
+    versions: {
+      project_slug: "demo-project",
+      outlines: [],
+      drafts: [],
+      assets: [],
+      publish_packages: [],
+      strategy_cards: [
+        {
+          project_slug: "demo-project",
+          version: 2,
+          problem_brief_version: 2,
+          reader_situation: "深夜反复看对话框。",
+          point_of_view: "先承认不安，再拆开误会。",
+          conflict_frame: "越想确认越不敢说。",
+          emotional_path: "嘴硬 -> 失望 -> 看见渴望",
+          expression_constraints: [],
+          benchmark_summary: "借鉴具体处境开头。",
+          status: "ready",
+          created_at: "2026-05-30T01:00:00Z",
+          adopted_at: "2026-05-30T02:00:00Z",
+        },
+        {
+          project_slug: "demo-project",
+          version: 1,
+          problem_brief_version: 1,
+          reader_situation: "总在等回复。",
+          point_of_view: "把沉默看成求证方式。",
+          conflict_frame: "想被看见，却先把门关上。",
+          emotional_path: "拉扯 -> 冷掉 -> 回看自己",
+          expression_constraints: ["不要鸡汤"],
+          benchmark_summary: "减少模板化劝解。",
+          status: "ready",
+          created_at: "2026-05-29T01:00:00Z",
+          adopted_at: null,
+        },
+      ],
+    },
+  });
+
+  assert.equal(entries[0]?.versionNumber, 2);
+  assert.equal(entries[0]?.restorable, false);
+  assert.equal(entries[0]?.reviewState, "adopted");
+  assert.equal(entries[0]?.meta.some((item) => item.startsWith("采纳：")), true);
+  assert.equal(entries[1]?.restorable, true);
+  assert.equal(entries[1]?.reviewState, "ready");
+});
+
 test("buildWorkbenchHistoryEntries renders readable publish review states", () => {
   const entries = buildWorkbenchHistoryEntries({
     stage: "publish",

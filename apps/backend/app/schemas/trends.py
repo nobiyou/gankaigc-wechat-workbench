@@ -7,6 +7,10 @@ class TrendItem(BaseModel):
     source: str
     heat_score: int
     status: str
+    link: str = ""
+    summary: str = ""
+    published_at: str | None = None
+    fetched_at: str | None = None
 
 
 class TrendCreate(TrendItem):

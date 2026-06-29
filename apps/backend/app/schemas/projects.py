@@ -1,5 +1,16 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.creative_workflow import (
+    BenchmarkReferenceItem,
+    CreativeReviewReportItem,
+    DraftQualitySummaryItem,
+    DirectionalPolishLinkItem,
+    DraftDiagnosisReportItem,
+    ProblemBriefItem,
+    ReusablePatternItem,
+    StrategyCardItem,
+)
+
 
 class ProjectItem(BaseModel):
     slug: str
@@ -124,9 +135,11 @@ class AssetItem(BaseModel):
     draft_version: int
     version: int
     title_options: list[str]
+    recommended_title: str = ""
     cover_prompt: str
     cover_copy: str
     social_teaser: str
+    social_teaser_options: list[str] = Field(default_factory=list)
     cover_image_path: str
     cover_image_url: str
     created_at: str | None = None
@@ -144,6 +157,9 @@ class PublishPackageItem(BaseModel):
     tags: list[str]
     publish_checklist: list[str]
     editor_note: str
+    publish_title: str = ""
+    publish_lead: str = ""
+    intro_options: list[str] = Field(default_factory=list)
     markdown_path: str
     markdown_url: str
     manifest_path: str
@@ -164,7 +180,13 @@ class PublishReviewAction(BaseModel):
 
 
 class DraftPolishAction(BaseModel):
-    instruction: str
+    instruction: str | None = None
+    diagnosis_report_version: int | None = None
+    objective_key: str | None = None
+
+
+class DiagnoseDraftAction(BaseModel):
+    draft_version: int | None = None
 
 
 class GenerateAssetsAction(BaseModel):
@@ -202,6 +224,14 @@ class ProjectDetail(BaseModel):
     assets: AssetItem | None
     publish_package: PublishPackageItem | None
     retro: ProjectRetroItem | None
+    problem_brief: ProblemBriefItem | None = None
+    benchmarks: list[BenchmarkReferenceItem] = Field(default_factory=list)
+    strategy_card: StrategyCardItem | None = None
+    diagnosis_report: DraftDiagnosisReportItem | None = None
+    creative_review_report: CreativeReviewReportItem | None = None
+    draft_quality_summary: DraftQualitySummaryItem | None = None
+    reusable_patterns: list[ReusablePatternItem] = Field(default_factory=list)
+    reference_originality_report: dict[str, object] | None = None
 
 
 class ProjectVersions(BaseModel):
@@ -210,6 +240,10 @@ class ProjectVersions(BaseModel):
     drafts: list[DraftItem]
     assets: list[AssetItem]
     publish_packages: list[PublishPackageItem]
+    strategy_cards: list[StrategyCardItem] = Field(default_factory=list)
+    diagnosis_reports: list[DraftDiagnosisReportItem] = Field(default_factory=list)
+    directional_polish_links: list[DirectionalPolishLinkItem] = Field(default_factory=list)
+    creative_review_reports: list[CreativeReviewReportItem] = Field(default_factory=list)
 
 
 class BatchContinueProjectResult(BaseModel):
