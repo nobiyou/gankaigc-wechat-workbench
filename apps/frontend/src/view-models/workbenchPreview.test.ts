@@ -53,9 +53,15 @@ const baseDetail = {
     draft_version: 1,
     version: 1,
     title_options: ["越在乎的人，为什么越想在关系里反复确认", "她不是作，她只是没有被真正接住"],
+    recommended_title: "她不是作，她只是没有被真正接住",
     cover_prompt: "close-up portrait, soft light, emotional realism",
     cover_copy: "越在乎，越想确认",
     social_teaser: "真正让人反复确认的，往往不是一句话，而是关系里长期没有被看见。",
+    social_teaser_options: [
+      "有些反复确认，不是矫情，是心里一直没稳下来。",
+      "她不是想太多，她只是太久没有被好好回应。",
+      "你以为她在闹，其实她只是想知道自己是不是还被放在心上。",
+    ],
     cover_image_path: "cover.png",
     cover_image_url: "/generated-assets/cover.png",
     tone_profile_id: null,
@@ -70,6 +76,13 @@ const baseDetail = {
     tags: ["关系", "确认", "女性成长"],
     publish_checklist: ["检查标题", "检查首图", "检查结尾 CTA"],
     editor_note: "发布前确认封面图与标题 1 保持一致。",
+    publish_title: "越在乎的人，为什么越想在关系里反复确认",
+    publish_lead: "有些反复确认，不是你想太多，而是你在关系里一直没有真正稳下来。",
+    intro_options: [
+      "有些反复确认，不是你想太多，而是你在关系里一直没有真正稳下来。",
+      "你总想反复确认，很多时候不是因为矫情，而是因为心里一直没稳过。",
+      "被忽冷忽热对待久了，人真的会下意识想再确认一次。",
+    ],
     markdown_path: "publish.md",
     markdown_url: "/generated-assets/publish.md",
     manifest_path: "publish.json",
@@ -317,7 +330,7 @@ test("buildWorkbenchPreview returns assets preview with title and teaser blocks"
   const preview = buildWorkbenchPreview("assets", baseDetail);
 
   assert.equal(preview?.eyebrow, "Assets Preview");
-  assert.equal(preview?.blocks.length, 5);
+  assert.equal(preview?.blocks.length, 7);
   assert.equal(preview?.blocks[0]?.label, "封面图");
   assert.equal(preview?.blocks[0]?.content, "/generated-assets/cover.png");
   assert.equal(preview?.blocks[1]?.kind, "markdown");
@@ -326,11 +339,27 @@ test("buildWorkbenchPreview returns assets preview with title and teaser blocks"
     preview?.blocks[1]?.copyText,
     "1. 越在乎的人，为什么越想在关系里反复确认\n2. 她不是作，她只是没有被真正接住",
   );
-  assert.equal(preview?.blocks[2]?.copyText, "越在乎，越想确认");
-  assert.equal(preview?.blocks[3]?.content, "真正让人反复确认的，往往不是一句话，而是关系里长期没有被看见。");
-  assert.equal(preview?.blocks[3]?.copyText, "真正让人反复确认的，往往不是一句话，而是关系里长期没有被看见。");
-  assert.equal(preview?.blocks[4]?.label, "配图提示词");
-  assert.equal(preview?.blocks[4]?.copyText, "close-up portrait, soft light, emotional realism");
+  assert.equal(preview?.blocks[2]?.label, "主推标题");
+  assert.equal(preview?.blocks[2]?.copyText, "她不是作，她只是没有被真正接住");
+  assert.equal(preview?.blocks[3]?.copyText, "越在乎，越想确认");
+  assert.equal(preview?.blocks[4]?.content, "真正让人反复确认的，往往不是一句话，而是关系里长期没有被看见。");
+  assert.equal(preview?.blocks[4]?.copyText, "真正让人反复确认的，往往不是一句话，而是关系里长期没有被看见。");
+  assert.equal(preview?.blocks[5]?.label, "导语候选");
+  assert.equal(preview?.blocks[5]?.content.includes("1. 有些反复确认，不是矫情，是心里一直没稳下来。"), true);
+  assert.equal(preview?.blocks[6]?.label, "配图提示词");
+  assert.equal(preview?.blocks[6]?.copyText, "close-up portrait, soft light, emotional realism");
+});
+
+test("buildWorkbenchPreview shows recommended asset title and publish intro options", () => {
+  const assetsPreview = buildWorkbenchPreview("assets", baseDetail);
+  assert.equal(assetsPreview?.title, "她不是作，她只是没有被真正接住");
+  assert.equal(assetsPreview?.blocks[2]?.label, "主推标题");
+  assert.equal(assetsPreview?.blocks[2]?.content, "她不是作，她只是没有被真正接住");
+
+  const publishPreview = buildWorkbenchPreview("publish", baseDetail);
+  const introBlock = publishPreview?.blocks.find((item) => item.key === "intro-options");
+  assert.equal(introBlock?.label, "导语候选");
+  assert.equal(introBlock?.content.includes("被忽冷忽热对待久了"), true);
 });
 
 test("buildWorkbenchPreview marks missing assets cover image clearly", () => {
@@ -351,14 +380,18 @@ test("buildWorkbenchPreview returns publish preview with article, abstract, tags
   const preview = buildWorkbenchPreview("publish", baseDetail);
 
   assert.equal(preview?.eyebrow, "Publish Preview");
-  assert.equal(preview?.blocks.length, 5);
+  assert.equal(preview?.title, "越在乎的人，为什么越想在关系里反复确认");
+  assert.equal(preview?.blocks.length, 7);
   assert.equal(preview?.blocks[0]?.kind, "markdown");
   assert.equal(preview?.blocks[0]?.content.includes("# 标题"), true);
   assert.equal(preview?.blocks[0]?.copyText, "# 标题\n\n第一段\n\n第二段");
   assert.equal(preview?.blocks[1]?.content, "写给总在关系里反复确认、又不知道为什么停不下来的人。");
-  assert.equal(preview?.blocks[2]?.content, "关系 / 确认 / 女性成长");
+  assert.equal(preview?.blocks[2]?.content, "有些反复确认，不是你想太多，而是你在关系里一直没有真正稳下来。");
   assert.equal(preview?.blocks[3]?.kind, "markdown");
-  assert.equal(preview?.blocks[3]?.content.includes("1. 检查标题"), true);
+  assert.equal(preview?.blocks[3]?.content.includes("1. 有些反复确认，不是你想太多"), true);
+  assert.equal(preview?.blocks[4]?.content, "关系 / 确认 / 女性成长");
+  assert.equal(preview?.blocks[5]?.kind, "markdown");
+  assert.equal(preview?.blocks[5]?.content.includes("1. 检查标题"), true);
 });
 
 test("buildWorkbenchPreview renders persisted draft diagnosis for current draft", () => {

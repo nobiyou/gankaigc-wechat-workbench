@@ -102,7 +102,7 @@ function buildStageContent(stage: WorkbenchStage, detail: ProjectDetail): { titl
   }
   if (stage === "assets") {
     return {
-      title: detail.assets?.title_options[0] ?? "还没有素材包",
+      title: detail.assets?.recommended_title || detail.assets?.title_options[0] || "还没有素材包",
       body: detail.assets?.cover_copy ?? "当前项目还没有素材包，可在生成后回到这里查看标题与封面文案。",
       meta: [detail.assets ? `版本：v${detail.assets.version}` : "未生成", detail.assets?.social_teaser ?? "暂无分发导语"],
     };

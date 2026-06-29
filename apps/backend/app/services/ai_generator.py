@@ -46,15 +46,20 @@ class DraftGenerationResult(BaseModel):
 
 class AssetGenerationResult(BaseModel):
     title_options: list[str]
+    recommended_title: str = ""
     cover_prompt: str
     cover_copy: str
     social_teaser: str
+    social_teaser_options: list[str] = []
 
 
 class PublishPackageGenerationResult(BaseModel):
     abstract: str
     tags: list[str]
     editor_note: str
+    publish_title: str = ""
+    publish_lead: str = ""
+    intro_options: list[str] = []
 
 
 class TrackedArticleMetadataGenerationResult(BaseModel):

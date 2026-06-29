@@ -106,8 +106,8 @@ PROMPT_TEMPLATE_DESCRIPTORS: list[PromptTemplateDescriptor] = [
         key="assets",
         label="素材包生成",
         role="包装编辑",
-        objective="围绕正文生成标题组选项、封面文案、配图提示词和分发导语。",
-        output_fields=["title_options", "cover_prompt", "cover_copy", "social_teaser"],
+        objective="围绕正文生成标题组选项、封面文案、配图提示词和分发导语候选。",
+        output_fields=["title_options", "recommended_title", "cover_prompt", "cover_copy", "social_teaser", "social_teaser_options"],
         supports_tone_profile=True,
         supports_domain_pack=True,
         supports_review_feedback=True,
@@ -126,8 +126,8 @@ PROMPT_TEMPLATE_DESCRIPTORS: list[PromptTemplateDescriptor] = [
         key="publish_package",
         label="发布包生成",
         role="发布编辑",
-        objective="基于正文与素材输出摘要、标签和编辑备注。",
-        output_fields=["abstract", "tags", "editor_note"],
+        objective="基于正文与素材输出摘要、最终发布标题、导语、标签和编辑备注。",
+        output_fields=["abstract", "publish_title", "publish_lead", "intro_options", "tags", "editor_note"],
         supports_tone_profile=True,
         supports_domain_pack=True,
         supports_review_feedback=True,
@@ -4555,9 +4555,11 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             "4. 用场景、人物状态、光线和留白描述画面，不要把长文案直接写进图里\n"
             "返回：\n"
             "1. 3 个标题备选 title_options\n"
-            "2. 1 条封面图提示词 cover_prompt\n"
-            "3. 1 条封面文案 cover_copy\n"
-            "4. 1 条社媒导语 social_teaser"
+            "2. 1 条主推标题 recommended_title（必须从 title_options 中选，优先最适合直接发布的一条）\n"
+            "3. 1 条封面图提示词 cover_prompt\n"
+            "4. 1 条封面文案 cover_copy\n"
+            "5. 1 条主社媒导语 social_teaser\n"
+            "6. 3 条导语候选 social_teaser_options（短句优先，彼此要有区分）"
         ),
     )
 
@@ -4666,11 +4668,16 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
             f"正文内容：\n{payload['draft']['body_markdown']}\n\n"
             f"封面文案：{payload['assets']['cover_copy']}\n"
             f"分发导语：{payload['assets']['social_teaser']}\n"
+            f"导语候选：{' / '.join(payload['assets'].get('social_teaser_options', [])) or '空'}\n"
+            f"主推标题：{payload['assets'].get('recommended_title') or '空'}\n"
             f"标题备选：{' / '.join(payload['assets']['title_options'])}\n"
             f"{review_section}\n"
             "返回：\n"
             "1. 发布摘要 abstract\n"
-            "2. 3 到 5 个标签 tags\n"
-            "3. 编辑备注 editor_note"
+            "2. 最终发布标题 publish_title（优先基于标题备选微调，不要另起完全无关的新标题）\n"
+            "3. 最终发布导语 publish_lead（适合微信正文前的简短导语，尽量像真人写的开场）\n"
+            "4. 3 条导语候选 intro_options（用于正文开头前的导语备选，和 publish_lead 保持同主题但不要完全重复）\n"
+            "5. 3 到 5 个标签 tags\n"
+            "6. 编辑备注 editor_note"
         ),
     )

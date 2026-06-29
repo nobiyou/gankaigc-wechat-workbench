@@ -135,9 +135,11 @@ class AssetItem(BaseModel):
     draft_version: int
     version: int
     title_options: list[str]
+    recommended_title: str = ""
     cover_prompt: str
     cover_copy: str
     social_teaser: str
+    social_teaser_options: list[str] = Field(default_factory=list)
     cover_image_path: str
     cover_image_url: str
     created_at: str | None = None
@@ -155,6 +157,9 @@ class PublishPackageItem(BaseModel):
     tags: list[str]
     publish_checklist: list[str]
     editor_note: str
+    publish_title: str = ""
+    publish_lead: str = ""
+    intro_options: list[str] = Field(default_factory=list)
     markdown_path: str
     markdown_url: str
     manifest_path: str

@@ -135,6 +135,8 @@ def test_jinwan_youyu_style_injects_full_stage_rules_across_prompts() -> None:
             "assets": {
                 "cover_copy": "别再等别人救场",
                 "social_teaser": "把人生遥控器收回来，你才会稳。",
+                "social_teaser_options": ["导语一", "导语二", "导语三"],
+                "recommended_title": "真正有力量的人，都把人生主导权收回来了",
                 "title_options": ["真正有力量的人，都把人生主导权收回来了"],
             },
         }
@@ -178,9 +180,14 @@ def test_jinwan_youyu_style_injects_full_stage_rules_across_prompts() -> None:
     assert "导语要直接点破读者最在意的问题" in assets_template.instructions
     assert "不要写成空泛抒情 teaser" in assets_template.instructions
     assert "最好一眼能截住读者" in assets_template.instructions
+    assert "主推标题 recommended_title" in assets_template.prompt
+    assert "3 条导语候选 social_teaser_options" in assets_template.prompt
 
     assert "编辑备注要直接给出这篇稿子的核心答案和发布抓手" in publish_template.instructions
     assert "不要写成模糊抒情总结" in publish_template.instructions
+    assert "最终发布标题 publish_title" in publish_template.prompt
+    assert "最终发布导语 publish_lead" in publish_template.prompt
+    assert "3 条导语候选 intro_options" in publish_template.prompt
 
 
 def test_content_skills_define_platform_value_and_direct_scene_budget_rules() -> None:
@@ -1989,6 +1996,8 @@ def test_build_publish_package_prompt_includes_style_and_asset_context() -> None
             "assets": {
                 "cover_copy": "越在乎，越想确认",
                 "social_teaser": "真正让人反复确认的，不只是一句话。",
+                "social_teaser_options": ["导语一", "导语二", "导语三"],
+                "recommended_title": "标题二",
                 "title_options": ["标题一", "标题二", "标题三"],
             },
         }
@@ -1997,6 +2006,8 @@ def test_build_publish_package_prompt_includes_style_and_asset_context() -> None
     assert "项目标题：办公室倦怠修复周更" in template.prompt
     assert "风格档案：女性成长克制陪伴风" in template.prompt
     assert "标题备选：标题一 / 标题二 / 标题三" in template.prompt
+    assert "导语候选：导语一 / 导语二 / 导语三" in template.prompt
+    assert "主推标题：标题二" in template.prompt
     assert "审核修改意见：摘要需要更克制。" in template.prompt
 
 

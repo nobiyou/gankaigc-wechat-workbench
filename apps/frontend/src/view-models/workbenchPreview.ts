@@ -699,8 +699,13 @@ export function buildWorkbenchPreview(
       return null;
     }
 
+    const socialTeaserOptionsMarkdown =
+      detail.assets.social_teaser_options.length > 0
+        ? detail.assets.social_teaser_options.map((item, index) => `${index + 1}. ${item}`).join("\n")
+        : "暂无导语候选";
+
     return {
-      title: detail.assets.title_options[0] ?? "未生成标题",
+      title: detail.assets.recommended_title || detail.assets.title_options[0] || "未生成标题",
       eyebrow: "Assets Preview",
       summary: "标题、封面文案与分发导语预览",
       tone: "assets",
@@ -720,6 +725,12 @@ export function buildWorkbenchPreview(
           copyText: detail.assets.title_options.map((item, index) => `${index + 1}. ${item}`).join("\n"),
         },
         {
+          key: "recommended-title",
+          label: "主推标题",
+          content: detail.assets.recommended_title || detail.assets.title_options[0] || "暂无主推标题",
+          copyText: detail.assets.recommended_title || detail.assets.title_options[0] || "",
+        },
+        {
           key: "cover-copy",
           label: "封面文案",
           content: detail.assets.cover_copy,
@@ -730,6 +741,13 @@ export function buildWorkbenchPreview(
           label: "分发导语",
           content: detail.assets.social_teaser,
           copyText: detail.assets.social_teaser,
+        },
+        {
+          key: "social-teaser-options",
+          label: "导语候选",
+          content: socialTeaserOptionsMarkdown,
+          kind: "markdown",
+          copyText: socialTeaserOptionsMarkdown,
         },
         {
           key: "cover-prompt",
@@ -831,8 +849,13 @@ export function buildWorkbenchPreview(
       };
     }
 
+    const introOptionsMarkdown =
+      detail.publish_package.intro_options.length > 0
+        ? detail.publish_package.intro_options.map((item, index) => `${index + 1}. ${item}`).join("\n")
+        : "暂无导语候选";
+
     return {
-      title: detail.draft?.title ?? detail.project.title,
+      title: detail.publish_package.publish_title || detail.draft?.title || detail.project.title,
       eyebrow: "Publish Preview",
       summary: "最终发布包与上线前检查预览",
       tone: "publish",
@@ -842,6 +865,18 @@ export function buildWorkbenchPreview(
           key: "abstract",
           label: "摘要",
           content: detail.publish_package.abstract,
+        },
+        {
+          key: "publish-lead",
+          label: "发布导语",
+          content: detail.publish_package.publish_lead || "暂无发布导语",
+        },
+        {
+          key: "intro-options",
+          label: "导语候选",
+          content: introOptionsMarkdown,
+          kind: "markdown",
+          copyText: introOptionsMarkdown,
         },
         {
           key: "tags",

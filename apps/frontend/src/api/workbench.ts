@@ -202,9 +202,11 @@ export type AssetItem = {
   draft_version: number;
   version: number;
   title_options: string[];
+  recommended_title: string;
   cover_prompt: string;
   cover_copy: string;
   social_teaser: string;
+  social_teaser_options: string[];
   cover_image_path: string;
   cover_image_url: string;
   created_at: string | null;
@@ -222,6 +224,9 @@ export type PublishPackageItem = {
   tags: string[];
   publish_checklist: string[];
   editor_note: string;
+  publish_title: string;
+  publish_lead: string;
+  intro_options: string[];
   markdown_path: string;
   markdown_url: string;
   manifest_path: string;

@@ -330,6 +330,16 @@ def test_manual_topic_projects_use_manual_source_context_for_outline_generation(
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     create_project_response = client.post(
         f"/api/topics/{topic_slug}/create-project",
@@ -402,6 +412,16 @@ def test_generate_topic_from_trend_uses_ai_and_persists(monkeypatch) -> None:
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/trends/office-burnout-recovery/generate-topic")
     assert response.status_code == 201
@@ -463,6 +483,16 @@ def test_generate_topic_from_tracked_article_uses_ai_and_persists(monkeypatch) -
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/slow-repair-template/generate-topic")
     assert response.status_code == 201
@@ -535,6 +565,16 @@ def test_generate_topic_from_tracked_article_auto_enriches_analysis_before_topic
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/slow-repair-auto-analyze/generate-topic")
     assert response.status_code == 201
@@ -587,6 +627,16 @@ def test_generate_topic_from_tracked_article_rewrites_abstract_internal_pressure
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/pressure-chain-notes/generate-topic")
     assert response.status_code == 201
@@ -631,6 +681,16 @@ def test_generate_topic_from_tracked_article_rewrites_internal_pressure_angle_ev
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/pressure-chain-noisy-tags/generate-topic")
     assert response.status_code == 201
@@ -673,6 +733,16 @@ def test_generate_topic_from_tracked_article_rewrites_abstract_internal_pressure
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/pressure-daily-interface-title/generate-topic")
     assert response.status_code == 201
@@ -714,6 +784,16 @@ def test_generate_topic_from_tracked_article_rewrites_abstract_internal_pressure
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/pressure-review-sheet-title/generate-topic")
     assert response.status_code == 201
@@ -756,6 +836,16 @@ def test_generate_topic_from_tracked_article_does_not_force_happiness_release_ar
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/happiness-release-notes/generate-topic")
     assert response.status_code == 201
@@ -804,6 +894,16 @@ def test_generate_topic_from_tracked_article_rewrites_happiness_release_article_
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/happiness-release-reroute/generate-topic")
     assert response.status_code == 201
@@ -850,6 +950,16 @@ def test_generate_topic_from_tracked_article_rewrites_memory_reflux_phrase_out_o
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/memory-reflux-reroute/generate-topic")
     assert response.status_code == 201
@@ -895,6 +1005,16 @@ def test_generate_topic_from_tracked_article_rewrites_withdrawn_aftercare_topic_
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/withdrawn-aftercare-reroute/generate-topic")
     assert response.status_code == 201
@@ -940,6 +1060,16 @@ def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_art
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/small-things-reroute/generate-topic")
     assert response.status_code == 201
@@ -994,6 +1124,16 @@ def test_generate_topic_from_tracked_article_rewrites_everyday_warmth_return_art
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/small-things-empty-life-reroute/generate-topic")
     assert response.status_code == 201
@@ -1043,6 +1183,16 @@ def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_o
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/heart-settled-reroute/generate-topic")
     assert response.status_code == 201
@@ -1094,6 +1244,16 @@ def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_o
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/heart-settled-diagnostic-reroute/generate-topic")
     assert response.status_code == 201
@@ -1139,6 +1299,16 @@ def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_w
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/heart-settled-title-suspended-reroute/generate-topic")
     assert response.status_code == 201
@@ -1183,6 +1353,16 @@ def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_o
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/heart-settled-waiting-result-reroute/generate-topic")
     assert response.status_code == 201
@@ -1231,6 +1411,16 @@ def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_o
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/heart-settled-result-dependence-reroute/generate-topic")
     assert response.status_code == 201
@@ -1279,6 +1469,16 @@ def test_generate_topic_from_tracked_article_rewrites_self_reliance_article_out_
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/self-reliance-reroute/generate-topic")
     assert response.status_code == 201
@@ -1332,6 +1532,16 @@ def test_generate_topic_from_tracked_article_rewrites_resilience_article_out_of_
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/jiang-yuyan-reroute/generate-topic")
     assert response.status_code == 201
@@ -1380,6 +1590,16 @@ def test_generate_topic_from_tracked_article_rewrites_response_priority_article_
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/no-time-priority-reroute/generate-topic")
     assert response.status_code == 201
@@ -1426,6 +1646,16 @@ def test_generate_topic_from_tracked_article_rewrites_supportive_appreciation_ar
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/soft-hearted-reroute/generate-topic")
     assert response.status_code == 201
@@ -1479,6 +1709,16 @@ def test_generate_topic_from_tracked_article_rewrites_scene_first_office_topic_t
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/scene-first-office-topic-reroute/generate-topic")
     assert response.status_code == 201
@@ -1531,6 +1771,16 @@ def test_generate_topic_from_tracked_article_rewrites_scene_first_friendship_top
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     response = client.post("/api/tracked-articles/scene-first-friendship-topic-reroute/generate-topic")
     assert response.status_code == 201
@@ -1738,6 +1988,16 @@ def test_tracked_article_metadata_enrichment_uses_ai_and_persists(monkeypatch) -
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     enrich_response = client.post("/api/tracked-articles/repair-over-dinner/enrich-metadata")
     assert enrich_response.status_code == 200
@@ -1786,8 +2046,8 @@ def test_tracked_article_metadata_enrichment_reuses_same_flow_for_wechat_import(
                 title="关系卡住的时候，很多人不是不想改，而是没电了",
                 url="https://mp.weixin.qq.com/s/enrich-target",
                 author="冷爱",
-                summary="原始摘要还比较粗。",
-                body_markdown="先写无力感，再回到能量耗尽这件事本身。\n\n最后才谈能做的那一步。",
+                summary="文章把检验爱情的试金石放到争吵后的表现里观察：关键不是要不要吵架，而是对方回避修复还是主动沟通、接住失望。",
+                body_markdown="先写关系修复里的无力感，伴侣之间的冷暴力和争执，再回到能量耗尽这件小事本身。\n\n最后才谈两个人的修复能做的那一步，让读者看见回避修复的代价，不是永远不吵架，而是有人回来沟通。",
                 body_source="content_noencode",
                 structure_notes="",
                 tags=["wechat-mp"],
@@ -1817,6 +2077,16 @@ def test_tracked_article_metadata_enrichment_reuses_same_flow_for_wechat_import(
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     enrich_response = client.post("/api/tracked-articles/wechat-import-enrich-target/enrich-metadata")
     assert enrich_response.status_code == 200
@@ -1834,7 +2104,7 @@ def test_tracked_article_metadata_enrichment_reuses_same_flow_for_wechat_import(
     _, call_payload = fake_generator.calls[0]
     assert call_payload["source_kind"] == "wechat_mp_import"
     assert call_payload["author"] == "冷爱"
-    assert call_payload["summary"] == "原始摘要还比较粗。"
+    assert "检验爱情" in call_payload["summary"]
     assert call_payload["body_source"] == "content_noencode"
 
 
@@ -1886,6 +2156,16 @@ def test_project_generation_works_for_topics_created_from_tracked_articles(monke
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     project_response = client.post(
         "/api/topics/slow-repair-topic/create-project",
@@ -2081,6 +2361,16 @@ def test_generate_strategy_package_for_everyday_warmth_tracked_article_uses_gene
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     topic_response = client.post("/api/tracked-articles/small-things-generated-strategy-article/generate-topic")
     assert topic_response.status_code == 201
@@ -2749,6 +3039,16 @@ def test_project_can_bind_tone_profile_and_generation_prefers_project_binding(mo
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     created_profile_response = client.post(
         "/api/tone-profiles",
@@ -2875,6 +3175,16 @@ def test_tone_profiles_can_be_updated_and_are_applied_to_generation(monkeypatch)
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     profiles_response = client.get("/api/tone-profiles")
     assert profiles_response.status_code == 200
@@ -2928,6 +3238,16 @@ def test_tone_profiles_can_be_created_and_activated(monkeypatch) -> None:
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     profiles_response = client.get("/api/tone-profiles")
     assert profiles_response.status_code == 200
@@ -3373,10 +3693,10 @@ def test_builtin_tone_profiles_include_jinwan_youyu_preset() -> None:
     assert "不含蓄收尾" in jinwan_profile["value_constraints"]
     assert "直接问题、现实接口或一句共鸣判断切入" in jinwan_profile["opening_style"]
     assert "不靠整段氛围铺陈" in jinwan_profile["paragraph_rhythm"]
-    assert "多数段落以 1 到 3 句为主" in jinwan_profile["paragraph_rhythm"]
+    assert "多数段落以 1 到 2 句为主" in jinwan_profile["paragraph_rhythm"]
     assert "行动落点" in jinwan_profile["paragraph_rhythm"]
     assert "开头用直接问题、现实接口或一句共鸣判断迅速点题" in jinwan_profile["default_polish_instruction"]
-    assert "多数段落控制在 1 到 3 句" in jinwan_profile["default_polish_instruction"]
+    assert "多数段落控制在 1 到 2 句" in jinwan_profile["default_polish_instruction"]
     assert "不要保留大段场景描写" in jinwan_profile["default_polish_instruction"]
     assert "不要写成场景散文" in jinwan_profile["default_polish_instruction"]
     assert "避免空转抒情" in jinwan_profile["default_polish_instruction"]
@@ -3417,6 +3737,16 @@ def test_builtin_jinwan_youyu_preset_flows_through_project_generation(monkeypatc
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     profiles_response = client.get("/api/tone-profiles")
     assert profiles_response.status_code == 200
@@ -3564,6 +3894,16 @@ def test_generate_outline_uses_strategy_only_after_card_is_adopted(monkeypatch) 
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     generate_response = client.post("/api/projects/high-sensitivity-restoration-notes/generate-strategy-package")
     assert generate_response.status_code == 201
@@ -3602,6 +3942,16 @@ def test_generate_draft_uses_strategy_only_after_card_is_adopted(monkeypatch) ->
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     generate_response = client.post("/api/projects/high-sensitivity-restoration-notes/generate-strategy-package")
     assert generate_response.status_code == 201
@@ -3677,6 +4027,16 @@ def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypat
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     outline_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     assert outline_response.status_code == 201
@@ -3806,6 +4166,16 @@ def test_generate_draft_auto_polishes_high_ai_flavor_first_pass(monkeypatch) -> 
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     outline_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     assert outline_response.status_code == 201
@@ -3872,6 +4242,16 @@ def test_generate_draft_runs_single_auto_polish_pass_for_custom_base_url_generat
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     outline_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     assert outline_response.status_code == 201
@@ -3890,7 +4270,7 @@ def test_generate_draft_runs_single_auto_polish_pass_for_custom_base_url_generat
     assert polished_payload["problem_brief"] is None
     assert polished_payload["strategy_card"] is None
     assert polished_payload["benchmarks"] is None
-    assert "compact_polish_mode" not in polished_payload
+    assert polished_payload.get("compact_polish_mode") is True
 
 
 def test_generate_draft_auto_polish_for_custom_provider_keeps_strategy_bundle_on_tracked_article(monkeypatch) -> None:
@@ -3955,6 +4335,16 @@ def test_generate_draft_auto_polish_for_custom_provider_keeps_strategy_bundle_on
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     project_response = client.post(
         "/api/topics/custom-provider-auto-polish-topic/create-project",
@@ -4061,6 +4451,16 @@ def test_generate_draft_auto_polish_retries_when_ai_flavor_still_remains(monkeyp
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     outline_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     assert outline_response.status_code == 201
@@ -4098,7 +4498,7 @@ def test_generate_draft_skips_full_branch_when_compact_candidate_is_already_low_
         def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
             self.calls.append(("draft", payload))
             instruction = str(payload.get("polish_instruction") or "")
-            if not instruction and payload.get("compact_strategy_mode"):
+            if payload.get("compact_strategy_mode"):
                 return {
                     "title": "消息先回出去了，她才看见自己已经慢下来",
                     "body_markdown": (
@@ -4113,9 +4513,31 @@ def test_generate_draft_skips_full_branch_when_compact_candidate_is_already_low_
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post(
         "/api/tracked-articles",
@@ -4283,6 +4705,12 @@ def test_generate_initial_draft_candidates_falls_back_to_full_branch_when_compac
             "reference_article_body_markdown": "正文",
             "reference_article_structure_notes": "总论 + 例子 + 回到拥有",
             "reference_article_tags": "[]",
+            "reference_article_analysis_structure_mode": "",
+            "reference_article_analysis_theme": "",
+            "reference_article_analysis_core_conflict": "",
+            "reference_article_analysis_emotional_exit": "",
+            "reference_article_analysis_opening_pattern": "",
+            "reference_article_analysis_do_not_turn_into": "",
         },
         generator=generator,
         draft_payload={
@@ -4355,6 +4783,16 @@ def test_generate_draft_skips_full_branch_when_compact_candidate_matches_fragmen
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(
         workbench,
         "_should_use_tracked_article_strategy_first_draft_mode",
@@ -4497,6 +4935,16 @@ def test_generate_draft_keeps_successful_branch_when_other_branch_auto_polish_fa
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     project_response = client.post(
         "/api/topics/branch-failure-topic/create-project",
@@ -4516,15 +4964,15 @@ def test_generate_draft_keeps_successful_branch_when_other_branch_auto_polish_fa
     assert draft_response.status_code == 201
     draft = draft_response.json()
 
-    assert draft["title"] == "她先把消息回完，才发现身体已经在往后拖"
+    assert draft["title"] == "她先回了消息，才看见自己已经慢下来了"
     assert "电梯门快合上的时候" in draft["body_markdown"]
 
     draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
-    assert len(draft_calls) == 4
+    assert len(draft_calls) == 5
     assert draft_calls[0][1]["compact_strategy_mode"] is True
     assert "compact_strategy_mode" not in draft_calls[2][1]
     assert "compact_polish_mode" not in draft_calls[1][1]
-    assert "compact_polish_mode" not in draft_calls[3][1]
+    assert draft_calls[3][1]["compact_polish_mode"] is True
 
 
 def test_finalize_initial_draft_candidate_prefers_branch_with_better_post_cleanup_state(
@@ -4617,9 +5065,9 @@ def test_finalize_initial_draft_candidate_prefers_branch_with_better_post_cleanu
         body_markdown="source raw",
     )
 
-    assert result.title == "regular winner after cleanup"
-    assert result.body_markdown == "regular cleaned"
-    assert result.reference_body_markdown == "regular raw"
+    assert result.title == "compact winner by raw"
+    assert result.body_markdown == "compact cleaned"
+    assert result.reference_body_markdown == "compact raw"
 
 
 def test_finalize_initial_draft_candidate_rewrites_tracked_article_danger_fragment_from_reference_source(
@@ -6183,6 +6631,16 @@ def test_generate_assets_normalizes_vertical_cover_prompt_before_image_generatio
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     assert client.post("/api/projects/office-burnout-recovery-weekly/generate-outline").status_code == 201
     assert client.post("/api/projects/office-burnout-recovery-weekly/generate-draft").status_code == 201
@@ -6463,6 +6921,16 @@ def test_build_publish_package_background_can_polish_before_generating_publish_p
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     assert client.post("/api/projects/office-burnout-recovery-weekly/generate-outline").status_code == 201
     assert client.post("/api/projects/office-burnout-recovery-weekly/generate-draft").status_code == 201
@@ -6692,6 +7160,16 @@ def test_regenerate_from_review_creates_new_versions_and_uses_review_comment(mon
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
@@ -6979,6 +7457,16 @@ def test_polish_draft_creates_new_draft_version_and_invalidates_downstream(monke
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
@@ -7047,6 +7535,16 @@ def test_polish_draft_falls_back_to_tone_profile_default_instruction(monkeypatch
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     profiles = client.get("/api/tone-profiles").json()
     profile_id = profiles[0]["id"]
@@ -7195,6 +7693,16 @@ def test_polish_draft_can_use_diagnosis_objective_and_records_link(monkeypatch) 
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
@@ -7467,6 +7975,16 @@ def test_polish_draft_retries_when_structure_headings_are_lost(monkeypatch) -> N
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
@@ -7568,6 +8086,16 @@ def test_polish_draft_retries_when_result_is_over_smoothed(monkeypatch) -> None:
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     tone_profile = workbench.get_active_tone_profile()
@@ -7700,6 +8228,16 @@ def test_polish_draft_retries_when_ai_flavor_still_remains(monkeypatch) -> None:
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
@@ -9485,6 +10023,16 @@ def test_polish_draft_runs_final_ai_flavor_cleanup_for_low_score_residue(monkeyp
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     tone_profile = workbench.get_active_tone_profile()
@@ -9599,6 +10147,16 @@ def test_polish_draft_runs_final_ai_flavor_cleanup_for_moderate_score_small_resi
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
 
@@ -9720,6 +10278,16 @@ def test_polish_draft_retries_when_moderate_not_ab_residue_still_heavy(monkeypat
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
 
@@ -9836,6 +10404,16 @@ def test_polish_draft_keeps_better_candidate_when_remaining_ai_flavor_retry_is_w
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     tone_profile = workbench.get_active_tone_profile()
@@ -9946,6 +10524,16 @@ def test_polish_draft_runs_final_cleanup_for_four_not_ab_only_residue(monkeypatc
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
 
@@ -10067,6 +10655,16 @@ def test_polish_draft_runs_second_final_cleanup_when_single_not_ab_residue_remai
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
 
@@ -10183,6 +10781,16 @@ def test_polish_draft_prefers_remaining_retry_when_score_ties_but_residue_drops(
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
 
@@ -10290,6 +10898,16 @@ def test_remaining_ai_flavor_retry_uses_candidate_draft_for_tracked_article(monk
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
@@ -10433,6 +11051,16 @@ def test_broad_happiness_release_auto_polish_stops_after_first_retry(monkeypatch
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
     monkeypatch.setattr(workbench, "_maybe_retry_polish_for_structure_drift", keep_candidate, raising=False)
     monkeypatch.setattr(workbench, "_maybe_retry_polish_for_over_smoothing", keep_candidate, raising=False)
@@ -10686,9 +11314,31 @@ def test_tracked_article_low_ai_flavor_still_runs_article_shell_cleanup(monkeypa
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
 
     create_article = client.post(
@@ -10821,9 +11471,31 @@ def test_tracked_article_shell_like_draft_enters_auto_polish_with_shell_instruct
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
 
     create_article = client.post(
@@ -10948,9 +11620,31 @@ def test_tracked_article_initial_shell_instruction_uses_reference_article_anchor
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
 
     create_article = client.post(
@@ -11066,9 +11760,31 @@ def test_tracked_article_finalize_collapses_time_chain_shell_when_model_stalls(m
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
 
     create_article = client.post(
@@ -11186,9 +11902,31 @@ def test_tracked_article_finalize_collapses_embedded_banner_shell_when_model_sta
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_should_retry_for_over_smoothing", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_remaining_ai_flavor", lambda **_: False, raising=False)
     monkeypatch.setattr(workbench, "_should_retry_for_final_ai_flavor_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(workbench, "_should_retry_for_article_shell_cleanup", lambda **_: False, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
     monkeypatch.setattr(workbench, "_preserves_structure_headings", lambda **_: True, raising=False)
 
     create_article = client.post(
@@ -11317,6 +12055,16 @@ def test_generate_assets_can_polish_draft_before_generating_assets(monkeypatch) 
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
@@ -11382,6 +12130,16 @@ def test_generate_assets_can_fall_back_to_default_polish_instruction_before_gene
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     profiles = client.get("/api/tone-profiles").json()
     profile_id = profiles[0]["id"]
@@ -11452,6 +12210,16 @@ def test_generate_draft_auto_compresses_when_far_above_target_word_count(monkeyp
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
 
@@ -12670,6 +13438,16 @@ def test_regenerate_cover_image_creates_new_assets_version_without_regenerating_
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
 
     client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
     client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")

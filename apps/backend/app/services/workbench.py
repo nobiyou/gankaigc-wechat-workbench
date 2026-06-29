@@ -467,6 +467,14 @@ def _get_table_columns(connection: sqlite3.Connection, table_name: str) -> set[s
 
 def _ensure_assets_schema(connection: sqlite3.Connection) -> None:
     columns = _get_table_columns(connection, "assets")
+    if "recommended_title" not in columns:
+        connection.execute(
+            "ALTER TABLE assets ADD COLUMN recommended_title TEXT NOT NULL DEFAULT ''"
+        )
+    if "social_teaser_options" not in columns:
+        connection.execute(
+            "ALTER TABLE assets ADD COLUMN social_teaser_options TEXT NOT NULL DEFAULT '[]'"
+        )
     if "cover_image_path" not in columns:
         connection.execute(
             "ALTER TABLE assets ADD COLUMN cover_image_path TEXT NOT NULL DEFAULT ''"
@@ -683,6 +691,18 @@ def _ensure_publish_packages_schema(connection: sqlite3.Connection) -> None:
     if "editor_note" not in columns:
         connection.execute(
             "ALTER TABLE publish_packages ADD COLUMN editor_note TEXT NOT NULL DEFAULT ''"
+        )
+    if "publish_title" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN publish_title TEXT NOT NULL DEFAULT ''"
+        )
+    if "publish_lead" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN publish_lead TEXT NOT NULL DEFAULT ''"
+        )
+    if "intro_options" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN intro_options TEXT NOT NULL DEFAULT '[]'"
         )
     if "markdown_path" not in columns:
         connection.execute(
@@ -1279,9 +1299,11 @@ def initialize_store(reset: bool = False) -> None:
                 draft_version INTEGER NOT NULL,
                 version INTEGER NOT NULL,
                 title_options TEXT NOT NULL,
+                recommended_title TEXT NOT NULL DEFAULT '',
                 cover_prompt TEXT NOT NULL,
                 cover_copy TEXT NOT NULL,
                 social_teaser TEXT NOT NULL,
+                social_teaser_options TEXT NOT NULL DEFAULT '[]',
                 cover_image_path TEXT NOT NULL,
                 cover_image_url TEXT NOT NULL,
                 created_at TEXT DEFAULT NULL,
@@ -1301,6 +1323,9 @@ def initialize_store(reset: bool = False) -> None:
                 tags TEXT NOT NULL,
                 publish_checklist TEXT NOT NULL,
                 editor_note TEXT NOT NULL,
+                publish_title TEXT NOT NULL DEFAULT '',
+                publish_lead TEXT NOT NULL DEFAULT '',
+                intro_options TEXT NOT NULL DEFAULT '[]',
                 markdown_path TEXT NOT NULL,
                 markdown_url TEXT NOT NULL,
                 manifest_path TEXT NOT NULL,
@@ -4680,9 +4705,11 @@ def _get_project_chain_rows(connection: sqlite3.Connection, project_slug: str) -
                 draft_version,
                 version,
                 title_options,
+                recommended_title,
                 cover_prompt,
                 cover_copy,
                 social_teaser,
+                social_teaser_options,
                 cover_image_path,
                 cover_image_url,
                 created_at,
@@ -4708,6 +4735,9 @@ def _get_project_chain_rows(connection: sqlite3.Connection, project_slug: str) -
                 tags,
                 publish_checklist,
                 editor_note,
+                publish_title,
+                publish_lead,
+                intro_options,
                 markdown_path,
                 markdown_url,
                 manifest_path,
@@ -5284,9 +5314,11 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
                 draft_version,
                 version,
                 title_options,
+                recommended_title,
                 cover_prompt,
                 cover_copy,
                 social_teaser,
+                social_teaser_options,
                 cover_image_path,
                 cover_image_url,
                 created_at,
@@ -5310,6 +5342,9 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
                 tags,
                 publish_checklist,
                 editor_note,
+                publish_title,
+                publish_lead,
+                intro_options,
                 markdown_path,
                 markdown_url,
                 manifest_path,
@@ -5448,6 +5483,9 @@ def generate_creative_review_report(project_slug: str) -> CreativeReviewReportIt
                     tags,
                     publish_checklist,
                     editor_note,
+                    publish_title,
+                    publish_lead,
+                    intro_options,
                     markdown_path,
                     markdown_url,
                     manifest_path,
@@ -11014,6 +11052,8 @@ def restore_draft_version(project_slug: str, version: int) -> DraftItem:
 def _hydrate_asset_row(asset_row: sqlite3.Row) -> AssetItem:
     payload = dict(asset_row)
     payload["title_options"] = json.loads(payload["title_options"])
+    payload["recommended_title"] = str(payload.get("recommended_title") or "")
+    payload["social_teaser_options"] = json.loads(payload.get("social_teaser_options", "[]"))
     return AssetItem(**payload)
 
 
@@ -11021,6 +11061,7 @@ def _hydrate_publish_package_row(package_row: sqlite3.Row) -> PublishPackageItem
     payload = dict(package_row)
     payload["tags"] = json.loads(payload["tags"])
     payload["publish_checklist"] = json.loads(payload["publish_checklist"])
+    payload["intro_options"] = json.loads(payload.get("intro_options", "[]"))
     return PublishPackageItem(**payload)
 
 
@@ -11285,9 +11326,11 @@ def regenerate_cover_image(project_slug: str) -> AssetItem:
                     draft_version,
                     version,
                     title_options,
+                    recommended_title,
                     cover_prompt,
                     cover_copy,
                     social_teaser,
+                    social_teaser_options,
                     cover_image_path,
                     cover_image_url,
                     tone_profile_id,
@@ -11338,19 +11381,21 @@ def regenerate_cover_image(project_slug: str) -> AssetItem:
             connection.execute(
                 """
                 INSERT INTO assets (
-                    project_slug, draft_version, version, title_options, cover_prompt, cover_copy, social_teaser,
+                    project_slug, draft_version, version, title_options, recommended_title, cover_prompt, cover_copy, social_teaser, social_teaser_options,
                     cover_image_path, cover_image_url, created_at, origin, tone_profile_id, tone_profile_name
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_slug,
                     assets_row["draft_version"],
                     next_version,
                     assets_row["title_options"],
+                    assets_row["recommended_title"],
                     normalized_cover_prompt,
                     assets_row["cover_copy"],
                     assets_row["social_teaser"],
+                    assets_row["social_teaser_options"],
                     cover_image_path,
                     cover_image_url,
                     created_at,
@@ -11377,9 +11422,11 @@ def regenerate_cover_image(project_slug: str) -> AssetItem:
         draft_version=int(assets_row["draft_version"]),
         version=next_version,
         title_options=json.loads(str(assets_row["title_options"])),
+        recommended_title=str(assets_row["recommended_title"] or ""),
         cover_prompt=normalized_cover_prompt,
         cover_copy=str(assets_row["cover_copy"]),
         social_teaser=str(assets_row["social_teaser"]),
+        social_teaser_options=json.loads(str(assets_row["social_teaser_options"])),
         cover_image_path=cover_image_path,
         cover_image_url=cover_image_url,
         created_at=created_at,
@@ -11399,9 +11446,11 @@ def restore_assets_version(project_slug: str, version: int) -> AssetItem:
                     draft_version,
                     version,
                     title_options,
+                    recommended_title,
                     cover_prompt,
                     cover_copy,
                     social_teaser,
+                    social_teaser_options,
                     cover_image_path,
                     cover_image_url,
                     tone_profile_id,
@@ -11426,19 +11475,21 @@ def restore_assets_version(project_slug: str, version: int) -> AssetItem:
             connection.execute(
                 """
                 INSERT INTO assets (
-                    project_slug, draft_version, version, title_options, cover_prompt, cover_copy, social_teaser,
+                    project_slug, draft_version, version, title_options, recommended_title, cover_prompt, cover_copy, social_teaser, social_teaser_options,
                     cover_image_path, cover_image_url, created_at, origin, tone_profile_id, tone_profile_name
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_slug,
                     assets_row["draft_version"],
                     next_version,
                     assets_row["title_options"],
+                    assets_row["recommended_title"],
                     assets_row["cover_prompt"],
                     assets_row["cover_copy"],
                     assets_row["social_teaser"],
+                    assets_row["social_teaser_options"],
                     assets_row["cover_image_path"],
                     assets_row["cover_image_url"],
                     created_at,
@@ -11465,9 +11516,11 @@ def restore_assets_version(project_slug: str, version: int) -> AssetItem:
         draft_version=int(assets_row["draft_version"]),
         version=next_version,
         title_options=json.loads(str(assets_row["title_options"])),
+        recommended_title=str(assets_row["recommended_title"] or ""),
         cover_prompt=str(assets_row["cover_prompt"]),
         cover_copy=str(assets_row["cover_copy"]),
         social_teaser=str(assets_row["social_teaser"]),
+        social_teaser_options=json.loads(str(assets_row["social_teaser_options"])),
         cover_image_path=str(assets_row["cover_image_path"]),
         cover_image_url=str(assets_row["cover_image_url"]),
         created_at=created_at,
@@ -11519,6 +11572,12 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                     "review_comment": review_comment,
                 }
             )
+            recommended_title = str(ai_result.get("recommended_title") or "").strip()
+            title_options = list(ai_result["title_options"])
+            if not recommended_title:
+                recommended_title = title_options[0] if title_options else ""
+            elif recommended_title not in title_options and recommended_title:
+                title_options = [recommended_title, *[title for title in title_options if title != recommended_title]]
             normalized_cover_prompt = _normalize_cover_prompt_layout(str(ai_result["cover_prompt"]))
             cover_filename = f"{project_slug}-assets-v{version}.png"
             cover_file_path = GENERATED_ASSETS_DIR / cover_filename
@@ -11547,19 +11606,21 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
             connection.execute(
                 """
                 INSERT INTO assets (
-                    project_slug, draft_version, version, title_options, cover_prompt, cover_copy, social_teaser,
+                    project_slug, draft_version, version, title_options, recommended_title, cover_prompt, cover_copy, social_teaser, social_teaser_options,
                     cover_image_path, cover_image_url, created_at, origin, tone_profile_id, tone_profile_name
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_slug,
                     draft_row["version"],
                     version,
-                    json.dumps(ai_result["title_options"], ensure_ascii=False),
+                    json.dumps(title_options, ensure_ascii=False),
+                    recommended_title,
                     normalized_cover_prompt,
                     ai_result["cover_copy"],
                     ai_result["social_teaser"],
+                    json.dumps(ai_result.get("social_teaser_options", []), ensure_ascii=False),
                     cover_image_path,
                     cover_image_url,
                     created_at,
@@ -11585,10 +11646,12 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
         project_slug=project_slug,
         draft_version=int(draft_row["version"]),
         version=version,
-        title_options=list(ai_result["title_options"]),
+        title_options=title_options,
+        recommended_title=recommended_title,
         cover_prompt=normalized_cover_prompt,
         cover_copy=str(ai_result["cover_copy"]),
         social_teaser=str(ai_result["social_teaser"]),
+        social_teaser_options=list(ai_result.get("social_teaser_options", [])),
         cover_image_path=cover_image_path,
         cover_image_url=cover_image_url,
         created_at=created_at,
@@ -11643,9 +11706,11 @@ def _create_publish_package(
                 draft_version,
                 version,
                 title_options,
+                recommended_title,
                 cover_prompt,
                 cover_copy,
                 social_teaser,
+                social_teaser_options,
                 cover_image_path,
                 cover_image_url,
                 tone_profile_id,
@@ -11678,6 +11743,14 @@ def _create_publish_package(
             "review_comment": review_comment,
         }
     )
+    fallback_asset_title = assets.recommended_title or (assets.title_options[0] if assets.title_options else "")
+    publish_title = str(ai_result.get("publish_title") or fallback_asset_title or draft_title)
+    publish_lead = str(ai_result.get("publish_lead") or assets.social_teaser)
+    intro_options = list(ai_result.get("intro_options", []))
+    if not intro_options:
+        intro_options = list(assets.social_teaser_options)
+    if publish_lead and publish_lead not in intro_options:
+        intro_options = [publish_lead, *[item for item in intro_options if item != publish_lead]]
     publish_checklist = list(package_override["publish_checklist"]) if package_override and "publish_checklist" in package_override else _build_publish_checklist()
 
     with _get_project_version_lock(project_slug):
@@ -11708,6 +11781,9 @@ def _create_publish_package(
                 tags=list(ai_result["tags"]),
                 publish_checklist=publish_checklist,
                 editor_note=str(ai_result["editor_note"]),
+                publish_title=publish_title,
+                publish_lead=publish_lead,
+                intro_options=intro_options,
                 tone_profile_name=effective_tone_profile_name,
             )
             manifest_body = {
@@ -11716,6 +11792,9 @@ def _create_publish_package(
                 "draft_version": draft_version,
                 "assets_version": assets.version,
                 "abstract": ai_result["abstract"],
+                "publish_title": publish_title,
+                "publish_lead": publish_lead,
+                "intro_options": intro_options,
                 "tags": ai_result["tags"],
                 "publish_checklist": publish_checklist,
                 "editor_note": ai_result["editor_note"],
@@ -11735,6 +11814,9 @@ def _create_publish_package(
                 "tags": json.dumps(ai_result["tags"], ensure_ascii=False),
                 "publish_checklist": json.dumps(publish_checklist, ensure_ascii=False),
                 "editor_note": ai_result["editor_note"],
+                "publish_title": publish_title,
+                "publish_lead": publish_lead,
+                "intro_options": json.dumps(intro_options, ensure_ascii=False),
                 "markdown_path": str(markdown_path),
                 "markdown_url": markdown_url,
                 "manifest_path": str(manifest_path),
@@ -11751,7 +11833,7 @@ def _create_publish_package(
             if "wechat_body" in publish_columns:
                 payload["wechat_body"] = draft_body_markdown
             if "cover_title" in publish_columns:
-                payload["cover_title"] = assets.title_options[0]
+                payload["cover_title"] = fallback_asset_title or draft_title
             if "checklist_markdown" in publish_columns:
                 payload["checklist_markdown"] = "\n".join(f"- {item}" for item in publish_checklist)
 
@@ -11785,6 +11867,9 @@ def _create_publish_package(
         tags=list(ai_result["tags"]),
         publish_checklist=publish_checklist,
         editor_note=str(ai_result["editor_note"]),
+        publish_title=publish_title,
+        publish_lead=publish_lead,
+        intro_options=intro_options,
         markdown_path=str(markdown_path),
         markdown_url=markdown_url,
         manifest_path=str(manifest_path),
@@ -11804,7 +11889,7 @@ def restore_publish_package_version(project_slug: str, version: int) -> PublishP
     with _get_connection() as connection:
         package_row = connection.execute(
             """
-            SELECT abstract, tags, publish_checklist, editor_note, tone_profile_id, tone_profile_name
+            SELECT abstract, tags, publish_checklist, editor_note, publish_title, publish_lead, intro_options, tone_profile_id, tone_profile_name
             FROM publish_packages
             WHERE project_slug = ? AND version = ?
             ORDER BY id DESC
@@ -11822,6 +11907,9 @@ def restore_publish_package_version(project_slug: str, version: int) -> PublishP
             "tags": json.loads(str(package_row["tags"])),
             "publish_checklist": json.loads(str(package_row["publish_checklist"])),
             "editor_note": str(package_row["editor_note"]),
+            "publish_title": str(package_row["publish_title"]),
+            "publish_lead": str(package_row["publish_lead"]),
+            "intro_options": json.loads(str(package_row["intro_options"] or "[]")),
             "tone_profile_id": package_row["tone_profile_id"],
             "tone_profile_name": package_row["tone_profile_name"],
         },
@@ -12010,6 +12098,7 @@ def _review_publish_package(
     payload["reviewed_at"] = reviewed_at
     payload["tags"] = json.loads(payload["tags"])
     payload["publish_checklist"] = json.loads(payload["publish_checklist"])
+    payload["intro_options"] = json.loads(payload.get("intro_options", "[]"))
     return PublishPackageItem(**payload)
 
 
@@ -12023,26 +12112,37 @@ def _build_publish_markdown(
     tags: list[str],
     publish_checklist: list[str],
     editor_note: str,
+    publish_title: str,
+    publish_lead: str,
+    intro_options: list[str],
     tone_profile_name: str | None,
 ) -> str:
     tags_line = " / ".join(tags)
     title_options = "\n".join(f"- {title}" for title in assets.title_options)
+    teaser_options = "\n".join(f"- {teaser}" for teaser in assets.social_teaser_options)
+    intro_options_lines = "\n".join(f"- {item}" for item in intro_options)
     checklist_lines = "\n".join(f"- {item}" for item in publish_checklist)
     tone_profile_line = tone_profile_name or "未记录"
     cover_image_line = assets.cover_image_url or "未生成（图片服务暂时不可用）"
     return (
-        f"# {draft_title}\n\n"
+        f"# {publish_title or draft_title}\n\n"
         f"> 项目：{project_title}\n"
         f"> 摘要：{abstract}\n"
         f"> 标签：{tags_line}\n"
         f"> 风格：{tone_profile_line}\n"
         f"> 封面图：{cover_image_line}\n\n"
+        "## 发布导语\n"
+        f"{publish_lead}\n\n"
+        "## 发布导语候选\n"
+        f"{intro_options_lines or '- 暂无导语候选'}\n\n"
         "## 标题备选\n"
         f"{title_options}\n\n"
         "## 封面文案\n"
         f"{assets.cover_copy}\n\n"
         "## 分发导语\n"
         f"{assets.social_teaser}\n\n"
+        "## 导语候选\n"
+        f"{teaser_options or '- 暂无导语候选'}\n\n"
         "## 编辑备注\n"
         f"{editor_note}\n\n"
         "## 发布前检查清单\n"

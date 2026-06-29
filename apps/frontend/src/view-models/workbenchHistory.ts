@@ -166,7 +166,7 @@ export function buildWorkbenchHistoryEntries({
   if (stage === "assets") {
     return versions.assets.map((item) => ({
       versionNumber: item.version,
-      ...buildSummaryText(`${item.title_options[0] ?? "素材版本"} · ${item.cover_copy}`),
+      ...buildSummaryText(`${item.recommended_title || item.title_options[0] || "素材版本"} · ${item.cover_copy}`),
       restorable: item.version !== currentVersionNumber,
       meta: buildHistoryMeta(item),
       reviewState: null,
