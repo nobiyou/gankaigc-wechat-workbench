@@ -2825,6 +2825,26 @@ _INNER_SETTLEMENT_DIAGNOSTIC_TOKENS = (
     "值班",
     "失控",
 )
+_INNER_SETTLEMENT_STAGE_RESTART_TOKENS = (
+    "上半年",
+    "下半年",
+    "半年",
+    "事与愿违",
+    "另有安排",
+    "做好眼前事",
+    "珍惜身边人",
+    "珍惜身边所爱之人",
+    "每一段人生",
+    "这个年龄真好",
+    "我在哪个年龄段",
+    "努力不被辜负",
+    "幸运不期而遇",
+    "快乐无需假装",
+    "重新等待",
+    "重新出发",
+    "接受每一个阶段的自己",
+    "过好每一个阶段的人生",
+)
 _INNER_SETTLEMENT_TITLE_WAITING_SINK_TOKENS = (
     "把安稳交给结果",
     "把心安交给结果",
@@ -3288,6 +3308,21 @@ def _should_rewrite_inner_settlement_topic(payload: Mapping[str, object], ai_res
         token in combined for token in _INNER_SETTLEMENT_TOPIC_ANCHOR_TOKENS
     ):
         return True
+    source_corpus = " ".join(
+        part
+        for part in (
+            str(payload.get("article_title") or "").strip(),
+            str(payload.get("summary") or "").strip(),
+            str(payload.get("structure_notes") or "").strip(),
+            str(payload.get("body_markdown") or "").strip(),
+        )
+        if part
+    )
+    source_has_stage_restart = any(token in source_corpus for token in _INNER_SETTLEMENT_STAGE_RESTART_TOKENS)
+    if source_has_stage_restart:
+        stage_restart_anchor_hits = sum(1 for token in _INNER_SETTLEMENT_STAGE_RESTART_TOKENS if token in combined)
+        if stage_restart_anchor_hits < 2:
+            return True
     title_has_positive_signal = any(token in title for token in _INNER_SETTLEMENT_TOPIC_ANCHOR_TOKENS) or any(
         token in title for token in _INNER_SETTLEMENT_POSITIVE_TOKENS
     )
@@ -3330,6 +3365,14 @@ def _rewrite_inner_settlement_topic(payload: Mapping[str, object], ai_result: Ma
     summary = str(payload.get("summary") or "")
     corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
 
+    if any(token in corpus for token in _INNER_SETTLEMENT_STAGE_RESTART_TOKENS):
+        new_title = "这半年没按你想的那样来，也不代表你白走了一程"
+        new_angle = (
+            "从人为什么总会在阶段节点把没完成、没拥有和没赶上一起算成失败切入，"
+            "写遗憾怎样被安放、温暖怎样把人托住，"
+            "以及人怎样重新接纳眼前这个阶段的自己，带着期待继续往前。"
+        )
+        return {"title": new_title, "angle": new_angle}
     if any(token in corpus for token in ("此心安处", "吾乡", "心有归处", "心无挂碍")):
         new_title = "人这一生真正想要的，不过是一颗终于有归处的心"
     elif any(token in corpus for token in ("一餐一饮", "一呼一吸", "安顿灵魂")):
@@ -11537,6 +11580,11 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
     _ensure_generated_assets_dir()
     with _get_project_version_lock(project_slug):
         with _get_connection() as connection:
+            problem_brief, benchmarks, strategy_card = _load_project_strategy_bundle(
+                connection,
+                project_slug,
+                adopted_only=True,
+            )
             draft_row = connection.execute(
                 """
                 SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
@@ -11557,21 +11605,26 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
             version = int(current["version"]) + 1
             created_at = _utc_now_iso()
             origin = _resolve_version_origin(review_comment=review_comment)
-            ai_result = get_ai_generator().generate_assets(
-                {
-                    "trend_title": project["trend_title"],
-                    "topic_title": project["topic_title"],
-                    "topic_angle": project["topic_angle"],
-                    "project_title": project["title"],
-                    "draft": {
-                        "title": draft_row["title"],
-                        "body_markdown": draft_row["body_markdown"],
-                    },
-                    "tone_profile": tone_profile.model_dump(),
-                    "domain_pack": domain_pack,
-                    "review_comment": review_comment,
-                }
-            )
+            assets_payload: dict[str, object] = {
+                "trend_title": project["trend_title"],
+                "topic_title": project["topic_title"],
+                "topic_angle": project["topic_angle"],
+                "project_title": project["title"],
+                "source_type": project["source_type"],
+                "draft": {
+                    "title": draft_row["title"],
+                    "body_markdown": draft_row["body_markdown"],
+                },
+                "tone_profile": tone_profile.model_dump(),
+                "domain_pack": domain_pack,
+                "review_comment": review_comment,
+                "reference_article_hidden": str(project["source_type"]) == "tracked_article" and bool(problem_brief and strategy_card),
+            }
+            if problem_brief and strategy_card:
+                assets_payload["problem_brief"] = problem_brief.model_dump()
+                assets_payload["strategy_card"] = strategy_card.model_dump()
+                assets_payload["benchmarks"] = [benchmark.model_dump() for benchmark in benchmarks]
+            ai_result = get_ai_generator().generate_assets(assets_payload)
             recommended_title = str(ai_result.get("recommended_title") or "").strip()
             title_options = list(ai_result["title_options"])
             if not recommended_title:
@@ -11686,6 +11739,11 @@ def _create_publish_package(
         effective_tone_profile_name = str(package_override["tone_profile_name"])
     _ensure_generated_assets_dir()
     with _get_connection() as connection:
+        problem_brief, benchmarks, strategy_card = _load_project_strategy_bundle(
+            connection,
+            project_slug,
+            adopted_only=True,
+        )
         draft_row = connection.execute(
             """
             SELECT project_slug, outline_version, version, title, body_markdown, word_count, created_at, origin, tone_profile_id, tone_profile_name
@@ -11730,19 +11788,25 @@ def _create_publish_package(
         draft_body_markdown = str(draft_row["body_markdown"])
         assets = _hydrate_asset_row(assets_row)
 
-    ai_result = package_override or get_ai_generator().generate_publish_package(
-        {
-            "project_title": project["title"],
-            "draft": {
-                "title": draft_title,
-                "body_markdown": draft_body_markdown,
-            },
-            "assets": assets.model_dump(),
-            "tone_profile": tone_profile.model_dump(),
-            "domain_pack": domain_pack,
-            "review_comment": review_comment,
-        }
-    )
+    publish_payload: dict[str, object] = {
+        "project_title": project["title"],
+        "source_type": project["source_type"],
+        "draft": {
+            "title": draft_title,
+            "body_markdown": draft_body_markdown,
+        },
+        "assets": assets.model_dump(),
+        "tone_profile": tone_profile.model_dump(),
+        "domain_pack": domain_pack,
+        "review_comment": review_comment,
+        "reference_article_hidden": str(project["source_type"]) == "tracked_article" and bool(problem_brief and strategy_card),
+    }
+    if problem_brief and strategy_card:
+        publish_payload["problem_brief"] = problem_brief.model_dump()
+        publish_payload["strategy_card"] = strategy_card.model_dump()
+        publish_payload["benchmarks"] = [benchmark.model_dump() for benchmark in benchmarks]
+
+    ai_result = package_override or get_ai_generator().generate_publish_package(publish_payload)
     fallback_asset_title = assets.recommended_title or (assets.title_options[0] if assets.title_options else "")
     publish_title = str(ai_result.get("publish_title") or fallback_asset_title or draft_title)
     publish_lead = str(ai_result.get("publish_lead") or assets.social_teaser)

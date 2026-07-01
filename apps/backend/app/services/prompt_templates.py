@@ -439,6 +439,51 @@ _INNER_SETTLEMENT_DAILY_GROUNDING_KEYWORDS = (
     "安顿灵魂",
     "与内心相拥",
 )
+_INNER_SETTLEMENT_DAILY_RETURN_KEYWORDS = (
+    "回到当下",
+    "回到日常",
+    "继续生活",
+    "继续往前",
+    "今天",
+    "眼前的生活",
+    "日常",
+    "回稳",
+    "落地",
+    "放平",
+    "归位",
+    "重新有了轻重",
+    "安顿自己",
+    "安放回当下",
+    "住回日子里",
+    "有归处",
+    "有地方放",
+)
+_INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS = (
+    "上半年",
+    "下半年",
+    "半年",
+    "这一年过半",
+    "年初定下的目标",
+    "目标又实现了多少",
+    "事与愿违",
+    "另有安排",
+    "做好眼前事",
+    "珍惜身边人",
+    "珍惜身边所爱之人",
+    "每一段人生",
+    "这个年龄真好",
+    "我在哪个年龄段",
+    "所有的努力不被辜负",
+    "所有的幸运不期而遇",
+    "所有的快乐无需假装",
+    "重新等待",
+    "重新出发",
+    "接受每一个阶段的自己",
+    "过好每一个阶段的人生",
+    "迎接新的美好",
+    "努力不被辜负",
+    "不期而遇",
+)
 _EVERYDAY_WARMTH_RETURN_ACHIEVEMENT_KEYWORDS = (
     "大事",
     "轰轰烈烈",
@@ -1029,12 +1074,23 @@ def _has_inner_settlement_focus(payload: Mapping[str, object]) -> bool:
     reference_hits = sum(1 for keyword in _INNER_SETTLEMENT_REFERENCE_KEYWORDS if keyword in corpus)
     thesis_hits = sum(1 for marker in _INNER_SETTLEMENT_THESIS_MARKERS if marker in corpus)
     grounding_hits = sum(1 for keyword in _INNER_SETTLEMENT_DAILY_GROUNDING_KEYWORDS if keyword in corpus)
+    daily_return_hits = sum(1 for keyword in _INNER_SETTLEMENT_DAILY_RETURN_KEYWORDS if keyword in corpus)
+    stage_restart_hits = sum(1 for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS if keyword in corpus)
     hard_pressure_hits = sum(1 for keyword in _INTERNAL_PRESSURE_BODY_HARD_SIGNALS if keyword in source_corpus)
     return (
         (
             (reference_hits >= 5 and thesis_hits >= 1)
             or (reference_hits >= 4 and thesis_hits >= 2)
             or (reference_hits >= 3 and thesis_hits >= 1 and grounding_hits >= 1)
+            or (
+                stage_restart_hits >= 4
+                and (
+                    thesis_hits >= 1
+                    or grounding_hits >= 1
+                    or daily_return_hits >= 1
+                    or stage_restart_hits >= 8
+                )
+            )
         )
         and hard_pressure_hits == 0
     )
@@ -1504,6 +1560,9 @@ def _score_tracked_article_inner_settlement_cue(sentence: str) -> int:
         if marker in compact:
             score += 2
     for keyword in _INNER_SETTLEMENT_DAILY_GROUNDING_KEYWORDS:
+        if keyword in compact:
+            score += 2
+    for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS:
         if keyword in compact:
             score += 2
     if "“" in sentence or "\"" in sentence:
@@ -2371,6 +2430,26 @@ def _build_tracked_article_topic_summary(payload: Mapping[str, object]) -> str:
             "再意识到真正被压后、被带过或被撤回的那句话、那个动作或那次靠近。"
         )
     if _has_inner_settlement_focus(payload):
+        stage_restart_hits = sum(
+            1
+            for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS
+            if keyword in " ".join(
+                part
+                for part in (
+                    _as_clean_text(payload.get("article_title")),
+                    _as_clean_text(payload.get("summary")),
+                    _as_clean_text(payload.get("structure_notes")),
+                    _as_clean_text(payload.get("body_markdown")),
+                    " ".join(_as_clean_text(tag) for tag in payload.get("tags") or [] if _as_clean_text(tag)),
+                )
+                if part
+            )
+        )
+        if stage_restart_hits >= 4:
+            return (
+                "文章借半年节点、事与愿违和身边仍在的牵挂，讨论人为什么总会在阶段回望里先否定自己。"
+                "主线落在遗憾怎样被安放、眼前的人怎样把人托住，以及怎样重新接纳这个阶段的自己。"
+            )
         return (
             "文章把外界起伏和内在安顿放在一起比较，"
             "主线落在心为什么一直安不下来，以及人怎样慢慢把自己放回当下。"
@@ -2396,7 +2475,24 @@ def _build_tracked_article_topic_structure_notes(payload: Mapping[str, object]) 
     if _as_clean_text(payload.get("analysis_structure_mode")) == "scene_first_progression":
         return "先守住前两到三段连续现场，让动作、停顿和气氛带路，中段再把真正被压后的话或被撤回的表达讲明白，不要一上来平铺道理。"
     if _has_inner_settlement_focus(payload):
-        return "先写心为什么一直悬着，再拆人为什么总想把一切想明白，中段回到一餐一饮和一呼一吸怎样让生活重新有轻重。"
+        corpus = " ".join(
+            part
+            for part in (
+                _as_clean_text(payload.get("article_title")),
+                _as_clean_text(payload.get("summary")),
+                _as_clean_text(payload.get("structure_notes")),
+                _as_clean_text(payload.get("body_markdown")),
+                " ".join(_as_clean_text(tag) for tag in payload.get("tags") or [] if _as_clean_text(tag)),
+            )
+            if part
+        )
+        stage_restart_hits = sum(1 for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS if keyword in corpus)
+        if stage_restart_hits >= 4:
+            return (
+                "先写阶段节点上最容易冒出来的自责和比较，再拆人为什么总会把没完成、没拥有和没赶上一起算成失败，"
+                "中段回到眼前仍在身边的人、普通支撑和每个阶段自己的分量，结尾落到重新接纳此刻、带着期待继续往前。"
+            )
+        return "先写心为什么在阶段回望里容易悬着、自责或不甘，再拆人为什么总想把遗憾和未完成一起算成失败，中段回到当下、眼前的人和每个阶段的自己怎样重新有了位置和轻重。"
     if _has_self_reliance_inward_support_focus(payload):
         return "先写人也想有人分担、却发现大家都抽不开身的现实处境，中段再拆为什么外面的帮扶未必总能赶上，结尾回到向内稳住、把自己安顿住和慢慢把日子接回来。"
     if _has_everyday_warmth_return_focus(payload):
@@ -2430,11 +2526,33 @@ def _build_tracked_article_topic_body_cue_section(payload: Mapping[str, object])
             "优先围绕连续现场、动作停顿和当场撤回来重组新选题，不要把题眼先抬成抽象关系判断、人生道理或万能解释。\n"
         )
     if _has_inner_settlement_focus(payload):
+        corpus = " ".join(
+            part
+            for part in (
+                _as_clean_text(payload.get("article_title")),
+                _as_clean_text(payload.get("summary")),
+                _as_clean_text(payload.get("structure_notes")),
+                _as_clean_text(payload.get("body_markdown")),
+                " ".join(_as_clean_text(tag) for tag in payload.get("tags") or [] if _as_clean_text(tag)),
+            )
+            if part
+        )
+        stage_restart_hits = sum(1 for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS if keyword in corpus)
+        if stage_restart_hits >= 4:
+            return (
+                "参考文章正文抓手候选：\n"
+                "- 一到半年、年中或阶段节点，人为什么总会先清算自己，而不是先看见自己已经走了多远\n"
+                "- 事与愿违、没完成和没留住，为什么常常会被一起误算成“我这段时间白过了”\n"
+                "- 身边仍在的牵挂、普通支撑和被爱感，为什么会在这种时候重新把人托回生活里\n"
+                "- 接纳每个阶段的自己，为什么不是认输，而是把力气还给接下来的日子\n"
+                "优先围绕这些抓手类型重组新选题，让标题、角度和后续正文都继续停留在阶段回望、遗憾安放和重新出发这条主线上。\n"
+            )
         return (
             "参考文章正文抓手候选：\n"
             "- 外界未必最糟时，人为什么还是会先把自己留在悬着的状态里\n"
             "- 人为什么总想先把一切想稳、想透、想明白，却忘了先把自己安放回当下\n"
             "- 一餐一饮和一呼一吸，为什么比继续拧着更能让心慢慢落地\n"
+            "- 阶段性回望里，那些没完成、没赶上和事与愿违，为什么不该被一起算成“我不够好”\n"
             "优先围绕这些抓手类型重组新选题，让标题、角度和后续正文都继续停留在心安归位这条主线上。\n"
         )
     if _has_self_reliance_inward_support_focus(payload):
@@ -2613,7 +2731,7 @@ def _has_strategy_package(payload: Mapping[str, object]) -> bool:
 
 
 def _render_post_strategy_reference_boundary(payload: Mapping[str, object], *, stage: str) -> str:
-    if stage not in {"outline", "draft"}:
+    if stage not in {"outline", "draft", "assets", "publish_package"}:
         return ""
     if _as_clean_text(payload.get("source_type")) != "tracked_article":
         return ""
@@ -2622,8 +2740,99 @@ def _render_post_strategy_reference_boundary(payload: Mapping[str, object], *, s
     return (
         "参考文章已在问题说明书和策略卡阶段完成消化。"
         "从这里开始，不再提供任何来源账号、标题、摘要、标签或结构线索。"
-        "你只能依据当前选题、大纲任务和策略结论继续推进。"
+        "你只能依据当前选题、正文任务和策略结论继续推进。"
     )
+
+
+def _build_packaging_theme_alignment_instructions(payload: Mapping[str, object], *, stage: str) -> str:
+    if stage not in {"assets", "publish_package"}:
+        return ""
+    if _as_clean_text(payload.get("source_type")) != "tracked_article":
+        return ""
+    if not _has_strategy_package(payload):
+        return ""
+
+    strategy_card = payload.get("strategy_card")
+    problem_brief = payload.get("problem_brief")
+    if not isinstance(strategy_card, Mapping) or not isinstance(problem_brief, Mapping):
+        return ""
+
+    structure_mode = _as_clean_text(strategy_card.get("structure_mode"))
+    clarified_problem = _as_clean_text(problem_brief.get("clarified_problem"))
+    writing_goal = _as_clean_text(problem_brief.get("writing_goal"))
+    conflict_frame = _as_clean_text(strategy_card.get("conflict_frame"))
+    ending_move = _as_clean_text(strategy_card.get("ending_move"))
+
+    base_lines = [
+        "包装必须继续服务当前正文主题，不允许在标题、导语、封面文案或编辑备注阶段二次换题。",
+        "优先服从策略包里的问题澄清、冲突框架和结尾方向，不要把正文已经守住的主题改写成另一篇更顺手的泛情绪稿。",
+    ]
+
+    if clarified_problem:
+        base_lines.append(f"当前主题问题：{clarified_problem}")
+    if writing_goal:
+        base_lines.append(f"当前写作目标：{writing_goal}")
+    if conflict_frame:
+        base_lines.append(f"当前冲突主线：{conflict_frame}")
+    if ending_move:
+        base_lines.append(f"当前收束方向：{ending_move}")
+
+    if structure_mode == "inner_settlement":
+        base_lines.append(
+            "如果当前正文属于心安归位、阶段回望或重新出发这条线，包装不要改写成关系等待、深夜自责、身体告警、失恋复盘或泛幸福定义。"
+        )
+        base_lines.append(
+            "标题、导语和封面文案都要继续守住正文真正的主线：阶段误判、遗憾安放、被支撑托住、接纳当下或慢慢回到眼前生活。"
+        )
+    elif structure_mode == "everyday_warmth_return":
+        base_lines.append(
+            "如果当前正文属于大事祛魅、小事回归这条线，包装不要改写成身体告警、自我耗空、关系排序或泛成长鸡汤。"
+        )
+        base_lines.append(
+            "标题、导语和封面文案都要继续守住正文真正的主线：重要感失重、普通陪伴回归、日常重新显出分量。"
+        )
+    elif structure_mode == "response_priority":
+        base_lines.append(
+            "如果当前正文属于回应顺序和时间投向这条线，包装不要改写成争吵修复、单纯关系冷暖评判或泛内耗诊断。"
+        )
+        base_lines.append(
+            "标题、导语和封面文案都要继续守住正文真正的主线：顺序、时间分配、投入意愿和位置感。"
+        )
+    elif structure_mode == "supportive_appreciation":
+        base_lines.append(
+            "如果当前正文属于柔软被误读、心软被正名和值得被珍惜这条线，包装不要改写成耗空诊断、自我托底或争执后善后。"
+        )
+        base_lines.append(
+            "标题、导语和封面文案都要继续守住正文真正的主线：柔软的分量、被误读的代价、值得被认真珍惜。"
+        )
+    elif structure_mode == "self_reliance_inward_support":
+        base_lines.append(
+            "如果当前正文属于向内求、自我支撑和自救自渡这条线，包装不要改写成关系表达、求助被拒、边界沟通或泛负能量诊断。"
+        )
+        base_lines.append(
+            "标题、导语和封面文案都要继续守住正文真正的主线：外援未必及时、怎样先把自己托住、怎样把日子接回来。"
+        )
+    elif structure_mode == "relationship_aftercare":
+        base_lines.append(
+            "如果当前正文属于争执后修复态度这条线，包装不要改写成单人内耗、泛自我成长或生活排序失衡。"
+        )
+        base_lines.append(
+            "标题、导语和封面文案都要继续守住正文真正的主线：谁回来善后、谁接住情绪、冷暴力怎样磨掉安全感。"
+        )
+    elif structure_mode == "resilience_reconstruction":
+        base_lines.append(
+            "如果当前正文属于命运重击后的重建这条线，包装不要改写成轻量自助、自我照顾提醒或空泛励志鸡汤。"
+        )
+        base_lines.append(
+            "标题、导语和封面文案都要继续守住正文真正的主线：重击、训练、重建和不被定义。"
+        )
+
+    if stage == "assets":
+        base_lines.append("封面文案和社媒导语只允许提炼正文已经成立的题眼，不要额外发明更抓眼但偏题的新论点。")
+    if stage == "publish_package":
+        base_lines.append("发布标题、发布导语、摘要和编辑备注只允许压缩正文主线，不要为了顺口把主题偷换成别的情绪赛道。")
+
+    return "".join(base_lines)
 
 
 def _render_topic_angle_context(payload: Mapping[str, object], *, stage: str) -> str:
@@ -2822,6 +3031,45 @@ def _build_tracked_article_response_priority_guard_instructions(payload: Mapping
 
 def _build_tracked_article_inner_settlement_guard_instructions(payload: Mapping[str, object], *, stage: str) -> str:
     if not _has_inner_settlement_focus(payload):
+        return ""
+
+    corpus = " ".join(
+        part
+        for part in (
+            _as_clean_text(payload.get("article_title")),
+            _as_clean_text(payload.get("summary")),
+            _as_clean_text(payload.get("structure_notes")),
+            _as_clean_text(payload.get("body_markdown")),
+            " ".join(_as_clean_text(tag) for tag in payload.get("tags") or [] if _as_clean_text(tag)),
+        )
+        if part
+    )
+    stage_restart_hits = sum(1 for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS if keyword in corpus)
+    if stage_restart_hits >= 4:
+        if stage == "topic":
+            return (
+                "如果参考文章重心是半年节点、阶段回望、事与愿违另有安排和重新出发，"
+                "先根据参考文里“人为什么总会在阶段节点先否定自己、又怎样被身边的爱和阶段积累慢慢托住”这条主线重组新选题。"
+                "标题和切入角度优先围绕阶段回望、自责误判、遗憾安放、珍惜眼前和继续往前来重组。"
+                "不要把题眼改写成泛泛的心安归位、日常落地、深夜自责、关系等待或失恋复盘。"
+                "标题尽量带一点“这段路没有白走”“这个阶段也有它的分量”“还能继续往前”的方向感，不要只剩诊断和悬置。"
+            )
+        if stage == "outline":
+            return (
+                "如果参考文章重心是阶段回望和重新出发，大纲要继续顺着这条主线推进。"
+                "前半篇先守住阶段节点上的自我盘点、自责或比较，不要一上来缩成泛心安稿或单一关系稿。"
+                "中段至少留一段写事与愿违、没完成和没留住，为什么不该被一起算成失败；也要留一段写身边仍在的爱、普通支撑或阶段积累怎样把人接回来。"
+                "结尾回到接纳这个阶段的自己、继续生活和继续往前，不要落成祝福模板或逆袭宣言。"
+            )
+        if stage == "draft":
+            return (
+                "如果参考文章重心是阶段回望和重新出发，正文要继续守住这条主题主线。"
+                "重点要落在：人为什么一到阶段节点就容易先否定自己，为什么总会把没完成、没拥有和没赶上一起误算成失败；又怎样被眼前仍在的人、普通支撑和阶段积累慢慢托回来。"
+                "开头第一屏先落一个阶段节点上的现实接口：年初目标、这半年过得怎样、某个人还在不在、自己是不是又慢了一点。"
+                "第一屏不要写成深夜翻消息、等一个回应、聊不聊得来这类关系界面，也不要滑成抽象心灵总论。"
+                "中段至少留一段把“事与愿违不等于白走一程”这件事讲透，再留一段把珍惜眼前的人和每个阶段的自己写出分量。"
+                "最后两段要明显往更暖、更有力的方向走，写出继续生活、继续珍惜和继续往前的感觉，不要收成空泛祝福。"
+            )
         return ""
 
     if stage == "topic":
@@ -4517,6 +4765,9 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         tone_profile=tone_profile,
         payload=payload,
     )
+    post_strategy_reference_boundary = _render_post_strategy_reference_boundary(payload, stage="assets")
+    strategy_package_section = _render_strategy_package_section(payload, compact=True)
+    packaging_theme_alignment_instructions = _build_packaging_theme_alignment_instructions(payload, stage="assets")
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="assets", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="assets", payload=payload)
     dbskill_assets_instructions = "".join(get_dbskill_rule_lines("assets", "extra_instructions"))
@@ -4534,6 +4785,7 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             domain_pack=payload.get("domain_pack"),
         )
         + preset_stage_instructions
+        + packaging_theme_alignment_instructions
         + pressure_topic_tweak
         + content_skill_instructions
         + dbskill_assets_instructions
@@ -4544,6 +4796,8 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             f"选题标题：{payload['topic_title']}\n"
             f"切入角度：{payload['topic_angle']}\n"
             f"项目标题：{payload['project_title']}\n"
+            f"{post_strategy_reference_boundary}\n"
+            f"{strategy_package_section}"
             f"{style_section}"
             f"正文标题：{draft['title']}\n"
             f"正文内容：\n{draft['body_markdown']}\n"
@@ -4641,6 +4895,12 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
         tone_profile=tone_profile,
         payload=payload,
     )
+    post_strategy_reference_boundary = _render_post_strategy_reference_boundary(payload, stage="publish_package")
+    strategy_package_section = _render_strategy_package_section(payload, compact=True)
+    packaging_theme_alignment_instructions = _build_packaging_theme_alignment_instructions(
+        payload,
+        stage="publish_package",
+    )
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="publish_package", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="publish_package", payload=payload)
     dbskill_publish_instructions = "".join(get_dbskill_rule_lines("publish_package", "extra_instructions"))
@@ -4658,11 +4918,14 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
             domain_pack=payload.get("domain_pack"),
         )
         + preset_stage_instructions
+        + packaging_theme_alignment_instructions
         + pressure_topic_tweak
         + content_skill_instructions
         + dbskill_publish_instructions,
         prompt=(
             f"项目标题：{payload['project_title']}\n"
+            f"{post_strategy_reference_boundary}\n"
+            f"{strategy_package_section}"
             f"{style_section}"
             f"正文标题：{payload['draft']['title']}\n"
             f"正文内容：\n{payload['draft']['body_markdown']}\n\n"

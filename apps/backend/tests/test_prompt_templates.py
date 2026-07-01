@@ -1330,6 +1330,23 @@ def test_inner_settlement_focus_detects_heart_settled_article() -> None:
     assert _infer_tracked_article_pressure_guard(payload) == ""
 
 
+def test_inner_settlement_focus_detects_stage_restart_article() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "过去的这半年，你过得好吗？",
+        "summary": "文章围绕半年节点回望、事与愿违另有安排、珍惜身边人和接纳每个阶段的自己，给人重新出发的勇气。",
+        "body_markdown": (
+            "过去的这半年，你过得好吗？年初定下的目标又实现了多少呢？若事与愿违，一定另有安排。\n\n"
+            "下半年，多腾点时间和精力，去做好眼前之事，珍惜身边所爱之人。\n\n"
+            "人生的每个阶段，其实都有得有失，有好有坏。我们能做的，就是接受并努力爱每一个阶段的自己。"
+        ),
+        "structure_notes": "先写阶段节点上的自我盘点和遗憾，再转到珍惜眼前与接纳每个阶段的自己。",
+        "tags": ["半年复盘", "下半年", "事与愿违另有安排", "珍惜身边人", "阶段接纳"],
+    }
+
+    assert _has_inner_settlement_focus(payload) is True
+
+
 def test_relationship_aftercare_focus_detects_quarrel_repair_article() -> None:
     payload = {
         "source_type": "tracked_article",
@@ -1983,6 +2000,41 @@ def test_build_assets_prompt_includes_style_and_review_feedback() -> None:
     assert "禁止出现竖版、9:16、手机海报、竖构图等冲突词" in template.prompt
 
 
+def test_build_assets_prompt_includes_strategy_package_theme_guard_for_tracked_article() -> None:
+    template = build_assets_prompt(
+        {
+            "trend_title": "参考文章 / 手动录入",
+            "topic_title": "翻到年中清单时，别把几种遗憾算成同一种失败",
+            "topic_angle": "从阶段节点上的自我清算切入，写人怎样重新安放遗憾、看见支撑，继续往前。",
+            "project_title": "半年回望包装测试",
+            "source_type": "tracked_article",
+            "reference_article_hidden": True,
+            "tone_profile": TONE_PROFILE,
+            "problem_brief": {
+                "clarified_problem": "为什么很多人一到年中就会把没完成、没拥有和没赶上一起算成自己不够好。",
+                "writing_goal": "把阶段性回望里的误判、自责和重新接纳讲清楚。",
+            },
+            "strategy_card": {
+                "structure_mode": "inner_settlement",
+                "conflict_frame": "真正让人难受的，常常不是这一阶段没有圆满，而是总想用结果一次性证明自己有没有白走这段路。",
+                "ending_move": "结尾回到一个继续生活、继续珍惜、继续往前的小动作或新期待上。",
+            },
+            "benchmarks": [],
+            "draft": {
+                "title": "翻回年初那页计划时，先别忙着给这半年打分",
+                "body_markdown": "# 标题\n\n正文",
+            },
+        }
+    )
+
+    assert "包装必须继续服务当前正文主题，不允许在标题、导语、封面文案或编辑备注阶段二次换题。" in template.instructions
+    assert "如果当前正文属于心安归位、阶段回望或重新出发这条线" in template.instructions
+    assert "封面文案和社媒导语只允许提炼正文已经成立的题眼" in template.instructions
+    assert "创作策略包（执行摘要）：" in template.prompt
+    assert "问题澄清：为什么很多人一到年中就会把没完成、没拥有和没赶上一起算成自己不够好。" in template.prompt
+    assert "结构模式：心安归位推进" in template.prompt
+
+
 def test_build_publish_package_prompt_includes_style_and_asset_context() -> None:
     template = build_publish_package_prompt(
         {
@@ -2009,6 +2061,44 @@ def test_build_publish_package_prompt_includes_style_and_asset_context() -> None
     assert "导语候选：导语一 / 导语二 / 导语三" in template.prompt
     assert "主推标题：标题二" in template.prompt
     assert "审核修改意见：摘要需要更克制。" in template.prompt
+
+
+def test_build_publish_package_prompt_includes_strategy_package_theme_guard_for_tracked_article() -> None:
+    template = build_publish_package_prompt(
+        {
+            "project_title": "半年回望发布测试",
+            "source_type": "tracked_article",
+            "reference_article_hidden": True,
+            "tone_profile": TONE_PROFILE,
+            "problem_brief": {
+                "clarified_problem": "为什么很多人一到阶段节点，就会把没完成、没拥有和没赶上一起算成失败。",
+                "writing_goal": "把阶段误判、遗憾安放和继续往前的力量讲清楚。",
+            },
+            "strategy_card": {
+                "structure_mode": "inner_settlement",
+                "conflict_frame": "真正让人难受的，不是这一阶段没有圆满，而是总想一次性证明自己有没有白走这段路。",
+                "ending_move": "结尾回到一个继续生活、继续珍惜、继续往前的小动作或新期待上。",
+            },
+            "benchmarks": [],
+            "draft": {
+                "title": "翻回年初那页计划时，先别忙着给这半年打分",
+                "body_markdown": "# 标题\n\n正文",
+            },
+            "assets": {
+                "cover_copy": "这半年没按你想的那样来，也不代表你白走了一程",
+                "social_teaser": "很多人一到年中，不是在复盘，而是在清算自己。",
+                "social_teaser_options": ["导语一", "导语二", "导语三"],
+                "recommended_title": "翻到年中清单时，别把几种遗憾算成同一种失败",
+                "title_options": ["标题一", "标题二", "标题三"],
+            },
+        }
+    )
+
+    assert "包装必须继续服务当前正文主题，不允许在标题、导语、封面文案或编辑备注阶段二次换题。" in template.instructions
+    assert "发布标题、发布导语、摘要和编辑备注只允许压缩正文主线" in template.instructions
+    assert "如果当前正文属于心安归位、阶段回望或重新出发这条线" in template.instructions
+    assert "创作策略包（执行摘要）：" in template.prompt
+    assert "当前收束方向：结尾回到一个继续生活、继续珍惜、继续往前的小动作或新期待上。" in template.instructions
 
 
 def test_build_cover_image_prompt_mentions_wide_ratio_and_original_idea() -> None:

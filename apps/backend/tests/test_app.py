@@ -1434,6 +1434,59 @@ def test_generate_topic_from_tracked_article_rewrites_inner_settlement_article_o
     assert "日子落不了地" not in payload["angle"]
 
 
+def test_generate_topic_from_tracked_article_rewrites_stage_restart_article_toward_halfyear_restart_theme(
+    monkeypatch,
+) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("topic", payload))
+            return {
+                "title": "总想先把一切想稳的人，心要靠日常一点点落地",
+                "angle": "从半年节点最常见的自责误判写起，拆开未完成为何总被算成“我不够好”，再把注意力带回一餐一饮和仍在身边的人。",
+            }
+
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "halfyear-stage-restart-reroute",
+            "source_name": "手动录入",
+            "title": "过去的这半年，你过得好吗？",
+            "url": "https://example.com/halfyear-stage-restart-reroute",
+            "author": "未知",
+            "summary": "文章围绕半年节点回望、事与愿违另有安排、珍惜身边人和接纳每个阶段的自己，给人重新出发的勇气。",
+            "body_markdown": (
+                "过去的这半年，你过得好吗？年初定下的目标又实现了多少呢？若事与愿违，一定另有安排。\n\n"
+                "下半年，多腾点时间和精力，去做好眼前之事，珍惜身边所爱之人。\n\n"
+                "人生的每个阶段，其实都有得有失，有好有坏。我们能做的，就是接受并努力爱每一个阶段的自己。"
+            ),
+            "structure_notes": "先写阶段节点上的自我盘点和遗憾，再转到珍惜眼前与接纳每个阶段的自己。",
+            "tags": ["半年复盘", "下半年", "事与愿违另有安排", "珍惜身边人", "阶段接纳"],
+        },
+    )
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+
+    response = client.post("/api/tracked-articles/halfyear-stage-restart-reroute/generate-topic")
+    assert response.status_code == 201
+    payload = response.json()
+
+    assert payload["title"] == "这半年没按你想的那样来，也不代表你白走了一程"
+    assert "阶段节点" in payload["angle"]
+    assert "遗憾怎样被安放" in payload["angle"]
+    assert "重新接纳眼前这个阶段的自己" in payload["angle"]
+    assert "带着期待继续往前" in payload["angle"]
+    assert "日常一点点落地" not in payload["title"]
+
+
 def test_generate_topic_from_tracked_article_rewrites_self_reliance_article_out_of_relationship_expression_sink(
     monkeypatch,
 ) -> None:
@@ -13555,6 +13608,126 @@ def test_restore_publish_package_version_reapplies_historical_package_to_current
 
     versions = client.get("/api/projects/office-burnout-recovery-weekly/versions").json()
     assert [item["version"] for item in versions["publish_packages"]] == [3, 2, 1]
+
+
+def test_assets_and_publish_generation_receive_strategy_bundle_for_tracked_article_project(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("outline", payload))
+            return {
+                "hook": "先从年中那一下想给自己打分的冲动切入",
+                "outline_body": "1. 阶段回望里的自责\n2. 误把遗憾都算成失败\n3. 被支撑托住后继续往前",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            return {
+                "title": "翻回年初那页计划时，先别忙着给这半年打分",
+                "body_markdown": "# 标题\n\n很多人一到年中，不是在复盘，而是在清算自己。",
+            }
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("assets", payload))
+            return {
+                "title_options": ["翻到年中清单时，别把几种遗憾算成同一种失败"],
+                "recommended_title": "翻到年中清单时，别把几种遗憾算成同一种失败",
+                "cover_prompt": "21:9 横版公众号头图，年中回望，温暖现实感",
+                "cover_copy": "这半年没按你想的那样来，也不代表你白走了一程",
+                "social_teaser": "很多人一到年中，不是在复盘，而是在清算自己。",
+                "social_teaser_options": ["导语一", "导语二", "导语三"],
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append(("publish", payload))
+            return {
+                "abstract": "写阶段回望里的误判，以及人怎样重新接纳自己。",
+                "tags": ["阶段回望", "重新出发"],
+                "editor_note": "重点是把年中自责拆开，不是继续放大失败感。",
+                "publish_title": "翻到年中清单时，别把几种遗憾算成同一种失败",
+                "publish_lead": "很多人一到年中，不是在复盘，而是在清算自己。",
+                "intro_options": ["很多人一到年中，不是在复盘，而是在清算自己。"],
+            }
+
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "halfyear-packaging-article",
+            "source_name": "手动录入",
+            "title": "下半年，愿你所有的努力不被辜负",
+            "url": "https://example.com/halfyear-packaging-article",
+            "author": "未知",
+            "summary": "文章围绕半年节点上的回望、自责、遗憾安放和重新出发，不是泛心安稿。",
+            "body_markdown": (
+                "过去的这半年，你过得好吗？年初定下的目标又实现了多少呢？\n\n"
+                "如果事与愿违，请一定相信是上天另有安排。\n\n"
+                "做好眼前事，珍惜身边人。每一段人生，都值得全力以赴。"
+            ),
+            "structure_notes": "先写半年节点上的自我盘点，中段写遗憾与支撑，结尾回到接纳阶段和继续往前。",
+            "tags": ["上半年", "下半年", "阶段回望", "重新出发"],
+        },
+    )
+    assert create_article.status_code == 201
+
+    create_topic = client.post(
+        "/api/tracked-articles/halfyear-packaging-article/to-topic",
+        json={
+            "slug": "halfyear-packaging-topic",
+            "title": "这半年没按你想的那样来，也不代表你白走了一程",
+            "angle": "从阶段节点上的自我清算切入，写人怎样重新安放遗憾、看见支撑，继续往前。",
+        },
+    )
+    assert create_topic.status_code == 201
+
+    create_project = client.post(
+        "/api/topics/halfyear-packaging-topic/create-project",
+        json={"slug": "halfyear-packaging-project", "title": "半年回望包装链路测试", "owner": "editorial"},
+    )
+    assert create_project.status_code == 201
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+
+    strategy_response = client.post("/api/projects/halfyear-packaging-project/generate-strategy-package")
+    assert strategy_response.status_code == 201
+    adopt_response = client.post("/api/projects/halfyear-packaging-project/adopt-strategy-card/1")
+    assert adopt_response.status_code == 200
+
+    outline_response = client.post("/api/projects/halfyear-packaging-project/generate-outline")
+    assert outline_response.status_code == 201
+    draft_response = client.post("/api/projects/halfyear-packaging-project/generate-draft")
+    assert draft_response.status_code == 201
+    assets_response = client.post("/api/projects/halfyear-packaging-project/generate-assets")
+    assert assets_response.status_code == 201
+    publish_response = client.post("/api/projects/halfyear-packaging-project/build-publish-package")
+    assert publish_response.status_code == 201
+
+    assets_payload = next(payload for call_type, payload in fake_generator.calls if call_type == "assets")
+    publish_payload = next(payload for call_type, payload in fake_generator.calls if call_type == "publish")
+
+    assert assets_payload["source_type"] == "tracked_article"
+    assert assets_payload["reference_article_hidden"] is True
+    assert assets_payload["problem_brief"]["clarified_problem"]
+    assert assets_payload["strategy_card"]["structure_mode"] == "inner_settlement"
+    assert assets_payload["benchmarks"]
+    assert assets_payload["benchmarks"][0]["borrow_focus"]
+
+    assert publish_payload["source_type"] == "tracked_article"
+    assert publish_payload["reference_article_hidden"] is True
+    assert publish_payload["problem_brief"]["clarified_problem"]
+    assert publish_payload["strategy_card"]["structure_mode"] == "inner_settlement"
+    assert publish_payload["benchmarks"]
+    assert publish_payload["assets"]["recommended_title"] == "翻到年中清单时，别把几种遗憾算成同一种失败"
 
 
 def test_database_file_created_for_persistent_store() -> None:

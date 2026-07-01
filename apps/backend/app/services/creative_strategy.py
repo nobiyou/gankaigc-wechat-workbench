@@ -392,6 +392,30 @@ _INNER_SETTLEMENT_DAILY_RETURN_KEYWORDS = (
     "有归处",
     "有地方放",
 )
+_INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS = (
+    "上半年",
+    "下半年",
+    "半年",
+    "这一年过半",
+    "年初定下的目标",
+    "目标又实现了多少",
+    "事与愿违",
+    "另有安排",
+    "做好眼前事",
+    "珍惜身边人",
+    "珍惜身边所爱之人",
+    "每一段人生",
+    "这个年龄真好",
+    "我在哪个年龄段",
+    "所有的努力不被辜负",
+    "所有的幸运不期而遇",
+    "所有的快乐无需假装",
+    "重新等待",
+    "重新出发",
+    "接受每一个阶段的自己",
+    "过好每一个阶段的人生",
+    "迎接新的美好",
+)
 _EVERYDAY_WARMTH_RETURN_ACHIEVEMENT_KEYWORDS = (
     "大事",
     "轰轰烈烈",
@@ -1427,6 +1451,8 @@ def _has_inner_settlement_reference(*parts: str) -> bool:
     calm_hits = _count_keyword_hits(corpus, _INNER_SETTLEMENT_REFERENCE_KEYWORDS)
     thesis_hits = _count_keyword_hits(corpus, _INNER_SETTLEMENT_THESIS_MARKERS)
     daily_hits = _count_keyword_hits(corpus, _INNER_SETTLEMENT_DAILY_GROUNDING_KEYWORDS)
+    daily_return_hits = _count_keyword_hits(corpus, _INNER_SETTLEMENT_DAILY_RETURN_KEYWORDS)
+    stage_restart_hits = _count_keyword_hits(corpus, _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS)
     hard_pressure_hits = _count_keyword_hits(corpus, _PRESSURE_REFERENCE_HARD_SIGNALS)
     relationship_hits = _count_keyword_hits(corpus, _RELATIONSHIP_AFTERCARE_RELATIONSHIP_KEYWORDS)
     return (
@@ -1435,6 +1461,13 @@ def _has_inner_settlement_reference(*parts: str) -> bool:
         and (
             (calm_hits >= 4 and thesis_hits >= 1 and daily_hits >= 1)
             or (calm_hits >= 6 and thesis_hits >= 1)
+            or (
+                stage_restart_hits >= 4
+                and (
+                    daily_return_hits >= 1
+                    or stage_restart_hits >= 8
+                )
+            )
         )
     )
 
@@ -1675,6 +1708,8 @@ def _resolve_inner_settlement_variant(*, topic_title: str = "", topic_angle: str
         )
     )
 
+    if any(keyword in primary for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS):
+        return "stage_restart"
     if any(keyword in primary for keyword in _INNER_SETTLEMENT_REGRET_RELEASE_KEYWORDS):
         return "regret_release"
     if any(keyword in primary for keyword in _INNER_SETTLEMENT_DAILY_RETURN_KEYWORDS):
@@ -1683,6 +1718,8 @@ def _resolve_inner_settlement_variant(*, topic_title: str = "", topic_angle: str
         return "daily_return"
     if any(keyword in primary for keyword in _INNER_SETTLEMENT_RUMINATION_KEYWORDS):
         return "rumination"
+    if any(keyword in normalized for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS):
+        return "stage_restart"
     if any(keyword in normalized for keyword in _INNER_SETTLEMENT_REGRET_RELEASE_KEYWORDS):
         return "regret_release"
     if any(keyword in normalized for keyword in _INNER_SETTLEMENT_DAILY_RETURN_KEYWORDS):
@@ -1747,6 +1784,28 @@ def _build_inner_settlement_profile(*, variant: str) -> dict[str, str]:
                 "opening_move": "开头先落一个日子正在把人往回接的小接口：终于坐下来吃一顿饭、一次慢下来的呼吸、一个原本被忽略的普通安排重新有了分量。不要先讲幸福定义，也不要照搬参考文那组家庭动作清单。",
                 "body_shift": "中段先拆那颗心为什么总想先把自己说服明白、把日子安排妥帖，结果反而越悬越紧；再写那些普通但真实的日常安排怎样一点点把人接回来，让今天重新有轻重。",
                 "ending_move": "结尾回到一个继续生活、继续在场、重新有轻重的普通动作，不写祝福，也不写宏大顿悟。",
+            }
+        )
+    elif variant == "stage_restart":
+        profile.update(
+            {
+                "reader_situation": "站在阶段交界处，容易把没完成、没拥有和没赶上一起算成自己不够好的人",
+                "core_conflict": "很多人在阶段性回望里最容易犯的，不是看不清现实，而是把未完成、错过和眼下的不如意全扣成“我这段时间白过了”，于是越回望越否定自己。",
+                "observed_phenomenon": "到了半年、年中或某个阶段节点，很多人都会突然开始清点：目标做了多少，错过了什么，人有没有留住，自己是不是又慢了一点。看起来像复盘，其实常常先变成了一场对自己的追责。",
+                "normalized_topic_angle": "从人为什么总会在阶段节点把没完成、没拥有和没赶上一起算成失败切入，写遗憾怎样被安放、温暖怎样把人托住，以及人怎样重新接纳眼前这个阶段的自己，带着期待继续往前。",
+                "writing_goal": "把人为什么总会在阶段节点先否定自己讲清楚，也让读者看见，真正能把人送去下一个阶段的，不是更狠地追责自己，而是重新安放遗憾、看见仍在身边的爱与支撑，并把力气收回到眼前的人生里。",
+                "clarified_problem": "真正需要被看见的，不是一个人上半年做得够不够好，而是为什么很多人一到阶段节点，就会把没完成、没拥有和没赶上一起算成“自己不够好”；也要让读者看见，阶段性的失落并不等于这一段人生白过了，重新出发往往是从接纳此刻和珍惜眼前开始的。",
+                "feedback_entry": "如果这篇稿子成立，那些一到阶段节点就开始否定自己的人，会先认出“这说的就是我现在的卡点”，也会慢慢相信：事与愿违未必是失败，很多正在发生的爱、支撑和成长，本来就在把自己送往下一个更好的阶段。",
+                "problem_explanation": "这篇稿子要解释的，是为什么人一到阶段节点，总会拿结果倒扣自己，把遗憾、疲惫和比较一起压成失败感；也解释为什么把遗憾安放好、把眼前的关系和生活重新看见，人才有力气继续往前。",
+                "point_of_view": "不急着催人翻篇和振作，先把阶段性回望里那股自责和失落讲清楚，再把读者慢慢带回眼前仍在托住她的人和生活里。",
+                "conflict_frame": "真正让人难受的，常常不是这一阶段没有圆满，而是总想用结果一次性证明自己有没有白走这段路。",
+                "emotional_path": "先认出阶段节点上的自责、遗憾和比较是怎样一起压上来的，再看温暖、陪伴和阶段自洽怎样一点点把人从否定自己里接回来，最后把力气还给接下来的生活。",
+                "opening_move": "开头先落一个阶段节点上很真实的自我盘点接口：年初定下的目标、这半年过得好不好、某个人是不是留在身边、自己是不是又慢了一点。不要先写深夜翻旧消息，也不要先给人生答案。",
+                "body_shift": "中段先拆人为什么总会把没完成、没拥有和没赶上一起算成失败，再写那些仍在身边的爱、牵挂、普通支撑和阶段积累，怎样把人从自责里慢慢接回来；后半篇把比较心收回，落到每个阶段都有自己的分量与光亮。",
+                "ending_move": "结尾回到一个继续生活、继续珍惜、继续往前的小动作或新期待上，不写口号式祝福，也不写空泛逆袭宣言。",
+                "benchmark_borrow_focus": "半年节点上的回望情绪 / 事与愿违后的安放方式 / 亲情支撑与阶段自洽怎样把人重新送回生活",
+                "benchmark_summary": "只借原文里阶段节点回望、遗憾安放、被爱托住和接纳当下阶段的主线，不借原文标题骨架、分段顺序和祝福式收尾。",
+                "expression_constraint": "不要把阶段回望稿写成深夜自责诊断、结果依赖分析或单一失恋复盘；重点要留在阶段安放、重新出发和对当下自己的接纳上。",
             }
         )
     return profile

@@ -351,6 +351,26 @@ def test_resolve_inner_settlement_variant_detects_regret_release() -> None:
     assert variant == "regret_release"
 
 
+def test_resolve_tracked_article_structure_mode_detects_stage_restart_reference() -> None:
+    resolved = resolve_tracked_article_structure_mode(
+        body_markdown=(
+            "过去的这半年，你过得好吗？年初定下的目标又实现了多少呢？若事与愿违，一定另有安排。\n\n"
+            "下半年，多腾点时间和精力，去做好眼前之事，珍惜身边所爱之人。\n\n"
+            "人生的每个阶段，其实都有得有失，有好有坏。我们能做的，就是接受并努力爱每一个阶段的自己。"
+        ),
+        summary="文章围绕半年节点回望、事与愿违另有安排、珍惜身边人和接纳每个阶段的自己，给人重新出发的勇气。",
+        structure_notes="先写阶段节点上的自我盘点和遗憾，再转到珍惜眼前与接纳每个阶段的自己。",
+        analysis_structure_mode_hint="emotional_engine_direct",
+        analysis_theme="文章真正讨论的是：人为什么一到阶段节点就容易先否定自己。",
+        analysis_core_conflict="很多人会把没完成、没拥有和没赶上一起算成失败。",
+        analysis_emotional_exit="把遗憾安放好，把力气收回到眼前的人和接下来的生活里。",
+        analysis_opening_pattern="从半年节点的自我盘点切入。",
+        analysis_do_not_turn_into="不要改写成失恋复盘或泛泛心安稿。",
+    )
+
+    assert resolved == "inner_settlement"
+
+
 def test_build_strategy_package_keeps_self_reliance_theme_out_of_relationship_expression_sink() -> None:
     result = build_strategy_package(
         project={
