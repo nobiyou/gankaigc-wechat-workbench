@@ -116,6 +116,78 @@ def test_local_self_reliance_draft_avoids_cliche_and_slogan_finish() -> None:
     assert summary.score == 0
 
 
+def test_local_relationship_aftercare_draft_avoids_not_ab_and_short_judgment_cadence() -> None:
+    title, body_markdown = _build_local_generic_tracked_article_draft(
+        {
+            "source_type": "tracked_article",
+            "topic_title": "吵完以后，愿意回来把话说完",
+            "reference_article_body_markdown": (
+                "在生活中，无论多么相爱的人也免不了会吵架。"
+                "有些人吵着吵着就散了，有些人则越吵越爱。"
+                "好的关系，不是永远不吵架，而是争吵以后还想要继续走下去。"
+            ),
+            "strategy_card": {"structure_mode": "relationship_aftercare"},
+        }
+    )
+
+    summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+
+    assert title == "吵完以后，愿意回来把话说完"
+    assert len(extract_short_judgment_paragraphs(body_markdown)) <= 2
+    assert all("不是A，是B" not in hit for hit in summary.hits)
+    assert all("单句敲钟段偏多" not in hit for hit in summary.hits)
+    assert "这不是输赢" not in body_markdown
+    assert "心里有这段关系的人，不会让你独自站在那阵冷气里。" not in body_markdown
+    assert summary.score < 20
+
+
+def test_local_self_worth_luxury_draft_avoids_not_ab_skeleton() -> None:
+    title, body_markdown = _build_local_generic_tracked_article_draft(
+        {
+            "source_type": "tracked_article",
+            "topic_title": "把自己看重一点，关系里的分寸才会回来",
+            "topic_angle": "从把自己养贵一点、把门槛和标准收回来切入。",
+            "reference_article_body_markdown": (
+                "你不贵重，就容易被忽略；你不自爱，就是会被辜负。"
+                "总把时间贱卖给不值得的人和事，只会越忙越廉价。"
+                "把自己养贵一点，日子才能过好一点。"
+            ),
+            "strategy_card": {"structure_mode": "self_worth_rebuild"},
+        }
+    )
+
+    summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+
+    assert title == "把自己看重一点，关系里的分寸才会回来"
+    assert all("不是A，是B" not in hit for hit in summary.hits)
+    assert "不是突然端着" not in body_markdown
+    assert "门槛不是拿来为难别人的" not in body_markdown
+    assert "不是高傲，是清醒" not in body_markdown
+    assert summary.score < 20
+
+
+def test_local_response_priority_time_draft_avoids_not_ab_skeleton() -> None:
+    title, body_markdown = _build_local_generic_tracked_article_draft(
+        {
+            "source_type": "tracked_article",
+            "topic_title": "愿意把时间留给你的人，才是真的把你放在心上",
+            "reference_article_body_markdown": (
+                "红灯30秒，我喝了一口水，拍了张照片，回了条消息。"
+                "忙不是借口，没时间也不是理由。人对在乎的人，永远都有时间。"
+            ),
+            "strategy_card": {"structure_mode": "response_priority"},
+        }
+    )
+
+    summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+
+    assert title == "愿意把时间留给你的人，才是真的把你放在心上"
+    assert all("不是A，是B" not in hit for hit in summary.hits)
+    assert "不是嘴上说出来的" not in body_markdown
+    assert "不是催谁" not in body_markdown
+    assert summary.score < 20
+
+
 def test_positive_payoff_keeps_relationship_theme_separate_from_home_warmth() -> None:
     strategy = _strategy(
         structure_mode="relationship_aftercare",
