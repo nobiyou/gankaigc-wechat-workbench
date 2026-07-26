@@ -3,10 +3,12 @@ import { useEffect, useState } from "react";
 import {
   activateToneProfile,
   checkAIConfig,
+  checkAIImageConfig,
   createToneProfile,
   deleteToneProfile,
   duplicateToneProfile,
   fetchAIConfigSummary,
+  probeAIImageRoutes,
   fetchCreativePatterns,
   fetchDomainPacks,
   fetchPromptTemplates,
@@ -15,12 +17,29 @@ import {
   updateToneProfile,
   type AIConfigCheckResult,
   type AIConfigSummary,
+  type AIImageRouteProbeResult,
   type DomainPackSummary,
   type PromptTemplateSummary,
   type ReusablePatternItem,
   type ToneProfileItem,
 } from "../api/workbench";
-import { formatAiConfigBaseUrl, formatAiConfigReasoning, formatAiConfigSummaryLabel } from "../aiConfig";
+import {
+  formatAiConfigAttemptBudget,
+  formatAiConfigBaseUrl,
+  formatAiConfigCheckRouteLabel,
+  formatAiConfigFallbackKeyLabel,
+  formatAiConfigFallbackSourceLabel,
+  formatAiConfigImageFallbackRouteDifferences,
+  formatAiConfigImageMode,
+  formatAiConfigImageFallbackRoute,
+  formatAiConfigImageFallbackRouteNote,
+  formatAiConfigReasoning,
+  formatAiConfigLocalFallbackMode,
+  formatAiConfigRouteLabel,
+  formatAiConfigTimeoutSeconds,
+  formatAiImageRouteProbeStatus,
+  formatAiConfigSummaryLabel,
+} from "../aiConfig";
 import { buildDomainPackSummaryLines } from "../domainPacks";
 import { buildPromptTemplateSummaryLines } from "../promptTemplates";
 import {
@@ -95,7 +114,9 @@ export function SettingsPage({ section }: SettingsPageProps) {
   const [isDirty, setIsDirty] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState>(null);
-  const [aiConfigCheckResult, setAiConfigCheckResult] = useState<AIConfigCheckResult | null>(null);
+  const [aiTextConfigCheckResult, setAiTextConfigCheckResult] = useState<AIConfigCheckResult | null>(null);
+  const [aiImageConfigCheckResult, setAiImageConfigCheckResult] = useState<AIConfigCheckResult | null>(null);
+  const [aiImageRouteProbeResult, setAiImageRouteProbeResult] = useState<AIImageRouteProbeResult | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
@@ -367,16 +388,66 @@ export function SettingsPage({ section }: SettingsPageProps) {
 
   async function handleCheckAiConfig() {
     setPendingAction("check-ai-config");
-    setAiConfigCheckResult(null);
+    setAiTextConfigCheckResult(null);
     try {
       const result = await checkAIConfig();
-      setAiConfigCheckResult(result);
+      setAiTextConfigCheckResult(result);
     } catch (error: unknown) {
-      setAiConfigCheckResult({
+      setAiTextConfigCheckResult({
         ok: false,
         status: "request_failed",
         message: error instanceof Error ? error.message : "AI 配置检测失败，请稍后重试。",
         checked_at: new Date().toISOString(),
+        route_label: null,
+        recovery_actions: [],
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleCheckAiImageConfig() {
+    setPendingAction("check-ai-image-config");
+    setAiImageConfigCheckResult(null);
+    try {
+      const result = await checkAIImageConfig();
+      setAiImageConfigCheckResult(result);
+    } catch (error: unknown) {
+      setAiImageConfigCheckResult({
+        ok: false,
+        status: "request_failed",
+        message: error instanceof Error ? error.message : "图片配置检测失败，请稍后重试。",
+        checked_at: new Date().toISOString(),
+        route_label: null,
+        recovery_actions: [],
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleProbeAiImageRoutes() {
+    setPendingAction("probe-ai-image-routes");
+    setAiImageRouteProbeResult(null);
+    try {
+      const result = await probeAIImageRoutes();
+      setAiImageRouteProbeResult(result);
+    } catch (error: unknown) {
+      setAiImageRouteProbeResult({
+        any_ok: false,
+        checked_at: new Date().toISOString(),
+        routes: [
+          {
+            route_label: "primary",
+            configured_model: aiConfigSummary?.image_model ?? null,
+            configured_base_url: aiConfigSummary?.image_base_url ?? null,
+            ok: false,
+            status: "request_failed",
+            message: error instanceof Error ? error.message : "图片路由探测失败，请稍后重试。",
+            checked_at: new Date().toISOString(),
+            recovery_actions: [],
+          },
+        ],
       });
     } finally {
       setPendingAction(null);
@@ -511,10 +582,14 @@ export function SettingsPage({ section }: SettingsPageProps) {
   const aiConfigSummary = aiConfigLoadState.status === "ready" ? aiConfigLoadState.summary : null;
   const domainPacks = domainPacksLoadState.status === "ready" ? domainPacksLoadState.packs : [];
   const promptTemplates = promptTemplatesLoadState.status === "ready" ? promptTemplatesLoadState.templates : [];
+  const imageFallbackRouteDifferenceLabel = aiConfigSummary
+    ? formatAiConfigImageFallbackRouteDifferences(aiConfigSummary)
+    : null;
+  const imageFallbackRouteNote = aiConfigSummary ? formatAiConfigImageFallbackRouteNote(aiConfigSummary) : null;
 
   return (
     <section className="workspace-page">
-      <section className="workspace-section">
+      <section className="workspace-section" id="ai-config">
         <div className="workspace-section__header">
           <div>
             <p className="workspace-section__eyebrow">{sectionCopy.eyebrow}</p>
@@ -536,7 +611,7 @@ export function SettingsPage({ section }: SettingsPageProps) {
           <article className="workspace-summary-card">
             <span>AI 配置</span>
             <strong>{aiConfigSummary ? formatAiConfigSummaryLabel(aiConfigSummary) : "加载中"}</strong>
-            <p>这里检查当前文本模型链路是否能通，避免等到批量任务失败后才回看日志。</p>
+            <p>这里把文本模型链路和封面出图链路分开检查，避免文本正常时误以为封面也能正常生成。</p>
           </article>
         </div>
       </section>
@@ -549,17 +624,35 @@ export function SettingsPage({ section }: SettingsPageProps) {
             <p className="workspace-section__eyebrow">AI Config</p>
             <h3>模型配置检测</h3>
             <p className="workspace-section__description">
-              读取当前后端实际生效的模型配置，并发起一次轻量探测请求，优先暴露 key、base URL、模型名或上游服务异常。
+              读取当前后端实际生效的模型配置，并把文本链路和图片链路分开探测，优先暴露 key、base URL、模型名或上游服务异常。
             </p>
           </div>
-          <button
-            className="dashboard-button"
-            type="button"
-            onClick={() => void handleCheckAiConfig()}
-            disabled={pendingAction !== null || aiConfigLoadState.status !== "ready"}
-          >
-            {pendingAction === "check-ai-config" ? "检测中..." : "检测配置"}
-          </button>
+          <div className="workspace-section__actions">
+            <button
+              className="dashboard-button"
+              type="button"
+              onClick={() => void handleCheckAiConfig()}
+              disabled={pendingAction !== null || aiConfigLoadState.status !== "ready"}
+            >
+              {pendingAction === "check-ai-config" ? "文本检测中..." : "检测文本"}
+            </button>
+            <button
+              className="dashboard-button dashboard-button--ghost"
+              type="button"
+              onClick={() => void handleCheckAiImageConfig()}
+              disabled={pendingAction !== null || aiConfigLoadState.status !== "ready"}
+            >
+              {pendingAction === "check-ai-image-config" ? "出图检测中..." : "检测出图"}
+            </button>
+            <button
+              className="dashboard-button dashboard-button--ghost"
+              type="button"
+              onClick={() => void handleProbeAiImageRoutes()}
+              disabled={pendingAction !== null || aiConfigLoadState.status !== "ready"}
+            >
+              {pendingAction === "probe-ai-image-routes" ? "路由探测中..." : "探测主/备路由"}
+            </button>
+          </div>
         </div>
 
         {aiConfigLoadState.status === "error" ? (
@@ -600,29 +693,172 @@ export function SettingsPage({ section }: SettingsPageProps) {
             </article>
             <article className="settings-config-card">
               <span>文本超时</span>
-              <strong>{`${aiConfigSummary.request_timeout_seconds} 秒`}</strong>
+              <strong>{formatAiConfigTimeoutSeconds(aiConfigSummary.request_timeout_seconds)}</strong>
             </article>
             <article className="settings-config-card">
               <span>出图超时</span>
-              <strong>{`${aiConfigSummary.image_request_timeout_seconds} 秒`}</strong>
+              <strong>{formatAiConfigTimeoutSeconds(aiConfigSummary.image_request_timeout_seconds)}</strong>
             </article>
             <article className="settings-config-card">
               <span>出图链路</span>
               <strong>{aiConfigSummary.image_uses_dedicated_config ? "独立配置" : "继承文本"}</strong>
             </article>
+            <article className="settings-config-card">
+              <span>封面策略</span>
+              <strong>{formatAiConfigImageMode()}</strong>
+            </article>
+            <article className="settings-config-card">
+              <span>出图请求预算</span>
+              <strong>{formatAiConfigAttemptBudget(aiConfigSummary.image_generation_max_attempts)}</strong>
+              <p className="settings-config-card__meta">正式出封面最多发起的图片 API 请求次数。</p>
+            </article>
+            <article className="settings-config-card">
+              <span>正文质检重试</span>
+              <strong>{formatAiConfigAttemptBudget(aiConfigSummary.creative_quality_retry_max_attempts)}</strong>
+              <p className="settings-config-card__meta">草稿质检失败后的额外重写预算。</p>
+            </article>
+            <article className="settings-config-card">
+              <span>本地兜底</span>
+              <strong>{formatAiConfigLocalFallbackMode(aiConfigSummary)}</strong>
+              <p className="settings-config-card__meta">关闭时，正文与封面不会改走本地创作兜底。</p>
+            </article>
+            <article className="settings-config-card">
+              <span>图片备用链路</span>
+              <strong>{formatAiConfigImageFallbackRoute(aiConfigSummary)}</strong>
+              <p className="settings-config-card__meta">{`账号池诊断：${aiConfigSummary.image_fallback_account_pool_diagnosis_label}`}</p>
+              {imageFallbackRouteDifferenceLabel ? (
+                <p className="settings-config-card__meta">{imageFallbackRouteDifferenceLabel}</p>
+              ) : null}
+              <p className="settings-config-card__detail">{aiConfigSummary.image_fallback_account_pool_diagnosis_note}</p>
+              <p className="settings-config-card__detail">
+                {`有效模型：${aiConfigSummary.image_fallback_effective_model?.trim() || "未配置"}`}
+              </p>
+              {aiConfigSummary.image_fallback_route_config_hints.map((hint) => (
+                <p key={`fallback-config-hint-${hint}`} className="settings-config-card__detail">
+                  {hint}
+                </p>
+              ))}
+              {aiConfigSummary.image_fallback_route_env_example.length > 0 ? (
+                <pre className="settings-config-card__code">{aiConfigSummary.image_fallback_route_env_example.join("\n")}</pre>
+              ) : null}
+              {aiConfigSummary.image_fallback_route_env_example_note ? (
+                <p className="settings-config-card__detail">{aiConfigSummary.image_fallback_route_env_example_note}</p>
+              ) : null}
+              <p className="settings-config-card__detail">
+                {`模型来源：${formatAiConfigFallbackSourceLabel(
+                  aiConfigSummary.image_fallback_route_configured,
+                  aiConfigSummary.image_fallback_uses_inherited_model,
+                  "继承主出图模型",
+                  "独立 fallback 模型",
+                )}`}
+              </p>
+              <p className="settings-config-card__detail">
+                {`有效接口：${
+                  aiConfigSummary.image_fallback_effective_base_url
+                    ? formatAiConfigBaseUrl(aiConfigSummary.image_fallback_effective_base_url)
+                    : "未配置"
+                }`}
+              </p>
+              <p className="settings-config-card__detail">
+                {`接口来源：${formatAiConfigFallbackSourceLabel(
+                  aiConfigSummary.image_fallback_route_configured,
+                  aiConfigSummary.image_fallback_uses_inherited_base_url,
+                  "继承主出图链路接口",
+                  "独立 fallback 接口",
+                )}`}
+              </p>
+              <p className="settings-config-card__detail">{`Key：${formatAiConfigFallbackKeyLabel(aiConfigSummary)}`}</p>
+              <p className="settings-config-card__detail">
+                {`超时：${formatAiConfigTimeoutSeconds(
+                  aiConfigSummary.image_fallback_effective_request_timeout_seconds,
+                )}（${formatAiConfigFallbackSourceLabel(
+                  aiConfigSummary.image_fallback_route_configured,
+                  aiConfigSummary.image_fallback_uses_inherited_request_timeout,
+                  "继承主出图链路超时",
+                  "独立 fallback 超时",
+                )}）`}
+              </p>
+              {imageFallbackRouteNote ? (
+                <p className="settings-config-card__detail">{imageFallbackRouteNote}</p>
+              ) : null}
+              {aiConfigSummary.image_fallback_route_recovery_actions.length > 0 ? (
+                <ul className="workspace-note__list">
+                  {aiConfigSummary.image_fallback_route_recovery_actions.map((action) => (
+                    <li key={`fallback-summary-${action}`}>{action}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </article>
           </div>
         ) : null}
 
-        {aiConfigCheckResult ? (
-          <div className={`workspace-note ${aiConfigCheckResult.ok ? "workspace-note--success" : "workspace-note--error"}`}>
-            <p>{aiConfigCheckResult.message}</p>
-            <p>{`检测时间：${new Date(aiConfigCheckResult.checked_at).toLocaleString("zh-CN", { hour12: false })}`}</p>
+        {aiTextConfigCheckResult ? (
+          <div className={`workspace-note ${aiTextConfigCheckResult.ok ? "workspace-note--success" : "workspace-note--error"}`}>
+            <p>{aiTextConfigCheckResult.message}</p>
+            <p>{`文本检测时间：${new Date(aiTextConfigCheckResult.checked_at).toLocaleString("zh-CN", { hour12: false })}`}</p>
           </div>
-        ) : (
+        ) : null}
+
+        {aiImageConfigCheckResult ? (
+          <div className={`workspace-note ${aiImageConfigCheckResult.ok ? "workspace-note--success" : "workspace-note--error"}`}>
+            <p>{aiImageConfigCheckResult.message}</p>
+            {formatAiConfigCheckRouteLabel(aiImageConfigCheckResult) ? (
+              <p>{formatAiConfigCheckRouteLabel(aiImageConfigCheckResult)}</p>
+            ) : null}
+            {aiImageConfigCheckResult.recovery_actions.length > 0 ? (
+              <ul className="workspace-note__list">
+                {aiImageConfigCheckResult.recovery_actions.map((action) => (
+                  <li key={action}>{action}</li>
+                ))}
+              </ul>
+            ) : null}
+            <p>{`出图检测时间：${new Date(aiImageConfigCheckResult.checked_at).toLocaleString("zh-CN", { hour12: false })}`}</p>
+          </div>
+        ) : null}
+
+        {aiImageRouteProbeResult ? (
+          <div className="workspace-subsection">
+            <div className="workspace-section__header">
+              <div>
+                <p className="workspace-section__eyebrow">Image Route Probe</p>
+                <h4>图片路由逐条探测</h4>
+                <p className="workspace-section__description">
+                  分开探测主出图链路和备用图片链路，避免“检测出图”只返回最终结果却看不出具体哪条路有问题。
+                </p>
+              </div>
+              <span className="workspace-run-card__count">{aiImageRouteProbeResult.any_ok ? "存在可用路由" : "当前都不可用"}</span>
+            </div>
+            <div className="settings-config-grid">
+              {aiImageRouteProbeResult.routes.map((route) => (
+                <article key={`${route.route_label}-${route.configured_model ?? "none"}`} className="settings-config-card">
+                  <span>{formatAiConfigRouteLabel(route.route_label)}</span>
+                  <strong>{formatAiImageRouteProbeStatus(route)}</strong>
+                  <p className="settings-config-card__meta">{route.status}</p>
+                  {route.configured_model ? <p className="settings-config-card__detail">{`模型：${route.configured_model}`}</p> : null}
+                  {route.configured_base_url ? <p className="settings-config-card__detail">{`接口：${route.configured_base_url}`}</p> : null}
+                  <p className="settings-config-card__detail">{route.message}</p>
+                  {route.recovery_actions.length > 0 ? (
+                    <ul className="workspace-note__list">
+                      {route.recovery_actions.map((action) => (
+                        <li key={`${route.route_label}-${action}`}>{action}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+            <div className={`workspace-note ${aiImageRouteProbeResult.any_ok ? "workspace-note--success" : "workspace-note--info"}`}>
+              <p>{`路由探测时间：${new Date(aiImageRouteProbeResult.checked_at).toLocaleString("zh-CN", { hour12: false })}`}</p>
+            </div>
+          </div>
+        ) : null}
+
+        {!aiTextConfigCheckResult && !aiImageConfigCheckResult && !aiImageRouteProbeResult ? (
           <div className="workspace-note workspace-note--info">
-            <p>点击“检测配置”会向当前文本模型发起一次轻量请求，用于提前发现配置错误或上游临时不可用。</p>
+            <p>“检测文本”会向当前文本模型发起一次轻量请求；“检测出图”会实际发起一次轻量图片请求，但不会写入任何项目资产。</p>
+            <p>“探测主/备路由”会把主出图链路和备用图片链路拆开逐条检测，更适合排查备用图片 API 是否真的生效。</p>
           </div>
-        )}
+        ) : null}
       </section>
 
       <section className="workspace-section">

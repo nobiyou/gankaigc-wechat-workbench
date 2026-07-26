@@ -15,6 +15,7 @@ function test(name: string, fn: () => void) {
 test("formatProjectChainStateLabel maps known backend chain states into readable Chinese labels", () => {
   assert.equal(formatProjectChainStateLabel("outline_ready"), "待生成初稿");
   assert.equal(formatProjectChainStateLabel("draft_ready"), "待生成素材");
+  assert.equal(formatProjectChainStateLabel("cover_pending"), "封面待补齐");
   assert.equal(formatProjectChainStateLabel("assets_ready"), "待生成发布包");
   assert.equal(formatProjectChainStateLabel("publish_ready"), "待审核发布包");
   assert.equal(formatProjectChainStateLabel("published"), "已发布");
@@ -30,6 +31,7 @@ test("formatProjectNextStepLabel reuses task labels for known next steps", () =>
   assert.equal(formatProjectNextStepLabel("generate_outline"), "生成大纲");
   assert.equal(formatProjectNextStepLabel("generate_draft"), "生成初稿");
   assert.equal(formatProjectNextStepLabel("generate_assets"), "生成素材包");
+  assert.equal(formatProjectNextStepLabel("regenerate_cover_image"), "重试图片 API");
   assert.equal(formatProjectNextStepLabel("build_publish_package"), "生成发布包");
 });
 

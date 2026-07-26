@@ -8,13 +8,17 @@ import pytest
 from app.core.settings import Settings
 import app.services.ai_generator as ai_generator_module
 from app.services.ai_generator import (
+    AssetGenerationResult,
     DraftGenerationResult,
     OpenAIWorkbenchGenerator,
     OutlineGenerationResult,
+    PublishPackageGenerationResult,
     TrackedArticleMetadataGenerationResult,
     TopicGenerationResult,
     get_ai_config_summary,
     run_ai_config_check,
+    run_ai_image_config_check,
+    run_ai_image_route_probe,
 )
 
 
@@ -24,6 +28,7 @@ def build_generator() -> OpenAIWorkbenchGenerator:
             openai_api_key="test-key",
             openai_base_url="",
             openai_model="test-model",
+            openai_image_base_url="",
             openai_image_model="test-image-model",
         )
     )
@@ -35,16 +40,69 @@ def build_custom_base_url_generator() -> OpenAIWorkbenchGenerator:
             openai_api_key="test-key",
             openai_base_url="https://proxy.example/v1",
             openai_model="test-model",
+            openai_image_base_url="https://proxy.example/v1",
             openai_image_model="test-image-model",
         )
     )
 
+
+def test_outline_generation_result_accepts_outline_body_list() -> None:
+    result = OutlineGenerationResult.model_validate(
+        {"hook": "先落一个电话", "outline_body": ["1. 电话这头", "2. 家里的灯"]}
+    )
+
+    assert result.outline_body == "1. 电话这头\n2. 家里的灯"
+
+
+def test_normalize_draft_generation_result_removes_leaked_field_labels() -> None:
+    result = ai_generator_module._normalize_draft_generation_result(
+        DraftGenerationResult(
+            title="1. 标题 title",
+            body_markdown=(
+                "家里一有事，总是你先把顺序理出来"
+                "2. 正文 markdown body_markdown"
+                "电话响起来的时候，她先看了眼月底的日历。"
+            ),
+        )
+    )
+
+    assert result.title == "家里一有事，总是你先把顺序理出来"
+    assert result.body_markdown == "电话响起来的时候，她先看了眼月底的日历。"
+
+
+def test_normalize_draft_generation_result_removes_markdown_code_fences() -> None:
+    result = ai_generator_module._normalize_draft_generation_result(
+        DraftGenerationResult(
+            title="家里一有事，总要有人先把顺序理出来",
+            body_markdown="```markdown电话响起来的时候，家里的安排就变了。\n\n有人把饭热上，等你回家。```",
+        )
+    )
+
+    assert result.body_markdown == "电话响起来的时候，家里的安排就变了。\n\n有人把饭热上，等你回家。"
 
 def test_generator_clients_disable_sdk_internal_retries() -> None:
     generator = build_generator()
 
     assert generator._client.max_retries == 0
     assert generator._image_client.max_retries == 0
+    assert generator._client._client._trust_env is False
+    assert generator._image_client._client._trust_env is False
+
+
+def test_generator_can_opt_into_proxy_env() -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://proxy.example/v1",
+            openai_model="test-model",
+            openai_image_base_url="https://proxy.example/v1",
+            openai_image_model="test-image-model",
+            openai_trust_env=True,
+        )
+    )
+
+    assert generator._client._client._trust_env is True
+    assert generator._image_client._client._trust_env is True
 
 
 def test_generate_outline_prompt_mentions_target_word_count(monkeypatch) -> None:
@@ -144,7 +202,7 @@ def test_generate_draft_prompt_mentions_target_word_count_with_tolerance(monkeyp
     assert "原创不是把现成观点换一批近义词，而是重新建立观察路径、场景重心和句子节奏" in captured["instructions"]
     assert "优先从一个具体、可感知的瞬间起笔" in captured["instructions"]
     assert "不要先复述题眼或给观点下定义" in captured["instructions"]
-    assert "把抽象情绪落到动作停顿、物件光线、空间距离或身体反应上" in captured["instructions"]
+    assert "把抽象情绪落到动作停顿、物件光线、空间距离、关系变化或现实余波上" in captured["instructions"]
     assert "避免每段都写成“观点句 + 解释句”" in captured["instructions"]
     assert "避免反复用“一点、一下、一些、一个、一种”去切分感受和动作" in captured["instructions"]
     assert "不要每隔一两段就单独插一个很短的判断段或敲钟段" in captured["instructions"]
@@ -691,11 +749,800 @@ def test_parse_response_chat_json_fallback_retries_on_transient_connection_error
     assert chat_calls["count"] == 3
 
 
-def test_generate_draft_uses_configured_timeout_for_compact_or_recovery_payload(monkeypatch) -> None:
+def test_parse_response_chat_json_fallback_grants_extra_transport_recovery_for_custom_base_url(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+
+            class FakeParsedResponse:
+                output_parsed = None
+                output_text = ""
+                output = []
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            if chat_calls["count"] <= 3:
+                raise openai.APIConnectionError(
+                    request=httpx.Request("POST", "https://proxy.example/v1/chat/completions")
+                )
+
+            class FakeMessage:
+                content = '{"title": "第四次把结构化结果接回来了", "body_markdown": "# 标题\\n\\n正文"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_draft(
+        {
+            "trend_title": "办公室倦怠修复",
+            "topic_title": "办公室倦怠不是懒，是你的身心在报警",
+            "topic_angle": "情绪识别",
+            "project_title": "办公室倦怠修复周更",
+            "outline": {
+                "hook": "先接住身体发出的报警",
+                "outline_body": "1. 崩住的日常\n2. 被忽略的疲惫\n3. 慢慢恢复秩序",
+            },
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "opening_style": "从具体场景冷启动切入",
+                "paragraph_rhythm": "短段落，慢推进",
+                "closing_style": "留白式收束",
+                "forbidden_phrases": ["你必须", "立刻改变"],
+                "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+                "target_word_count": 1400,
+                "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+            },
+        }
+    )
+
+    assert result == {
+        "title": "第四次把结构化结果接回来了",
+        "body_markdown": "# 标题\n\n正文",
+    }
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 4
+
+
+def test_parse_response_chat_json_fallback_respects_explicit_attempt_budget_for_custom_base_url(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+
+            class FakeParsedResponse:
+                output_parsed = None
+                output_text = ""
+                output = []
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            raise openai.APIConnectionError(
+                request=httpx.Request("POST", "https://proxy.example/v1/chat/completions")
+            )
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    with pytest.raises(openai.APIConnectionError):
+        generator._parse_response(
+            instructions="只返回 JSON。",
+            prompt="输出大纲",
+            response_format=OutlineGenerationResult,
+            max_attempts_override=1,
+        )
+
+    assert parse_calls["count"] == 1
+    assert chat_calls["count"] == 1
+
+
+def test_generate_outline_uses_bounded_timeout_profile_for_strategy_first_payload(monkeypatch) -> None:
     generator = OpenAIWorkbenchGenerator(
         Settings(
             openai_api_key="test-key",
-            openai_base_url="",
+            openai_base_url="https://proxy.example/v1",
+            openai_model="test-model",
+            openai_image_model="test-image-model",
+            openai_request_timeout_seconds=60,
+        )
+    )
+    captured: list[tuple[float | None, int | None]] = []
+
+    def fake_parse_response(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds_override=None,
+        max_attempts_override=None,
+    ):
+        captured.append((timeout_seconds_override, max_attempts_override))
+        return OutlineGenerationResult(hook="hook", outline_body="1. a\n2. b")
+
+    monkeypatch.setattr(generator, "_parse_response", fake_parse_response)
+
+    base_payload = {
+        "trend_title": "参考文章 / 夜读关系实验室",
+        "topic_title": "总在照顾别人情绪的人，也需要有人接住",
+        "topic_angle": "关系负重",
+        "project_title": "outline bounded timeout",
+        "tone_profile": {
+            "name": "女性成长克制陪伴风",
+            "opening_style": "从具体场景冷启动切入",
+            "paragraph_rhythm": "短段落，慢推进",
+            "closing_style": "留白式收束",
+            "forbidden_phrases": ["你必须", "立刻改变"],
+            "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+            "target_word_count": 1400,
+            "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+        },
+    }
+
+    generator.generate_outline({**base_payload, "strategy_first_outline_mode": True})
+    generator.generate_outline(base_payload)
+
+    assert captured == [(60, 1), (None, None)]
+
+
+def test_generate_outline_custom_base_url_does_not_cache_chat_json_preference(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+
+            class FakeParsedResponse:
+                output_parsed = None
+                output_text = ""
+                output = []
+
+            return FakeParsedResponse()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+
+            class FakeMessage:
+                content = '{"hook": "她把那句没事放轻了", "outline_body": "1. a\\n2. b"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    payload = {
+        "trend_title": "参考文章 / 夜读关系实验室",
+        "topic_title": "总在照顾别人情绪的人，也需要有人接住",
+        "topic_angle": "关系负重",
+        "project_title": "outline preference cache",
+        "tone_profile": {
+            "name": "女性成长克制陪伴风",
+            "opening_style": "从具体场景冷启动切入",
+            "paragraph_rhythm": "短段落，慢推进",
+            "closing_style": "留白式收束",
+            "forbidden_phrases": ["你必须", "立刻改变"],
+            "value_constraints": "不说教，不制造羞耻感，避免空泛鸡汤",
+            "target_word_count": 1400,
+            "default_polish_instruction": "重写开头和结尾，打散重复句式。",
+        },
+        "strategy_first_outline_mode": True,
+    }
+
+    generator.generate_outline(payload)
+    generator.generate_outline(payload)
+
+    assert parse_calls["count"] == 2
+    assert chat_calls["count"] == 2
+
+
+
+def test_custom_base_url_recovery_honors_configured_timeout_and_retry_budget() -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://proxy.example/v1",
+            openai_model="test-model",
+            openai_image_model="test-image-model",
+            openai_request_timeout_seconds=120,
+        )
+    )
+
+    assert generator._resolve_outline_timeout_override({"outline_timeout_recovery_mode": True}) == 120
+    assert generator._resolve_outline_timeout_override({"strategy_first_outline_mode": True}) == 120
+    assert generator._resolve_assets_timeout_override({"assets_timeout_recovery_mode": True}) == 120
+    assert generator._resolve_publish_timeout_override({"publish_timeout_recovery_mode": True}) == 120
+    assert generator._resolve_draft_timeout_override(
+        {"timeout_recovery_mode": True, "source_type": "tracked_article"}
+    ) == 120
+    assert generator._resolve_draft_timeout_override(
+        {"strategy_first_draft_mode": True, "source_type": "tracked_article"}
+    ) == 120
+    assert generator._resolve_topic_timeout_override({"source_type": "tracked_article"}) == 120
+    assert generator._resolve_tracked_article_metadata_timeout_override({"body_markdown": "x"}) == 120
+    assert generator._resolve_outline_max_attempts({"outline_timeout_recovery_mode": True}) == 1
+    assert generator._resolve_assets_max_attempts({"assets_timeout_recovery_mode": True}) == 1
+    assert generator._resolve_publish_max_attempts({"publish_timeout_recovery_mode": True}) == 1
+    assert generator._resolve_draft_max_attempts(
+        {"timeout_recovery_mode": True, "source_type": "tracked_article"}
+    ) == 1
+    assert generator._resolve_topic_max_attempts({"source_type": "tracked_article"}) == 1
+    assert generator._resolve_tracked_article_metadata_max_attempts({"body_markdown": "x"}) == 1
+
+def test_generate_outline_timeout_recovery_mode_uses_plain_chat_json_without_extra_body(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise AssertionError("outline timeout recovery should bypass responses.parse")
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"hook":"先写那句没事背后的发紧","outline_body":"1. 电话和账单\\n2. 为什么先把自己往后放\\n3. 家里安稳怎么把辛苦说成值得\\n4. 结尾回到被护住的日常"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_outline(
+        {
+            "trend_title": "参考文章 / manual-originality-check",
+            "topic_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "topic_angle": "从成年人为什么总把“我没事”说得很轻切入",
+            "project_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "outline_timeout_recovery_mode": True,
+            "strategy_first_outline_mode": True,
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "target_word_count": 1400,
+            },
+            "problem_brief": {
+                "theme_axis": "很多成年人为什么会把“我没事”顶在前面，把辛苦和委屈先往后收。",
+                "core_conflict": "明明已经很疲惫了，还是要把那句有我稳稳顶在前面。",
+                "emotional_value_goal": "让读者知道这些硬撑最后都在把家里的人和日子托住。",
+                "anti_drift_axis": "不要漂成泛幸福定义或空泛鸡汤。",
+            },
+            "strategy_card": {
+                "hook_trigger": "一句“没事，有我”背后那点喉咙发紧。",
+                "progression_drive": "责任先把人往前推，再让家里的安稳把这些辛苦一点点说成值得。",
+                "positive_direction": "结尾回到家里仍被护住的安稳。",
+                "scene_anchor_requirements": ["电话", "账单"],
+            },
+        }
+    )
+
+    assert result["hook"] == "先写那句没事背后的发紧"
+    assert parse_calls["count"] == 0
+    assert chat_calls["count"] == 1
+    assert captured.get("extra_body") is None
+
+
+def test_generate_outline_timeout_recovery_mode_uses_bounded_custom_timeout_and_retry(monkeypatch) -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://proxy.example/v1",
+            openai_model="test-model",
+            openai_image_model="test-image-model",
+            openai_request_timeout_seconds=60,
+        )
+    )
+    captured: list[tuple[float, int, bool, bool, bool]] = []
+
+    def fake_parse_response_with_chat_json_fallback(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds: float,
+        max_attempts: int,
+        enforce_custom_base_url_retry_floor: bool = True,
+        include_custom_base_url_extra_body: bool = True,
+        include_response_format: bool = True,
+    ):
+        captured.append(
+            (
+                timeout_seconds,
+                max_attempts,
+                enforce_custom_base_url_retry_floor,
+                include_custom_base_url_extra_body,
+                include_response_format,
+            )
+        )
+        return OutlineGenerationResult(hook="hook", outline_body="1. a\n2. b")
+
+    monkeypatch.setattr(
+        generator,
+        "_parse_response_with_chat_json_fallback",
+        fake_parse_response_with_chat_json_fallback,
+    )
+
+    result = generator.generate_outline(
+        {
+            "trend_title": "参考文章 / manual-originality-check",
+            "topic_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "topic_angle": "从成年人为什么总把“我没事”说得很轻切入",
+            "project_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "outline_timeout_recovery_mode": True,
+            "strategy_first_outline_mode": True,
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+                "target_word_count": 1400,
+            },
+        }
+    )
+
+    assert result == {"hook": "hook", "outline_body": "1. a\n2. b"}
+    assert captured == [(60, 1, False, False, False)]
+
+
+def test_generate_assets_timeout_recovery_mode_uses_plain_chat_json_without_extra_body(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise AssertionError("assets timeout recovery should bypass responses.parse")
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = (
+                    '{"title_options":["标题一","标题二","标题三"],'
+                    '"recommended_title":"标题二",'
+                    '"cover_prompt":"16:9 横版公众号头图，夜里灯还亮着，克制现实感",'
+                    '"cover_copy":"很多辛苦，最后都在把家稳住。",'
+                    '"social_teaser":"那句没事，有我，背后压着的是整屋子的秩序。",'
+                    '"social_teaser_options":["导语一","导语二","导语三"]}'
+                )
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_assets(
+        {
+            "trend_title": "参考文章 / manual-originality-check",
+            "topic_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "topic_angle": "从成年人为什么总把“我没事”说得很轻切入",
+            "project_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "assets_timeout_recovery_mode": True,
+            "draft": {
+                "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+                "body_markdown": "很多时候，说这句话的人并不轻松。",
+            },
+            "problem_brief": {
+                "theme_axis": "很多成年人为什么会把“我没事”顶在前面。",
+                "core_conflict": "明明已经很疲惫了，还是要把那句有我稳稳顶在前面。",
+                "emotional_value_goal": "让读者知道这些硬撑最后都在把家里的人和日子托住。",
+            },
+            "strategy_card": {
+                "packaging_focus": "先抓现实重量，再回到家里的安稳。",
+                "packaging_hook": "先抓那点发紧和还得继续撑住。",
+                "positive_direction": "落回家里仍被护住的安稳。",
+            },
+        }
+    )
+
+    assert result["recommended_title"] == "标题二"
+    assert parse_calls["count"] == 0
+    assert chat_calls["count"] == 1
+    assert captured.get("extra_body") is None
+    assert "response_format" not in captured
+
+
+def test_generate_assets_timeout_recovery_mode_uses_bounded_custom_timeout_and_retry(monkeypatch) -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://proxy.example/v1",
+            openai_model="test-model",
+            openai_image_model="test-image-model",
+            openai_request_timeout_seconds=60,
+        )
+    )
+    captured: list[tuple[float, int, bool, bool, bool]] = []
+
+    def fake_parse_response_with_chat_json_fallback(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds: float,
+        max_attempts: int,
+        enforce_custom_base_url_retry_floor: bool = True,
+        include_custom_base_url_extra_body: bool = True,
+        include_response_format: bool = True,
+    ):
+        captured.append(
+            (
+                timeout_seconds,
+                max_attempts,
+                enforce_custom_base_url_retry_floor,
+                include_custom_base_url_extra_body,
+                include_response_format,
+            )
+        )
+        return AssetGenerationResult(
+            title_options=["标题一", "标题二", "标题三"],
+            recommended_title="标题二",
+            cover_prompt="16:9 横版公众号头图，夜里灯还亮着，克制现实感",
+            cover_copy="很多辛苦，最后都在把家稳住。",
+            social_teaser="那句没事，有我，背后压着的是整屋子的秩序。",
+            social_teaser_options=["导语一", "导语二", "导语三"],
+        )
+
+    monkeypatch.setattr(
+        generator,
+        "_parse_response_with_chat_json_fallback",
+        fake_parse_response_with_chat_json_fallback,
+    )
+
+    result = generator.generate_assets(
+        {
+            "trend_title": "参考文章 / manual-originality-check",
+            "topic_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "topic_angle": "从成年人为什么总把“我没事”说得很轻切入",
+            "project_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "assets_timeout_recovery_mode": True,
+            "draft": {
+                "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+                "body_markdown": "很多时候，说这句话的人并不轻松。",
+            },
+        }
+    )
+
+    assert result["recommended_title"] == "标题二"
+    assert captured == [(60, 1, False, False, False)]
+
+
+def test_generate_publish_timeout_recovery_mode_uses_plain_chat_json_without_extra_body(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise AssertionError("publish timeout recovery should bypass responses.parse")
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = (
+                    '{"abstract":"写成年人先把慌乱压回去，再把辛苦落到家里安稳上。",'
+                    '"tags":["中年责任","家庭安稳","夜里硬撑"],'
+                    '"editor_note":"发布时主打那句没事有我背后的现实重量。",'
+                    '"publish_title":"一句“没事，有我”，先扛住了账单电话，也扛住了这个家",'
+                    '"publish_lead":"那句“没事，有我”最重的时候，常常不是说给别人听。",'
+                    '"intro_options":["导语一","导语二","导语三"]}'
+                )
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_publish_package(
+        {
+            "project_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "publish_timeout_recovery_mode": True,
+            "draft": {
+                "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+                "body_markdown": "很多时候，说这句话的人并不轻松。",
+            },
+            "assets": {
+                "recommended_title": "一句“没事，有我”，先扛住了账单电话，也扛住了这个家",
+                "cover_copy": "先把慌乱咽下去，把家里稳住",
+                "social_teaser": "那句“没事，有我”最重的时候，常常不是说给别人听。",
+                "title_options": ["标题一", "标题二"],
+                "social_teaser_options": ["导语一", "导语二"],
+            },
+            "problem_brief": {
+                "theme_axis": "很多成年人为什么会把“我没事”顶在前面。",
+                "core_conflict": "明明已经很疲惫了，还是要把那句有我稳稳顶在前面。",
+                "emotional_value_goal": "让读者知道这些硬撑最后都在把家里的人和日子托住。",
+            },
+            "strategy_card": {
+                "packaging_focus": "先抓现实重量，再回到家里的安稳。",
+                "packaging_hook": "先抓那点发紧和还得继续撑住。",
+                "positive_direction": "落回家里仍被护住的安稳。",
+            },
+        }
+    )
+
+    assert result["publish_title"] == "一句“没事，有我”，先扛住了账单电话，也扛住了这个家"
+    assert parse_calls["count"] == 0
+    assert chat_calls["count"] == 1
+    assert captured.get("extra_body") is None
+    assert "response_format" not in captured
+
+
+def test_generate_publish_timeout_recovery_mode_uses_bounded_custom_timeout_and_retry(monkeypatch) -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://proxy.example/v1",
+            openai_model="test-model",
+            openai_image_model="test-image-model",
+            openai_request_timeout_seconds=60,
+        )
+    )
+    captured: list[tuple[float, int, bool, bool, bool]] = []
+
+    def fake_parse_response_with_chat_json_fallback(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds: float,
+        max_attempts: int,
+        enforce_custom_base_url_retry_floor: bool = True,
+        include_custom_base_url_extra_body: bool = True,
+        include_response_format: bool = True,
+    ):
+        captured.append(
+            (
+                timeout_seconds,
+                max_attempts,
+                enforce_custom_base_url_retry_floor,
+                include_custom_base_url_extra_body,
+                include_response_format,
+            )
+        )
+        return PublishPackageGenerationResult(
+            abstract="写成年人先把慌乱压回去，再把辛苦落到家里安稳上。",
+            tags=["中年责任", "家庭安稳", "夜里硬撑"],
+            editor_note="发布时主打那句没事有我背后的现实重量。",
+            publish_title="一句“没事，有我”，先扛住了账单电话，也扛住了这个家",
+            publish_lead="那句“没事，有我”最重的时候，常常不是说给别人听。",
+            intro_options=["导语一", "导语二", "导语三"],
+        )
+
+    monkeypatch.setattr(
+        generator,
+        "_parse_response_with_chat_json_fallback",
+        fake_parse_response_with_chat_json_fallback,
+    )
+
+    result = generator.generate_publish_package(
+        {
+            "project_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "publish_timeout_recovery_mode": True,
+            "draft": {
+                "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+                "body_markdown": "很多时候，说这句话的人并不轻松。",
+            },
+            "assets": {
+                "recommended_title": "一句“没事，有我”，先扛住了账单电话，也扛住了这个家",
+                "cover_copy": "先把慌乱咽下去，把家里稳住",
+                "social_teaser": "那句“没事，有我”最重的时候，常常不是说给别人听。",
+                "title_options": ["标题一", "标题二"],
+                "social_teaser_options": ["导语一", "导语二"],
+            },
+        }
+    )
+
+    assert result["publish_title"] == "一句“没事，有我”，先扛住了账单电话，也扛住了这个家"
+    assert captured == [(60, 1, False, False, False)]
+
+
+def test_generate_draft_timeout_recovery_mode_uses_plain_text_chat_without_extra_body(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise AssertionError("draft timeout recovery should bypass responses.parse")
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"title":"那句我没事后面，藏着多少不敢倒下","body_markdown":"第一段\\n\\n第二段"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_draft(
+        {
+            "trend_title": "参考文章 / manual-originality-check",
+            "topic_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "topic_angle": "从成年人为什么总把“我没事”说得很轻切入。",
+            "project_title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "source_type": "tracked_article",
+            "timeout_recovery_mode": True,
+            "outline": {
+                "hook": "一句“没事，有我”背后那点喉咙发紧。",
+                "outline_body": "1. 先写硬撑\n2. 再写代价\n3. 最后回到安稳",
+            },
+            "problem_brief": {
+                "theme_axis": "很多成年人为什么会把“我没事”顶在前面，把辛苦和委屈先往后收。",
+                "core_conflict": "明明已经很疲惫了，还是要把那句有我稳稳顶在前面。",
+            },
+            "strategy_card": {
+                "positive_direction": "结尾回到家里仍被护住的安稳。",
+            },
+        }
+    )
+
+    assert result["title"] == "那句我没事后面，藏着多少不敢倒下"
+    assert parse_calls["count"] == 0
+    assert chat_calls["count"] == 1
+    assert captured.get("extra_body") is None
+    assert "response_format" not in captured
+    assert captured["timeout"] == 60.0
+
+
+def test_generate_draft_strategy_first_tracked_article_uses_bounded_plain_text_chat_on_custom_base_url(
+    monkeypatch,
+) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    chat_calls = {"count": 0}
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise AssertionError("strategy-first tracked article draft should bypass responses.parse on custom base url")
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            captured.update(kwargs)
+
+            class FakeMessage:
+                content = '{"title":"家里一有事，你总会先把家稳住","body_markdown":"第一段\\n\\n第二段"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    result = generator.generate_draft(
+        {
+            "trend_title": "参考文章 / manual-originality-check",
+            "topic_title": "家里一有事，你总会先把家稳住",
+            "topic_angle": "从成年人先把家里顺序理清这件事切入。",
+            "project_title": "真实链路验证-责任",
+            "source_type": "tracked_article",
+            "strategy_first_draft_mode": True,
+            "outline": {
+                "hook": "很多中年人的一通来电，听着只是家里有事，心里却已经开始替所有人排顺序。",
+                "outline_body": "1. 先写现实接口\n2. 再写多想一步\n3. 最后回到家里安稳",
+            },
+            "problem_brief": {
+                "theme_axis": "很多成年人为什么会先把家里顺序理清。",
+                "core_conflict": "责任最重的地方，不是一个人有多厉害，而是他心里一直装着想守护的人。",
+            },
+            "strategy_card": {
+                "positive_direction": "结尾回到家里被托住的安稳，不要写成空泛吃苦叙事。",
+            },
+        }
+    )
+
+    assert result["title"] == "家里一有事，你总会先把家稳住"
+    assert parse_calls["count"] == 0
+    assert chat_calls["count"] == 1
+    assert captured.get("extra_body") is None
+    assert "response_format" not in captured
+    assert captured["timeout"] == 60.0
+
+
+def test_generate_draft_uses_configured_timeout_for_compact_or_full_fallback_payload(monkeypatch) -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://proxy.example/v1",
             openai_model="test-model",
             openai_image_model="test-image-model",
             openai_request_timeout_seconds=60,
@@ -738,11 +1585,10 @@ def test_generate_draft_uses_configured_timeout_for_compact_or_recovery_payload(
     }
 
     generator.generate_draft({**base_payload, "compact_strategy_mode": True})
-    generator.generate_draft({**base_payload, "timeout_recovery_mode": True})
     generator.generate_draft({**base_payload, "full_fallback_single_attempt_mode": True})
     generator.generate_draft(base_payload)
 
-    assert captured == [(60, 1), (60, 1), (60, 1), (None, None)]
+    assert captured == [(60, 1), (60, 1), (None, None)]
 
 
 def test_parse_response_uses_output_text_json_without_chat_fallback(monkeypatch) -> None:
@@ -1396,6 +2242,68 @@ def test_generate_topic_supports_tracked_article_payload(monkeypatch) -> None:
     assert "参考文章正文抓手候选：" in captured["prompt"]
 
 
+def test_generate_topic_uses_chat_json_fast_path_for_tracked_article_on_custom_base_url(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    captured: dict[str, object] = {}
+
+    def fail_parse_response(*_args, **_kwargs):
+        raise AssertionError("tracked article topic generation should use chat-json fast path on custom base url")
+
+    def fake_chat_json_fallback(
+        *,
+        instructions: str,
+        prompt: str,
+        response_format,
+        timeout_seconds: float,
+        max_attempts: int = 3,
+        enforce_custom_base_url_retry_floor: bool = True,
+        include_custom_base_url_extra_body: bool = True,
+        include_response_format: bool = True,
+    ):
+        captured["instructions"] = instructions
+        captured["prompt"] = prompt
+        captured["response_format"] = response_format
+        captured["timeout_seconds"] = timeout_seconds
+        captured["max_attempts"] = max_attempts
+        captured["enforce_custom_base_url_retry_floor"] = enforce_custom_base_url_retry_floor
+        captured["include_custom_base_url_extra_body"] = include_custom_base_url_extra_body
+        return TopicGenerationResult(
+            title="先把那句压回去的话说清楚",
+            angle="从参考文章提炼新的现实入口",
+        )
+
+    monkeypatch.setattr(generator, "_parse_response", fail_parse_response)
+    monkeypatch.setattr(generator, "_parse_response_with_chat_json_fallback", fake_chat_json_fallback)
+
+    result = generator.generate_topic(
+        {
+            "source_type": "tracked_article",
+            "source_ref_slug": "wechat-mp-wechat-mp-2247538175-1",
+            "source_name": "",
+            "article_title": "听到伴侣说话就烦，不是你讨厌他，也不是你脾气不好，而是你忽略了这个危机",
+            "author": "一凡一尘",
+            "summary": "很多人认为对伴侣没耐心就是感情变淡了，其实并不全是对的。",
+            "body_markdown": "她不是突然没耐心，只是先把自己的疲惫往后放了太久。",
+            "structure_notes": "Imported from WeChat MP article list; structure notes pending review.",
+            "tags": ["wechat-mp"],
+            "tone_profile": {
+                "name": "女性成长克制陪伴风",
+            },
+        }
+    )
+
+    assert result == {
+        "title": "先把那句压回去的话说清楚",
+        "angle": "从参考文章提炼新的现实入口",
+    }
+    assert captured["response_format"] is TopicGenerationResult
+    assert captured["timeout_seconds"] == 60.0
+    assert captured["max_attempts"] == 1
+    assert captured["enforce_custom_base_url_retry_floor"] is False
+    assert captured["include_custom_base_url_extra_body"] is False
+    assert "基于参考文章提炼出一个可直接立项的女性情感成长类原创选题" in str(captured["instructions"])
+
+
 def test_generate_outline_falls_back_after_internal_server_error_on_custom_base_url(monkeypatch) -> None:
     generator = build_custom_base_url_generator()
     parse_calls = {"count": 0}
@@ -1563,7 +2471,7 @@ def test_generate_draft_prompt_includes_reference_article_guardrails(monkeypatch
     assert "参考文章结构备注：" not in captured["prompt"]
 
 
-def test_generate_tracked_article_metadata_retries_responses_parse_after_internal_server_error_on_custom_base_url(
+def test_generate_tracked_article_metadata_uses_chat_json_fast_path_on_custom_base_url(
     monkeypatch,
 ) -> None:
     generator = build_custom_base_url_generator()
@@ -1646,10 +2554,10 @@ def test_generate_tracked_article_metadata_retries_responses_parse_after_interna
         "analysis_do_not_turn_into": "不要写成关系修复教程或身体告警提醒稿。",
         "tags": ["释怀", "自我和解"],
     }
-    assert parse_calls["count"] == 1
+    assert parse_calls["count"] == 0
     assert chat_calls["count"] == 1
-    assert "只返回一个 JSON 对象" in str(captured["extra_body"]["instructions"])
-    assert "公众号内容分析编辑" in str(captured["extra_body"]["instructions"])
+    assert "extra_body" not in captured
+    assert captured["timeout"] == 60.0
 
 
 def test_generator_passes_configured_timeout_to_openai_client(monkeypatch) -> None:
@@ -1716,11 +2624,13 @@ def test_generator_uses_dedicated_image_client_config_when_present(monkeypatch) 
         "api_key": "text-key",
         "base_url": "https://text.example/v1",
         "timeout": 45.0,
+        "max_retries": 0,
     }
     assert captured_calls[1] == {
         "api_key": "image-key",
         "base_url": "https://image.example/v1",
         "timeout": 120.0,
+        "max_retries": 0,
     }
 
 
@@ -1744,20 +2654,51 @@ def test_generate_cover_image_uses_low_quality_variant_first(monkeypatch) -> Non
 
     result = generator.generate_cover_image(
         {
-            "cover_prompt": "prompt",
+            "cover_prompt": "一位中年人低头看手机聊天界面，暖色灯光",
         }
     )
 
     assert result == b"fake-png-bytes"
-    assert captured["size"] == "1536x1024"
+    assert captured["size"] == "16:9"
     assert captured["quality"] == "low"
     assert captured["output_format"] == "png"
-    assert captured["timeout"] == 180.0
-    assert "21:9" in str(captured["prompt"])
-    assert "横版封面图" in str(captured["prompt"])
+    assert captured["timeout"] == 240.0
+    prompt = str(captured["prompt"])
+    assert "16:9" in prompt
+    assert "横版封面图" in prompt
+    assert "不要把画面做成整张雾化、过度柔焦" in prompt
+    assert "封面默认不要手机聊天界面" in prompt
+    assert "只画人在看手机" in prompt
+    assert "即使原始创意提示词提到聊天界面，也要改成无可读屏幕内容的看手机场景" in prompt
+    assert "不要生成双面手机、前后双屏手机或背面屏幕" in prompt
+    assert "只保留真实、克制的聊天界面轮廓" not in prompt
 
 
-def test_generate_cover_image_retries_with_second_variant_after_timeout(monkeypatch) -> None:
+def test_generate_cover_image_uses_single_request_budget_by_default_after_timeout(monkeypatch) -> None:
+    generator = build_generator()
+    calls: list[dict[str, object]] = []
+
+    class FakeImages:
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            raise openai.APITimeoutError(request=httpx.Request("POST", "https://example.com/v1/images"))
+
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
+
+    with pytest.raises(openai.APITimeoutError):
+        generator.generate_cover_image(
+            {
+                "cover_prompt": "prompt",
+            }
+        )
+
+    assert len(calls) == 1
+    assert calls[0]["size"] == "16:9"
+    assert calls[0]["quality"] == "low"
+    assert calls[0]["timeout"] == 240.0
+
+
+def test_generate_cover_image_can_use_second_variant_when_request_budget_allows(monkeypatch) -> None:
     generator = build_generator()
     calls: list[dict[str, object]] = []
 
@@ -1780,17 +2721,89 @@ def test_generate_cover_image_retries_with_second_variant_after_timeout(monkeypa
     result = generator.generate_cover_image(
         {
             "cover_prompt": "prompt",
+            "image_generation_max_attempts": 2,
         }
     )
 
     assert result == b"second-variant"
     assert len(calls) == 2
-    assert calls[0]["size"] == "1536x1024"
+    assert calls[0]["size"] == "16:9"
     assert calls[0]["quality"] == "low"
-    assert calls[0]["timeout"] == 180.0
-    assert calls[1]["size"] == "1024x1024"
+    assert calls[0]["timeout"] == 240.0
+    assert calls[1]["size"] == "1536x864"
     assert calls[1]["quality"] == "low"
-    assert calls[1]["timeout"] == 240.0
+    assert calls[1]["timeout"] == 180.0
+
+
+def test_generate_cover_image_does_not_retry_transient_provider_errors_for_custom_base_url_by_default(monkeypatch) -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://proxy.example/v1",
+            openai_model="test-model",
+            openai_image_base_url="https://proxy.example/v1",
+            openai_image_model="test-image-model",
+            openai_request_timeout_seconds=15,
+        )
+    )
+    calls: list[dict[str, object]] = []
+
+    class FakeImages:
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            raise openai.APIConnectionError(request=httpx.Request("POST", "https://proxy.example/v1/images"))
+
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
+    monkeypatch.setattr(ai_generator_module.time, "sleep", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(openai.APIConnectionError):
+        generator.generate_cover_image({"cover_prompt": "prompt"})
+
+    assert len(calls) == 1
+    assert calls[0]["size"] == "16:9"
+    assert calls[0]["timeout"] == 90.0
+    assert "quality" not in calls[0]
+
+
+def test_generate_cover_image_custom_provider_moves_to_second_variant_after_timeout(monkeypatch) -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://proxy.example/v1",
+            openai_model="test-model",
+            openai_image_base_url="https://proxy.example/v1",
+            openai_image_model="test-image-model",
+            openai_request_timeout_seconds=15,
+        )
+    )
+    calls: list[dict[str, object]] = []
+
+    class FakeImages:
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise openai.APITimeoutError(request=httpx.Request("POST", "https://proxy.example/v1/images"))
+
+            class FakeImage:
+                b64_json = base64.b64encode(b"second-variant-custom").decode("utf-8")
+
+            class FakeResponse:
+                data = [FakeImage()]
+
+            return FakeResponse()
+
+    monkeypatch.setattr(generator._image_client, "images", FakeImages())
+
+    result = generator.generate_cover_image({"cover_prompt": "prompt", "image_generation_max_attempts": 2})
+
+    assert result == b"second-variant-custom"
+    assert len(calls) == 2
+    assert calls[0]["size"] == "16:9"
+    assert calls[0]["timeout"] == 90.0
+    assert "quality" not in calls[0]
+    assert calls[1]["size"] == "1536x864"
+    assert calls[1]["timeout"] == 60.0
+    assert "quality" not in calls[1]
 
 
 def test_generate_cover_image_retries_with_ratio_size_after_numeric_size_rejected(monkeypatch) -> None:
@@ -1831,12 +2844,11 @@ def test_generate_cover_image_retries_with_ratio_size_after_numeric_size_rejecte
 
     monkeypatch.setattr(generator._image_client, "images", FakeImages())
 
-    result = generator.generate_cover_image({"cover_prompt": "prompt"})
+    with pytest.raises(openai.BadRequestError):
+        generator.generate_cover_image({"cover_prompt": "prompt"})
 
-    assert result == b"ratio-variant"
-    assert len(calls) == 2
-    assert calls[0]["size"] == "1536x1024"
-    assert calls[1]["size"] == "3:2"
+    assert len(calls) == 1
+    assert calls[0]["size"] == "16:9"
 
 
 def test_generate_cover_image_retries_without_unrecognized_output_keys(monkeypatch) -> None:
@@ -1869,7 +2881,7 @@ def test_generate_cover_image_retries_without_unrecognized_output_keys(monkeypat
 
     monkeypatch.setattr(generator._image_client, "images", FakeImages())
 
-    result = generator.generate_cover_image({"cover_prompt": "prompt"})
+    result = generator.generate_cover_image({"cover_prompt": "prompt", "image_generation_max_attempts": 2})
 
     assert result == b"provider-compatible"
     assert len(calls) == 2
@@ -1877,7 +2889,7 @@ def test_generate_cover_image_retries_without_unrecognized_output_keys(monkeypat
     assert calls[0]["quality"] == "low"
     assert "output_format" not in calls[1]
     assert "quality" not in calls[1]
-    assert calls[1]["size"] == "1536x1024"
+    assert calls[1]["size"] == "16:9"
 
 
 def test_generate_cover_image_surfaces_async_task_provider_response(monkeypatch) -> None:
@@ -1908,10 +2920,14 @@ def test_get_ai_config_summary_masks_secret_but_reports_runtime_fields() -> None
             openai_api_key="test-key",
             openai_base_url="https://example.com/v1",
             openai_model="test-model",
+            openai_trust_env=True,
             openai_image_api_key="image-key",
             openai_image_base_url="https://images.example.com/v1",
             openai_image_model="test-image-model",
             openai_reasoning_effort="medium",
+            openai_allow_local_creative_fallbacks=False,
+            openai_creative_quality_retry_max_attempts=2,
+            openai_image_generation_max_attempts=3,
             openai_request_timeout_seconds=45.0,
             openai_image_request_timeout_seconds=90.0,
         )
@@ -1920,11 +2936,52 @@ def test_get_ai_config_summary_masks_secret_but_reports_runtime_fields() -> None
     assert summary.api_key_configured is True
     assert summary.base_url == "https://example.com/v1"
     assert summary.model == "test-model"
+    assert summary.trust_env is True
     assert summary.image_model == "test-image-model"
     assert summary.image_api_key_configured is True
     assert summary.image_base_url == "https://images.example.com/v1"
     assert summary.image_request_timeout_seconds == 90.0
+    assert summary.image_generation_max_attempts == 3
     assert summary.image_uses_dedicated_config is True
+    assert summary.creative_quality_retry_max_attempts == 2
+    assert summary.allow_local_creative_fallbacks is False
+    assert summary.image_fallback_route_configured is False
+    assert summary.image_fallback_route_active is False
+    assert summary.image_fallback_model is None
+    assert summary.image_fallback_base_url is None
+    assert summary.image_fallback_effective_model is None
+    assert summary.image_fallback_effective_base_url is None
+    assert summary.image_fallback_effective_request_timeout_seconds is None
+    assert summary.image_fallback_effective_api_key_configured is False
+    assert summary.image_fallback_uses_inherited_model is None
+    assert summary.image_fallback_uses_inherited_api_key is None
+    assert summary.image_fallback_uses_inherited_base_url is None
+    assert summary.image_fallback_uses_inherited_request_timeout is None
+    assert summary.image_fallback_route_difference_labels == []
+    assert summary.image_fallback_route_note == "当前未配置备用图片链路；主出图链路出错时，不会自动切到第二条图片 API。"
+    assert summary.image_fallback_route_recovery_actions == [
+        "当前还没有备用图片链路；可补充 OPENAI_IMAGE_FALLBACK_MODEL、OPENAI_IMAGE_FALLBACK_BASE_URL、OPENAI_IMAGE_FALLBACK_API_KEY 后再试。",
+        "只要 fallback 与主出图链路至少有一项不同，系统才会把它当成第二条图片 API。",
+    ]
+    assert summary.image_fallback_route_config_hints == [
+        "OPENAI_IMAGE_FALLBACK_MODEL：未填写；当前会继承主出图模型 test-image-model",
+        "OPENAI_IMAGE_FALLBACK_BASE_URL：未填写；当前会继承主出图接口 https://images.example.com/v1",
+        "OPENAI_IMAGE_FALLBACK_API_KEY：未填写；当前会继承主出图链路 Key（已配置）",
+        "OPENAI_IMAGE_FALLBACK_REQUEST_TIMEOUT_SECONDS：未填写；当前会继承主出图超时 90 秒",
+    ]
+    assert summary.image_fallback_route_env_example == [
+        "OPENAI_IMAGE_FALLBACK_MODEL=<与主出图不同的图片模型>",
+        "OPENAI_IMAGE_FALLBACK_BASE_URL=<可选：独立图片接口；想绕开当前主链路账号池时优先填写>",
+        "OPENAI_IMAGE_FALLBACK_API_KEY=<可选：独立图片 Key；想绕开当前主链路账号池时优先填写>",
+        "OPENAI_IMAGE_FALLBACK_REQUEST_TIMEOUT_SECONDS=90",
+    ]
+    assert (
+        summary.image_fallback_route_env_example_note
+        == "想让系统识别第二条图片 API，以上四项里只要有一项与主链路不同即可；但如果你是想绕开当前主出图账号池，优先单独提供 fallback Base URL 或 fallback Key。"
+    )
+    assert summary.image_fallback_account_pool_diagnosis_status == "not_configured"
+    assert summary.image_fallback_account_pool_diagnosis_label == "未形成第二套上游"
+    assert summary.image_fallback_account_pool_diagnosis_note == "当前还没有配置 fallback，所以主路由一旦因为账号池问题失败，系统没有第二套图片上游可以尝试。"
     assert summary.reasoning_effort == "medium"
     assert summary.request_timeout_seconds == 45.0
 
@@ -1948,6 +3005,173 @@ def test_get_ai_config_summary_falls_back_to_text_config_for_image_chain() -> No
     assert summary.image_base_url == "https://example.com/v1"
     assert summary.image_request_timeout_seconds == 45.0
     assert summary.image_uses_dedicated_config is False
+    assert summary.image_fallback_route_configured is False
+    assert summary.image_fallback_route_active is False
+    assert summary.image_fallback_model is None
+    assert summary.image_fallback_base_url is None
+    assert summary.image_fallback_effective_model is None
+    assert summary.image_fallback_effective_base_url is None
+    assert summary.image_fallback_effective_request_timeout_seconds is None
+    assert summary.image_fallback_effective_api_key_configured is False
+    assert summary.image_fallback_uses_inherited_model is None
+    assert summary.image_fallback_uses_inherited_api_key is None
+    assert summary.image_fallback_uses_inherited_base_url is None
+    assert summary.image_fallback_uses_inherited_request_timeout is None
+    assert summary.image_fallback_route_difference_labels == []
+    assert summary.image_fallback_route_note == "当前未配置备用图片链路；主出图链路出错时，不会自动切到第二条图片 API。"
+    assert summary.image_fallback_route_recovery_actions == [
+        "当前还没有备用图片链路；可补充 OPENAI_IMAGE_FALLBACK_MODEL、OPENAI_IMAGE_FALLBACK_BASE_URL、OPENAI_IMAGE_FALLBACK_API_KEY 后再试。",
+        "只要 fallback 与主出图链路至少有一项不同，系统才会把它当成第二条图片 API。",
+    ]
+    assert summary.image_fallback_route_config_hints == [
+        "OPENAI_IMAGE_FALLBACK_MODEL：未填写；当前会继承主出图模型 test-image-model",
+        "OPENAI_IMAGE_FALLBACK_BASE_URL：未填写；当前会继承主出图接口 https://example.com/v1",
+        "OPENAI_IMAGE_FALLBACK_API_KEY：未填写；当前会继承主出图链路 Key（已配置）",
+        "OPENAI_IMAGE_FALLBACK_REQUEST_TIMEOUT_SECONDS：未填写；当前会继承主出图超时 45 秒",
+    ]
+    assert summary.image_fallback_route_env_example == [
+        "OPENAI_IMAGE_FALLBACK_MODEL=<与主出图不同的图片模型>",
+        "OPENAI_IMAGE_FALLBACK_BASE_URL=<可选：独立图片接口；想绕开当前主链路账号池时优先填写>",
+        "OPENAI_IMAGE_FALLBACK_API_KEY=<可选：独立图片 Key；想绕开当前主链路账号池时优先填写>",
+        "OPENAI_IMAGE_FALLBACK_REQUEST_TIMEOUT_SECONDS=45",
+    ]
+    assert (
+        summary.image_fallback_route_env_example_note
+        == "想让系统识别第二条图片 API，以上四项里只要有一项与主链路不同即可；但如果你是想绕开当前主出图账号池，优先单独提供 fallback Base URL 或 fallback Key。"
+    )
+    assert summary.image_fallback_account_pool_diagnosis_status == "not_configured"
+    assert summary.image_fallback_account_pool_diagnosis_label == "未形成第二套上游"
+    assert summary.image_fallback_account_pool_diagnosis_note == "当前还没有配置 fallback，所以主路由一旦因为账号池问题失败，系统没有第二套图片上游可以尝试。"
+    assert summary.trust_env is False
+
+
+def test_get_ai_config_summary_marks_duplicate_fallback_settings_as_inactive() -> None:
+    summary = get_ai_config_summary(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://example.com/v1",
+            openai_model="test-model",
+            openai_image_model="gpt-image-2",
+            openai_image_base_url=None,
+            openai_image_request_timeout_seconds=None,
+            openai_image_fallback_model="gpt-image-2",
+            openai_reasoning_effort="medium",
+            openai_request_timeout_seconds=45.0,
+        )
+    )
+
+    assert summary.image_fallback_route_configured is True
+    assert summary.image_fallback_route_active is False
+    assert summary.image_fallback_model is None
+    assert summary.image_fallback_base_url is None
+    assert summary.image_fallback_effective_model == "gpt-image-2"
+    assert summary.image_fallback_effective_base_url == "https://example.com/v1"
+    assert summary.image_fallback_effective_request_timeout_seconds == 45.0
+    assert summary.image_fallback_effective_api_key_configured is True
+    assert summary.image_fallback_uses_inherited_model is False
+    assert summary.image_fallback_uses_inherited_api_key is True
+    assert summary.image_fallback_uses_inherited_base_url is True
+    assert summary.image_fallback_uses_inherited_request_timeout is True
+    assert summary.image_fallback_route_difference_labels == []
+    assert summary.image_fallback_route_note == "已填写 fallback 字段，但生效后与主出图链路完全一致，所以当前还没有形成第二条图片 API。"
+    assert summary.image_fallback_route_recovery_actions == [
+        "当前 fallback 字段已经填写，但它与主出图链路完全重合，还没有形成第二条图片 API。",
+        "至少让 OPENAI_IMAGE_FALLBACK_MODEL、OPENAI_IMAGE_FALLBACK_BASE_URL、OPENAI_IMAGE_FALLBACK_API_KEY 或超时配置中的一项与主链路不同。",
+    ]
+    assert summary.image_fallback_route_config_hints == [
+        "OPENAI_IMAGE_FALLBACK_MODEL：已填写 gpt-image-2",
+        "OPENAI_IMAGE_FALLBACK_BASE_URL：未填写；当前会继承主出图接口 https://example.com/v1",
+        "OPENAI_IMAGE_FALLBACK_API_KEY：未填写；当前会继承主出图链路 Key（已配置）",
+        "OPENAI_IMAGE_FALLBACK_REQUEST_TIMEOUT_SECONDS：未填写；当前会继承主出图超时 45 秒",
+    ]
+    assert summary.image_fallback_route_env_example == [
+        "OPENAI_IMAGE_FALLBACK_MODEL=<与主出图不同的图片模型>",
+        "OPENAI_IMAGE_FALLBACK_BASE_URL=<可选：独立图片接口；想绕开当前主链路账号池时优先填写>",
+        "OPENAI_IMAGE_FALLBACK_API_KEY=<可选：独立图片 Key；想绕开当前主链路账号池时优先填写>",
+        "OPENAI_IMAGE_FALLBACK_REQUEST_TIMEOUT_SECONDS=45",
+    ]
+    assert (
+        summary.image_fallback_route_env_example_note
+        == "想让系统识别第二条图片 API，以上四项里只要有一项与主链路不同即可；但如果你是想绕开当前主出图账号池，优先单独提供 fallback Base URL 或 fallback Key。"
+    )
+    assert summary.image_fallback_account_pool_diagnosis_status == "inactive"
+    assert summary.image_fallback_account_pool_diagnosis_label == "还没形成第二条图片 API"
+    assert summary.image_fallback_account_pool_diagnosis_note == "fallback 字段虽然填写了，但它与主链路还没有拉开差异，因此也谈不上绕开主账号池。"
+
+
+def test_get_ai_config_summary_reports_active_fallback_difference_labels() -> None:
+    summary = get_ai_config_summary(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://example.com/v1",
+            openai_model="test-model",
+            openai_image_model="gpt-image-2",
+            openai_image_base_url=None,
+            openai_image_request_timeout_seconds=None,
+            openai_image_fallback_model="fallback-image-model",
+            openai_reasoning_effort="medium",
+            openai_request_timeout_seconds=45.0,
+        )
+    )
+
+    assert summary.image_fallback_route_configured is True
+    assert summary.image_fallback_route_active is True
+    assert summary.image_fallback_model == "fallback-image-model"
+    assert summary.image_fallback_base_url == summary.image_base_url
+    assert summary.image_fallback_effective_model == "fallback-image-model"
+    assert summary.image_fallback_effective_base_url == summary.image_base_url
+    assert summary.image_fallback_effective_request_timeout_seconds == 45.0
+    assert summary.image_fallback_effective_api_key_configured is True
+    assert summary.image_fallback_uses_inherited_model is False
+    assert summary.image_fallback_uses_inherited_api_key is True
+    assert summary.image_fallback_uses_inherited_base_url is True
+    assert summary.image_fallback_uses_inherited_request_timeout is True
+    assert summary.image_fallback_route_difference_labels == ["模型"]
+    assert summary.image_fallback_route_note == "备用图片链路已生效；它与主出图链路的差异项：模型。"
+    assert summary.image_fallback_route_recovery_actions == [
+        "当前备用图片链路已经形成第二条图片 API；建议点一次“探测主/备路由”，确认它能独立返回图片。",
+        "只有出图请求预算大于 1 时，正式出封面才会在主链路失败后尝试切到这条备用图片链路。",
+    ]
+    assert summary.image_fallback_route_config_hints == [
+        "OPENAI_IMAGE_FALLBACK_MODEL：已填写 fallback-image-model",
+        "OPENAI_IMAGE_FALLBACK_BASE_URL：未填写；当前会继承主出图接口 https://example.com/v1",
+        "OPENAI_IMAGE_FALLBACK_API_KEY：未填写；当前会继承主出图链路 Key（已配置）",
+        "OPENAI_IMAGE_FALLBACK_REQUEST_TIMEOUT_SECONDS：未填写；当前会继承主出图超时 45 秒",
+    ]
+    assert summary.image_fallback_route_env_example == [
+        "OPENAI_IMAGE_FALLBACK_MODEL=<与主出图不同的图片模型>",
+        "OPENAI_IMAGE_FALLBACK_BASE_URL=<可选：独立图片接口；想绕开当前主链路账号池时优先填写>",
+        "OPENAI_IMAGE_FALLBACK_API_KEY=<可选：独立图片 Key；想绕开当前主链路账号池时优先填写>",
+        "OPENAI_IMAGE_FALLBACK_REQUEST_TIMEOUT_SECONDS=45",
+    ]
+    assert (
+        summary.image_fallback_route_env_example_note
+        == "想让系统识别第二条图片 API，以上四项里只要有一项与主链路不同即可；但如果你是想绕开当前主出图账号池，优先单独提供 fallback Base URL 或 fallback Key。"
+    )
+    assert summary.image_fallback_account_pool_diagnosis_status == "shared_pool"
+    assert summary.image_fallback_account_pool_diagnosis_label == "仍可能共用主账号池"
+    assert summary.image_fallback_account_pool_diagnosis_note == "这条 fallback 目前只改了模型或超时，仍沿用主出图接口和主 Key；如果主账号池出问题，它大概率也会一起失败。"
+
+
+def test_get_ai_config_summary_marks_distinct_fallback_base_url_as_more_likely_to_bypass_primary_pool() -> None:
+    summary = get_ai_config_summary(
+        Settings(
+            openai_api_key="test-key",
+            openai_base_url="https://example.com/v1",
+            openai_model="test-model",
+            openai_image_model="gpt-image-2",
+            openai_image_base_url="https://primary-image.example/v1",
+            openai_image_fallback_model="fallback-image-model",
+            openai_image_fallback_base_url="https://fallback-image.example/v1",
+            openai_reasoning_effort="medium",
+            openai_request_timeout_seconds=45.0,
+            openai_image_request_timeout_seconds=45.0,
+        )
+    )
+
+    assert summary.image_fallback_account_pool_diagnosis_status == "independent_hint"
+    assert summary.image_fallback_account_pool_diagnosis_label == "有机会绕开主账号池"
+    assert summary.image_fallback_account_pool_diagnosis_note == "fallback 已切到独立接口，但仍沿用主 Key；它是否能绕开主账号池，取决于这个接口背后的账号池是否独立。"
 
 
 def test_run_ai_config_check_returns_success_when_probe_passes(monkeypatch) -> None:
@@ -1984,6 +3208,34 @@ def test_run_ai_config_check_returns_success_when_probe_passes(monkeypatch) -> N
     assert captured["reasoning"] == {"effort": "medium"}
 
 
+def test_check_connection_retries_transient_upstream_errors() -> None:
+    generator = build_custom_base_url_generator()
+    attempts = {"count": 0}
+    request = httpx.Request("POST", "https://proxy.example/v1/responses")
+    response = httpx.Response(503, request=request, json={"error": {"message": "Service temporarily unavailable"}})
+
+    class FlakyResponses:
+        def create(self, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] < 2:
+                raise openai.InternalServerError(
+                    "Service temporarily unavailable",
+                    response=response,
+                    body={"error": {"message": "Service temporarily unavailable"}},
+                )
+
+            class FakeResponse:
+                output_text = "OK"
+
+            return FakeResponse()
+
+    generator._client.responses = FlakyResponses()
+
+    generator.check_connection()
+
+    assert attempts["count"] == 2
+
+
 def test_run_ai_config_check_surfaces_upstream_failures(monkeypatch) -> None:
     request = httpx.Request("POST", "https://example.com/v1/responses")
     response = httpx.Response(502, request=request, json={"error": {"message": "Upstream service temporarily unavailable"}})
@@ -2013,3 +3265,393 @@ def test_run_ai_config_check_surfaces_upstream_failures(monkeypatch) -> None:
     assert result.status == "upstream_error"
     assert "上游服务异常" in result.message
     assert "Upstream service temporarily unavailable" in result.message
+
+
+def test_run_ai_image_config_check_returns_success_when_probe_passes(monkeypatch) -> None:
+    class PassingGenerator:
+        def __init__(self, config) -> None:
+            self.config = config
+
+        def check_image_connection(self) -> str:
+            return "primary"
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", PassingGenerator)
+
+    result = run_ai_image_config_check(
+        Settings(
+            openai_api_key="",
+            openai_image_api_key="image-key",
+            openai_image_model="test-image-model",
+        )
+    )
+
+    assert result.ok is True
+    assert result.status == "ok"
+    assert "图片配置检测通过" in result.message
+    assert result.route_label == "primary"
+    assert result.recovery_actions == []
+
+
+def test_run_ai_image_config_check_reports_fallback_route_success(monkeypatch) -> None:
+    class FallbackPassingGenerator:
+        def __init__(self, config) -> None:
+            self.config = config
+
+        def check_image_connection(self) -> str:
+            return "fallback"
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", FallbackPassingGenerator)
+
+    result = run_ai_image_config_check(
+        Settings(
+            openai_api_key="test-key",
+            openai_image_model="test-image-model",
+            openai_image_fallback_model="fallback-image-model",
+        )
+    )
+
+    assert result.ok is True
+    assert result.status == "ok"
+    assert "备用图片链路" in result.message
+    assert result.route_label == "fallback"
+    assert result.recovery_actions == [
+        "这次检测已经命中备用图片链路，说明第二条图片 API 可用；正式出封面是否切到备用链路，还取决于出图请求预算是否大于 1。",
+    ]
+
+
+def test_run_ai_image_config_check_surfaces_upstream_failures(monkeypatch) -> None:
+    request = httpx.Request("POST", "https://example.com/v1/images")
+    response = httpx.Response(503, request=request, json={"error": {"message": "No available compatible accounts"}})
+
+    class FailingGenerator:
+        def __init__(self, _config) -> None:
+            pass
+
+        def check_image_connection(self) -> None:
+            raise openai.InternalServerError(
+                "No available compatible accounts",
+                response=response,
+                body={"error": {"message": "No available compatible accounts"}},
+            )
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", FailingGenerator)
+
+    result = run_ai_image_config_check(
+        Settings(
+            openai_api_key="test-key",
+            openai_image_model="test-image-model",
+        )
+    )
+
+    assert result.ok is False
+    assert result.status == "upstream_error"
+    assert "当前图片 API 暂无可用账号" in result.message
+    assert "不会改走本地兜底" in result.message
+    assert "No available compatible accounts" in result.message
+    assert result.route_label is None
+    assert "这次更像是上游账号池暂时不可用，不是本地封面逻辑回退。" in result.recovery_actions
+    assert "当前封面保持 API-only，不会改走本地兜底。" in result.recovery_actions
+
+
+def test_run_ai_image_config_check_does_not_pretend_duplicate_fallback_settings_are_active(monkeypatch) -> None:
+    request = httpx.Request("POST", "https://example.com/v1/images")
+    response = httpx.Response(503, request=request, json={"error": {"message": "No available compatible accounts"}})
+
+    class FailingGenerator:
+        def __init__(self, _config) -> None:
+            pass
+
+        def check_image_connection(self) -> None:
+            raise openai.InternalServerError(
+                "No available compatible accounts",
+                response=response,
+                body={"error": {"message": "No available compatible accounts"}},
+            )
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", FailingGenerator)
+
+    result = run_ai_image_config_check(
+        Settings(
+            openai_api_key="test-key",
+            openai_image_model="gpt-image-2",
+            openai_image_fallback_model="gpt-image-2",
+        )
+    )
+
+    assert result.ok is False
+    assert result.status == "upstream_error"
+    assert "当前 fallback 字段已经填写，但它与主出图链路完全重合，还没有形成第二条图片 API。" in result.recovery_actions
+
+
+def test_run_ai_image_config_check_reports_invalid_fallback_model_as_image_model_mismatch(monkeypatch) -> None:
+    request = httpx.Request("POST", "https://example.com/v1/images")
+    response = httpx.Response(
+        400,
+        request=request,
+        json={"error": {"message": 'images endpoint requires an image model, got "fallback-image-model"'}},
+    )
+
+    class FailingGenerator:
+        def __init__(self, _config) -> None:
+            pass
+
+        def check_image_connection(self) -> None:
+            error = openai.BadRequestError(
+                "invalid image model",
+                response=response,
+                body={"error": {"message": 'images endpoint requires an image model, got "fallback-image-model"'}},
+            )
+            error.cover_image_route_label = "fallback"
+            error.cover_image_route_model = "fallback-image-model"
+            error.cover_image_route_base_url = "https://example.com/v1"
+            raise error
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", FailingGenerator)
+
+    result = run_ai_image_config_check(
+        Settings(
+            openai_api_key="test-key",
+            openai_image_model="gpt-image-2",
+            openai_image_fallback_model="fallback-image-model",
+        )
+    )
+
+    assert result.ok is False
+    assert result.status == "bad_request"
+    assert result.route_label == "fallback"
+    assert 'requires an image model' in result.message
+    assert result.recovery_actions == [
+        "备用图片链路已经打到了图片接口，但所填模型不是图片模型；请改成上游支持的图片模型名。",
+        "这次报错发生在 fallback 路由，优先检查 OPENAI_IMAGE_FALLBACK_MODEL 是否真的是图片模型。",
+    ]
+
+
+def test_run_ai_image_route_probe_reports_each_route(monkeypatch) -> None:
+    request = httpx.Request("POST", "https://fallback-image.example/v1/images")
+    response = httpx.Response(
+        400,
+        request=request,
+        json={"error": {"message": 'images endpoint requires an image model, got "fallback-image-model"'}},
+    )
+
+    class ProbeGenerator:
+        def __init__(self, _config) -> None:
+            self._image_routes = [
+                {
+                    "label": "primary",
+                    "model": "gpt-image-2",
+                    "base_url": "https://primary-image.example/v1",
+                },
+                {
+                    "label": "fallback",
+                    "model": "fallback-image-model",
+                    "base_url": "https://fallback-image.example/v1",
+                },
+            ]
+
+        def _generate_cover_image_with_route(self, _prompt: str) -> tuple[bytes, str]:
+            only_route = self._image_routes[0]
+            route_label = str(only_route["label"])
+            if route_label == "primary":
+                return b"cover-bytes", route_label
+            error = openai.BadRequestError(
+                "invalid image model",
+                response=response,
+                body={"error": {"message": 'images endpoint requires an image model, got "fallback-image-model"'}},
+            )
+            error.cover_image_route_label = "fallback"
+            error.cover_image_route_model = "fallback-image-model"
+            error.cover_image_route_base_url = "https://fallback-image.example/v1"
+            raise error
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", ProbeGenerator)
+
+    result = run_ai_image_route_probe(
+        Settings(
+            openai_api_key="test-key",
+            openai_image_model="gpt-image-2",
+            openai_image_fallback_model="fallback-image-model",
+            openai_image_fallback_base_url="https://fallback-image.example/v1",
+        )
+    )
+
+    assert result.any_ok is True
+    assert [route.route_label for route in result.routes] == ["primary", "fallback"]
+    assert result.routes[0].ok is True
+    assert result.routes[0].status == "ok"
+    assert "图片配置检测通过" in result.routes[0].message
+    assert result.routes[1].ok is False
+    assert result.routes[1].status == "bad_request"
+    assert 'requires an image model' in result.routes[1].message
+    assert result.routes[1].recovery_actions == [
+        "备用图片链路已经打到了图片接口，但所填模型不是图片模型；请改成上游支持的图片模型名。",
+        "这次报错发生在 fallback 路由，优先检查 OPENAI_IMAGE_FALLBACK_MODEL 是否真的是图片模型。",
+    ]
+
+
+def test_run_ai_image_route_probe_adds_not_configured_fallback_placeholder(monkeypatch) -> None:
+    class PrimaryOnlyProbeGenerator:
+        def __init__(self, _config) -> None:
+            self._image_routes = [
+                {
+                    "label": "primary",
+                    "model": "gpt-image-2",
+                    "base_url": "https://primary-image.example/v1",
+                }
+            ]
+
+        def _generate_cover_image_with_route(self, _prompt: str) -> tuple[bytes, str]:
+            return b"cover-bytes", "primary"
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", PrimaryOnlyProbeGenerator)
+
+    result = run_ai_image_route_probe(
+        Settings(
+            openai_api_key="test-key",
+            openai_image_model="gpt-image-2",
+        )
+    )
+
+    assert [route.route_label for route in result.routes] == ["primary", "fallback"]
+    fallback_route = result.routes[1]
+    assert fallback_route.ok is False
+    assert fallback_route.status == "not_configured"
+    assert fallback_route.message == "当前未配置备用图片链路；主出图链路出错时，不会自动切到第二条图片 API。"
+    assert fallback_route.recovery_actions == [
+        "当前还没有备用图片链路；可补充 OPENAI_IMAGE_FALLBACK_MODEL、OPENAI_IMAGE_FALLBACK_BASE_URL、OPENAI_IMAGE_FALLBACK_API_KEY 后再试。",
+        "只要 fallback 与主出图链路至少有一项不同，系统才会把它当成第二条图片 API。",
+    ]
+
+
+def test_run_ai_image_route_probe_adds_inactive_fallback_placeholder(monkeypatch) -> None:
+    class PrimaryOnlyProbeGenerator:
+        def __init__(self, _config) -> None:
+            self._image_routes = [
+                {
+                    "label": "primary",
+                    "model": "gpt-image-2",
+                    "base_url": "https://primary-image.example/v1",
+                }
+            ]
+
+        def _generate_cover_image_with_route(self, _prompt: str) -> tuple[bytes, str]:
+            return b"cover-bytes", "primary"
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", PrimaryOnlyProbeGenerator)
+
+    result = run_ai_image_route_probe(
+        Settings(
+            openai_api_key="test-key",
+            openai_image_model="gpt-image-2",
+            openai_image_fallback_model="gpt-image-2",
+        )
+    )
+
+    assert [route.route_label for route in result.routes] == ["primary", "fallback"]
+    fallback_route = result.routes[1]
+    assert fallback_route.ok is False
+    assert fallback_route.status == "inactive"
+    assert fallback_route.configured_model == "gpt-image-2"
+    assert fallback_route.message == "已填写 fallback 字段，但生效后与主出图链路完全一致，所以当前还没有形成第二条图片 API。"
+    assert fallback_route.recovery_actions == [
+        "当前 fallback 字段已经填写，但它与主出图链路完全重合，还没有形成第二条图片 API。",
+        "至少让 OPENAI_IMAGE_FALLBACK_MODEL、OPENAI_IMAGE_FALLBACK_BASE_URL、OPENAI_IMAGE_FALLBACK_API_KEY 或超时配置中的一项与主链路不同。",
+    ]
+
+
+def test_generate_cover_image_uses_fallback_route_when_primary_provider_has_no_compatible_accounts(monkeypatch) -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_image_api_key="image-key",
+            openai_image_base_url="https://primary-image.example/v1",
+            openai_image_model="primary-image-model",
+            openai_image_fallback_base_url="https://fallback-image.example/v1",
+            openai_image_fallback_model="fallback-image-model",
+        )
+    )
+
+    request = httpx.Request("POST", "https://primary-image.example/v1/images")
+    response = httpx.Response(503, request=request, json={"error": {"message": "No available compatible accounts"}})
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class PrimaryImages:
+        def generate(self, **kwargs):
+            calls.append(("primary", kwargs))
+            raise openai.InternalServerError(
+                "No available compatible accounts",
+                response=response,
+                body={"error": {"message": "No available compatible accounts"}},
+            )
+
+    class FakeImage:
+        b64_json = base64.b64encode(b"fallback-cover-bytes").decode("utf-8")
+
+    class FallbackResponse:
+        data = [FakeImage()]
+
+    class FallbackImages:
+        def generate(self, **kwargs):
+            calls.append(("fallback", kwargs))
+            return FallbackResponse()
+
+    monkeypatch.setattr(generator._image_client, "images", PrimaryImages())
+    monkeypatch.setattr(generator._image_routes[1]["client"], "images", FallbackImages())
+
+    result = generator.generate_cover_image({"cover_prompt": "prompt", "image_generation_max_attempts": 2})
+
+    assert result == b"fallback-cover-bytes"
+    assert calls[0][0] == "primary"
+    assert calls[0][1]["model"] == "primary-image-model"
+    assert any(name == "fallback" for name, _kwargs in calls)
+    fallback_call = next(kwargs for name, kwargs in calls if name == "fallback")
+    assert fallback_call["model"] == "fallback-image-model"
+
+
+def test_generate_cover_image_with_route_info_reports_used_route(monkeypatch) -> None:
+    generator = OpenAIWorkbenchGenerator(
+        Settings(
+            openai_api_key="test-key",
+            openai_image_api_key="image-key",
+            openai_image_base_url="https://primary-image.example/v1",
+            openai_image_model="primary-image-model",
+            openai_image_fallback_base_url="https://fallback-image.example/v1",
+            openai_image_fallback_model="fallback-image-model",
+        )
+    )
+
+    request = httpx.Request("POST", "https://primary-image.example/v1/images")
+    response = httpx.Response(503, request=request, json={"error": {"message": "No available compatible accounts"}})
+
+    class PrimaryImages:
+        def generate(self, **kwargs):
+            raise openai.InternalServerError(
+                "No available compatible accounts",
+                response=response,
+                body={"error": {"message": "No available compatible accounts"}},
+            )
+
+    class FakeImage:
+        b64_json = base64.b64encode(b"fallback-cover-bytes").decode("utf-8")
+
+    class FallbackResponse:
+        data = [FakeImage()]
+
+    class FallbackImages:
+        def generate(self, **kwargs):
+            return FallbackResponse()
+
+    monkeypatch.setattr(generator._image_client, "images", PrimaryImages())
+    monkeypatch.setattr(generator._image_routes[1]["client"], "images", FallbackImages())
+
+    image_bytes, route_info = generator.generate_cover_image_with_route_info(
+        {"cover_prompt": "prompt", "image_generation_max_attempts": 2}
+    )
+
+    assert image_bytes == b"fallback-cover-bytes"
+    assert route_info == {
+        "label": "fallback",
+        "model": "fallback-image-model",
+        "base_url": "https://fallback-image.example/v1",
+    }
+    assert generator.last_cover_image_route_info == route_info

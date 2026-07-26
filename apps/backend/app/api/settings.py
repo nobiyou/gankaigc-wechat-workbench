@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.services.ai_generator import get_ai_config_summary, run_ai_config_check
+from app.services.ai_generator import get_ai_config_summary, run_ai_config_check, run_ai_image_config_check, run_ai_image_route_probe
 from app.schemas.settings import DomainPackSummary
 from app.services.prompt_templates import DEFAULT_DOMAIN_PROMPT_PACK, list_domain_prompt_packs, list_prompt_template_summaries
 
@@ -15,6 +15,16 @@ def get_ai_config() -> dict[str, object]:
 @router.post("/ai-config/check")
 def post_ai_config_check() -> dict[str, object]:
     return run_ai_config_check().model_dump()
+
+
+@router.post("/ai-config/check-image")
+def post_ai_image_config_check() -> dict[str, object]:
+    return run_ai_image_config_check().model_dump()
+
+
+@router.post("/ai-config/probe-image-routes")
+def post_ai_image_route_probe() -> dict[str, object]:
+    return run_ai_image_route_probe().model_dump()
 
 
 @router.get("/domain-packs")

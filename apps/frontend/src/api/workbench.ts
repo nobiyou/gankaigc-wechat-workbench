@@ -209,6 +209,11 @@ export type AssetItem = {
   social_teaser_options: string[];
   cover_image_path: string;
   cover_image_url: string;
+  cover_image_status?: "ready" | "pending";
+  cover_image_error?: string | null;
+  cover_image_route_label?: string | null;
+  cover_image_route_model?: string | null;
+  cover_image_route_base_url?: string | null;
   created_at: string | null;
   origin: string | null;
   tone_profile_id: number | null;
@@ -378,11 +383,36 @@ export type AIConfigSummary = {
   api_key_configured: boolean;
   base_url: string | null;
   model: string;
+  trust_env: boolean;
   image_model: string;
   image_api_key_configured: boolean;
   image_base_url: string | null;
   image_request_timeout_seconds: number;
+  image_generation_max_attempts: number;
   image_uses_dedicated_config: boolean;
+  creative_quality_retry_max_attempts: number;
+  allow_local_creative_fallbacks: boolean;
+  image_fallback_route_configured: boolean;
+  image_fallback_route_active: boolean;
+  image_fallback_model: string | null;
+  image_fallback_base_url: string | null;
+  image_fallback_effective_model: string | null;
+  image_fallback_effective_base_url: string | null;
+  image_fallback_effective_request_timeout_seconds: number | null;
+  image_fallback_effective_api_key_configured: boolean;
+  image_fallback_uses_inherited_model: boolean | null;
+  image_fallback_uses_inherited_api_key: boolean | null;
+  image_fallback_uses_inherited_base_url: boolean | null;
+  image_fallback_uses_inherited_request_timeout: boolean | null;
+  image_fallback_route_difference_labels: string[];
+  image_fallback_route_note: string | null;
+  image_fallback_route_recovery_actions: string[];
+  image_fallback_route_config_hints: string[];
+  image_fallback_route_env_example: string[];
+  image_fallback_route_env_example_note: string | null;
+  image_fallback_account_pool_diagnosis_status: string;
+  image_fallback_account_pool_diagnosis_label: string;
+  image_fallback_account_pool_diagnosis_note: string;
   reasoning_effort: string | null;
   request_timeout_seconds: number;
 };
@@ -392,6 +422,25 @@ export type AIConfigCheckResult = {
   status: string;
   message: string;
   checked_at: string;
+  route_label: string | null;
+  recovery_actions: string[];
+};
+
+export type AIImageRouteProbeItem = {
+  route_label: string;
+  configured_model: string | null;
+  configured_base_url: string | null;
+  ok: boolean;
+  status: string;
+  message: string;
+  checked_at: string;
+  recovery_actions: string[];
+};
+
+export type AIImageRouteProbeResult = {
+  any_ok: boolean;
+  checked_at: string;
+  routes: AIImageRouteProbeItem[];
 };
 
 export type DomainPackSummary = {
@@ -576,10 +625,23 @@ export type BackgroundTaskSubmission = {
   created_at: string;
 };
 
+export type BackgroundTaskErrorContext = {
+  type?: string | null;
+  status_code?: number | null;
+  detail?: string | null;
+  cover_image_route_label?: string | null;
+  cover_image_route_model?: string | null;
+  cover_image_route_base_url?: string | null;
+  fallback_account_pool_diagnosis_status?: string | null;
+  fallback_account_pool_diagnosis_label?: string | null;
+  fallback_account_pool_diagnosis_note?: string | null;
+};
+
 export type BackgroundTaskDetail = BackgroundTaskSubmission & {
   started_at: string | null;
   finished_at: string | null;
   error: string | null;
+  error_context?: BackgroundTaskErrorContext | null;
   result: Record<string, unknown> | null;
 };
 
@@ -751,6 +813,14 @@ export function fetchAIConfigSummary(): Promise<AIConfigSummary> {
 
 export function checkAIConfig(): Promise<AIConfigCheckResult> {
   return sendJson<AIConfigCheckResult>("/settings/ai-config/check", "POST", {});
+}
+
+export function checkAIImageConfig(): Promise<AIConfigCheckResult> {
+  return sendJson<AIConfigCheckResult>("/settings/ai-config/check-image", "POST", {});
+}
+
+export function probeAIImageRoutes(): Promise<AIImageRouteProbeResult> {
+  return sendJson<AIImageRouteProbeResult>("/settings/ai-config/probe-image-routes", "POST", {});
 }
 
 export function fetchDomainPacks(): Promise<DomainPackSummary[]> {
