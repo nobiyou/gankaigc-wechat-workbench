@@ -3338,6 +3338,10 @@ def test_build_draft_prompt_uses_strategy_first_draft_mode_by_default_for_tracke
     assert "观察焦点：" in template.prompt
     assert "观察到的现象：" not in template.prompt
     assert "执行原则：沿着这些策略结论写，不回收参考文原句、原顺序和原结尾。" in template.prompt
+    assert "参考基准：" not in template.prompt
+    assert "执行协议：" not in template.prompt
+    assert "包装主钩子：" not in template.prompt
+    assert "转发理由：" not in template.prompt
     assert "写前约束：" not in template.prompt
     assert "拉开距离检查：" not in template.prompt
     assert "写作执行：" not in template.prompt
