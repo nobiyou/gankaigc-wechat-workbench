@@ -9272,11 +9272,12 @@ def test_build_local_tracked_article_draft_fallback_self_reliance_shared_burden_
         }
     )
 
-    assert title == "把眼前这一步接住，日子就会慢慢回稳"
+    assert title == "把力气收回自己手里，日子会慢慢变亮"
     assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
     assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
     assert "判断还在、行动还在" in body_markdown
+    assert "把力气重新回到自己手里" not in body_markdown
     assert "把桌面清出一块地方，把明天最先要用的东西放到手边" not in body_markdown
     assert "电话要不要回，事情先做哪件" not in body_markdown
 
@@ -9654,7 +9655,7 @@ def test_resolve_local_generic_opening_skips_stale_self_reliance_hook_trigger() 
         core_conflict="",
     )
 
-    assert opening == "有些难处不是一下子就能解决，先把手边这一件事做稳，心就不会一直悬着。"
+    assert opening == "把一件小事做稳的时候，人会慢慢找回自己的主心骨。"
 
     default_opening = workbench._resolve_local_generic_opening(
         payload={},
@@ -9664,7 +9665,7 @@ def test_resolve_local_generic_opening_skips_stale_self_reliance_hook_trigger() 
         core_conflict="",
     )
 
-    assert default_opening == "有些难处不是一下子就能解决，先把手边这一件事做稳，心就不会一直悬着。"
+    assert default_opening == "把一件小事做稳的时候，人会慢慢找回自己的主心骨。"
 
 
 def test_resolve_local_generic_opening_uses_concrete_resilience_scene() -> None:
@@ -9788,7 +9789,7 @@ def test_build_local_tracked_article_draft_fallback_uses_mode_shaped_outline_for
         }
     )
 
-    assert title == "把眼前这一步接住，日子就会慢慢回稳"
+    assert title == "把力气收回自己手里，日子会慢慢变亮"
     assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
     assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
     assert "也写一个人怎样" not in body_markdown
@@ -9818,7 +9819,7 @@ def test_build_local_assets_fallback_uses_mode_shaped_social_teaser_for_self_rel
         ),
     )
 
-    assert assets["cover_copy"] == "先把判断找回来，很多事就会重新有下一步。"
+    assert assets["cover_copy"] == "把力气收回自己手里，很多事就会重新有下一步。"
     assert assets["social_teaser"] == "消息框开了又关，你最后还是决定先把今天过完。等自己缓下来，再决定从哪句话开始、向谁开口。"
 
 
@@ -9841,9 +9842,9 @@ def test_build_local_publish_package_fallback_uses_shared_burden_self_reliance_v
         assets=assets,
     )
 
-    assert package["publish_lead"] == "想求一个回应却发现大家都在赶路时，先把手边最要紧的一件事落稳。判断回来以后，心就有了下一步，也更知道该向谁开口、把哪件事交出去。"
-    assert package["abstract"] == "人不是靠硬撑变强的，而是在承压时还能把判断和行动找回来。先把手边一件事做稳，心就有了落点，能自己往前走，也能在合适的时候请人分担。"
-    assert "先把判断找回来，很多事就会重新有下一步。" in package["intro_options"]
+    assert package["publish_lead"] == "想开口的时候，别急着把心收回去。把手边最要紧的一件事落稳，判断回来以后，心里就会重新长出下一步。"
+    assert package["abstract"] == "成熟的力量，是能把力气收回自己手里。人有了主心骨，就能自己往前走，也能在合适的时候请人分担。"
+    assert "把力气收回自己手里，很多事就会重新有下一步。" in package["intro_options"]
 
 
 def test_build_local_publish_package_fallback_self_reliance_generic_mode_uses_distinct_packaging() -> None:
@@ -9866,11 +9867,11 @@ def test_build_local_publish_package_fallback_self_reliance_generic_mode_uses_di
         assets=assets,
     )
 
-    assert package["publish_lead"] == "事情一挤上来，人最怕的不是忙，是心里一下失了方向。先认领眼前最要紧的一件，把判断找回来，很多事就会重新有下一步。"
-    assert package["abstract"] == "真正能托住人的，不是咬牙把所有事都吞下去，而是在乱的时候仍然能分清先后。心里有了落脚处，明天的事也就不再只剩下硬撑。"
+    assert package["publish_lead"] == "事情一挤上来，人最怕的不是忙，是心里一下失了方向。把最要紧的一件事落稳，力气就会慢慢回到自己手里。"
+    assert package["abstract"] == "真正能托住人的，是乱的时候仍然能看见下一步。心里有了光，明天就不只剩下硬撑。"
     assert package["publish_lead"] != assets.social_teaser
     assert package["abstract"] != assets.social_teaser
-    assert any("把判断慢慢接回来" in item or "判断找回来" in item for item in package["intro_options"])
+    assert any("把力气慢慢收回来" in item or "力气" in item for item in package["intro_options"])
 
 
 def test_build_local_tracked_article_topic_fallback_uses_distinct_self_reliance_title() -> None:

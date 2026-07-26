@@ -1467,10 +1467,11 @@ def test_local_self_reliance_publish_package_fallback_shortens_long_explanatory_
         assets=assets,
     )
 
-    assert str(result["publish_title"]) == "把眼前这一步接住，日子就会慢慢回稳"
+    assert str(result["publish_title"]) == "把力气收回自己手里，日子会慢慢变亮"
     assert "判断回来以后" in str(result["publish_lead"])
-    assert "该向谁开口" in str(result["publish_lead"])
-    assert "判断和行动找回来" in str(result["abstract"])
+    assert "把心收回去" in str(result["publish_lead"])
+    assert "力气收回自己手里" in str(result["abstract"])
+    assert "主心骨" in str(result["abstract"])
     assert "请人分担" in str(result["abstract"])
     for stale in ("先倒杯热水", "热水倒上", "桌面清出", "明天要用的东西"):
         assert stale not in str(result["publish_lead"])
@@ -1481,7 +1482,7 @@ def test_local_self_reliance_draft_removes_external_absence_template() -> None:
     title, body = _build_local_generic_tracked_article_draft(
         {
             "source_type": "tracked_article",
-            "topic_title": "把眼前这一步接住，日子就会慢慢回稳",
+            "topic_title": "把力气收回自己手里，日子会慢慢变亮",
             "reference_article_title": "即使没有帮助，也要学会自救自渡",
             "reference_article_body_markdown": (
                 "相信你也有过这样的时刻：心情不好的时候想找朋友倾诉，却发现朋友也愁眉不展。\n\n"
@@ -1492,8 +1493,8 @@ def test_local_self_reliance_draft_removes_external_absence_template() -> None:
     )
 
     combined = f"{title}\n{body}"
-    assert "把眼前这一步接住" in title
-    assert "先把能做的一件事放到手上" in combined
+    assert "把力气收回自己手里" in title
+    assert "水烧开、话说清、明天要做的事写下来" in combined
     assert "把选择重新拿回来" in combined
     for stale in (
         "别人赶来之前",
@@ -2132,4 +2133,3 @@ def test_local_trust_publish_package_fallback_uses_broken_trust_scene() -> None:
     assert "谎话落下来" in str(result["publish_lead"])
     assert "对方不用猜，也不用查" in str(result["abstract"])
     assert "坦荡认真守住" in str(result["abstract"])
-

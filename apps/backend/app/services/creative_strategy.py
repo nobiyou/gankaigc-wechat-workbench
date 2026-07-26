@@ -2284,7 +2284,7 @@ def _build_hook_trigger(
     if structure_mode == "self_worth_rebuild":
         return "你其实已经不舒服了，可那句“都可以”还是比真实想法先出了口。"
     if structure_mode == "self_reliance_inward_support":
-        return "事情压到眼前时，自己先稳住顺序、把今天接过去的那一下。"
+        return "把一件小事做稳时，人慢慢找回主心骨、也让日子重新有光的那一下。"
     if structure_mode == "trust_boundary":
         return "听见前后两个版本时，手里的筷子会先停一下。"
     if structure_mode == "response_priority":
@@ -3054,7 +3054,7 @@ def _build_quotable_line_seeds(
         base = ["原来一直在把自己放轻的那一下", "边界重新立住的那一下", "把分量收回自己身上的那一句"]
         return merge_unique_lines(specific_seeds + base, [])
     if structure_mode == "self_reliance_inward_support":
-        base = ["把慌乱收回一个动作里的那一下", "先把今天接住的那一下", "把力气收回自己身上的那一句"]
+        base = ["主心骨慢慢回来的那一下", "日子重新有光的那一下", "把力气收回自己手里的那一句"]
         return merge_unique_lines(specific_seeds + base, [])
     if structure_mode == "trust_boundary":
         base = ["信任裂开时心里一沉的那一下", "坦诚把心安重新放回来的那一句", "说到做到比解释更有分量的那一下"]
