@@ -8505,6 +8505,19 @@ def test_generate_assets_skips_cover_api_when_packaging_quality_gate_still_fails
     assert exc_info.value.status_code == 409
     assert "素材包装未通过主题质量门" in str(exc_info.value.detail)
 
+    with pytest.raises(HTTPException) as cover_exc_info:
+        workbench.regenerate_cover_image("assets-quality-blocked-project")
+    assert cover_exc_info.value.status_code == 409
+    assert "素材包装未通过主题质量门" in str(cover_exc_info.value.detail)
+    assert fake_generator.cover_calls == []
+
+    restored_assets = workbench.restore_assets_version("assets-quality-blocked-project", assets.version)
+    assert restored_assets.cover_image_status == "quality_blocked"
+    restored_detail = workbench.get_project_detail("assets-quality-blocked-project")
+    assert restored_detail.project.stage == "assets_quality_blocked"
+    assert restored_detail.project.current_chain_state == "assets_quality_blocked"
+    assert restored_detail.project.next_required_step == "generate_assets"
+
 
 def test_build_publish_package_keeps_api_result_when_packaging_retry_stays_generic(monkeypatch) -> None:
     client.post(

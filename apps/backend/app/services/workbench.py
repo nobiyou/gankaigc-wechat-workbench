@@ -19883,6 +19883,14 @@ def regenerate_cover_image(project_slug: str) -> AssetItem:
             ).fetchone()
             if not assets_row:
                 raise HTTPException(status_code=409, detail="Assets not generated")
+            if str(assets_row["cover_image_status"] or "pending") == "quality_blocked":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "封面图暂未重生成：素材包装未通过主题质量门。请先重新生成素材包，再生成封面图。"
+                        + (f" 原始返回：{assets_row['cover_image_error']}" if assets_row["cover_image_error"] else "")
+                    ),
+                )
 
             current = connection.execute(
                 "SELECT COALESCE(MAX(version), 0) AS version FROM assets WHERE project_slug = ?",
@@ -20063,6 +20071,8 @@ def restore_assets_version(project_slug: str, version: int) -> AssetItem:
                     "assets_ready"
                     if str(assets_row["cover_image_status"] or "pending") == "ready"
                     and str(assets_row["cover_image_url"] or "").strip()
+                    else "assets_quality_blocked"
+                    if str(assets_row["cover_image_status"] or "pending") == "quality_blocked"
                     else "assets_pending_cover",
                     project_slug,
                 ),
