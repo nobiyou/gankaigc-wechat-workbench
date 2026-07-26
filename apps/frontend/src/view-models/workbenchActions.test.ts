@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 
 import {
   buildWorkbenchActionPlan,
+  getWorkbenchBackgroundTaskCopy,
   getWorkbenchBackgroundTaskDisplayError,
+  getWorkbenchBackgroundTaskStatusMessage,
+  getWorkbenchBackgroundTaskTone,
   shouldRetryWorkbenchBackgroundTaskPoll,
   shouldClearWorkbenchActionAfterPollError,
   shouldKeepWorkbenchActionActive,
@@ -306,6 +309,59 @@ test("buildWorkbenchActionPlan exposes cover-only regeneration separately from f
   assert.equal(plan.showInstructionField, true);
 });
 
+test("buildWorkbenchActionPlan blocks publish actions while the API cover is pending", () => {
+  const detail: Parameters<typeof buildWorkbenchActionPlan>[0]["detail"] = {
+    project: {
+      ...baseProject,
+      stage: "assets_pending_cover",
+      chain_status: "stale",
+      current_chain_state: "cover_pending",
+      next_required_step: "regenerate_cover_image",
+      current_outline_version: 1,
+      current_draft_version: 1,
+      current_assets_version: 1,
+    },
+    outline: null,
+    draft: {
+      project_slug: "demo-project",
+      outline_version: 1,
+      version: 1,
+      title: "draft title",
+      body_markdown: "# draft",
+      word_count: 1000,
+      tone_profile_id: null,
+      tone_profile_name: null,
+    },
+    assets: {
+      project_slug: "demo-project",
+      draft_version: 1,
+      version: 1,
+      title_options: ["title a"],
+      cover_prompt: "prompt",
+      cover_copy: "cover copy",
+      social_teaser: "teaser",
+      cover_image_path: "",
+      cover_image_url: "",
+      cover_image_status: "pending" as const,
+      cover_image_error: "No available compatible accounts",
+      tone_profile_id: null,
+      tone_profile_name: null,
+    },
+    publish_package: null,
+    retro: null,
+  };
+
+  const assetsPlan = buildWorkbenchActionPlan({ stage: "assets", detail, historyEntryCount: 1 });
+  assert.deepEqual(assetsPlan.primaryAction, { kind: "regenerate_cover_image", label: "重试图片 API" });
+  assert.equal(assetsPlan.secondaryActions.some((action) => action.kind === "generate_assets"), true);
+
+  const publishPlan = buildWorkbenchActionPlan({ stage: "publish", detail, historyEntryCount: 1 });
+  assert.deepEqual(publishPlan.primaryAction, { kind: "regenerate_cover_image", label: "重试图片 API" });
+  assert.deepEqual(publishPlan.secondaryActions, []);
+  assert.equal(publishPlan.showInstructionField, false);
+  assert.equal(publishPlan.showPublishReviewForm, false);
+});
+
 test("shouldKeepWorkbenchActionActive only keeps submitted background actions locked", () => {
   assert.equal(shouldKeepWorkbenchActionActive("build_publish_package", true), true);
   assert.equal(shouldKeepWorkbenchActionActive("polish_and_build_publish_package", true), true);
@@ -353,6 +409,53 @@ test("getWorkbenchBackgroundTaskDisplayError prefers task failure detail then po
     }),
     null,
   );
+});
+
+test("getWorkbenchBackgroundTaskDisplayError appends cover route diagnostics when available", () => {
+  assert.equal(
+    getWorkbenchBackgroundTaskDisplayError({
+      taskError: "封面生成失败",
+      pollError: null,
+      errorContext: {
+        cover_image_route_label: "primary",
+        cover_image_route_model: "gpt-image-2",
+        cover_image_route_base_url: "https://i.ixiu.one/v1",
+        fallback_account_pool_diagnosis_label: "未形成第二套上游",
+      },
+    }),
+    "封面生成失败 | 封面链路：主路由 · gpt-image-2 · https://i.ixiu.one/v1 · 备用链路：未形成第二套上游",
+  );
+});
+
+test("getWorkbenchBackgroundTaskCopy returns route-specific copy for cover regeneration", () => {
+  assert.deepEqual(getWorkbenchBackgroundTaskCopy("regenerate_cover_image"), {
+    submittedMessage: "已提交重生成封面图任务，正在后台调用 API 图片链路刷新素材版本。",
+    completedMessage: "封面图重生成已完成，Workbench 已刷新到最新素材版本。",
+    failedMessage: "重生成封面图失败。当前封面只走 API 图片链路。",
+    progressMessage: "当前正在通过 API 图片链路重生成封面图，并写入新的素材版本。",
+  });
+});
+
+test("getWorkbenchBackgroundTaskStatusMessage switches copy by task status", () => {
+  assert.equal(
+    getWorkbenchBackgroundTaskStatusMessage("regenerate_cover_image", "queued"),
+    "已提交重生成封面图任务，正在后台调用 API 图片链路刷新素材版本。",
+  );
+  assert.equal(
+    getWorkbenchBackgroundTaskStatusMessage("regenerate_cover_image", "running"),
+    "当前正在通过 API 图片链路重生成封面图，并写入新的素材版本。",
+  );
+  assert.equal(
+    getWorkbenchBackgroundTaskStatusMessage("regenerate_cover_image", "failed"),
+    "重生成封面图失败。当前封面只走 API 图片链路。 诊断信息会保留在这里，方便你按链路继续排查。",
+  );
+});
+
+test("getWorkbenchBackgroundTaskTone maps task status to card tone", () => {
+  assert.equal(getWorkbenchBackgroundTaskTone("queued"), "info");
+  assert.equal(getWorkbenchBackgroundTaskTone("running"), "info");
+  assert.equal(getWorkbenchBackgroundTaskTone("done"), "success");
+  assert.equal(getWorkbenchBackgroundTaskTone("failed"), "error");
 });
 
 test("buildWorkbenchActionPlan exposes publish review actions for ready packages", () => {

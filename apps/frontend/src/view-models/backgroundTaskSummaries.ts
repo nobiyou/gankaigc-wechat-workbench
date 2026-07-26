@@ -1,4 +1,4 @@
-import type { BackgroundTaskDetail, ProjectItem } from "../api/workbench";
+import type { BackgroundTaskDetail, BackgroundTaskErrorContext, ProjectItem } from "../api/workbench";
 
 export type BatchCreateProjectResultView = {
   topicSlug: string;
@@ -92,9 +92,50 @@ function parseBackgroundTaskError(rawError: string): ParsedBackgroundTaskError {
   };
 }
 
-export function buildBackgroundTaskErrorLines(taskDetail: BackgroundTaskDetail | null): string[] {
-  if (!taskDetail?.error) {
+function formatCoverRouteLabel(value?: string | null): string {
+  if (value === "primary") {
+    return "主路由";
+  }
+  if (value === "fallback") {
+    return "降级路由";
+  }
+  return value?.trim() || "未知";
+}
+
+function buildBackgroundTaskErrorContextLines(errorContext?: BackgroundTaskErrorContext | null): string[] {
+  if (!errorContext) {
     return [];
+  }
+
+  const lines: string[] = [];
+  const routeParts = [
+    errorContext.cover_image_route_label ? formatCoverRouteLabel(errorContext.cover_image_route_label) : null,
+    errorContext.cover_image_route_model?.trim() || null,
+  ].filter((item): item is string => Boolean(item));
+
+  if (routeParts.length > 0) {
+    lines.push(`封面链路：${routeParts.join(" · ")}`);
+  }
+  if (errorContext.cover_image_route_base_url?.trim()) {
+    lines.push(`图片接口：${errorContext.cover_image_route_base_url.trim()}`);
+  }
+  if (errorContext.fallback_account_pool_diagnosis_label?.trim()) {
+    lines.push(`备用链路诊断：${errorContext.fallback_account_pool_diagnosis_label.trim()}`);
+  }
+  if (errorContext.fallback_account_pool_diagnosis_note?.trim()) {
+    lines.push(errorContext.fallback_account_pool_diagnosis_note.trim());
+  }
+
+  return lines;
+}
+
+export function buildBackgroundTaskErrorLines(taskDetail: BackgroundTaskDetail | null): string[] {
+  const coverTaskNote =
+    taskDetail?.job_type === "regenerate_cover_image" ? "当前封面只走 API 图片链路，不会回退到本地生成。" : null;
+
+  if (!taskDetail?.error) {
+    const lines = buildBackgroundTaskErrorContextLines(taskDetail?.error_context);
+    return coverTaskNote && !lines.includes(coverTaskNote) ? [...lines, coverTaskNote] : lines;
   }
 
   const parsed = parseBackgroundTaskError(taskDetail.error);
@@ -125,7 +166,8 @@ export function buildBackgroundTaskErrorLines(taskDetail: BackgroundTaskDetail |
   }
 
   if (!headline) {
-    return [parsed.raw];
+    const lines = [parsed.raw, ...buildBackgroundTaskErrorContextLines(taskDetail.error_context)];
+    return coverTaskNote && !lines.includes(coverTaskNote) ? [...lines, coverTaskNote] : lines;
   }
 
   const lines = [headline];
@@ -138,7 +180,8 @@ export function buildBackgroundTaskErrorLines(taskDetail: BackgroundTaskDetail |
   if (suggestion) {
     lines.push(suggestion);
   }
-  return lines;
+  const mergedLines = [...lines, ...buildBackgroundTaskErrorContextLines(taskDetail.error_context)];
+  return coverTaskNote && !mergedLines.includes(coverTaskNote) ? [...mergedLines, coverTaskNote] : mergedLines;
 }
 
 export function buildBackgroundTaskIssueLines(taskDetail: BackgroundTaskDetail | null, maxLines = 5): string[] {

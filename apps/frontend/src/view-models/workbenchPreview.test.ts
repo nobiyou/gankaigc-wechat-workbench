@@ -64,6 +64,9 @@ const baseDetail = {
     ],
     cover_image_path: "cover.png",
     cover_image_url: "/generated-assets/cover.png",
+    cover_image_route_label: "primary",
+    cover_image_route_model: "gpt-image-2",
+    cover_image_route_base_url: "https://i.ixiu.one/v1",
     tone_profile_id: null,
     tone_profile_name: null,
   },
@@ -330,31 +333,35 @@ test("buildWorkbenchPreview returns assets preview with title and teaser blocks"
   const preview = buildWorkbenchPreview("assets", baseDetail);
 
   assert.equal(preview?.eyebrow, "Assets Preview");
-  assert.equal(preview?.blocks.length, 7);
+  assert.equal(preview?.blocks.length, 8);
   assert.equal(preview?.blocks[0]?.label, "封面图");
   assert.equal(preview?.blocks[0]?.content, "/generated-assets/cover.png");
-  assert.equal(preview?.blocks[1]?.kind, "markdown");
-  assert.equal(preview?.blocks[1]?.content.includes("1. 越在乎的人，为什么越想在关系里反复确认"), true);
+  assert.equal(preview?.blocks[1]?.label, "封面生成来源");
+  assert.equal(preview?.blocks[1]?.content.includes("路由：主路由"), true);
+  assert.equal(preview?.blocks[1]?.content.includes("模型：gpt-image-2"), true);
+  assert.equal(preview?.blocks[1]?.content.includes("接口：https://i.ixiu.one/v1"), true);
+  assert.equal(preview?.blocks[2]?.kind, "markdown");
+  assert.equal(preview?.blocks[2]?.content.includes("1. 越在乎的人，为什么越想在关系里反复确认"), true);
   assert.equal(
-    preview?.blocks[1]?.copyText,
+    preview?.blocks[2]?.copyText,
     "1. 越在乎的人，为什么越想在关系里反复确认\n2. 她不是作，她只是没有被真正接住",
   );
-  assert.equal(preview?.blocks[2]?.label, "主推标题");
-  assert.equal(preview?.blocks[2]?.copyText, "她不是作，她只是没有被真正接住");
-  assert.equal(preview?.blocks[3]?.copyText, "越在乎，越想确认");
-  assert.equal(preview?.blocks[4]?.content, "真正让人反复确认的，往往不是一句话，而是关系里长期没有被看见。");
-  assert.equal(preview?.blocks[4]?.copyText, "真正让人反复确认的，往往不是一句话，而是关系里长期没有被看见。");
-  assert.equal(preview?.blocks[5]?.label, "导语候选");
-  assert.equal(preview?.blocks[5]?.content.includes("1. 有些反复确认，不是矫情，是心里一直没稳下来。"), true);
-  assert.equal(preview?.blocks[6]?.label, "配图提示词");
-  assert.equal(preview?.blocks[6]?.copyText, "close-up portrait, soft light, emotional realism");
+  assert.equal(preview?.blocks[3]?.label, "主推标题");
+  assert.equal(preview?.blocks[3]?.copyText, "她不是作，她只是没有被真正接住");
+  assert.equal(preview?.blocks[4]?.copyText, "越在乎，越想确认");
+  assert.equal(preview?.blocks[5]?.content, "真正让人反复确认的，往往不是一句话，而是关系里长期没有被看见。");
+  assert.equal(preview?.blocks[5]?.copyText, "真正让人反复确认的，往往不是一句话，而是关系里长期没有被看见。");
+  assert.equal(preview?.blocks[6]?.label, "导语候选");
+  assert.equal(preview?.blocks[6]?.content.includes("1. 有些反复确认，不是矫情，是心里一直没稳下来。"), true);
+  assert.equal(preview?.blocks[7]?.label, "配图提示词");
+  assert.equal(preview?.blocks[7]?.copyText, "close-up portrait, soft light, emotional realism");
 });
 
 test("buildWorkbenchPreview shows recommended asset title and publish intro options", () => {
   const assetsPreview = buildWorkbenchPreview("assets", baseDetail);
   assert.equal(assetsPreview?.title, "她不是作，她只是没有被真正接住");
-  assert.equal(assetsPreview?.blocks[2]?.label, "主推标题");
-  assert.equal(assetsPreview?.blocks[2]?.content, "她不是作，她只是没有被真正接住");
+  assert.equal(assetsPreview?.blocks[3]?.label, "主推标题");
+  assert.equal(assetsPreview?.blocks[3]?.content, "她不是作，她只是没有被真正接住");
 
   const publishPreview = buildWorkbenchPreview("publish", baseDetail);
   const introBlock = publishPreview?.blocks.find((item) => item.key === "intro-options");
@@ -374,6 +381,20 @@ test("buildWorkbenchPreview marks missing assets cover image clearly", () => {
 
   assert.equal(preview?.blocks[0]?.label, "封面图");
   assert.equal(preview?.blocks[0]?.content, "未生成（图片服务暂时不可用）");
+});
+
+test("buildWorkbenchPreview omits cover route block when backend did not return route info", () => {
+  const preview = buildWorkbenchPreview("assets", {
+    ...baseDetail,
+    assets: {
+      ...baseDetail.assets,
+      cover_image_route_label: null,
+      cover_image_route_model: null,
+      cover_image_route_base_url: null,
+    },
+  });
+
+  assert.equal(preview?.blocks.some((block) => block.key === "cover-route"), false);
 });
 
 test("buildWorkbenchPreview returns publish preview with article, abstract, tags and checklist", () => {

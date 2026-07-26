@@ -29,6 +29,9 @@ function mapNextRequiredStepToStage(nextRequiredStep?: string | null): Workbench
   if (nextRequiredStep === "generate_assets") {
     return "assets";
   }
+  if (nextRequiredStep === "regenerate_cover_image") {
+    return "assets";
+  }
   if (nextRequiredStep === "build_publish_package" || nextRequiredStep === "regenerate_from_review") {
     return "publish";
   }
@@ -46,6 +49,9 @@ function mapCurrentChainStateToStage(currentChainState?: string | null): Workben
     return "draft";
   }
   if (currentChainState.includes("assets")) {
+    return "assets";
+  }
+  if (currentChainState.includes("cover")) {
     return "assets";
   }
   if (currentChainState.includes("publish") || currentChainState.includes("published")) {

@@ -43,9 +43,13 @@ import { formatProjectChainStateLabel, formatProjectNextStepLabel } from "../pro
 import { buildRetroDraft } from "../retroDraft";
 import { getTaskTypeLabel } from "../taskLabels";
 import { formatProjectToneProfileLabel, hasProjectToneProfileSelectionChanged, resolveDraftPolishInstruction } from "../toneProfiles";
+import { buildBackgroundTaskErrorLines } from "../view-models/backgroundTaskSummaries";
 import {
   buildWorkbenchActionPlan,
+  getWorkbenchBackgroundTaskCopy,
   getWorkbenchBackgroundTaskDisplayError,
+  getWorkbenchBackgroundTaskStatusMessage,
+  getWorkbenchBackgroundTaskTone,
   shouldClearWorkbenchActionAfterPollError,
   shouldKeepWorkbenchActionActive,
   shouldRetryWorkbenchBackgroundTaskPoll,
@@ -59,6 +63,25 @@ type WorkbenchLoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; detail: ProjectDetail; versions: ProjectVersions; domainPacks: DomainPackSummary[]; toneProfiles: ToneProfileItem[] };
+
+function formatCoverRouteLabel(value?: string | null): string {
+  if (value === "primary") {
+    return "主路由";
+  }
+  if (value === "fallback") {
+    return "降级路由";
+  }
+  return value?.trim() || "未知";
+}
+
+function buildCoverRouteMetaLine(asset: ProjectDetail["assets"] | null | undefined): string | null {
+  if (!asset?.cover_image_route_label && !asset?.cover_image_route_model) {
+    return null;
+  }
+
+  const label = formatCoverRouteLabel(asset?.cover_image_route_label);
+  return asset?.cover_image_route_model ? `封面来源：${label} · ${asset.cover_image_route_model}` : `封面来源：${label}`;
+}
 
 function buildStageContent(stage: WorkbenchStage, detail: ProjectDetail): { title: string; body: string; meta: string[] } {
   if (stage === "topic") {
@@ -101,10 +124,20 @@ function buildStageContent(stage: WorkbenchStage, detail: ProjectDetail): { titl
     };
   }
   if (stage === "assets") {
+    const coverRouteMeta = buildCoverRouteMetaLine(detail.assets);
+    const coverPending = detail.assets?.cover_image_status === "pending" || (detail.assets ? !detail.assets.cover_image_url : false);
+
     return {
       title: detail.assets?.recommended_title || detail.assets?.title_options[0] || "还没有素材包",
-      body: detail.assets?.cover_copy ?? "当前项目还没有素材包，可在生成后回到这里查看标题与封面文案。",
-      meta: [detail.assets ? `版本：v${detail.assets.version}` : "未生成", detail.assets?.social_teaser ?? "暂无分发导语"],
+      body: coverPending
+        ? "标题、导语和封面文案已经保存；封面图片仍待 API 补齐，可直接重试，不会改走本地生成。"
+        : detail.assets?.cover_copy ?? "当前项目还没有素材包，可在生成后回到这里查看标题与封面文案。",
+      meta: [
+        detail.assets ? `版本：v${detail.assets.version}` : "未生成",
+        coverPending ? "封面状态：待 API 补齐" : detail.assets ? "封面状态：已完成" : null,
+        detail.assets?.social_teaser ?? "暂无分发导语",
+        coverRouteMeta,
+      ].filter((item): item is string => Boolean(item)),
     };
   }
 
@@ -174,56 +207,6 @@ function formatBackgroundTaskTimestamp(value?: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(timestamp));
-}
-
-function describeBackgroundTask(jobType?: string | null): {
-  submittedMessage: string;
-  completedMessage: string;
-  failedMessage: string;
-  progressMessage: string;
-} {
-  if (jobType === "build_publish_package") {
-    return {
-      submittedMessage: "已提交生成发布包任务，正在后台构建正文成品与发布清单。",
-      completedMessage: "发布包生成已完成，Workbench 已刷新到最新发布状态。",
-      failedMessage: "生成发布包失败。",
-      progressMessage: "当前正在后台生成发布包，并刷新发布阶段数据。",
-    };
-  }
-
-  if (jobType === "regenerate_cover_image") {
-    return {
-      submittedMessage: "已提交重生成封面图任务，正在后台刷新素材版本。",
-      completedMessage: "封面图重生成已完成，Workbench 已刷新到最新素材版本。",
-      failedMessage: "重生成封面图失败。",
-      progressMessage: "当前正在后台重生成封面图，并写入新的素材版本。",
-    };
-  }
-
-  if (jobType === "polish_and_generate_assets") {
-    return {
-      submittedMessage: "已提交原创增强后生成素材任务，正在基于新正文刷新素材版本。",
-      completedMessage: "原创增强与素材重生成已完成，Workbench 已刷新到最新素材版本。",
-      failedMessage: "原创增强后生成素材失败。",
-      progressMessage: "当前正在先做原创增强精修，再基于新正文生成素材包。",
-    };
-  }
-
-  if (jobType === "polish_and_build_publish_package") {
-    return {
-      submittedMessage: "已提交原创增强后生成发布包任务，正在后台刷新正文、素材和发布成品。",
-      completedMessage: "原创增强与发布包重生成已完成，Workbench 已刷新到最新发布状态。",
-      failedMessage: "原创增强后生成发布包失败。",
-      progressMessage: "当前正在先做原创增强精修，再生成新的素材和发布包。",
-    };
-  }
-
-  return {
-    submittedMessage: "已提交按审核意见重生成任务，正在后台刷新初稿、素材和发布包。",
-    completedMessage: "按审核意见重生成已完成，Workbench 已刷新到最新链路状态。",
-    failedMessage: "按审核意见重生成失败。",
-    progressMessage: "当前正在按审核意见重生成初稿、素材和发布包。",
-  };
 }
 
 const DEFAULT_POLISH_HELP =
@@ -409,12 +392,31 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
 
         if (detail.status === "done") {
           await reloadWorkbench(currentProjectSlug);
-          setActionMessage(describeBackgroundTask(detail.job_type).completedMessage);
+          setActionMessage(getWorkbenchBackgroundTaskCopy(detail.job_type).completedMessage);
           setActionError(null);
+          setActiveBackgroundTask(null);
         } else {
-          setActionError(detail.error || describeBackgroundTask(detail.job_type).failedMessage);
+          setActionMessage(null);
+          setActionError(null);
+          setActiveBackgroundTask((current) =>
+            current
+              ? {
+                  ...current,
+                  detail,
+                  error: null,
+                }
+              : {
+                  submission: {
+                    task_id: detail.task_id,
+                    job_type: detail.job_type,
+                    status: detail.status,
+                    created_at: detail.created_at,
+                  },
+                  detail,
+                  error: null,
+                },
+          );
         }
-        setActiveBackgroundTask(null);
         setActiveAction(null);
       } catch (error: unknown) {
         if (!isCancelled) {
@@ -511,8 +513,23 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     ? getWorkbenchBackgroundTaskDisplayError({
         taskError: activeBackgroundTask.detail?.error,
         pollError: activeBackgroundTask.error,
+        errorContext: activeBackgroundTask.detail?.error_context,
       })
     : null;
+  const activeBackgroundTaskErrorLines = activeBackgroundTask?.detail ? buildBackgroundTaskErrorLines(activeBackgroundTask.detail) : [];
+  const activeBackgroundTaskStatus = activeBackgroundTask?.detail?.status ?? activeBackgroundTask?.submission.status ?? null;
+  const activeBackgroundTaskTone = getWorkbenchBackgroundTaskTone(activeBackgroundTaskStatus);
+  const activeBackgroundTaskStatusMessage = activeBackgroundTask
+    ? getWorkbenchBackgroundTaskStatusMessage(activeBackgroundTask.submission.job_type, activeBackgroundTaskStatus)
+    : null;
+  const activeBackgroundTaskIsCoverRegeneration = activeBackgroundTask?.submission.job_type === "regenerate_cover_image";
+  const activeBackgroundTaskShouldShowImageRouteLink =
+    activeBackgroundTaskStatus === "failed" &&
+    (activeBackgroundTaskIsCoverRegeneration ||
+      Boolean(
+        activeBackgroundTask?.detail?.error_context?.cover_image_route_base_url ||
+          activeBackgroundTask?.detail?.error_context?.fallback_account_pool_diagnosis_label,
+      ));
 
   async function handleCopyPreviewBlock(label: string, copyText: string) {
     try {
@@ -659,7 +676,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
           error: null,
         });
         backgroundTaskSubmitted = true;
-        setActionMessage(describeBackgroundTask(submission.job_type).submittedMessage);
+        setActionMessage(getWorkbenchBackgroundTaskCopy(submission.job_type).submittedMessage);
         return;
       } else if (actionKind === "restore_assets" && versionNumber) {
         await restoreAssetsVersion(projectSlug, versionNumber);
@@ -671,7 +688,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
           error: null,
         });
         backgroundTaskSubmitted = true;
-        setActionMessage(describeBackgroundTask(submission.job_type).submittedMessage);
+        setActionMessage(getWorkbenchBackgroundTaskCopy(submission.job_type).submittedMessage);
         return;
       } else if (actionKind === "generate_creative_review_report") {
         await generateCreativeReviewReport(projectSlug);
@@ -686,7 +703,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
           error: null,
         });
         backgroundTaskSubmitted = true;
-        setActionMessage(describeBackgroundTask(submission.job_type).submittedMessage);
+        setActionMessage(getWorkbenchBackgroundTaskCopy(submission.job_type).submittedMessage);
         return;
       } else if (actionKind === "restore_publish_package" && versionNumber) {
         await restorePublishPackageVersion(projectSlug, versionNumber);
@@ -708,7 +725,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
           error: null,
         });
         backgroundTaskSubmitted = true;
-        setActionMessage(describeBackgroundTask(submission.job_type).submittedMessage);
+        setActionMessage(getWorkbenchBackgroundTaskCopy(submission.job_type).submittedMessage);
         return;
       } else if (actionKind === "record_project_retro") {
         const payload: ProjectRetroCreatePayload = {
@@ -872,12 +889,12 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
       ) : null}
 
       {activeBackgroundTask ? (
-        <div className="workspace-note workspace-note--info workbench-task-note">
+        <div className={`workspace-note workspace-note--${activeBackgroundTaskTone} workbench-task-note`}>
           <div className="workspace-section__header">
             <div>
               <p className="workspace-section__eyebrow">Background Task</p>
               <h4>{getTaskTypeLabel(activeBackgroundTask.submission.job_type)}</h4>
-              <p>{describeBackgroundTask(activeBackgroundTask.submission.job_type).progressMessage}</p>
+              <p>{activeBackgroundTaskStatusMessage}</p>
             </div>
             <span className="workspace-run-card__count">
               {formatBackgroundTaskStatusLabel(activeBackgroundTask.detail?.status ?? activeBackgroundTask.submission.status)}
@@ -889,13 +906,61 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
             {activeBackgroundTask.detail?.started_at ? (
               <span>{`开始执行：${formatBackgroundTaskTimestamp(activeBackgroundTask.detail.started_at)}`}</span>
             ) : null}
+            {activeBackgroundTask.detail?.finished_at ? (
+              <span>{`结束时间：${formatBackgroundTaskTimestamp(activeBackgroundTask.detail.finished_at)}`}</span>
+            ) : null}
           </div>
           <div className="workspace-tag-list">
-            <span className="workspace-tag">可先切换到其他阶段继续查看</span>
-            <span className="workspace-tag">任务完成后会自动刷新当前 Workbench</span>
+            {activeBackgroundTaskStatus === "failed" ? (
+              <>
+                <span className="workspace-tag">失败诊断会保留在这里</span>
+                {activeBackgroundTaskIsCoverRegeneration ? (
+                  <>
+                    <span className="workspace-tag">封面图只走 API 图片链路</span>
+                    <span className="workspace-tag">调整图片 API / 备用链路后可直接重试</span>
+                  </>
+                ) : (
+                  <span className="workspace-tag">调整备用链路后可直接重试</span>
+                )}
+              </>
+            ) : (
+              <>
+                {activeBackgroundTaskIsCoverRegeneration ? <span className="workspace-tag">封面图只走 API 图片链路</span> : null}
+                <span className="workspace-tag">可先切换到其他阶段继续查看</span>
+                <span className="workspace-tag">任务完成后会自动刷新当前 Workbench</span>
+              </>
+            )}
           </div>
-          {activeBackgroundTaskError ? (
+          {activeBackgroundTaskErrorLines.length > 0 ? (
+            <div className="workbench-task-note__errors">
+              <p className="workbench-task-note__error">{activeBackgroundTaskErrorLines[0]}</p>
+              {activeBackgroundTaskErrorLines.length > 1 ? (
+                <ul className="workspace-note__list">
+                  {activeBackgroundTaskErrorLines.slice(1).map((line) => (
+                    <li key={`background-task-error-${line}`}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : activeBackgroundTaskError ? (
             <p className="workbench-task-note__error">{`错误：${activeBackgroundTaskError}`}</p>
+          ) : null}
+          {activeBackgroundTaskShouldShowImageRouteLink ? (
+            <div className="workspace-actions workspace-actions--row">
+              {activeBackgroundTaskIsCoverRegeneration ? (
+                <button
+                  className="dashboard-button"
+                  type="button"
+                  onClick={() => void runAction("regenerate_cover_image")}
+                  disabled={activeAction === "regenerate_cover_image"}
+                >
+                  {activeAction === "regenerate_cover_image" ? "正在重试图片 API..." : "重试图片 API"}
+                </button>
+              ) : null}
+              <Link className="dashboard-button dashboard-button--ghost dashboard-button--compact" to="/settings/tone-profiles#ai-config">
+                去检查 AI 配置（图片链路）
+              </Link>
+            </div>
           ) : null}
         </div>
       ) : null}

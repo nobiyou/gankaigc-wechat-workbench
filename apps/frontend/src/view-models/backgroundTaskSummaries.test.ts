@@ -170,6 +170,39 @@ test("buildBackgroundTaskErrorLines translates auth failures into actionable gui
   ]);
 });
 
+test("buildBackgroundTaskErrorLines appends cover route diagnostics for failed cover tasks", () => {
+  const lines = buildBackgroundTaskErrorLines({
+    task_id: "task-error-3",
+    job_type: "regenerate_cover_image",
+    status: "failed",
+    created_at: "2026-07-17T08:49:58Z",
+    started_at: "2026-07-17T08:49:58Z",
+    finished_at: "2026-07-17T08:50:10Z",
+    error: "封面生成失败：当前图片 API 暂无可用账号，请稍后重试。",
+    error_context: {
+      type: "HTTPException",
+      status_code: 502,
+      detail: "封面生成失败：当前图片 API 暂无可用账号，请稍后重试。",
+      cover_image_route_label: "primary",
+      cover_image_route_model: "gpt-image-2",
+      cover_image_route_base_url: "https://i.ixiu.one/v1",
+      fallback_account_pool_diagnosis_status: "not_configured",
+      fallback_account_pool_diagnosis_label: "未形成第二套上游",
+      fallback_account_pool_diagnosis_note: "当前还没有配置 fallback，所以主路由一旦因为账号池问题失败，系统没有第二套图片上游可以尝试。",
+    },
+    result: null,
+  });
+
+  assert.deepEqual(lines, [
+    "封面生成失败：当前图片 API 暂无可用账号，请稍后重试。",
+    "封面链路：主路由 · gpt-image-2",
+    "图片接口：https://i.ixiu.one/v1",
+    "备用链路诊断：未形成第二套上游",
+    "当前还没有配置 fallback，所以主路由一旦因为账号池问题失败，系统没有第二套图片上游可以尝试。",
+    "当前封面只走 API 图片链路，不会回退到本地生成。",
+  ]);
+});
+
 test("buildBatchCreateProjectResultLines renders per-topic outcomes for batch create projects", () => {
   const lines = buildBatchCreateProjectResultLines({
     task_id: "task-5",

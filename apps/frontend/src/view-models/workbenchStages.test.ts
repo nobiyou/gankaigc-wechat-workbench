@@ -54,6 +54,27 @@ test("resolveRecommendedWorkbenchStage prefers the next required production step
     }),
     "publish",
   );
+
+  assert.equal(
+    resolveRecommendedWorkbenchStage({
+      slug: "cover-pending-project",
+      topic_slug: "cover-pending-topic",
+      title: "封面待补齐",
+      stage: "assets_pending_cover",
+      owner: "editorial",
+      preferred_tone_profile_id: null,
+      preferred_tone_profile_name: null,
+      chain_status: "stale",
+      current_chain_state: "cover_pending",
+      next_required_step: "regenerate_cover_image",
+      current_outline_version: 1,
+      current_draft_version: 1,
+      current_assets_version: 1,
+      current_publish_package_version: null,
+      retro: null,
+    }),
+    "assets",
+  );
 });
 
 test("resolveRecommendedWorkbenchStage falls back to current chain state when no next step is pending", () => {

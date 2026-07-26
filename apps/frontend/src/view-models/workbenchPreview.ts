@@ -56,6 +56,35 @@ function resolvePreviewAssetUrl(path: string | null | undefined): string {
   return new URL(normalizedPath, `${new URL(API_BASE_URL).origin}/`).toString();
 }
 
+function formatCoverRouteLabel(value: string | null | undefined): string {
+  if (value === "primary") {
+    return "主路由";
+  }
+  if (value === "fallback") {
+    return "降级路由";
+  }
+  return value?.trim() || "未知";
+}
+
+function buildCoverRouteSummaryLines(
+  asset: Pick<
+    ProjectDetail["assets"] & {},
+    "cover_image_route_label" | "cover_image_route_model" | "cover_image_route_base_url"
+  > | null,
+): string[] {
+  if (!asset) {
+    return [];
+  }
+
+  const lines = [
+    asset.cover_image_route_label ? `路由：${formatCoverRouteLabel(asset.cover_image_route_label)}` : null,
+    asset.cover_image_route_model ? `模型：${asset.cover_image_route_model}` : null,
+    asset.cover_image_route_base_url ? `接口：${asset.cover_image_route_base_url}` : null,
+  ].filter((line): line is string => Boolean(line));
+
+  return lines;
+}
+
 function extractParagraphs(markdown: string): string[] {
   return markdown
     .split(/\n\s*\n/)
@@ -703,59 +732,73 @@ export function buildWorkbenchPreview(
       detail.assets.social_teaser_options.length > 0
         ? detail.assets.social_teaser_options.map((item, index) => `${index + 1}. ${item}`).join("\n")
         : "暂无导语候选";
+    const coverRouteSummaryLines = buildCoverRouteSummaryLines(detail.assets);
+    const blocks: WorkbenchPreviewBlock[] = [
+      {
+        key: "cover-image",
+        label: "封面图",
+        content: detail.assets.cover_image_url || "未生成（图片服务暂时不可用）",
+        kind: detail.assets.cover_image_url ? "image" : "text",
+        imageUrl: resolvePreviewAssetUrl(detail.assets.cover_image_url),
+      },
+    ];
+
+    if (coverRouteSummaryLines.length > 0) {
+      blocks.push({
+        key: "cover-route",
+        label: "封面生成来源",
+        content: coverRouteSummaryLines.join("\n"),
+        kind: "markdown",
+      });
+    }
+
+    blocks.push(
+      {
+        key: "titles",
+        label: "标题组选项",
+        content: detail.assets.title_options.map((item, index) => `${index + 1}. ${item}`).join("\n"),
+        kind: "markdown",
+        copyText: detail.assets.title_options.map((item, index) => `${index + 1}. ${item}`).join("\n"),
+      },
+      {
+        key: "recommended-title",
+        label: "主推标题",
+        content: detail.assets.recommended_title || detail.assets.title_options[0] || "暂无主推标题",
+        copyText: detail.assets.recommended_title || detail.assets.title_options[0] || "",
+      },
+      {
+        key: "cover-copy",
+        label: "封面文案",
+        content: detail.assets.cover_copy,
+        copyText: detail.assets.cover_copy,
+      },
+      {
+        key: "social-teaser",
+        label: "分发导语",
+        content: detail.assets.social_teaser,
+        copyText: detail.assets.social_teaser,
+      },
+      {
+        key: "social-teaser-options",
+        label: "导语候选",
+        content: socialTeaserOptionsMarkdown,
+        kind: "markdown",
+        copyText: socialTeaserOptionsMarkdown,
+      },
+      {
+        key: "cover-prompt",
+        label: "配图提示词",
+        content: detail.assets.cover_prompt,
+        copyText: detail.assets.cover_prompt,
+      },
+    );
 
     return {
       title: detail.assets.recommended_title || detail.assets.title_options[0] || "未生成标题",
       eyebrow: "Assets Preview",
       summary: "标题、封面文案与分发导语预览",
       tone: "assets",
-      blocks: [
-        {
-          key: "cover-image",
-          label: "封面图",
-          content: detail.assets.cover_image_url || "未生成（图片服务暂时不可用）",
-          kind: detail.assets.cover_image_url ? "image" : "text",
-          imageUrl: resolvePreviewAssetUrl(detail.assets.cover_image_url),
-        },
-        {
-          key: "titles",
-          label: "标题组选项",
-          content: detail.assets.title_options.map((item, index) => `${index + 1}. ${item}`).join("\n"),
-          kind: "markdown",
-          copyText: detail.assets.title_options.map((item, index) => `${index + 1}. ${item}`).join("\n"),
-        },
-        {
-          key: "recommended-title",
-          label: "主推标题",
-          content: detail.assets.recommended_title || detail.assets.title_options[0] || "暂无主推标题",
-          copyText: detail.assets.recommended_title || detail.assets.title_options[0] || "",
-        },
-        {
-          key: "cover-copy",
-          label: "封面文案",
-          content: detail.assets.cover_copy,
-          copyText: detail.assets.cover_copy,
-        },
-        {
-          key: "social-teaser",
-          label: "分发导语",
-          content: detail.assets.social_teaser,
-          copyText: detail.assets.social_teaser,
-        },
-        {
-          key: "social-teaser-options",
-          label: "导语候选",
-          content: socialTeaserOptionsMarkdown,
-          kind: "markdown",
-          copyText: socialTeaserOptionsMarkdown,
-        },
-        {
-          key: "cover-prompt",
-          label: "配图提示词",
-          content: detail.assets.cover_prompt,
-          copyText: detail.assets.cover_prompt,
-        },
-      ],
+      blocks,
     };
   }
 
