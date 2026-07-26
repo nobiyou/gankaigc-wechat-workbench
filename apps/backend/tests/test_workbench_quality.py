@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from app.services.ai_flavor import evaluate_ai_flavor_risk, extract_short_judgment_paragraphs
 from app.services.workbench import (
     AssetItem,
     _apply_tracked_article_topic_rewrites,
@@ -67,6 +68,52 @@ def test_positive_payoff_accepts_concrete_landing_without_external_quote() -> No
         strategy_bundle_payload=strategy,
         candidate_markdown="饭还热着，家人就在身边。日子没有喧闹，却有很实在的安稳。",
     )
+
+
+def test_local_everyday_warmth_draft_avoids_short_judgment_cadence() -> None:
+    title, body_markdown = _build_local_generic_tracked_article_draft(
+        {
+            "source_type": "tracked_article",
+            "article_title": "人生不求大富大贵，但求简单快乐",
+            "topic_title": "日子过到后来，有家人有知己就很踏实",
+            "topic_angle": "从人为什么总把幸福押在更大的拥有上切入，写一路追着体面和更多往前赶，最后却被家人平安、知己仍在和一顿热饭轻轻劝回来的过程。",
+            "reference_article_body_markdown": (
+                "人活着，到底是为了什么？人生苦短，只求心情愉悦，家人安康，吃穿不愁，知己二三，四季平安。"
+                "人生不求大富大贵，但求简单快乐。生活简单就迷人，人心简单就幸福。"
+            ),
+            "strategy_card": {"structure_mode": "everyday_warmth_return"},
+        }
+    )
+
+    summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+
+    assert len(extract_short_judgment_paragraphs(body_markdown)) <= 2
+    assert all("单句敲钟段偏多" not in hit for hit in summary.hits)
+    assert all("短促判断段偏多" not in hit for hit in summary.hits)
+    assert summary.score < 30
+
+
+def test_local_self_reliance_draft_avoids_cliche_and_slogan_finish() -> None:
+    title, body_markdown = _build_local_generic_tracked_article_draft(
+        {
+            "source_type": "tracked_article",
+            "topic_title": "成年人最清醒的底气，是能把自己稳稳托住",
+            "topic_angle": "从想倾诉却发现大家都在各自负重切入，写成年人怎样把力气收回自己手里，用具体行动接住眼前生活。",
+            "reference_article_body_markdown": (
+                "心情不好的时候想找朋友倾诉，却发现朋友也在为你不知道的事情担忧焦虑。"
+                "工作上遇到麻烦想找人商量，却发现身边的人也都在焦头烂额。"
+                "只有向内求，才能自我疗愈，生生不息。即使没有帮助，也不会孤立无援，而是能够自救自渡。"
+            ),
+            "analysis_structure_mode": "self_reliance_inward_support",
+        }
+    )
+
+    summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
+
+    assert "愿你" not in body_markdown
+    assert all("万能成长套话" not in hit for hit in summary.hits)
+    assert all("结尾口号感" not in hit for hit in summary.hits)
+    assert summary.score == 0
 
 
 def test_positive_payoff_keeps_relationship_theme_separate_from_home_warmth() -> None:
