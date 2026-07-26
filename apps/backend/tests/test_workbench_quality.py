@@ -1492,7 +1492,7 @@ def test_local_self_reliance_draft_removes_external_absence_template() -> None:
 
     combined = f"{title}\n{body}"
     assert "把力气收回自己手里" in title
-    assert "水烧开、话说清、明天要做的事写下来" in combined
+    assert "把饭吃热、把灯打开、把最要紧的一件事先落稳" in combined
     assert "把选择重新拿回来" in combined
     for stale in (
         "别人赶来之前",

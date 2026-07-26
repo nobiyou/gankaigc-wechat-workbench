@@ -9721,7 +9721,7 @@ def _resolve_local_fallback_mode(payload: Mapping[str, object]) -> str:
             "自己安顿",
             "求助",
             "帮扶",
-            "先把今天过完",
+            "先把眼前这一步走稳",
             "悬着",
             "把自己托住",
             "扛事久了",
@@ -10015,8 +10015,8 @@ _LOCAL_MODE_OUTLINE_DEFAULTS: dict[str, tuple[str, str, str, str]] = {
     ),
     "self_reliance_inward_support": (
         "把手边的小事做稳时，人会慢慢找回自己的主心骨",
-        "水烧开、话说清、明天要做的事写下来，生活就重新有了落点",
-        "真正托住人的，不是硬撑，而是判断还在、行动还在、也知道什么时候请别人一起分担",
+        "把饭吃热、把灯打开、把最要紧的一件事先落稳，生活就重新有了落点",
+        "真正托住人的，不是硬撑，而是判断回来了、行动还在，也知道什么时候请别人一起分担",
         "等力气重新回到自己手里，日子也会一点点亮起来",
     ),
     "self_worth_rebuild": (
@@ -10926,6 +10926,8 @@ def _build_local_mode_shaped_generic_paragraphs(
             "每个人都在各自扛事",
             "四周都腾不出空",
             "想找人倾诉",
+            "消息框开了又关",
+            "先把今天过完",
             "事情压到眼前",
             "把顺序重新理回来",
             "把慌乱收回一个动作",
@@ -10946,9 +10948,9 @@ def _build_local_mode_shaped_generic_paragraphs(
 
         if "不是不想开口" in point_one:
             point_one = "想开口的那一秒，先给自己留一点把话说清楚的空间"
-        point_one = _self_reliance_point(point_one, "水烧开、话说清、明天要做的事写下来，生活就重新有了落点")
+        point_one = _self_reliance_point(point_one, "把饭吃热、把灯打开、把最要紧的一件事先落稳，生活就重新有了落点")
         point_two = _self_reliance_point(point_two, "等力气重新回到自己手里，再去想该向谁开口、该把哪件事交出去")
-        point_three = _self_reliance_point(point_three, "真正托住人的，是判断还在、行动还在，也知道什么时候请别人一起分担")
+        point_three = _self_reliance_point(point_three, "真正托住人的，是判断回来了、行动还在，也知道什么时候请别人一起分担")
         point_four = _self_reliance_point(point_four, "把今天这一点光守住，后面的路就会一点点亮起来")
         return [
             intro,
@@ -13599,7 +13601,7 @@ def _resolve_local_assets_social_teaser(
         return _compose_local_followup(lead, "把自己看重一点，关系里的分寸才会慢慢回来。")
     if mode == "self_reliance_inward_support" and _uses_local_self_reliance_shared_burden_variant(payload):
         lead = first if first_is_safe else "先把眼前最要紧的一件事放稳，心里就有了顺序。"
-        return _compose_local_followup(lead, "等自己缓下来，再决定从哪句话开始、向谁开口。")
+        return _compose_local_followup(lead, "主心骨回来以后，很多事就有了下一步。")
     if mode == "pressure_interface_direct":
         lead = first if first_is_safe else "复查提醒弹出来的时候，先别急着划掉。"
         return _compose_local_followup(lead, "把该照顾自己的那一步放回今天，日子才会一点点回到顺序里。")
@@ -14015,7 +14017,7 @@ def _build_local_publish_package_fallback(
                     focus_payload,
                     (
                         (
-                            "想开口的时候，别急着把心收回去。把手边最要紧的一件事落稳，判断回来以后，心里就会重新长出下一步。",
+                            "想开口的时候，别急着把心收回去。先把手边最要紧的一件事落稳，判断回来以后，心里就会重新长出下一步。",
                             "成熟的力量，是能把力气收回自己手里。人有了主心骨，就能自己往前走，也能在合适的时候请人分担。",
                         ),
                         (

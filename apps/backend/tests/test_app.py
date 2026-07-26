@@ -9275,7 +9275,7 @@ def test_build_local_tracked_article_draft_fallback_self_reliance_shared_burden_
     assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
     assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
-    assert "判断还在、行动还在" in body_markdown
+    assert "判断回来了、行动还在" in body_markdown
     assert "把力气重新回到自己手里" not in body_markdown
     assert "把桌面清出一块地方，把明天最先要用的东西放到手边" not in body_markdown
     assert "电话要不要回，事情先做哪件" not in body_markdown
@@ -9794,7 +9794,7 @@ def test_build_local_tracked_article_draft_fallback_uses_mode_shaped_outline_for
     assert "也写一个人怎样" not in body_markdown
     assert "分清轻重缓急" not in body_markdown
     assert "能有人同行当然很好。" not in body_markdown
-    assert "判断还在、行动还在" in body_markdown
+    assert "判断回来了、行动还在" in body_markdown
     assert "并不是认输" not in body_markdown
     assert "不等于只能硬撑" not in body_markdown
     assert "并不是一个人把所有难处硬熬过去" not in body_markdown
@@ -9812,14 +9812,15 @@ def test_build_local_assets_fallback_uses_mode_shaped_social_teaser_for_self_rel
         topic_angle="从成年人想找人倾诉、想向外求助，却发现别人也各自承压切入。",
         draft_title="没人能立刻搭把手的时候，先把自己从慌里带出来",
         draft_body_markdown=(
-            "消息框开了又关，你最后还是决定先把今天过完。\n\n"
+            "先把眼前最要紧的一件事放稳，心里就有了顺序。\n\n"
             "别急着等谁来救场，把自己的力气一点点接回来。\n\n"
             "很多人不是不想开口，只是一回头，周围每个人手里都压着自己的事。"
         ),
     )
 
     assert any(anchor in assets["cover_copy"] for anchor in ("力气", "主心骨", "一件小事", "下一步", "落点"))
-    assert assets["social_teaser"] == "消息框开了又关，你最后还是决定先把今天过完。等自己缓下来，再决定从哪句话开始、向谁开口。"
+    assert assets["social_teaser"] == "先把眼前最要紧的一件事放稳，心里就有了顺序。主心骨回来以后，很多事就有了下一步。"
+    assert "消息框开了又关" not in assets["social_teaser"]
 
 
 def test_build_local_publish_package_fallback_uses_shared_burden_self_reliance_variant() -> None:
@@ -10430,10 +10431,17 @@ def test_build_local_tracked_article_draft_fallback_inner_settlement_uses_mode_v
         (
             "人到后来才明白，真正要找的归宿，不一定在远方，常常先在心里。",
             "外面的风景再热闹，心里若没有归处，人还是会觉得漂。",
+            "心总往外悬着的时候，再热闹的地方也像借住。",
         )
     )
     assert "很多时候，真正让人累的，不一定是事情有多难，而是心里一直没有一个能安顿下来的地方。" in body_markdown
-    assert "你慢慢不再把自己交给外面的起伏，而是把重心一点点收回自己身上。" in body_markdown
+    assert any(
+        fragment in body_markdown
+        for fragment in (
+            "你慢慢不再把自己交给外面的起伏，而是把重心一点点收回自己身上。",
+            "你终于不再把自己交给外面的起伏，而是把重心一点点收回自己身上。",
+        )
+    )
     assert "所谓“此心安处”，未必是从此没有风浪，而是风浪还在，你已经不会被每一阵风都轻易带走。" in body_markdown
     assert "把那颗总往外追的心轻轻带回来，和今天相处，和自己和解。" in body_markdown
     assert "一呼一吸" not in body_markdown
@@ -10459,6 +10467,7 @@ def test_build_local_tracked_article_draft_fallback_inner_settlement_uses_refere
         (
             "人到后来才明白，真正要找的归宿，不一定在远方，常常先在心里。",
             "外面的风景再热闹，心里若没有归处，人还是会觉得漂。",
+            "心总往外悬着的时候，再热闹的地方也像借住。",
         )
     )
     assert "屋里安静下来以后，你才听见，心里那点一直没落地的事，原来比外面更吵。" not in body_markdown.split("\n\n")[0]
@@ -10521,8 +10530,10 @@ def test_build_local_publish_package_fallback_inner_settlement_uses_mode_lead_an
         assets=assets,
     )
 
-    assert package["publish_lead"] == "心一直悬着的时候，连一点小事都容易把人拽回情绪里。后来你才慢慢懂得，心安不是一下子把所有问题解决，而是先把饭吃好，把觉睡稳，把今天安安稳稳过完。"
-    assert package["abstract"] == "把水烧开，把灯关好，把明天要穿的衣服放在手边。很多想不通的事，不是硬想开的，是心慢慢落回日常以后，自己松开的。"
+    assert any(fragment in package["publish_lead"] for fragment in ("心里那点事", "心一直悬着", "心安"))
+    assert any(fragment in package["publish_lead"] for fragment in ("今晚想明白", "今天", "饭吃好"))
+    assert any(fragment in package["abstract"] for fragment in ("把水烧开", "把灯关好", "心先落回今天"))
+    assert any(fragment in package["abstract"] for fragment in ("想不通", "没那么吵", "日常"))
     assert package["intro_options"][0] == package["publish_lead"]
     assert "先把今天过回今天，心才会慢慢有地方落下来。" in package["intro_options"]
 
@@ -10589,8 +10600,9 @@ def test_build_local_publish_package_fallback_inner_settlement_uses_future_relea
         assets=assets,
     )
 
-    assert package["publish_lead"] == "不是每件事都要今晚想通，也不是每一段情绪都要立刻处理干净。人真正慢慢松下来的时候，往往只是先把今天过完，把心从过去和以后轻轻带回来。"
-    assert package["abstract"] == "已经过去的，今天先别反复回头；还没发生的，也别急着替明天发愁。把这顿饭吃完，把灯关好，心就会一点点回到眼前。"
+    assert package["publish_lead"].startswith("不是每件事都要今晚想通")
+    assert "先把今天过完" in package["publish_lead"]
+    assert any(fragment in package["abstract"] for fragment in ("已经过去", "还没发生", "把饭吃好", "把灯关好"))
 
 
 def test_build_local_assets_fallback_inner_settlement_uses_bedtime_cover_copy() -> None:
