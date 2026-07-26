@@ -8376,6 +8376,14 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             )
 
     if mode == "emotional_engine_direct":
+        if _uses_local_emotional_endings_acceptance_variant(payload):
+            return _pick_local_seeded_text_variant(
+                payload,
+                (
+                    "人最难放下的，往往不是离开本身，而是总想替一段认真过的关系讨一个圆满结局。",
+                    "有些相遇没走到最后，但它留下的眼界、分寸和勇气，早就在悄悄成全过你。",
+                ),
+            )
         if "要是他还在就好了" in corpus:
             return "很多想念都不是大张旗鼓的，只是在某个很普通的时刻，你忽然冒出一句：要是他还在就好了。"
         if any(token in corpus for token in ("背影", "擦肩", "街头", "像他")):
@@ -9961,11 +9969,16 @@ def _resolve_local_generic_outline_hook(
             theme_axis,
         ]
     )
+    title_like = {
+        _clean_local_fallback_instruction_phrase(value)
+        for value in (topic_title, topic_angle, core_conflict, theme_axis)
+        if str(value or "").strip()
+    }
     for raw in candidates:
-        if mode in {"everyday_warmth_return", "supportive_appreciation", "relationship_aftercare", "inner_settlement", "self_worth_rebuild", "self_reliance_inward_support", "trust_boundary", "response_priority"} and raw in {topic_title, topic_angle, core_conflict, theme_axis}:
-            continue
         cleaned = _clean_local_fallback_instruction_phrase(raw)
         if not cleaned:
+            continue
+        if cleaned in title_like:
             continue
         if _looks_like_local_fallback_instruction_fragment(cleaned):
             continue
