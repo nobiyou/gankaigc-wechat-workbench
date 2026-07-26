@@ -142,6 +142,11 @@ class AssetItem(BaseModel):
     social_teaser_options: list[str] = Field(default_factory=list)
     cover_image_path: str
     cover_image_url: str
+    cover_image_status: str = "ready"
+    cover_image_error: str | None = None
+    cover_image_route_label: str | None = None
+    cover_image_route_model: str | None = None
+    cover_image_route_base_url: str | None = None
     created_at: str | None = None
     origin: str | None = None
     tone_profile_id: int | None = None

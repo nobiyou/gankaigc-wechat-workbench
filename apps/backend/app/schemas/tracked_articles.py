@@ -17,6 +17,9 @@ class TrackedArticleItem(BaseModel):
     analysis_emotional_exit: str = ""
     analysis_structure_mode: str = ""
     analysis_opening_pattern: str = ""
+    analysis_hook_trigger: str = ""
+    analysis_progression_drive: str = ""
+    analysis_share_reason: str = ""
     analysis_do_not_turn_into: str = ""
     created_at: str | None = None
     tags: list[str]

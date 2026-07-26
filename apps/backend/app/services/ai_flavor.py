@@ -21,6 +21,16 @@ _ORPHANED_REBOUND_TAIL_PATTERN = re.compile(
     r"(?:真要把它(?:算成|当成)[^。！？!?；;\n]{0,24}(?:的)?。?\s*(?:它更常见的样子|它常常就|这|要|你只|只|都|[^。！？!?；;\n]{1,8}的人，通常)。?|(?:(?:更常见的情况|你还)[，,]\s*反而把事情说浅了|它代表的，反而把事情说浅了|后面那点拖延和硬撑反而更难解释|也把事情说浅了|反而把事情说浅了))",
     re.UNICODE,
 )
+_TRUNCATED_FRAGMENT_PARAGRAPH_PATTERN = re.compile(
+    r"(?:"
+    r"[。！？!?；;](?:很多时候|这逼自己|真要把它算成|真要把它当成|能这样想起|从来在往前走了)"
+    r"|"
+    r"(?:很多时候|这逼自己|能这样想起|从来在往前走了)[。！？!?]?$"
+    r"|"
+    r"真要把它(?:算成|当成)[^。！？!?；;\n]{0,20}[。！？!?]?$"
+    r")",
+    re.UNICODE,
+)
 _GENERIC_REFLECTIVE_OPENING_PATTERN = re.compile(
     r"^(?:很多时候|很多遗憾(?:都不是)?|说到底(?:[，,、:]?\s*)?|人总是这样|人很容易|我们总(?:习惯说|以为|觉得)|可生活(?:偏偏|最残酷的真相是)|真正的幸福|人生最大的遗憾|世间最痛的事|更常见的是|最磨人的(?:地方|时候)(?:在这里)?|事情常常(?:就是)?这样|身体的提醒(?:通常)?不响亮)",
     re.UNICODE,
@@ -78,11 +88,30 @@ _SIGNPOSTING_ANNOUNCEMENT_PATTERN = re.compile(
     re.UNICODE,
 )
 _ABSTRACT_MECHANISM_LABEL_PATTERN = re.compile(
-    r"(?:次序失衡|这套模式|自我忽略|长期撤掉|优先权|自我亏欠|生活次序|固定位置|长期取消|长期透支|边界|外部倒计时)",
+    r"(?:次序失衡|这套模式|自我忽略|长期撤掉|优先权|自我亏欠|生活次序|固定位置|长期取消|长期透支|边界|外部倒计时|家庭分工|经济压力|长期习惯|默认的承担者|默认承担者|角色要求|情感牵引|失序的恐惧|被透支|自我感受|长期压缩|变得麻木)",
     re.UNICODE,
 )
 _ABSTRACT_ANSWER_TITLE_PATTERN = re.compile(
     r"(?:总把自己[^。！？!?；;\n]{0,14}(?:放最后|排到最后)|善待自己|好好爱自己|人生(?:最大的)?遗憾|生活为什么会慢慢失序|迟早要为[^。！？!?；;\n]{0,12}付账|人为什么总把自己[^。！？!?；;\n]{0,10}(?:往后放|压后|放最后))",
+    re.UNICODE,
+)
+_STALE_SELF_RELIANCE_EXTERNAL_PATTERN = re.compile(
+    r"(?:外面(?:的)?(?:帮扶|安慰|支撑)[^。！？!?；;\n]{0,18}(?:赶不上|未必|不稳定|没来|来不及)|"
+    r"等不到[^。！？!?；;\n]{0,16}(?:手|回应|安慰|帮助)|"
+    r"(?:朋友|身边人|家里|别人)[^。！？!?；;\n]{0,18}(?:也各自承压|也有自己的难|手里都压着)|"
+    r"(?:没人|无人|没有人)[^。！？!?；;\n]{0,16}(?:帮|懂|接住)|"
+    r"(?:求助|外援)[^。！？!?；;\n]{0,16}(?:落空|慢半拍|来不及))",
+    re.UNICODE,
+)
+_STALE_SELF_RELIANCE_SELF_HELP_PATTERN = re.compile(
+    r"(?:先把(?:今天|饭|明天|情绪|手里的事|自己)[^。！？!?；;\n]{0,14}(?:过完|吃完|安排好|放一放|收一收|安顿住|托起来)|"
+    r"(?:吃完|洗个澡|收一收|列清单|睡一觉)[^。！？!?；;\n]{0,16}(?:再|然后|就)|"
+    r"(?:把力气|把依靠|把希望)[^。！？!?；;\n]{0,18}(?:收回自己|压在外面)|"
+    r"(?:自救自渡|向内求|自我疗愈|自我修复|自己托住自己))",
+    re.UNICODE,
+)
+_STALE_SELF_RELIANCE_SYMPTOM_PATTERN = re.compile(
+    r"(?:睡眠|胃口|心气|胸口|身体|胃|心慌|失眠|磨钝|发紧|睡不沉|症状)",
     re.UNICODE,
 )
 _TIME_CHAIN_PREFIXES = (
@@ -198,6 +227,27 @@ def extract_rebound_explainer_tails(markdown: str) -> list[str]:
 def extract_orphaned_rebound_tails(markdown: str) -> list[str]:
     matches = [match.group(0).strip() for match in _ORPHANED_REBOUND_TAIL_PATTERN.finditer(markdown)]
     return _dedupe_preserve_order(matches)
+
+
+def extract_truncated_fragment_paragraphs(markdown: str) -> list[str]:
+    paragraphs = _extract_paragraphs(markdown)
+    hits: list[str] = []
+    for paragraph in paragraphs:
+        normalized = paragraph.strip()
+        if not normalized:
+            continue
+        compact = _compact_text(normalized)
+        if len(compact) < 6:
+            continue
+        if "。." in normalized or ".。" in normalized or "**。" in normalized:
+            hits.append(normalized)
+            continue
+        if normalized.endswith(("它们就。", "已经。")):
+            hits.append(normalized)
+            continue
+        if _TRUNCATED_FRAGMENT_PARAGRAPH_PATTERN.search(normalized):
+            hits.append(normalized)
+    return _dedupe_preserve_order(hits)
 
 
 def _extract_clause_leading_yi_phrases(markdown: str) -> list[str]:
@@ -439,6 +489,13 @@ def _extract_abstract_mechanism_labels(markdown: str) -> list[str]:
     return _dedupe_preserve_order(matches)
 
 
+def _count_stale_self_reliance_diagnostic_voice(markdown: str) -> tuple[int, int, int]:
+    external_hits = len(_STALE_SELF_RELIANCE_EXTERNAL_PATTERN.findall(markdown))
+    self_help_hits = len(_STALE_SELF_RELIANCE_SELF_HELP_PATTERN.findall(markdown))
+    symptom_hits = len(_STALE_SELF_RELIANCE_SYMPTOM_PATTERN.findall(markdown))
+    return external_hits, self_help_hits, symptom_hits
+
+
 def _count_standard_explainer_paragraphs(markdown: str) -> tuple[int, int]:
     paragraphs = _extract_paragraphs(markdown)
     standard_count = 0
@@ -528,6 +585,12 @@ def evaluate_ai_flavor_risk(*, title: str, body_markdown: str) -> AiFlavorRiskSu
         hits.append(f"命中：断裂回钩尾句 x{len(orphaned_rebound_tails)}")
         suggestions.append("建议：删掉被拆断后单独残留的回钩尾句，把前后句直接接回原段。")
         score += min(12, 6 + (len(orphaned_rebound_tails) - 1) * 3)
+
+    truncated_fragments = extract_truncated_fragment_paragraphs(body_markdown)
+    if truncated_fragments:
+        hits.append(f"命中：截断残句 x{len(truncated_fragments)}")
+        suggestions.append("建议：删掉明显没说完的半句、双标点和断尾，保证每段都能独立成立。")
+        score += min(20, 8 + (len(truncated_fragments) - 1) * 4)
 
     step_count = _count_pattern_matches(body_markdown, re.compile(r"第[一二三四五六七八九十]+步", re.UNICODE))
     if step_count > 0:
@@ -632,6 +695,17 @@ def evaluate_ai_flavor_risk(*, title: str, body_markdown: str) -> AiFlavorRiskSu
         hits.append(f"命中：抽象机制标签密集 x{len(abstract_labels)}")
         suggestions.append("建议：把抽象概念标签改成具体压力、选择代价或身体反应，不要先抛概念再解释。")
         score += min(24, 14 + (len(abstract_labels) - 5) * 2)
+
+    stale_external_hits, stale_self_help_hits, stale_symptom_hits = _count_stale_self_reliance_diagnostic_voice(
+        body_markdown
+    )
+    if stale_external_hits >= 2 and stale_self_help_hits >= 2 and stale_symptom_hits >= 2:
+        hits.append(
+            "命中：旧自救诊断模板 "
+            f"外援缺席x{stale_external_hits}/自助步骤x{stale_self_help_hits}/症状化x{stale_symptom_hits}"
+        )
+        suggestions.append("建议：删掉外援缺席、泛自助步骤和症状清单的组合模板，改成参考文独有的行动、判断和现实结果。")
+        score += 18
 
     standard_explainer_blocks, explainer_paragraph_count = _count_standard_explainer_paragraphs(body_markdown)
     if (
@@ -803,6 +877,8 @@ def build_ai_flavor_polish_instruction(summary: AiFlavorRiskSummary, *, compact:
             actions.append("开头不要先用“你以为……吗 / 有一类……”替读者分类下定义，直接把现实接口、后果或身体信号顶上来，再把判断慢一点递出来。")
         if any("抽象机制标签密集" in hit for hit in summary.hits):
             actions.append("把“次序失衡 / 自我亏欠 / 长期透支”这类抽象标签改成具体压力、选择代价或身体反应，不要先抛概念再解释。")
+        if any("旧自救诊断模板" in hit for hit in summary.hits):
+            actions.append("删掉外援缺席、泛自助步骤和症状清单的组合模板，改成本文独有的行动、判断和现实结果，前三段就让正向能力显形。")
         if any("中长段标准讲理排布" in hit for hit in summary.hits):
             actions.append("不要每段都写成“判断 + 解释 + 小结”，至少合并两处、截短两处，保留局部没有说满的停顿。")
         if any("第二人称整篇讲解密度偏高" in hit for hit in summary.hits):
@@ -844,6 +920,7 @@ def build_ai_flavor_polish_instruction(summary: AiFlavorRiskSummary, *, compact:
         "删掉“答案先放这儿”“更麻烦的地方在这儿”“你也不用”这类讲解台词，降低第二人称讲理密度。"
         "把“你有没有过这种阶段”“答案我先告诉你”“如果你这段时间已经开始”这类讲解台词改成状态、动作后果或关系变化先发生，不要换成“不是……而是……”或“其实 / 所以”解释链。"
         "不要先抛“次序失衡”“自我亏欠”“长期透支”这类抽象机制标签再解释，改成具体压力、代价或身体反应。"
+        "如果命中旧自救诊断模板，不要再围绕外援缺席、吃饭睡觉列清单和睡眠胃口症状推进，改成本文独有的行动、判断和现实结果。"
         "不要每段都写成“判断 + 解释 + 小结”，至少让一部分段落只承接动作、关系变化或未说完的余波。"
         "如果整篇都在对“你”讲解，至少留两段改由事实、后果或关系变化自己说话。"
         "不要连续用七到十个完整中长段把同一条判断讲满，至少拆短一段、合并一段，打破一段一层的标准答案壳。"
