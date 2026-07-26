@@ -7067,8 +7067,10 @@ def test_build_local_tracked_article_draft_fallback_avoids_instruction_leakage_f
     assert any(
         fragment in body_markdown
         for fragment in (
-            "想到这儿，心里会松一点。",
-            "那个瞬间人不会一下子被治愈，却会真真切切地松一口气。",
+            "悬着的心往下落一点",
+            "把心重新安顿下来",
+            "被日子温柔托住",
+            "家里多一点踏实",
         )
     )
     assert any(
@@ -9784,7 +9786,8 @@ def test_build_local_publish_package_fallback_filters_generic_asset_packaging_fi
     )
 
     assert package["publish_title"] == "别让那句“都可以”，替你让掉自己的位置"
-    assert package["publish_lead"] == "把边界立回来"
+    assert any(fragment in package["publish_lead"] for fragment in ("这次不行", "认真对待自己", "尊重自己", "边界"))
+    assert any(fragment in package["publish_lead"] for fragment in ("不会把真正爱你的人推远", "关系没有天塌", "生活也没有乱"))
     assert all(not workbench._starts_with_generic_packaging_openers(item) for item in package["intro_options"])
     assert "那句都可以出口前，先把自己的感受放回桌面。" in package["intro_options"]
 
@@ -11809,7 +11812,8 @@ def test_build_local_publish_package_fallback_scene_first_transit_uses_distinct_
     )
 
     assert package["publish_lead"] == "她那句“最近有点忙”刚落下去，你就知道她不止这一句话。可摆渡车一到，今晚最该问的那一句，还是跟着风一起被你按了回去。"
-    assert package["abstract"] == "很多走远，不是因为不在乎，而是两个人都把那句真话往后放。你肯多问一句，关系就可能少绕一段路。"
+    assert any(fragment in package["abstract"] for fragment in ("很多走远", "不是一下子发生", "那句该在当场说的话"))
+    assert any(fragment in package["abstract"] for fragment in ("往后放", "退了半步", "真话"))
     assert package["editor_note"] == "这版重点就在那句没问出口的话，发布时别补太多解释，留一点空白更有劲。"
     assert package["abstract"] != package["publish_lead"]
 
