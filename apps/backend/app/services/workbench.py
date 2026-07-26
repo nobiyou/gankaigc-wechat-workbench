@@ -13587,7 +13587,8 @@ def _resolve_local_assets_social_teaser(
             return _compose_local_followup(lead, "体谅不是天生该让，能被珍惜，温柔才会一直留得住。")
         if _has_local_supportive_discernment_profile(payload):
             lead = first if first_is_safe else "他其实什么都懂，只是每次轮到在乎的人，还是会先把锋芒收回去。"
-            return _compose_local_followup(lead, "她看得清，也愿意把情分放在前面。")
+            subject = "他" if "他" in lead and "她" not in lead else "她"
+            return _compose_local_followup(lead, f"{subject}看得清，也愿意把情分放在前面。")
         if _has_local_supportive_apology_profile(payload):
             lead = first if first_is_safe else "明明已经有点难受了，对方把歉意说出口时，她还是先把语气放轻了。"
             return _compose_local_followup(lead, "愿意留余地的人，更需要被认真回应。")

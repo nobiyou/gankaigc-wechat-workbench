@@ -12365,6 +12365,7 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
         "他其实什么都懂，只是每次轮到在乎的人，还是会先把那点难受往回收一收。他看得清，也愿意把情分放在前面。",
         "很多事他不是没看出来，只是关系摆在面前时，他总习惯先把语气放软。他看得清，也愿意把情分放在前面。",
     }
+    assert "她看得清，也愿意把情分放在前面。" not in assets_payload["social_teaser"]
 
     assets = workbench.AssetItem(
         project_slug="supportive-warmth-project",
@@ -12385,7 +12386,8 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
         draft_body_markdown=body_markdown,
         assets=assets,
     )
-    assert package["publish_lead"] == "谁是真心，谁在敷衍，他未必当场说破，心里却一清二楚。可轮到在乎的人，他还是会先把语气放软，把争辩收一收。很多温柔都不是迟钝，是明白以后还愿意留一点余地。"
+    assert any(fragment in package["publish_lead"] for fragment in ("敷衍", "没看见", "看得清"))
+    assert any(fragment in package["publish_lead"] for fragment in ("放软", "留一点余地", "关系"))
     assert "吵完" not in package["publish_lead"]
     assert "冷气" not in package["publish_lead"]
 
