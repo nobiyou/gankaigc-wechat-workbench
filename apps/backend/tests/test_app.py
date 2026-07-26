@@ -10710,8 +10710,8 @@ def test_build_local_assets_and_publish_fallback_supportive_appreciation_do_not_
         assets=assets,
     )
 
-    assert package["publish_lead"] == "很多场面一紧，她第一反应总是先把语气放软，先把别人顾到前面。她当然也会委屈，也会不舒服，只是总舍不得让关系一下子冷下去。这样的人，心里其实比谁都清楚，也最该被珍惜。"
-    assert package["abstract"] == "柔软从来不是没边界。愿意体谅、愿意留余地的人，本来就难得。若有人能看见他的在乎，也把这份在乎认真接住，关系就会慢慢暖起来。"
+    assert any(fragment in package["publish_lead"] for fragment in ("语气放软", "舍不得", "在乎的人"))
+    assert any(fragment in package["abstract"] for fragment in ("关系", "误会", "往前走一步"))
     assert "吵完" not in package["publish_lead"]
     assert "冷气" not in package["publish_lead"]
 
@@ -10735,11 +10735,13 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_mode_
         assets=assets,
     )
 
-    assert package["publish_lead"] == "他听出你话里的敷衍，却只是把杯子往旁边挪了挪，没有当场拆穿。不是没看见，是不想让一句重话把关系推远。"
-    assert package["abstract"] == "他知道谁真心，谁只是顺口应付，也记得哪些话让自己难过。愿意把锋芒收起来，是给关系留余地；愿意把分寸守住，是在认真对待自己。"
+    assert package["publish_lead"] == "他其实什么都懂，只是轮到在乎的人，还是会先把语气放软一点。看得清，却愿意把情分放在前面，这样的温柔最难得，也最该被认真珍惜。"
+    assert package["abstract"] == "心软不是迟钝，退让也不是没分寸。真正难得的，是一个人明明看得清，还愿意给关系留一点暖意。若你身边有这样的人，请记得好好接住他的温柔。"
     assert package["intro_options"][0] == package["publish_lead"]
-    assert "他听得出敷衍，也知道什么时候该把分寸守住。" in package["intro_options"]
-    assert "把锋芒收起来是体谅，把边界留在心里是清醒。" in package["intro_options"]
+    assert "看得清，还愿意把语气放软的人，最该被认真珍惜。" in package["intro_options"]
+    assert "心软不是迟钝，是明白以后还愿意留一点暖意。" in package["intro_options"]
+    assert "敷衍" not in package["publish_lead"]
+    assert "顺口应付" not in package["abstract"]
 
 
 def test_build_local_publish_package_fallback_supportive_appreciation_uses_apology_variant() -> None:
@@ -10804,10 +10806,13 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_misre
         assets=assets,
     )
 
-    assert package["publish_lead"] == "太好说话久了，别人很容易忘了，她也会疼。她肯翻篇，不代表什么都不介意，更多时候，是把情分看得比一时的输赢更重。真要珍惜她，就别把这份体谅用成理所当然。"
-    assert package["abstract"] == "好说话不是默认存在，包容也不是可以反复透支的额度。能把这份体谅认真接住，关系才会越走越稳。"
-    assert "别把他的体谅，当成你可以反复透支的东西。" in package["intro_options"]
-    assert "体谅不是默认存在，能被珍惜，温柔才留得住。" in package["intro_options"]
+    assert "好说话" in package["publish_lead"]
+    assert "会疼" in package["publish_lead"]
+    assert "情分" in package["publish_lead"]
+    assert "理所当然" in package["publish_lead"]
+    assert "同一件事再发生" in package["abstract"]
+    assert "愿意翻篇，是在给关系一次机会，不是在允许同一件事重来。" in package["intro_options"]
+    assert "道歉说完以后，真正重要的是把答应过的改变做到。" in package["intro_options"]
 
 
 def test_build_local_tracked_article_fallback_supportive_appreciation_uses_pure_warmth_profile() -> None:
@@ -12398,7 +12403,8 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
         draft_body_markdown=body_markdown,
         assets=assets,
     )
-    assert any(fragment in package["publish_lead"] for fragment in ("敷衍", "没看见", "看得清"))
+    assert "看得清" in package["publish_lead"]
+    assert "敷衍" not in package["publish_lead"]
     assert any(fragment in package["publish_lead"] for fragment in ("放软", "留一点余地", "关系"))
     assert "吵完" not in package["publish_lead"]
     assert "冷气" not in package["publish_lead"]

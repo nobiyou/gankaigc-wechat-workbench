@@ -2093,9 +2093,12 @@ def test_local_supportive_discernment_publish_package_fallback_avoids_template_s
         assets=assets,
     )
 
-    assert "听出你话里的敷衍" in str(result["publish_lead"])
-    assert "给关系留余地" in str(result["abstract"])
-    assert "认真对待自己" in str(result["abstract"])
+    assert "看得清" in str(result["publish_lead"])
+    assert "语气放软" in str(result["publish_lead"])
+    assert "认真珍惜" in str(result["publish_lead"])
+    assert "给关系留一点暖意" in str(result["abstract"])
+    assert "听出你话里的敷衍" not in str(result["publish_lead"])
+    assert "顺口应付" not in str(result["abstract"])
 
 
 def test_local_trust_publish_package_fallback_uses_broken_trust_scene() -> None:

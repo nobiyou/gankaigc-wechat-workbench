@@ -8983,8 +8983,12 @@ def _has_local_supportive_warmth_profile(payload: Mapping[str, object]) -> bool:
             "燃烧自己",
             "照亮别人",
             "你对他好",
+            "别人递来一点暖意",
             "别人递来一点善意",
             "加倍把暖意还回去",
+            "收到的暖意",
+            "收到的善意",
+            "温暖回给你",
             "你给他温暖",
             "回馈给你更多",
             "更多的温暖",
@@ -9154,63 +9158,15 @@ def _build_local_supportive_appreciation_paragraphs(
             ),
         ]
 
-    corpus = _build_local_response_priority_followup_corpus(payload)
-    has_discernment = any(token in corpus for token in ("并不傻", "拎得清", "心里比谁都拎得清"))
-    has_no_win_lose = any(token in corpus for token in ("不想与爱的人争辩输赢", "输赢、对错和得失", "对错和得失"))
-    has_apology = any(token in corpus for token in ("真诚的道歉", "一句对不起", "大方的原谅"))
-    has_storm = any(token in corpus for token in ("时有暴雨", "无尽暴雨", "穿过无尽暴雨", "去拥抱你"))
-    has_plain_seasons = any(token in corpus for token in ("四季平凡", "身边有你", "生活不需要太复杂"))
-
-    opening = "她顺手让了一步、先顾了别人感受，结果那份体谅又被轻轻带过去了。"
-    if has_apology:
-        opening = "明明已经有点难受了，对方把歉意说出口时，她还是先把语气放轻了。"
-    elif intro and intro.strip():
-        opening = intro.strip()
-    elif has_discernment:
-        opening = "场面快僵的时候，她还是先把语气放软了。"
-
     return [
-        _compose_local_followup(opening, "很多人就是在这种时候，误会了他。"),
-        _compose_local_followup(
-            "以为他肯退一步，是好说话；以为他不把话说重，是没脾气。",
-            "其实很多事，他都知道得很早。" if has_discernment else "其实他不是慢半拍，只是习惯先把情绪往后放一放。",
-        ),
-        _compose_local_followup(
-            "谁是真心，谁在敷衍；哪句是无心，哪句已经越了界，他心里并不含糊。" if has_discernment else "场面里的冷暖，他比谁都更先感觉到。",
-            "只是比起当场争个输赢，他更先想到：这句话出去，会不会让关系一下子冷下来。" if has_no_win_lose else "只是每次要把话说重时，他都会先想到，对方会不会因此难堪。",
-        ),
-        _compose_local_followup(
-            "所以场面快僵了，他先缓一缓；别人说错了话，他先给台阶；连自己已经有点委屈了，也总想等等再说。",
-            "这种柔软最容易被错看的地方，就在这里。",
-        ),
-        _compose_local_followup(
-            "他的分寸一直都在，只是总把在乎摆在了前面。",
-            "对方若真心道了歉，他通常会把那点难受先放一放。" if has_apology else "只要对方还肯认真回头，他就愿意再给一次余地。",
-        ),
-        _compose_local_followup(
-            "他愿意把那点难受先放一放，也想给关系留一次回来的机会。" if has_apology else "很少有人能等到这样的体谅，所以这份退让从来都不廉价。",
-            "可余地若总靠他一个人留，心也会慢慢凉下来。",
-        ),
-        _compose_local_followup(
-            "很多关系后来淡掉，未必经历过多大的争吵。",
-            "更多时候，是他一次次圆场，一次次自己消化，一次次把难过往回收。收着收着，也就不想再说了。",
-        ),
-        _compose_local_followup(
-            "所以别只记得他容易原谅。",
-            "也要记得，在他把话放软以后，反过来问一句：“刚刚是不是让你难受了？”",
-        ),
-        _compose_local_followup(
-            "我很喜欢一句话：“温柔拿出来了，就该被好好接住。”",
-            "真正难得的，是他明明看得清，还愿意把暖意还给你。",
-        ),
-        _compose_local_followup(
-            "他想要的日子其实很简单。" if has_plain_seasons else "这样的人想要的，其实并不多。",
-            "日子平常一点没关系，身边的人别把他的体谅当习惯，也别把他的好脾气当应该。" if has_plain_seasons else "不是多热闹的补偿，只是自己递出去的真心，别总落空。",
-        ),
-        _compose_local_followup(
-            "你护住他一次，他才敢继续把真心放出来。" if has_storm else "你认真回应一次，这份柔软才会放心留在关系里。",
-            "被珍惜过的温柔，不会越来越薄。它会慢慢长成一段关系里最踏实的那部分。",
-        ),
+        "别人递来一点暖意，他常常会想办法再多还回去一点。",
+        "你对他好一分，他会记在心里很久，转身又把这份好慢慢添一点还给你。",
+        "这样的人，心里常常很软，也很重感情。不是不会累，只是看见别人对他的好，就舍不得让那份好落空。",
+        "他未必把感谢说得很响，却会在很多小事里慢慢还回来：记得你的难处，留意你的情绪，也愿意在你需要的时候多往前走一步。",
+        "心软的人最难得的地方，从来不只是脾气好。是他把关系看得认真，把别人给过的温暖，也认真放在心上。",
+        "所以，别把他的柔软看得太轻。那不是随手就有的好脾气，而是一个人愿意把善意继续传下去的能力。",
+        "一生那么长，真正愿意把温暖回给你的人并不多。遇见了，就别只享受他的好，也要让他知道：他的真心有人看见。",
+        "被认真珍惜过的温柔，会越来越亮。它会在平淡日子里慢慢长成踏实的爱，也会让两个人都更愿意靠近。",
     ]
 
 
@@ -13457,6 +13413,8 @@ def _resolve_local_assets_cover_copy(
             return "心软的人，往往看得很清，也把情分看得很重。"
         if _has_local_supportive_apology_profile(payload):
             return "那个受了委屈还把语气放轻的人，更该被珍惜。"
+        if _has_local_supportive_warmth_profile(payload):
+            return "心软的人，一生难遇，也值得被人好好珍惜。"
         return "会先顾别人感受的人，也该被认真接住。"
     if mode == "self_reliance_inward_support" and _uses_local_self_reliance_shared_burden_variant(payload):
         return _pick_local_seeded_text_variant(
@@ -13594,6 +13552,9 @@ def _resolve_local_assets_social_teaser(
         if _has_local_supportive_apology_profile(payload):
             lead = first if first_is_safe else "明明已经有点难受了，对方把歉意说出口时，她还是先把语气放轻了。"
             return _compose_local_followup(lead, "愿意留余地的人，更需要被认真回应。")
+        if _has_local_supportive_warmth_profile(payload):
+            lead = first if first_is_safe else "别人递来一点暖意，他常常会想办法再多还回去一点。"
+            return _compose_local_followup(lead, "真正难得的，是他把收到的暖意又慢慢还了回来。")
         lead = first if first_is_safe else "会先顾别人感受的人，也该有人反过来护住。"
         return _compose_local_followup(lead, "真正难得的，是有人看见这份退让背后的在乎。")
     if mode == "self_worth_rebuild" and _has_local_self_worth_luxury_profile(payload):
@@ -14056,11 +14017,14 @@ def _build_local_publish_package_fallback(
                 publish_lead = "太好说话的人，也会疼。她愿意翻篇，不是因为没受伤，只是把情分看得更重。真正该被珍惜的，是这份体谅没有再被当成理所当然。"
                 abstract = "她愿意再把话接起来，已经是在给这段关系一次机会。下一次记得先听完她的话，也把答应过的改变做到。心软的人最看重的，从来不是漂亮道歉，是你真的没有让同一件事再发生。"
             elif _has_local_supportive_discernment_profile(focus_payload):
-                publish_lead = "他听出你话里的敷衍，却只是把杯子往旁边挪了挪，没有当场拆穿。不是没看见，是不想让一句重话把关系推远。"
-                abstract = "他知道谁真心，谁只是顺口应付，也记得哪些话让自己难过。愿意把锋芒收起来，是给关系留余地；愿意把分寸守住，是在认真对待自己。"
+                publish_lead = "他其实什么都懂，只是轮到在乎的人，还是会先把语气放软一点。看得清，却愿意把情分放在前面，这样的温柔最难得，也最该被认真珍惜。"
+                abstract = "心软不是迟钝，退让也不是没分寸。真正难得的，是一个人明明看得清，还愿意给关系留一点暖意。若你身边有这样的人，请记得好好接住他的温柔。"
             elif any(token in draft_body_markdown for token in ("歉意", "道歉", "原谅", "真心道了歉", "把歉意说出口")):
                 publish_lead = "那句“对不起”说完，她沉默了一会儿，还是把水杯往你这边推了推。刚才的话确实伤到了她，可这段关系在她心里，比当下那口气更重要，所以她愿意再把话接起来。"
                 abstract = "道歉最有分量的部分，往往发生在下一次：你记得她为什么难过，也真的把那件事做得不一样。温柔被认真接住，才会一直是温柔。"
+            elif _has_local_supportive_warmth_profile(focus_payload):
+                publish_lead = "别人递来一点暖意，他常常会想办法再多还回去一点。这样的人，未必最会说，可你会在很多小事里看见他的认真：记得你的难处，也舍得把自己的好一遍遍落回来。被这样的人放在心上，日子会慢慢暖起来。"
+                abstract = "真正稀缺的，不是说得多动听，而是把温柔一遍遍落进小事里的人。别等他把失望咽多了，才想起他的体谅有多珍贵。"
             else:
                 publish_lead = "饭桌上的气氛刚有点僵，她先夹了一筷子菜，问了句：“还吃吗？”她不是没脾气，只是舍不得让在乎的人一直隔着一口气。"
                 abstract = "肯先把话接回来的人，已经把关系放在了输赢前面。别让这份主动总是一个人的习惯；你也往前走一步，很多误会就能停在今晚。"
@@ -14195,13 +14159,18 @@ def _build_local_publish_package_fallback(
                 ]
             elif _has_local_supportive_discernment_profile(focus_payload):
                 supportive_intro_options = [
-                    "他听得出敷衍，也知道什么时候该把分寸守住。",
-                    "把锋芒收起来是体谅，把边界留在心里是清醒。",
+                    "看得清，还愿意把语气放软的人，最该被认真珍惜。",
+                    "心软不是迟钝，是明白以后还愿意留一点暖意。",
                 ]
             elif any(token in draft_body_markdown for token in ("歉意", "道歉", "原谅", "真心道了歉", "把歉意说出口")):
                 supportive_intro_options = [
                     "道歉最有分量的部分，发生在下一次真的做得不一样。",
                     "温柔被认真接住，才会一直是温柔。",
+                ]
+            elif _has_local_supportive_warmth_profile(focus_payload):
+                supportive_intro_options = [
+                    "心软的人，一生难遇，也值得被人好好珍惜。",
+                    "收到一点暖意，还愿意再慢慢还回来的人并不多。",
                 ]
             else:
                 supportive_intro_options = [
