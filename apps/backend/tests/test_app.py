@@ -8518,6 +8518,16 @@ def test_generate_assets_skips_cover_api_when_packaging_quality_gate_still_fails
     assert restored_detail.project.current_chain_state == "assets_quality_blocked"
     assert restored_detail.project.next_required_step == "generate_assets"
 
+    batch_result = workbench.batch_continue_projects(["assets-quality-blocked-project"])
+    assert batch_result.processed_count == 0
+    assert batch_result.failed_count == 0
+    assert batch_result.skipped_count == 1
+    assert batch_result.results[0].status == "blocked"
+    assert batch_result.results[0].started_next_step == "generate_assets"
+    assert batch_result.results[0].completed_steps == []
+    assert "素材包装未通过主题质量门" in str(batch_result.results[0].error)
+    assert len(fake_generator.asset_calls) == 1
+
 
 def test_build_publish_package_keeps_api_result_when_packaging_retry_stays_generic(monkeypatch) -> None:
     client.post(

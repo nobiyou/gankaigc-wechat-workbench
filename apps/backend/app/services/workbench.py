@@ -21296,6 +21296,18 @@ def batch_continue_projects(project_slugs: list[str] | None = None) -> BatchCont
                 )
             )
             continue
+        if project.current_chain_state == "assets_quality_blocked":
+            skipped_count += 1
+            results.append(
+                BatchContinueProjectResult(
+                    slug=project.slug,
+                    status="blocked",
+                    started_next_step=started_next_step,
+                    error="素材包装未通过主题质量门；批量续链已停止，避免重复消耗文本和图片 API。请先重新生成素材包。",
+                    project=project,
+                )
+            )
+            continue
 
         completed_steps: list[str] = []
         try:
