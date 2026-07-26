@@ -998,7 +998,11 @@ def test_custom_base_url_recovery_honors_configured_timeout_and_retry_budget() -
     assert generator._resolve_tracked_article_metadata_timeout_override({"body_markdown": "x"}) == 120
     assert generator._resolve_outline_max_attempts({"outline_timeout_recovery_mode": True}) == 1
     assert generator._resolve_assets_max_attempts({"assets_timeout_recovery_mode": True}) == 1
+    assert generator._resolve_assets_max_attempts({"source_type": "tracked_article"}) == 1
+    assert generator._resolve_assets_max_attempts({"source_type": "manual"}) is None
     assert generator._resolve_publish_max_attempts({"publish_timeout_recovery_mode": True}) == 1
+    assert generator._resolve_publish_max_attempts({"source_type": "tracked_article"}) == 1
+    assert generator._resolve_publish_max_attempts({"source_type": "manual"}) is None
     assert generator._resolve_draft_max_attempts(
         {"timeout_recovery_mode": True, "source_type": "tracked_article"}
     ) == 1

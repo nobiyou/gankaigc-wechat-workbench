@@ -20066,11 +20066,11 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                 _creative_quality_retry_max_attempts() > 0
                 and (not used_local_assets_fallback)
                 and _should_retry_assets_for_packaging(
-                strategy_bundle_payload={
-                    "problem_brief": assets_payload.get("problem_brief"),
-                    "strategy_card": assets_payload.get("strategy_card"),
-                },
-                ai_result=ai_result,
+                    strategy_bundle_payload={
+                        "problem_brief": assets_payload.get("problem_brief"),
+                        "strategy_card": assets_payload.get("strategy_card"),
+                    },
+                    ai_result=ai_result,
                 )
             ):
                 retry_payload = dict(assets_payload)
@@ -20479,10 +20479,18 @@ def _create_publish_package(
                 and problem_brief
                 and strategy_card
             ):
-                publish_payload = _build_publish_timeout_recovery_payload(
-                    publish_payload=publish_payload,
-                )
-                ai_result = generator.generate_publish_package(publish_payload)
+                try:
+                    ai_result = generator.generate_publish_package(publish_payload)
+                except (APITimeoutError, APIConnectionError, openai.InternalServerError) as exc:
+                    logger.warning(
+                        "Tracked article publish package transient failure for project %s; retrying with compact publish prompt: %s",
+                        project_slug,
+                        exc,
+                    )
+                    recovery_payload = _build_publish_timeout_recovery_payload(
+                        publish_payload=publish_payload,
+                    )
+                    ai_result = generator.generate_publish_package(recovery_payload)
             else:
                 ai_result = generator.generate_publish_package(publish_payload)
             ai_result = _sanitize_publish_packaging_result(

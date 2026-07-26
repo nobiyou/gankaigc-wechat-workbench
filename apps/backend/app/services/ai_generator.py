@@ -803,6 +803,8 @@ class OpenAIWorkbenchGenerator:
     def _resolve_assets_max_attempts(self, payload: dict[str, object]) -> int | None:
         if self._uses_custom_base_url and bool(payload.get("assets_timeout_recovery_mode")):
             return 1
+        if self._uses_custom_base_url and str(payload.get("source_type") or "") == "tracked_article":
+            return 1
         return None
 
     def _resolve_publish_timeout_override(self, payload: dict[str, object]) -> float | None:
@@ -812,6 +814,8 @@ class OpenAIWorkbenchGenerator:
 
     def _resolve_publish_max_attempts(self, payload: dict[str, object]) -> int | None:
         if self._uses_custom_base_url and bool(payload.get("publish_timeout_recovery_mode")):
+            return 1
+        if self._uses_custom_base_url and str(payload.get("source_type") or "") == "tracked_article":
             return 1
         return None
 

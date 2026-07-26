@@ -3,6 +3,7 @@ dist/
 .vite/
 *.tsbuildinfo
 .tmp/
+tmp/
 .aegis/
 .env
 .env.local

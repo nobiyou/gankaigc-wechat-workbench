@@ -5529,7 +5529,7 @@ def test_generate_outline_custom_provider_retry_falls_back_to_local_outline_afte
     assert fake_generator.calls == 2
 
 
-def test_generate_assets_uses_timeout_recovery_mode_first_for_custom_tracked_article_provider(monkeypatch) -> None:
+def test_generate_assets_uses_full_prompt_first_for_custom_tracked_article_provider(monkeypatch) -> None:
     client.post(
         "/api/tracked-articles",
         json={
@@ -5620,8 +5620,10 @@ def test_generate_assets_uses_timeout_recovery_mode_first_for_custom_tracked_art
     assert assets.title_options[0] == assets.recommended_title
     assert "背后压着的是一个家的秩序" in assets.recommended_title
     assert len(fake_generator.asset_calls) >= 1
-    assert fake_generator.asset_calls[0]["assets_timeout_recovery_mode"] is True
-    assert all(call.get("assets_timeout_recovery_mode") is True for call in fake_generator.asset_calls)
+    assert fake_generator.asset_calls[0].get("assets_timeout_recovery_mode") is None
+    assert fake_generator.asset_calls[0]["problem_brief"]["version"] == 1
+    assert fake_generator.asset_calls[0]["strategy_card"]["version"] == 1
+    assert fake_generator.asset_calls[0]["benchmarks"]
 
 
 def test_generate_assets_surfaces_upstream_failure_when_tracked_article_assets_timeout(monkeypatch) -> None:
@@ -5700,6 +5702,103 @@ def test_generate_assets_surfaces_upstream_failure_when_tracked_article_assets_t
     assert exc_info.value.status_code == 503
     assert str(exc_info.value.detail).startswith("素材文案生成失败：当前文本 AI 服务暂时不可用，请稍后重试。")
     assert "当前已关闭本地兜底，避免写成退化稿。" in str(exc_info.value.detail)
+
+
+def test_generate_assets_retries_compact_prompt_after_custom_tracked_article_transport_error(monkeypatch) -> None:
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "assets-retry-after-error-source",
+            "source_name": "夜读关系实验室",
+            "title": "夜里那句我没事，背后都是责任",
+            "url": "https://example.com/assets-retry-after-error-source",
+            "author": "北岛",
+            "summary": "从成年人把疲惫先咽回去写起，再把辛苦回收到家里的安稳和被护住的秩序里。",
+            "structure_notes": "现实接口起手 + 责任代价推进 + 回到家里安稳。",
+            "tags": ["中年责任", "家庭安稳"],
+            "body_source": "manual",
+            "body_markdown": "# 原文\n\n他说没事的时候，手心其实已经凉了。",
+        },
+    )
+    client.post(
+        "/api/tracked-articles/assets-retry-after-error-source/to-topic",
+        json={
+            "slug": "assets-retry-after-error-topic",
+            "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "angle": "从成年人为什么总把“我没事”说得很轻切入，写责任怎样把辛苦压回去。",
+        },
+    )
+    project_response = client.post(
+        "/api/topics/assets-retry-after-error-topic/create-project",
+        json={
+            "slug": "assets-retry-after-error-project",
+            "title": "assets retry after error 项目",
+            "owner": "editorial",
+        },
+    )
+    assert project_response.status_code == 201
+    assert client.post("/api/projects/assets-retry-after-error-project/generate-strategy-package").status_code == 201
+    assert client.post("/api/projects/assets-retry-after-error-project/adopt-strategy-card/1").status_code == 200
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.asset_calls: list[dict[str, object]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "他说没事的时候，手心其实已经凉了。",
+                "outline_body": "1. 为什么先把自己往后放\n2. 责任怎样把辛苦压回去\n3. 家里的安稳怎么把意义接回来",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            return {
+                "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+                "body_markdown": (
+                    "很多时候，说这句话的人并不轻松。\n\n"
+                    "可他还是得先把家里的气稳住，再把自己的慌乱往后放。"
+                ),
+            }
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            self.asset_calls.append(dict(payload))
+            if len(self.asset_calls) == 1:
+                raise openai.APIConnectionError(
+                    request=httpx.Request("POST", "https://proxy.example/v1/chat/completions")
+                )
+            return {
+                "title_options": ["那句轻轻的没事，先把一家人的慌稳住了"],
+                "recommended_title": "那句轻轻的没事，先把一家人的慌稳住了",
+                "cover_prompt": "16:9 横版公众号头图，夜里灯还亮着，饭桌留着一盏暖灯，克制现实感",
+                "cover_copy": "有人把慌稳住，家里才有了亮处。",
+                "social_teaser": "那句轻轻说出口的没事，很多时候先稳住的是一家人的慌。",
+                "social_teaser_options": ["导语一", "导语二", "导语三"],
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+
+    assert client.post("/api/projects/assets-retry-after-error-project/generate-outline").status_code == 201
+    assert client.post("/api/projects/assets-retry-after-error-project/generate-draft").status_code == 201
+
+    assets = workbench.generate_assets("assets-retry-after-error-project")
+
+    assert assets.recommended_title == "那句轻轻的没事，先把一家人的慌稳住了"
+    assert len(fake_generator.asset_calls) >= 2
+    assert fake_generator.asset_calls[0].get("assets_timeout_recovery_mode") is None
+    assert fake_generator.asset_calls[0]["problem_brief"]["version"] == 1
+    assert fake_generator.asset_calls[0]["strategy_card"]["version"] == 1
+    assert fake_generator.asset_calls[0]["benchmarks"]
+    assert fake_generator.asset_calls[1]["assets_timeout_recovery_mode"] is True
 
 
 def test_generate_assets_surfaces_upstream_failure_when_packaging_retry_times_out(monkeypatch) -> None:
@@ -6459,6 +6558,88 @@ def test_generate_draft_skips_full_branch_when_compact_candidate_is_already_low_
     initial_payloads = [payload for _, payload in draft_calls if payload.get("polish_instruction") in {None, ""}]
     assert len(initial_payloads) == 1
     assert initial_payloads[0]["compact_strategy_mode"] is True
+
+
+def test_generate_draft_uses_strategy_first_full_prompt_for_tracked_article_with_adopted_strategy(monkeypatch) -> None:
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("outline", dict(payload)))
+            return {
+                "hook": "复查提醒弹出来的时候，她先停了一下。",
+                "outline_body": "1. 提醒弹出\n2. 饭点被推迟\n3. 把自己排回今天",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", dict(payload)))
+            return {
+                "title": "那次复查没有再改期",
+                "body_markdown": (
+                    "# 那次复查没有再改期\n\n"
+                    "复查提醒弹出来的时候，她先停了一下。\n\n"
+                    "以前她总说等忙完再去，这次却把日期重新圈回日历上。"
+                ),
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    create_article = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "strategy-first-full-draft-source",
+            "source_name": "手动录入",
+            "title": "别把该照顾自己的事一再往后放",
+            "url": "https://example.com/strategy-first-full-draft-source",
+            "author": "未知",
+            "summary": "从体检复查和生活排序切入，写人怎样把照顾自己重新排回今天。",
+            "structure_notes": "现实接口起手 + 顺延代价推进 + 正向回到生活排序。",
+            "tags": ["生活排序", "照顾自己"],
+            "body_source": "manual",
+            "body_markdown": "# 原文\n\n体检提醒弹出来，她还是先把工作排在前面。",
+            "analysis_structure_mode": "pressure_interface_direct",
+        },
+    )
+    assert create_article.status_code == 201
+    create_topic = client.post(
+        "/api/tracked-articles/strategy-first-full-draft-source/to-topic",
+        json={
+            "slug": "strategy-first-full-draft-topic",
+            "title": "别把该照顾自己的事一再往后放",
+            "angle": "从复查提醒被反复改期切入，写生活顺序怎样一点点被自己重新拿回来。",
+        },
+    )
+    assert create_topic.status_code == 201
+    create_project = client.post(
+        "/api/topics/strategy-first-full-draft-topic/create-project",
+        json={
+            "slug": "strategy-first-full-draft-project",
+            "title": "strategy first full draft 项目",
+            "owner": "editorial",
+        },
+    )
+    assert create_project.status_code == 201
+    assert client.post("/api/projects/strategy-first-full-draft-project/generate-strategy-package").status_code == 201
+    assert client.post("/api/projects/strategy-first-full-draft-project/adopt-strategy-card/1").status_code == 200
+    assert client.post("/api/projects/strategy-first-full-draft-project/generate-outline").status_code == 201
+    draft_response = client.post("/api/projects/strategy-first-full-draft-project/generate-draft")
+
+    assert draft_response.status_code == 201
+    draft_payloads = [payload for call_type, payload in fake_generator.calls if call_type == "draft"]
+    assert draft_payloads
+    draft_payload = draft_payloads[0]
+    assert draft_payload["strategy_first_draft_mode"] is True
+    assert draft_payload.get("compact_strategy_mode") is None
+    assert draft_payload.get("timeout_recovery_mode") is None
+    assert draft_payload["source_type"] == "tracked_article"
+    assert draft_payload["reference_article_hidden"] is True
+    assert draft_payload["problem_brief"]["version"] == 1
+    assert draft_payload["strategy_card"]["version"] == 1
+    assert draft_payload["benchmarks"]
 
 
 def test_generate_initial_draft_candidates_runs_full_branch_when_compact_candidate_is_low_risk_but_over_smoothed(
@@ -8107,12 +8288,125 @@ def test_build_publish_package_keeps_api_result_when_packaging_retry_stays_gener
     package = publish_response.json()
 
     assert len(fake_generator.publish_calls) == 2
+    assert fake_generator.publish_calls[0].get("publish_timeout_recovery_mode") is None
+    assert fake_generator.publish_calls[0]["problem_brief"]["version"] == 1
+    assert fake_generator.publish_calls[0]["strategy_card"]["version"] == 1
+    assert fake_generator.publish_calls[0]["benchmarks"]
+    assert fake_generator.publish_calls[1].get("publish_timeout_recovery_mode") is None
     assert package["publish_title"] != "肩上有责任的人，心里也要留一盏灯"
     assert "那句我没事" in package["publish_title"]
     assert "藏着没说出口的累" in package["publish_title"]
-    assert "一句我没事" in package["publish_lead"]
-    assert "累都放到后面" in package["publish_lead"]
+    assert package["publish_lead"]
     assert package["intro_options"] == [package["publish_lead"]]
+
+
+def test_build_publish_package_retries_compact_prompt_after_custom_tracked_article_transport_error(monkeypatch) -> None:
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "publish-retry-after-error-source",
+            "source_name": "夜读关系实验室",
+            "title": "夜里那句我没事，背后都是责任",
+            "url": "https://example.com/publish-retry-after-error-source",
+            "author": "北岛",
+            "summary": "从成年人把疲惫先咽回去写起，再把辛苦回收到家里的安稳和被护住的秩序里。",
+            "structure_notes": "现实接口起手 + 责任代价推进 + 回到家里安稳。",
+            "tags": ["中年责任", "家庭安稳"],
+            "body_source": "manual",
+            "body_markdown": "# 原文\n\n他说没事的时候，手心其实已经凉了。",
+        },
+    )
+    client.post(
+        "/api/tracked-articles/publish-retry-after-error-source/to-topic",
+        json={
+            "slug": "publish-retry-after-error-topic",
+            "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "angle": "从成年人为什么总把“我没事”说得很轻切入，写责任怎样把辛苦压回去。",
+        },
+    )
+    project_response = client.post(
+        "/api/topics/publish-retry-after-error-topic/create-project",
+        json={
+            "slug": "publish-retry-after-error-project",
+            "title": "publish retry after error 项目",
+            "owner": "editorial",
+        },
+    )
+    assert project_response.status_code == 201
+    assert client.post("/api/projects/publish-retry-after-error-project/generate-strategy-package").status_code == 201
+    assert client.post("/api/projects/publish-retry-after-error-project/adopt-strategy-card/1").status_code == 200
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.publish_calls: list[dict[str, object]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "他说没事的时候，手心其实已经凉了。",
+                "outline_body": "1. 为什么先把自己往后放\n2. 责任怎样把辛苦压回去\n3. 家里的安稳怎么把意义接回来",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            return {
+                "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+                "body_markdown": (
+                    "很多时候，说这句话的人并不轻松。\n\n"
+                    "可他还是得先把家里的气稳住，再把自己的慌乱往后放。"
+                ),
+            }
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["那句轻轻的没事，先把一家人的慌稳住了"],
+                "recommended_title": "那句轻轻的没事，先把一家人的慌稳住了",
+                "cover_prompt": "16:9 横版公众号头图，夜里灯还亮着",
+                "cover_copy": "有人把慌稳住，家里才有了亮处。",
+                "social_teaser": "那句轻轻说出口的没事，很多时候先稳住的是一家人的慌。",
+                "social_teaser_options": ["导语一", "导语二", "导语三"],
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, payload: dict[str, object]) -> dict[str, object]:
+            self.publish_calls.append(dict(payload))
+            if len(self.publish_calls) == 1:
+                raise openai.APIConnectionError(
+                    request=httpx.Request("POST", "https://proxy.example/v1/chat/completions")
+                )
+            return {
+                "abstract": "写那句轻轻的没事背后，成年人怎样先稳住一家人的慌。",
+                "publish_title": "那句轻轻的没事，先把一家人的慌稳住了",
+                "publish_lead": "有些话说得越轻，背后越是一个人先把慌乱压住。",
+                "intro_options": ["有些话说得越轻，背后越是一个人先把慌乱压住。"],
+                "tags": ["中年责任", "家庭安稳"],
+                "editor_note": "主题守在责任怎样落成家里的安稳。",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+
+    assert client.post("/api/projects/publish-retry-after-error-project/generate-outline").status_code == 201
+    assert client.post("/api/projects/publish-retry-after-error-project/generate-draft").status_code == 201
+    assert client.post("/api/projects/publish-retry-after-error-project/generate-assets").status_code == 201
+    publish_response = client.post("/api/projects/publish-retry-after-error-project/build-publish-package")
+
+    assert publish_response.status_code == 201
+    package = publish_response.json()
+    assert len(fake_generator.publish_calls) >= 2
+    assert fake_generator.publish_calls[0].get("publish_timeout_recovery_mode") is None
+    assert fake_generator.publish_calls[0]["problem_brief"]["version"] == 1
+    assert fake_generator.publish_calls[0]["strategy_card"]["version"] == 1
+    assert fake_generator.publish_calls[0]["benchmarks"]
+    assert fake_generator.publish_calls[1]["publish_timeout_recovery_mode"] is True
+    assert package["publish_title"] == "那句轻轻的没事，先把一家人的慌稳住了"
 def test_build_local_assets_fallback_everyday_warmth_uses_human_cover_and_lead() -> None:
     assets = workbench._build_local_assets_fallback(
         project_title="日子过到后来，有家人有知己就很踏实",
