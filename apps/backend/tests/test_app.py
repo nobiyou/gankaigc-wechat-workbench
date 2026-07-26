@@ -2179,8 +2179,10 @@ def test_generate_topic_from_tracked_article_rewrites_self_reliance_article_out_
     assert "边界不清" not in payload["angle"]
     assert "需求不明" not in payload["angle"]
     assert any(anchor in payload["title"] for anchor in ("力气", "主心骨", "眼前这一步", "自己的光"))
-    assert "现实触发点" in payload["angle"]
-    assert "具体判断、行动或选择" in payload["angle"]
+    assert "参考文章" not in payload["angle"]
+    assert "现实触发点" not in payload["angle"]
+    assert any(anchor in payload["angle"] for anchor in ("想找人说说话", "身边人也在各自稳住", "回应一时赶不上"))
+    assert any(anchor in payload["angle"] for anchor in ("先接住自己", "主心骨", "下一步", "回稳"))
     assert "回稳" in payload["angle"]
 
 
@@ -9894,8 +9896,10 @@ def test_build_local_tracked_article_topic_fallback_uses_distinct_self_reliance_
 
     assert any(anchor in topic["title"] for anchor in ("力气", "主心骨", "自己的光"))
     assert topic["title"] != "即使没有帮助，也要学会自救自渡"
-    assert "参考文章里的现实触发点" in topic["angle"]
-    assert "具体判断、行动或选择" in topic["angle"]
+    assert "参考文章" not in topic["angle"]
+    assert "现实触发点" not in topic["angle"]
+    assert any(anchor in topic["angle"] for anchor in ("想找人说说话", "身边人也在各自稳住", "回应一时赶不上"))
+    assert any(anchor in topic["angle"] for anchor in ("先接住自己", "主心骨", "下一步", "回稳"))
 
 
 def test_trust_boundary_structure_mode_and_local_topic_keep_trust_theme() -> None:

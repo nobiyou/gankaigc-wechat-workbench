@@ -4339,11 +4339,24 @@ def _rewrite_self_reliance_topic(payload: Mapping[str, object], ai_result: Mappi
     else:
         new_title = _pick_local_self_reliance_title(payload, "generic")
 
-    new_angle = (
-        "从参考文章里的现实触发点切入，"
-        "写一个人怎样把慌乱收回来；"
-        "也写具体判断、行动或选择怎样让日子一点点回稳。"
-    )
+    if any(token in corpus for token in ("倾诉", "朋友也", "愁眉不展", "焦头烂额", "自顾不暇")):
+        new_angle = (
+            "从想找人说说话，却发现身边人也在各自稳住自己的处境切入，"
+            "写成年人怎样把求而不得的委屈慢慢收回来；"
+            "也写一个人先接住自己、理出眼前下一步，日子才会一点点回稳。"
+        )
+    elif any(token in corpus for token in ("外求", "求而不得", "靠不到", "靠不住")):
+        new_angle = (
+            "从外面的回应一时赶不上、事情却还要继续往前走切入，"
+            "写一个人怎样停止把全部希望放在别人手里；"
+            "也写把主心骨找回来以后，生活怎样重新有了下一步。"
+        )
+    else:
+        new_angle = (
+            "从一个人把散掉的力气慢慢收回自己手里切入，"
+            "写低谷里的清醒不是逞强，而是先做稳眼前这一小步；"
+            "也写主心骨回来以后，日子怎样一点点变亮。"
+        )
     return {"title": new_title, "angle": new_angle}
 
 
