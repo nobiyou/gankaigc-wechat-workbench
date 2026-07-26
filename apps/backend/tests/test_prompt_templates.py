@@ -266,7 +266,7 @@ def test_build_draft_prompt_surfaces_strategy_hook_progression_and_share_reason(
 
     assert "开头先停在：一句“先把家里理顺”背后那点心里开始排顺序" in template.prompt
     assert "中段主要靠这股力往前推：责任怎样把人往前推" in template.prompt
-    assert "转发理由：它写出了很多成年人不会明说的辛苦" in template.prompt
+    assert "转发理由：" not in template.prompt
 
 
 def test_build_draft_prompt_responsibility_shelter_uses_responsibility_tone_override() -> None:
@@ -380,22 +380,26 @@ def test_responsibility_shelter_assets_and_publish_prompts_prefer_spoken_packagi
     assert "标题优先让第一口气落在“电话一响”或“手机一响”上" not in assets_template.instructions
     assert "标题优先让第一口气落在“电话一响”或“手机一响”上" not in publish_template.prompt
     assert publish_template.prompt.count("最终发布标题 publish_title") == 1
-    assert "标题不要写成“你是家里的安稳总要先经过你”这种回环句" in assets_template.instructions
-    assert "不要写成“你是家里的安稳总要先经过你”这种回环句" in publish_template.prompt
-    assert "尽量不要把标题写成“先稳住的人总是你”这种总结句" in assets_template.instructions
-    assert "不要写成“先稳住的人总是你”这种总结句" in publish_template.prompt
+    assert "标题不要写成回环句" in assets_template.instructions
+    assert "不要写成回环句、总括前缀或总结句" in publish_template.prompt
+    assert "尽量不要把标题写成总结句" in assets_template.instructions
+    assert "总结句" in publish_template.prompt
+    assert "你是家里的安稳总要先经过你" not in assets_template.instructions
+    assert "先稳住的人总是你" not in publish_template.prompt
     assert "标题可以从来电、门口、日历、接送、请假、复查、回家或开销等现实入口里选择" in assets_template.instructions
-    assert "不要先用“家里一有事”这种总括前缀" in publish_template.prompt
+    assert "总括前缀" in publish_template.prompt
+    assert "家里一有事" not in publish_template.prompt
     assert "封面文案要和标题拉开一点" in assets_template.instructions
     assert "封面文案也不要和标题重复" in publish_template.prompt
-    assert "导语也别写成“这篇想写的”" in assets_template.instructions
-    assert "导语也别写成“这篇想写的”" in publish_template.instructions
-    assert "导语和封面文案都尽量少用“不是……而是……”" in assets_template.instructions
-    assert "发布导语里也尽量少用“不是……而是……”" in publish_template.instructions
+    assert "导语也别写成编辑说明" in assets_template.instructions
+    assert "导语也别写成编辑说明" in publish_template.instructions
+    assert "导语和封面文案都尽量少用工整反转骨架" in assets_template.instructions
+    assert "发布导语里也尽量少用工整反转句" in publish_template.instructions
     assert "标题尽量少用抽象比喻词" in assets_template.instructions
     assert "导语也尽量少用" in assets_template.instructions
-    assert "真正让人累的不是" in assets_template.instructions
-    assert "为什么”“究竟值不值得" in assets_template.instructions
+    assert "真正让人累的不是" not in assets_template.instructions
+    assert "先讲判断再回收的句式" in assets_template.instructions
+    assert "为什么”“究竟值不值得" not in assets_template.instructions
 
 
 def test_jinwan_youyu_style_injects_full_stage_rules_across_prompts() -> None:
@@ -987,7 +991,7 @@ def test_build_draft_prompt_includes_humanizer_zh_review_rules() -> None:
 
     assert "删掉“说到底”“归根结底”“某种程度上”“很多时候”这类填充短语" in draft_template.instructions
     assert "能写两项就不要硬凑三项并列" in draft_template.instructions
-    assert "不要用“有人说”“有人认为”“专家指出”“很多人都会”这类模糊归因" in draft_template.instructions
+    assert "不要用模糊归因、泛泛权威或空归因替代具体处境" in draft_template.instructions
     assert "不要频繁宣布写作动作，比如“先说结论”“接下来我们来看”“真正的问题是”" in draft_template.instructions
     assert "不要把普通处境硬拔成时代缩影、重要转折或更宏大的意义" in draft_template.instructions
     assert "如果一句话读起来像现成金句或适合被单独截图传播" in draft_template.instructions
@@ -1322,7 +1326,8 @@ def test_response_priority_focus_adds_guardrails_across_topic_outline_and_draft(
     assert "顺序、投入和追问本身就是答案的一部分" in draft_template.instructions
     assert "第一屏优先落一个回应接口、顺序落差或被轻轻带过的现实差别" in draft_template.instructions
     assert "把情绪从等待感慢慢收回位置感" in draft_template.instructions
-    assert "少写“不是他忙，而是你不重要”" in draft_template.instructions
+    assert "少写把忙不忙和重不重要硬拧成二选一的整齐对照句" in draft_template.instructions
+    assert "不是他忙，而是你不重要" not in draft_template.instructions
     assert "少用“一个 / 一下 / 一点 / 一些”去敲节奏" in draft_template.instructions
 
 
@@ -2524,7 +2529,8 @@ def test_self_worth_focus_detector_and_topic_guards() -> None:
         }
     )
 
-    assert "不要把主线改写成‘没时间就是不够在乎’‘被敷衍’‘回应顺序’这类优先级判断稿" in topic_template.instructions
+    assert "不要把主线改写成关系优先级审判、被敷衍控诉或回应顺序判断稿" in topic_template.instructions
+    assert "没时间就是不够在乎" not in topic_template.instructions
     assert "主线要留在自我价值感、边界、标准和自我尊重上。" in topic_template.instructions
     assert "不要滑成关系优先级判断稿。" in outline_template.instructions
     assert "不要把第一屏改成‘没时间’‘回消息慢’‘优先级’这类回应顺序稿" in draft_template.instructions
@@ -2783,10 +2789,13 @@ def test_build_assets_prompt_includes_strategy_package_theme_guard_for_tracked_a
     assert "包装必须继续服务当前正文主题，不允许在标题、导语、封面文案或编辑备注阶段二次换题。" in template.instructions
     assert "如果当前正文属于心安归位、阶段回望或重新出发这条线" in template.instructions
     assert "封面文案和社媒导语只允许提炼正文已经成立的题眼" in template.instructions
-    assert "标题不要套“你以为……其实……”" in template.instructions
+    assert "标题不要套反问翻转、痛点翻转或双重否定翻转这类模板标题骨架" in template.instructions
     assert "标题不要用“很多人”“有些人”“总有人”这类泛主语起手" in template.instructions
-    assert "社媒导语不要写成“这篇想讲清楚”“这篇想说的是”“这篇文章写给”这种作者说明句" in template.instructions
-    assert "社媒导语不要用“很多人会……”“人总会……”这类群体概括句起手" in template.instructions
+    assert "社媒导语不要写成作者说明句或编辑说明句" in template.instructions
+    assert "社媒导语不要用群体概括句起手" in template.instructions
+    assert "你以为……其实" not in template.instructions
+    assert "这篇想讲清楚" not in template.instructions
+    assert "很多人会……" not in template.instructions
     assert "不要用“很多人”“有些人”“总有人”这类泛主语起手" in template.prompt
     assert "不要选最像模板答案句的那条" in template.prompt
     assert "创作策略包（执行摘要）：" in template.prompt
@@ -2870,12 +2879,15 @@ def test_build_publish_package_prompt_includes_strategy_package_theme_guard_for_
     assert "发布标题、发布导语、摘要和编辑备注只允许压缩正文主线" in template.instructions
     assert "如果当前正文属于心安归位、阶段回望或重新出发这条线" in template.instructions
     assert "发布导语和导语候选要像真人转发前顺手写下的开场" in template.instructions
-    assert "发布标题不要套“你以为……其实……”" in template.instructions
+    assert "发布标题不要套反问翻转、痛点翻转或双重否定翻转这类模板标题骨架" in template.instructions
     assert "发布标题不要用“很多人”“有些人”“总有人”这类泛主语起手" in template.instructions
-    assert "发布导语不要用“很多人会……”“很多人总会……”这种群体概括句起手" in template.instructions
-    assert "不要写成“这篇想讲清楚”“这篇文章想说的是”这种编辑说明" in template.prompt
-    assert "不要套“你以为……其实……”" in template.prompt
-    assert "不要用“很多人会……”这类群体概括句起手" in template.prompt
+    assert "发布导语不要用群体概括句起手" in template.instructions
+    assert "不要写成编辑说明" in template.prompt
+    assert "不要套反问翻转、痛点翻转或双重否定翻转这类模板骨架" in template.prompt
+    assert "不要用群体概括句起手" in template.prompt
+    assert "你以为……其实" not in template.instructions
+    assert "这篇想讲清楚" not in template.prompt
+    assert "很多人会……" not in template.prompt
     assert "创作策略包（执行摘要）：" in template.prompt
     assert "参考基准：" not in template.prompt
     assert "执行协议：" not in template.prompt
@@ -3660,7 +3672,7 @@ def test_build_draft_prompt_explicit_strategy_first_flag_uses_extra_compact_prom
     assert "创作策略包（执行摘要）：" in template.prompt
     assert "观察焦点：" in template.prompt
     assert "主题主线：" in template.prompt
-    assert "包装主钩子：" in template.prompt
+    assert "包装主钩子：" not in template.prompt
     assert "结构模式：碎片回环观察推进" in template.prompt
     assert "读者定位：" not in template.prompt
     assert "执行检查：" not in template.prompt
@@ -4090,7 +4102,7 @@ def test_strategy_resonance_instructions_include_theme_contract_and_realism_targ
     assert "短句优先从这些位置长出来" in template.instructions
     assert "写法纹理优先守这几条" in template.instructions
     assert "主题主线：" in template.prompt
-    assert "包装主钩子：" in template.prompt
+    assert "包装主钩子：" not in template.prompt
     assert "写法纹理：" in template.prompt
     assert "现实接口：" in template.prompt
     assert "结构模式：阶段回望再出发推进" in template.prompt
@@ -4294,7 +4306,8 @@ def test_draft_prompt_includes_anti_ai_flavor_guardrails() -> None:
     assert "句式节奏风险" in template.instructions
     assert "段落节拍风险" in template.instructions
     assert "解释型公众号 AI 腔" in template.instructions
-    assert "答案先放这儿" in template.instructions
+    assert "避免先宣布答案、先标注难点或先替读者分类的讲解台词" in template.instructions
+    assert "答案先放这儿" not in template.instructions
     assert "结构路标风险" in template.instructions
     assert "模糊归因风险" in template.instructions
     assert "不要每段都写成“判断 + 解释 + 小结”" in template.instructions
