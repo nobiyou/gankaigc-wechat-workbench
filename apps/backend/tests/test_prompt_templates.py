@@ -2374,8 +2374,9 @@ def test_inner_settlement_focus_adds_guardrails_across_topic_outline_and_draft()
     assert "前半篇尽量早点给读者一个被理解、被接住的落点。" in outline_template.instructions
     assert "大纲要继续顺着这条主线推进。" in outline_template.instructions
     assert "开头第一屏先落一个还没被安放好、却已经想慢慢回位的现实接口" in draft_template.instructions
-    assert "不要顺手排成胸口发紧、胃口变浅、睡不沉这类症状化句群。" in draft_template.instructions
-    assert "不要顺手排成胸口、胃口、睡眠这类症状清单。" in draft_template.instructions
+    assert "不要顺手排成身体不适清单。" in draft_template.instructions
+    assert "胸口发紧、胃口变浅、睡不沉" not in draft_template.instructions
+    assert "胸口、胃口、睡眠" not in draft_template.instructions
     assert "若策略包要求心安归位推进，正文第一屏先落一个还没被安放好的现实接口" in draft_template.instructions
     assert "开头第一屏先落一个还没被安放好、却已经想慢慢回位的现实接口" in draft_template.instructions
     assert "开篇方式：先从那颗心还没完全落回今天的现实接口起笔" in draft_template.prompt
@@ -2634,7 +2635,7 @@ def test_self_reliance_focus_detector_and_prompt_guards() -> None:
     assert "不要把“等……等……等……”排成三拍等待句" in draft_template.instructions
     assert "少用“一点、一下、一件、一条”这类泛量词去托节奏" in draft_template.instructions
     assert "一句一段也要保持句子完整，不要留下半截句" in draft_template.instructions
-    assert "不要顺手排成胸口发紧、胃口变浅、睡不沉这类症状串" in draft_template.instructions
+    assert "不要顺手排成身体不适清单" in draft_template.instructions
     assert "如果要留可摘录短句，优先写成贴着参考文具体处境长出来的人话" in draft_template.instructions
     assert "最后两段要比前文更暖、更有力" in draft_template.instructions
     assert "结尾要给读者真实的力量" in draft_template.instructions
@@ -2647,7 +2648,9 @@ def test_self_reliance_focus_detector_and_prompt_guards() -> None:
     assert "不要连续两段都在解释困境" in effective_tone_profile
     assert "自我支撑的动作、判断或能力最迟在第 3 段出现" in effective_tone_profile
     assert "独立短句也要是完整人话，不要为了停顿感留下半截句" in effective_tone_profile
-    assert "不要顺手排成胸口、胃口、睡眠这类症状句群" in effective_tone_profile
+    assert "不要顺手排成身体不适清单" in effective_tone_profile
+    assert "胸口发紧、胃口变浅、睡不沉" not in effective_tone_profile
+    assert "胸口、胃口、睡眠" not in effective_tone_profile
     assert "结尾服从分析合同里的情绪出口" in effective_tone_profile
     assert "最后要让正向变化已经发生" in effective_tone_profile
     assert "标题、首屏和短句尽量温暖、有力、具体" in effective_tone_profile
@@ -4208,7 +4211,8 @@ def test_jinwan_youyu_internal_pressure_draft_rules_do_not_prioritize_question_o
     assert "多数段落控制在 1 到 2 句" in template.instructions
     assert "但每个判断最多只补一层解释" in template.instructions
     assert "不要连续两个中长解释段挨着出现" in template.instructions
-    assert "除非参考文主冲突本来就建立在身体代价上，否则不要把正文排成胸口、胃口、睡眠这类症状清单。" in template.instructions
+    assert "除非参考文主冲突本来就建立在身体代价上，否则不要把正文排成身体不适清单。" in template.instructions
+    assert "胸口、胃口、睡眠" not in template.instructions
     assert "前半篇至少保住 1 句从真实代价里长出来、可以单独成段的可摘录短句或引用式短句" in template.instructions
     assert "如果状态允许，可以再留 1 句，但要把关系位置、代价排序或没被接住的事实压进去，不要连发口号。" in template.instructions
     assert "结尾优先落在一个现实动作、后果余波、没等来的回应或轻微决定上，不要把答案写成空泛总结。" in template.instructions
