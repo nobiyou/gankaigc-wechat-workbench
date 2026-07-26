@@ -10183,12 +10183,12 @@ def _resolve_local_generic_mode_closing(mode: str) -> str:
         "inner_settlement": "先把今天过回今天，很多放不下的事，反而会慢慢自己松开。",
         "self_worth_rebuild": "下次那句“都可以”到嘴边时，先停一下。别再让委屈替你懂事收尾。",
         "relationship_aftercare": "心里有这段关系的人，不会让你独自站在那阵冷气里。他会回来，把话说完，把情绪接住，也把那份失望一点点接回去。",
-        "resilience_reconstruction": "愿你被生活打磨过以后，依然能带着自己的光往前走。",
-        "emotional_engine_direct": "愿你记得那些好，也接住那些疼。然后把这一页轻轻合上，去过眼前新的日子。",
-        "scene_first_progression": "愿你以后遇到重要的人和事，都敢把真话说得早一点，也把自己放得稳一点。",
+        "resilience_reconstruction": "被生活打磨过以后，人身上的光不是喊出来的。它藏在第二天还肯站回起点的那一步里。",
+        "emotional_engine_direct": "把那些好收好，也把那些疼放回过去。今晚先把这一页合上，明天再认真去过新的日子。",
+        "scene_first_progression": "下一次遇到重要的人和事，先把真话留在当场。话说得早一点，自己也会站得稳一点。",
         "pressure_interface_direct": "先把今天这一个提醒接住。人回稳了，后面的安排才不会总靠硬扛往前推。",
     }
-    return mapping.get(mode, "愿你把眼前的日子慢慢过顺，也把自己好好带回去。")
+    return mapping.get(mode, "先把眼前的日子慢慢过顺，也把自己好好带回今天。")
 
 
 def _build_local_response_priority_followup_corpus(payload: Mapping[str, object]) -> str:
@@ -16596,7 +16596,7 @@ _RESPONSIBILITY_SHELTER_OUTPUT_REPLACEMENTS = (
     ("身体会记账", "也该给自己留一点余地"),
     (
         "睡眠变浅、心里的不容易不说、情绪硬吞、身体先报警，这些都是一个人先顶着留下来的痕迹。",
-        "睡眠变浅、话少了、心里的不容易先放到后面，这些都在提醒你，也该给自己留一点余地。",
+        "话少了、安排更满了、心里的不容易先放到后面，这些都在提醒你，也该给自己留一点余地。",
     ),
     ("情绪硬吞", "心里的不容易先放到后面"),
     ("身体先报警", "身体也在提醒你慢一点"),

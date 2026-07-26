@@ -7,6 +7,7 @@ from app.services.workbench import (
     _build_local_generic_tracked_article_draft,
     _build_local_publish_package_fallback,
     _build_local_responsibility_shelter_draft,
+    _resolve_local_generic_mode_closing,
     _has_author_meta_commentary,
     _has_obvious_repeated_character,
     _looks_like_explanatory_responsibility_shelter_title,
@@ -114,6 +115,26 @@ def test_local_self_reliance_draft_avoids_cliche_and_slogan_finish() -> None:
     assert all("万能成长套话" not in hit for hit in summary.hits)
     assert all("结尾口号感" not in hit for hit in summary.hits)
     assert summary.score == 0
+
+
+def test_local_generic_mode_closing_uses_action_instead_of_wish_slogans() -> None:
+    closings = {
+        mode: _resolve_local_generic_mode_closing(mode)
+        for mode in (
+            "resilience_reconstruction",
+            "emotional_engine_direct",
+            "scene_first_progression",
+            "unknown_mode",
+        )
+    }
+    combined = "\n\n".join(closings.values())
+
+    assert "愿你" not in combined
+    assert "愿我们" not in combined
+    assert "从今天开始" not in combined
+    assert "第二天还肯站回起点" in closings["resilience_reconstruction"]
+    assert "这一页合上" in closings["emotional_engine_direct"]
+    assert "真话留在当场" in closings["scene_first_progression"]
 
 
 def test_local_relationship_aftercare_draft_avoids_not_ab_and_short_judgment_cadence() -> None:
@@ -430,6 +451,18 @@ def test_responsibility_shelter_output_cleanup_rewrites_awkward_residue_to_natur
     assert "觉得怎么总是自己在补位" not in cleaned
     assert "有时候还会觉得心里一紧" in cleaned
     assert "忍不住想：怎么总是自己在补位" in cleaned
+
+
+def test_responsibility_shelter_output_cleanup_removes_symptomized_residue() -> None:
+    cleaned = _sanitize_responsibility_shelter_output_text(
+        "睡眠变浅、心里的不容易不说、情绪硬吞、身体先报警，这些都是一个人先顶着留下来的痕迹。"
+    )
+
+    assert "睡眠变浅" not in cleaned
+    assert "情绪硬吞" not in cleaned
+    assert "身体先报警" not in cleaned
+    assert "话少了、安排更满了" in cleaned
+    assert "也该给自己留一点余地" in cleaned
 
 
 def test_responsibility_shelter_result_fields_rewrite_stale_local_titles() -> None:
