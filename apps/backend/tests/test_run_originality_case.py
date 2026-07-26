@@ -58,6 +58,63 @@ def test_to_detector_text_strips_markdown_surface() -> None:
     assert text == "标题 加粗 链接 引用"
 
 
+def test_build_tracked_article_seed_sanitizes_reused_responsibility_metadata() -> None:
+    script = _load_run_originality_case_module()
+
+    def fake_sanitizer(metadata, *, article_title: str, body_markdown: str, tags: list[str]):
+        assert article_title == "万般辛苦，皆为序章"
+        assert "电话" in body_markdown
+        assert tags == ["长期扛压", "不能倒"]
+        return {
+            **metadata,
+            "summary": "长期把家里的事放在心上，也会被家里人的回应托住。",
+            "structure_notes": "先写现实开销，再写家里的踏实。",
+            "analysis_theme": "责任和被惦记互相托住。",
+            "analysis_hook_trigger": "家里临时有事时，自己先把顺序理清。",
+            "analysis_progression_drive": "从一个人的安排，走向家里的分担。",
+            "analysis_share_reason": "让认真照顾日子的人被看见。",
+            "tags": ["责任被看见", "家里踏实"],
+        }
+
+    seed = script._build_tracked_article_seed(
+        article_slug="article-responsibility-seed",
+        article_title="万般辛苦，皆为序章",
+        source_markdown="电话这头，是父母、孩子和现实开销。",
+        source_name="manual",
+        reuse_bundle_payload={
+            "tracked_article": {
+                "author": "原作者",
+                "summary": "长期扛压，暂时不能倒，辛苦没有白扛。",
+                "structure_notes": "为什么这么苦还要撑，最后写成苦情赞歌。",
+                "analysis_theme": "硬撑和不能倒下。",
+                "analysis_hook_trigger": "白天扛事晚上崩一下。",
+                "analysis_progression_drive": "多能扛才有回报。",
+                "analysis_share_reason": "辛苦没有白扛。",
+                "source_name": "old-run",
+                "tags": ["长期扛压", "不能倒"],
+            }
+        },
+        metadata_sanitizer=fake_sanitizer,
+    )
+
+    combined = json.dumps(seed, ensure_ascii=False)
+    for forbidden in (
+        "长期扛压",
+        "暂时不能倒",
+        "不能倒下",
+        "辛苦没有白扛",
+        "白天扛事晚上崩一下",
+        "为什么这么苦还要撑",
+        "苦情赞歌",
+        "多能扛",
+    ):
+        assert forbidden not in combined
+    assert seed["author"] == "原作者"
+    assert seed["source_name"] == "old-run"
+    assert seed["tags"] == ["责任被看见", "家里踏实"]
+    assert seed["analysis_hook_trigger"] == "家里临时有事时，自己先把顺序理清。"
+
+
 def test_probe_ai_text_routes_collects_route_status_from_backend_mapping() -> None:
     script = _load_run_originality_case_module()
 
@@ -114,19 +171,25 @@ def test_probe_ai_text_routes_collects_route_status_from_backend_mapping() -> No
             return {"title": self.title, "angle": self.angle}
 
     class FakeSettings:
-        openai_model = "gpt-5-mini"
+        openai_model = "gpt-5.4-mini"
         openai_request_timeout_seconds = 12.0
 
     class FakeSummary:
         def model_dump(self) -> dict[str, object]:
             return {
-                "model": "gpt-5-mini",
+                "model": "gpt-5.4-mini",
                 "base_url": "https://proxy.example/v1",
                 "image_model": "gpt-image-2",
                 "image_base_url": "https://proxy.example/v1",
                 "image_api_key_configured": True,
                 "image_request_timeout_seconds": 12.0,
                 "image_uses_dedicated_config": False,
+                "image_fallback_route_configured": False,
+                "image_fallback_route_active": False,
+                "image_fallback_model": None,
+                "image_fallback_base_url": None,
+                "image_fallback_route_difference_labels": [],
+                "image_fallback_route_note": "当前未配置备用图片链路；主出图链路出错时，不会自动切到第二条图片 API。",
                 "api_key_configured": True,
                 "reasoning_effort": "medium",
                 "request_timeout_seconds": 12.0,
@@ -141,11 +204,67 @@ def test_probe_ai_text_routes_collects_route_status_from_backend_mapping() -> No
         }
     )
 
-    assert payload["ai_config"]["model"] == "gpt-5-mini"
+    assert payload["ai_config"]["model"] == "gpt-5.4-mini"
     assert payload["routes"]["responses_create_text"]["ok"] is True
     assert payload["routes"]["responses_create_json_text"]["ok"] is True
     assert payload["routes"]["responses_parse_topic"]["ok"] is True
     assert payload["routes"]["chat_completions_json"]["ok"] is True
+
+
+def test_probe_ai_image_routes_collects_route_status_from_backend_mapping() -> None:
+    script = _load_run_originality_case_module()
+
+    class FakeGenerator:
+        def __init__(self, _settings) -> None:
+            self._image_routes = [
+                {"label": "primary", "model": "primary-image-model", "base_url": "https://primary.example/v1"},
+                {"label": "fallback", "model": "fallback-image-model", "base_url": "https://fallback.example/v1"},
+            ]
+
+        def _generate_cover_image_with_route(self, prompt: str):
+            assert "16:9" in prompt
+            route = self._image_routes[0]
+            if route["label"] == "primary":
+                raise RuntimeError("primary image route unavailable")
+            return (b"fallback-cover", "fallback")
+
+    class FakeSettings:
+        openai_api_key = "test-key"
+
+    class FakeSummary:
+        def model_dump(self) -> dict[str, object]:
+            return {
+                "api_key_configured": True,
+                "base_url": "https://proxy.example/v1",
+                "model": "gpt-5.4-mini",
+                "image_model": "primary-image-model",
+                "image_api_key_configured": True,
+                "image_base_url": "https://primary.example/v1",
+                "image_request_timeout_seconds": 12.0,
+                "image_uses_dedicated_config": True,
+                "image_fallback_route_configured": True,
+                "image_fallback_route_active": True,
+                "image_fallback_model": "fallback-image-model",
+                "image_fallback_base_url": "https://fallback.example/v1",
+                "image_fallback_route_difference_labels": ["模型", "接口"],
+                "image_fallback_route_note": "备用图片链路已生效；它与主出图链路的差异项：模型、接口。",
+                "reasoning_effort": "medium",
+                "request_timeout_seconds": 12.0,
+            }
+
+    payload = script._probe_ai_image_routes(
+        {
+            "settings": FakeSettings(),
+            "OpenAIWorkbenchGenerator": FakeGenerator,
+            "get_ai_config_summary": lambda: FakeSummary(),
+        }
+    )
+
+    assert payload["routes"]["primary"]["ok"] is False
+    assert payload["routes"]["primary"]["configured_model"] == "primary-image-model"
+    assert payload["routes"]["fallback"]["ok"] is True
+    assert payload["routes"]["fallback"]["used_route_label"] == "fallback"
+    assert payload["routes"]["fallback"]["byte_length"] == len(b"fallback-cover")
 
 
 def test_parse_zhuque_report_text_extracts_score_and_band() -> None:
@@ -1195,8 +1314,16 @@ def test_compare_mode_can_attach_ai_route_probe(tmp_path: Path, monkeypatch) -> 
         script,
         "_probe_ai_text_routes",
         lambda: {
-            "ai_config": {"model": "gpt-5-mini", "base_url": "https://proxy.example/v1"},
+            "ai_config": {"model": "gpt-5.4-mini", "base_url": "https://proxy.example/v1"},
             "routes": {"responses_parse_topic": {"ok": False}},
+        },
+    )
+    monkeypatch.setattr(
+        script,
+        "_probe_ai_image_routes",
+        lambda: {
+            "ai_config": {"image_model": "gpt-image-2", "image_base_url": "https://images.example/v1"},
+            "routes": {"fallback": {"ok": True, "used_route_label": "fallback"}},
         },
     )
 
@@ -1219,8 +1346,10 @@ def test_compare_mode_can_attach_ai_route_probe(tmp_path: Path, monkeypatch) -> 
     assert exit_code == 0
     result_path = tmp_path / "runs" / "compare-route-probe-case" / "result.json"
     result = json.loads(result_path.read_text(encoding="utf-8"))
-    assert result["ai_text_routes_probe"]["ai_config"]["model"] == "gpt-5-mini"
+    assert result["ai_text_routes_probe"]["ai_config"]["model"] == "gpt-5.4-mini"
     assert result["ai_text_routes_probe"]["routes"]["responses_parse_topic"]["ok"] is False
+    assert result["ai_image_routes_probe"]["ai_config"]["image_model"] == "gpt-image-2"
+    assert result["ai_image_routes_probe"]["routes"]["fallback"]["used_route_label"] == "fallback"
 
 
 def test_compare_mode_apply_current_cleanups_collapses_over_segmented_shell(tmp_path: Path) -> None:
@@ -2471,3 +2600,87 @@ def test_safe_print_json_swallows_stdout_oserror(capsys) -> None:
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
+
+
+def test_persist_result_snapshot_updates_stage_and_syncs_bundle(tmp_path: Path) -> None:
+    script = _load_run_originality_case_module()
+    result_path = tmp_path / "result.json"
+    payload = {"status": "running"}
+    sync_calls: list[tuple[Path, Path]] = []
+
+    def fake_sync_runtime_db_to_bundle(*, runtime_db_path: Path, bundle_db_path: Path) -> None:
+        sync_calls.append((runtime_db_path, bundle_db_path))
+
+    script._sync_runtime_db_to_bundle = fake_sync_runtime_db_to_bundle
+    runtime_db_path = tmp_path / "runtime.db"
+    bundle_db_path = tmp_path / "bundle.db"
+
+    script._persist_result_snapshot(
+        result_path,
+        payload,
+        stage="draft_ready",
+        runtime_db_path=runtime_db_path,
+        bundle_db_path=bundle_db_path,
+    )
+
+    saved = json.loads(result_path.read_text(encoding="utf-8"))
+    assert saved["status"] == "running"
+    assert saved["last_completed_stage"] == "draft_ready"
+    assert sync_calls == [(runtime_db_path, bundle_db_path)]
+
+
+def test_persist_result_snapshot_writes_without_sync_when_db_paths_missing(tmp_path: Path) -> None:
+    script = _load_run_originality_case_module()
+    result_path = tmp_path / "result.json"
+    payload = {"status": "running"}
+    sync_calls: list[str] = []
+
+    def fake_sync_runtime_db_to_bundle(*, runtime_db_path: Path, bundle_db_path: Path) -> None:
+        sync_calls.append(f"{runtime_db_path}->{bundle_db_path}")
+
+    script._sync_runtime_db_to_bundle = fake_sync_runtime_db_to_bundle
+
+    script._persist_result_snapshot(result_path, payload, stage="assets_ready")
+
+    saved = json.loads(result_path.read_text(encoding="utf-8"))
+    assert saved["last_completed_stage"] == "assets_ready"
+    assert sync_calls == []
+
+
+def test_pipeline_project_snapshot_uses_final_project_detail() -> None:
+    script = _load_run_originality_case_module()
+
+    class FakeProject:
+        def model_dump(self) -> dict[str, object]:
+            return {
+                "stage": "publish_ready",
+                "chain_status": "ready",
+                "current_chain_state": "publish_ready",
+                "next_required_step": None,
+            }
+
+    class FakeDetail:
+        project = FakeProject()
+
+        def model_dump(self) -> dict[str, object]:
+            return {"project": self.project.model_dump(), "assets": {"cover_image_status": "ready"}}
+
+    partial: dict[str, object] = {
+        "project": {
+            "stage": "outline",
+            "chain_status": "missing",
+            "current_chain_state": "missing_strategy",
+            "next_required_step": "generate_strategy_package",
+        }
+    }
+    detail = FakeDetail()
+
+    script._update_project_result_snapshot(partial, detail)
+
+    assert partial["project"] == {
+        "stage": "publish_ready",
+        "chain_status": "ready",
+        "current_chain_state": "publish_ready",
+        "next_required_step": None,
+    }
+    assert partial["project_detail"]["assets"]["cover_image_status"] == "ready"

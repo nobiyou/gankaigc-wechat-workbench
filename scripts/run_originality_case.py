@@ -27,10 +27,17 @@ AI_OVERRIDE_ENV_FIELDS: tuple[tuple[str, str], ...] = (
     ("openai_model", "OPENAI_MODEL"),
     ("openai_reasoning_effort", "OPENAI_REASONING_EFFORT"),
     ("openai_request_timeout_seconds", "OPENAI_REQUEST_TIMEOUT_SECONDS"),
+    ("openai_allow_local_creative_fallbacks", "OPENAI_ALLOW_LOCAL_CREATIVE_FALLBACKS"),
+    ("openai_creative_quality_retry_max_attempts", "OPENAI_CREATIVE_QUALITY_RETRY_MAX_ATTEMPTS"),
     ("openai_image_api_key", "OPENAI_IMAGE_API_KEY"),
     ("openai_image_base_url", "OPENAI_IMAGE_BASE_URL"),
     ("openai_image_model", "OPENAI_IMAGE_MODEL"),
     ("openai_image_request_timeout_seconds", "OPENAI_IMAGE_REQUEST_TIMEOUT_SECONDS"),
+    ("openai_image_generation_max_attempts", "OPENAI_IMAGE_GENERATION_MAX_ATTEMPTS"),
+    ("openai_image_fallback_api_key", "OPENAI_IMAGE_FALLBACK_API_KEY"),
+    ("openai_image_fallback_base_url", "OPENAI_IMAGE_FALLBACK_BASE_URL"),
+    ("openai_image_fallback_model", "OPENAI_IMAGE_FALLBACK_MODEL"),
+    ("openai_image_fallback_request_timeout_seconds", "OPENAI_IMAGE_FALLBACK_REQUEST_TIMEOUT_SECONDS"),
 )
 
 
@@ -46,6 +53,27 @@ def _write_text(path: Path, text: str) -> None:
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _update_project_result_snapshot(partial: dict[str, Any], detail: Any) -> None:
+    """Store both the compact project state and the full detail from one read."""
+    partial["project"] = detail.project.model_dump()
+    partial["project_detail"] = detail.model_dump()
+
+
+def _persist_result_snapshot(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    stage: str | None = None,
+    runtime_db_path: Path | None = None,
+    bundle_db_path: Path | None = None,
+) -> None:
+    if stage:
+        payload["last_completed_stage"] = stage
+    if runtime_db_path is not None and bundle_db_path is not None:
+        _sync_runtime_db_to_bundle(runtime_db_path=runtime_db_path, bundle_db_path=bundle_db_path)
+    _write_json(path, payload)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -187,6 +215,10 @@ def _collect_ai_override_env(args: argparse.Namespace) -> tuple[dict[str, str], 
     cleared_env_names: set[str] = set()
     if getattr(args, "clear_openai_base_url", False):
         overrides["OPENAI_BASE_URL"] = DEFAULT_OPENAI_BASE_URL
+    if getattr(args, "clear_openai_image_base_url", False):
+        overrides["OPENAI_IMAGE_BASE_URL"] = ""
+    if getattr(args, "clear_openai_image_fallback_base_url", False):
+        overrides["OPENAI_IMAGE_FALLBACK_BASE_URL"] = ""
     for field_name, env_name in AI_OVERRIDE_ENV_FIELDS:
         normalized = _normalize_ai_override_value(getattr(args, field_name, None))
         if normalized is not None:
@@ -209,6 +241,23 @@ def _build_ai_route_probe_error_payload(exc: Exception) -> dict[str, object]:
         "type": exc.__class__.__name__,
         "message": str(exc),
         "body": getattr(exc, "body", None),
+    }
+
+
+def _collect_ai_config_summary_payload(backend: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    if backend is None:
+        if str(BACKEND_ROOT) not in sys.path:
+            sys.path.insert(0, str(BACKEND_ROOT))
+
+        from app.services.ai_generator import get_ai_config_summary
+
+        backend = {
+            "get_ai_config_summary": get_ai_config_summary,
+        }
+
+    get_ai_config_summary = backend["get_ai_config_summary"]
+    return {
+        "ai_config": get_ai_config_summary().model_dump(),
     }
 
 
@@ -297,6 +346,56 @@ def _probe_ai_text_routes(backend: Mapping[str, Any] | None = None) -> dict[str,
         }
     except Exception as exc:  # pragma: no cover - exercised in live use
         routes["chat_completions_json"] = {"ok": False, "error": _build_ai_route_probe_error_payload(exc)}
+
+    return {
+        "ai_config": get_ai_config_summary().model_dump(),
+        "routes": routes,
+    }
+
+
+def _probe_ai_image_routes(backend: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    if backend is None:
+        if str(BACKEND_ROOT) not in sys.path:
+            sys.path.insert(0, str(BACKEND_ROOT))
+
+        from app.core.settings import settings
+        from app.services.ai_generator import OpenAIWorkbenchGenerator, get_ai_config_summary
+
+        backend = {
+            "settings": settings,
+            "OpenAIWorkbenchGenerator": OpenAIWorkbenchGenerator,
+            "get_ai_config_summary": get_ai_config_summary,
+        }
+
+    settings = backend["settings"]
+    generator = backend["OpenAIWorkbenchGenerator"](settings)
+    get_ai_config_summary = backend["get_ai_config_summary"]
+    prompt = "16:9 横版公众号头图，真实摄影感，暖灯下的室内生活场景，不要文字。"
+    routes: dict[str, dict[str, object]] = {}
+    original_routes = list(generator._image_routes)
+
+    for route in original_routes:
+        route_label = str(route.get("label") or "unknown")
+        route_base_url = route.get("base_url") or "default-openai"
+        try:
+            generator._image_routes = [route]
+            image_bytes, used_route_label = generator._generate_cover_image_with_route(prompt)
+            routes[route_label] = {
+                "ok": True,
+                "configured_model": route.get("model"),
+                "configured_base_url": route_base_url,
+                "used_route_label": used_route_label,
+                "byte_length": len(image_bytes),
+            }
+        except Exception as exc:  # pragma: no cover - exercised in live use
+            routes[route_label] = {
+                "ok": False,
+                "configured_model": route.get("model"),
+                "configured_base_url": route_base_url,
+                "error": _build_ai_route_probe_error_payload(exc),
+            }
+        finally:
+            generator._image_routes = list(original_routes)
 
     return {
         "ai_config": get_ai_config_summary().model_dump(),
@@ -449,14 +548,29 @@ def _apply_current_compare_cleanups(*, title: str, draft_markdown: str) -> tuple
     current_markdown = draft_markdown
     changed_steps = 0
     step_changes: list[dict[str, Any]] = []
+    segmented_collapse_applied = False
+    post_collapse_split_steps = {
+        "split_tracked_article_dense_explainer_residue",
+        "split_resilience_dense_paragraph_residue",
+        "split_resilience_process_anchor_residue",
+        "split_tracked_article_long_paragraph_residue",
+        "split_tracked_article_scene_anchor_residue",
+    }
     for step_name, step_fn in _get_initial_draft_candidate_cleanup_steps(source_type="tracked_article"):
+        if segmented_collapse_applied and step_name in post_collapse_split_steps:
+            step_changes.append({"name": step_name, "changed": False, "skipped_after_segmented_collapse": True})
+            continue
         next_markdown = step_fn(title=title, body_markdown=current_markdown)
         changed = next_markdown != current_markdown
         if changed:
             changed_steps += 1
+            if step_name in {
+                "collapse_over_segmented_shell_residue",
+                "collapse_light_segmented_shell_residue",
+            }:
+                segmented_collapse_applied = True
         step_changes.append({"name": step_name, "changed": changed})
         current_markdown = next_markdown
-
     cleaned_summary = evaluate_ai_flavor_risk(title=title, body_markdown=current_markdown)
     cleanup_report = {
         "enabled": True,
@@ -851,6 +965,7 @@ def _build_tracked_article_seed(
     source_markdown: str,
     source_name: str,
     reuse_bundle_payload: Mapping[str, Any] | None,
+    metadata_sanitizer: Any | None = None,
 ) -> dict[str, Any]:
     seed: dict[str, Any] = {
         "slug": article_slug,
@@ -864,6 +979,15 @@ def _build_tracked_article_seed(
         "body_source": "manual_input",
         "structure_notes": "",
         "created_at": None,
+        "analysis_theme": "",
+        "analysis_core_conflict": "",
+        "analysis_emotional_exit": "",
+        "analysis_structure_mode": "",
+        "analysis_opening_pattern": "",
+        "analysis_hook_trigger": "",
+        "analysis_progression_drive": "",
+        "analysis_share_reason": "",
+        "analysis_do_not_turn_into": "",
         "tags": [],
     }
     if not isinstance(reuse_bundle_payload, Mapping):
@@ -878,6 +1002,17 @@ def _build_tracked_article_seed(
     structure_notes = str(tracked_article.get("structure_notes") or "").strip()
     tracked_source_name = str(tracked_article.get("source_name") or "").strip()
     tags = _normalize_string_list(tracked_article.get("tags"))
+    analysis_fields = (
+        "analysis_theme",
+        "analysis_core_conflict",
+        "analysis_emotional_exit",
+        "analysis_structure_mode",
+        "analysis_opening_pattern",
+        "analysis_hook_trigger",
+        "analysis_progression_drive",
+        "analysis_share_reason",
+        "analysis_do_not_turn_into",
+    )
 
     if author:
         seed["author"] = author
@@ -889,6 +1024,28 @@ def _build_tracked_article_seed(
         seed["source_name"] = tracked_source_name
     if tags:
         seed["tags"] = tags
+    for field in analysis_fields:
+        value = str(tracked_article.get(field) or "").strip()
+        if value:
+            seed[field] = value
+    if callable(metadata_sanitizer):
+        sanitized = metadata_sanitizer(
+            {
+                "summary": seed.get("summary", ""),
+                "structure_notes": seed.get("structure_notes", ""),
+                **{field: seed.get(field, "") for field in analysis_fields},
+                "tags": seed.get("tags", []),
+            },
+            article_title=article_title,
+            body_markdown=source_markdown,
+            tags=_normalize_string_list(seed.get("tags")),
+        )
+        if isinstance(sanitized, Mapping):
+            for field in ("summary", "structure_notes", *analysis_fields):
+                seed[field] = str(sanitized.get(field) or seed.get(field) or "").strip()
+            sanitized_tags = _normalize_string_list(sanitized.get("tags"))
+            if sanitized_tags:
+                seed["tags"] = sanitized_tags
     return seed
 
 
@@ -1033,6 +1190,60 @@ def _extract_reuse_topic_seed(
     if not title or not angle:
         return None
     return {"title": title, "angle": angle}
+
+
+def _apply_current_tracked_article_topic_seed_rewrites(
+    *,
+    topic_seed: Mapping[str, Any] | None,
+    tracked_article_payload: Mapping[str, Any] | None,
+    workbench_backend: Mapping[str, Any],
+) -> dict[str, str] | None:
+    if not isinstance(topic_seed, Mapping):
+        return None
+
+    title = _normalize_whitespace(str(topic_seed.get("title") or "").strip())
+    angle = _normalize_whitespace(str(topic_seed.get("angle") or "").strip())
+    if not title or not angle:
+        return None
+    if not isinstance(tracked_article_payload, Mapping):
+        return {"title": title, "angle": angle}
+
+    topic_payload = {
+        "source_type": "tracked_article",
+        "source_ref_slug": str(tracked_article_payload.get("slug") or "").strip(),
+        "source_name": str(tracked_article_payload.get("source_name") or "").strip(),
+        "article_title": str(tracked_article_payload.get("title") or "").strip(),
+        "author": str(tracked_article_payload.get("author") or "").strip(),
+        "summary": str(tracked_article_payload.get("summary") or "").strip(),
+        "body_markdown": str(tracked_article_payload.get("body_markdown") or ""),
+        "structure_notes": str(tracked_article_payload.get("structure_notes") or "").strip(),
+        "analysis_theme": str(tracked_article_payload.get("analysis_theme") or "").strip(),
+        "analysis_core_conflict": str(tracked_article_payload.get("analysis_core_conflict") or "").strip(),
+        "analysis_emotional_exit": str(tracked_article_payload.get("analysis_emotional_exit") or "").strip(),
+        "analysis_structure_mode": str(tracked_article_payload.get("analysis_structure_mode") or "").strip(),
+        "analysis_opening_pattern": str(tracked_article_payload.get("analysis_opening_pattern") or "").strip(),
+        "analysis_hook_trigger": str(tracked_article_payload.get("analysis_hook_trigger") or "").strip(),
+        "analysis_progression_drive": str(tracked_article_payload.get("analysis_progression_drive") or "").strip(),
+        "analysis_share_reason": str(tracked_article_payload.get("analysis_share_reason") or "").strip(),
+        "analysis_do_not_turn_into": str(tracked_article_payload.get("analysis_do_not_turn_into") or "").strip(),
+        "tags": tracked_article_payload.get("tags") or [],
+    }
+    ai_result = {"title": title, "angle": angle}
+
+    if workbench_backend["should_rewrite_pressure_topic_title"](topic_payload, ai_result):
+        ai_result = {
+            "title": workbench_backend["rewrite_pressure_topic_title"](topic_payload, ai_result),
+            "angle": str(ai_result.get("angle") or "").strip(),
+        }
+    if workbench_backend["should_rewrite_pressure_topic_angle"](topic_payload, ai_result):
+        ai_result = workbench_backend["rewrite_pressure_topic_angle"](topic_payload, ai_result)
+    if workbench_backend["should_rewrite_everyday_warmth_return_topic"](topic_payload, ai_result):
+        ai_result = workbench_backend["rewrite_everyday_warmth_return_topic"](topic_payload, ai_result)
+
+    return {
+        "title": _normalize_whitespace(str(ai_result.get("title") or "").strip()),
+        "angle": _normalize_whitespace(str(ai_result.get("angle") or "").strip()),
+    }
 
 
 def _coerce_detector_score(value: object) -> float | None:
@@ -2046,6 +2257,7 @@ def _build_replay_result_bundle(
     }
     if probe_ai_routes:
         result["ai_text_routes_probe"] = _probe_ai_text_routes()
+        result["ai_image_routes_probe"] = _probe_ai_image_routes()
     result["artifacts"]["external_detector_templates"] = _build_external_detector_templates(
         output_dir=output_dir,
         source_file=str(output_dir / "source.txt"),
@@ -2284,6 +2496,7 @@ def _run_compare_mode(args: argparse.Namespace) -> int:
     }
     if args.probe_ai_routes:
         result["ai_text_routes_probe"] = _probe_ai_text_routes()
+        result["ai_image_routes_probe"] = _probe_ai_image_routes()
     result["artifacts"]["external_detector_templates"] = _build_external_detector_templates(
         output_dir=output_dir,
         source_file=str(output_dir / "source.txt"),
@@ -2431,11 +2644,18 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
     from app.services.ai_generator import get_ai_config_summary
     from app.services.prompt_templates import build_draft_prompt, build_outline_prompt
     from app.services.workbench import (
+        _rewrite_everyday_warmth_return_topic,
+        _rewrite_pressure_topic_angle,
+        _rewrite_pressure_topic_title,
+        _should_rewrite_everyday_warmth_return_topic,
+        _should_rewrite_pressure_topic_angle,
+        _should_rewrite_pressure_topic_title,
         _build_reference_article_payload,
         _build_strategy_bundle_payload,
         _get_connection,
         _get_project_context,
         _load_project_strategy_bundle,
+        _sanitize_responsibility_shelter_tracked_article_metadata,
         adopt_strategy_card,
         create_project_from_topic,
         create_topic_from_tracked_article,
@@ -2460,6 +2680,7 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         source_markdown=source_markdown,
         source_name=args.source_name,
         reuse_bundle_payload=reuse_bundle_payload,
+        metadata_sanitizer=_sanitize_responsibility_shelter_tracked_article_metadata,
     )
     article_payload = TrackedArticleCreate(**tracked_article_seed)
 
@@ -2482,6 +2703,7 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
     }
     if args.probe_ai_routes:
         partial["ai_text_routes_probe"] = _probe_ai_text_routes()
+        partial["ai_image_routes_probe"] = _probe_ai_image_routes()
     _write_json(result_path, partial)
 
     try:
@@ -2515,6 +2737,19 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
             if args.reuse_topic_from_bundle
             else None
         )
+        if reuse_topic_seed:
+            reuse_topic_seed = _apply_current_tracked_article_topic_seed_rewrites(
+                topic_seed=reuse_topic_seed,
+                tracked_article_payload=partial.get("tracked_article"),
+                workbench_backend={
+                    "should_rewrite_pressure_topic_title": _should_rewrite_pressure_topic_title,
+                    "rewrite_pressure_topic_title": _rewrite_pressure_topic_title,
+                    "should_rewrite_pressure_topic_angle": _should_rewrite_pressure_topic_angle,
+                    "rewrite_pressure_topic_angle": _rewrite_pressure_topic_angle,
+                    "should_rewrite_everyday_warmth_return_topic": _should_rewrite_everyday_warmth_return_topic,
+                    "rewrite_everyday_warmth_return_topic": _rewrite_everyday_warmth_return_topic,
+                },
+            )
         if reuse_topic_seed:
             topic = create_topic_from_tracked_article(
                 article_slug,
@@ -2576,6 +2811,8 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
             **reference_article_payload,
             **strategy_bundle_payload,
         }
+        if str(project_context["source_type"]) == "tracked_article" and problem_brief and strategy_card:
+            outline_payload["strategy_first_outline_mode"] = True
         outline_template = build_outline_prompt(outline_payload)
         placeholder_outline = {
             "hook": "占位钩子，用于导出 draft prompt，不代表模型输出。",
@@ -2589,9 +2826,12 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
             "outline": placeholder_outline,
             "tone_profile": tone_profile.model_dump(),
             "domain_pack": domain_pack,
+            "export_prompt_bundle_mode": True,
             **reference_article_payload,
             **strategy_bundle_payload,
         }
+        if str(project_context["source_type"]) == "tracked_article" and problem_brief and strategy_card:
+            draft_payload["strategy_first_draft_mode"] = True
         draft_template = build_draft_prompt(draft_payload)
 
         outline_prompt_payload = {
@@ -2621,10 +2861,15 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         _safe_print_json(partial)
         return 0
     except Exception as exc:  # pragma: no cover - exercised by live runs
-        _sync_runtime_db_to_bundle(runtime_db_path=runtime_db_path, bundle_db_path=bundle_db_path)
         partial["status"] = "failed"
         partial["error"] = {"message": str(exc), "traceback": traceback.format_exc()}
-        _write_json(result_path, partial)
+        _persist_result_snapshot(
+            result_path,
+            partial,
+            stage="failed",
+            runtime_db_path=runtime_db_path,
+            bundle_db_path=bundle_db_path,
+        )
         _safe_print_json(partial)
         return 1
 
@@ -2653,10 +2898,19 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
     from app.services.ai_flavor import evaluate_ai_flavor_risk
     from app.services.ai_generator import get_ai_config_summary
     from app.services.workbench import (
+        _rewrite_everyday_warmth_return_topic,
+        _rewrite_pressure_topic_angle,
+        _rewrite_pressure_topic_title,
+        _sanitize_responsibility_shelter_tracked_article_metadata,
+        _should_rewrite_everyday_warmth_return_topic,
+        _should_rewrite_pressure_topic_angle,
+        _should_rewrite_pressure_topic_title,
         adopt_strategy_card,
+        build_publish_package,
         create_project_from_topic,
         create_topic_from_tracked_article,
         enrich_tracked_article_metadata,
+        generate_assets,
         generate_draft,
         generate_outline,
         generate_strategy_package,
@@ -2678,6 +2932,7 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         source_markdown=source_markdown,
         source_name=args.source_name,
         reuse_bundle_payload=reuse_bundle_payload,
+        metadata_sanitizer=_sanitize_responsibility_shelter_tracked_article_metadata,
     )
     article_payload = TrackedArticleCreate(**tracked_article_seed)
 
@@ -2700,13 +2955,14 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
     }
     if args.probe_ai_routes:
         partial["ai_text_routes_probe"] = _probe_ai_text_routes()
+        partial["ai_image_routes_probe"] = _probe_ai_image_routes()
     partial["artifacts"]["external_detector_templates"] = _build_external_detector_templates(
         output_dir=output_dir,
         source_file=str(source_detector_text_path),
         draft_file=str(output_dir / "draft.txt"),
         result_json_path=result_path,
     )
-    _write_json(result_path, partial)
+    _persist_result_snapshot(result_path, partial, stage="initialized")
 
     try:
         initialize_store(reset=True)
@@ -2740,6 +2996,19 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
             else None
         )
         if reuse_topic_seed:
+            reuse_topic_seed = _apply_current_tracked_article_topic_seed_rewrites(
+                topic_seed=reuse_topic_seed,
+                tracked_article_payload=partial.get("tracked_article"),
+                workbench_backend={
+                    "should_rewrite_pressure_topic_title": _should_rewrite_pressure_topic_title,
+                    "rewrite_pressure_topic_title": _rewrite_pressure_topic_title,
+                    "should_rewrite_pressure_topic_angle": _should_rewrite_pressure_topic_angle,
+                    "rewrite_pressure_topic_angle": _rewrite_pressure_topic_angle,
+                    "should_rewrite_everyday_warmth_return_topic": _should_rewrite_everyday_warmth_return_topic,
+                    "rewrite_everyday_warmth_return_topic": _rewrite_everyday_warmth_return_topic,
+                },
+            )
+        if reuse_topic_seed:
             topic = create_topic_from_tracked_article(
                 article_slug,
                 TopicCreateFromTrend(
@@ -2752,6 +3021,13 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         else:
             topic = generate_topic_from_tracked_article(article_slug)
         partial["topic"] = topic.model_dump()
+        _persist_result_snapshot(
+            result_path,
+            partial,
+            stage="topic_ready",
+            runtime_db_path=runtime_db_path,
+            bundle_db_path=bundle_db_path,
+        )
 
         project = create_project_from_topic(
             topic.slug,
@@ -2772,7 +3048,6 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
 
         outline = generate_outline(project.slug)
         draft = generate_draft(project.slug)
-        detail = get_project_detail(project.slug)
 
         draft_path = output_dir / "draft.md"
         _write_text(draft_path, draft.body_markdown)
@@ -2780,7 +3055,6 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
 
         partial["outline"] = outline.model_dump()
         partial["draft"] = draft.model_dump()
-        partial["project_detail"] = detail.model_dump()
         partial["overlap_report"] = _build_overlap_report(
             source_title=article_title,
             source_markdown=source_markdown,
@@ -2791,6 +3065,56 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
             "source": evaluate_ai_flavor_risk(title=article_title, body_markdown=source_markdown).__dict__,
             "draft": evaluate_ai_flavor_risk(title=draft.title, body_markdown=draft.body_markdown).__dict__,
         }
+        _persist_result_snapshot(
+            result_path,
+            partial,
+            stage="draft_ready",
+            runtime_db_path=runtime_db_path,
+            bundle_db_path=bundle_db_path,
+        )
+
+        if args.include_assets_publish:
+            assets = generate_assets(project.slug)
+            partial["assets"] = assets.model_dump()
+            partial["artifacts"].update(
+                {
+                    "cover_copy_txt": str(output_dir / "cover-copy.txt"),
+                    "social_teaser_txt": str(output_dir / "social-teaser.txt"),
+                    "publish_lead_txt": str(output_dir / "publish-lead.txt"),
+                    "publish_abstract_txt": str(output_dir / "publish-abstract.txt"),
+                }
+            )
+            _write_text(output_dir / "cover-copy.txt", assets.cover_copy)
+            _write_text(output_dir / "social-teaser.txt", assets.social_teaser)
+            _persist_result_snapshot(
+                result_path,
+                partial,
+                stage="assets_ready",
+                runtime_db_path=runtime_db_path,
+                bundle_db_path=bundle_db_path,
+            )
+            publish_package = build_publish_package(project.slug)
+            partial["publish_package"] = publish_package.model_dump()
+            _write_text(output_dir / "publish-lead.txt", publish_package.publish_lead)
+            _write_text(output_dir / "publish-abstract.txt", publish_package.abstract)
+            _persist_result_snapshot(
+                result_path,
+                partial,
+                stage="publish_ready",
+                runtime_db_path=runtime_db_path,
+                bundle_db_path=bundle_db_path,
+            )
+
+        detail = get_project_detail(project.slug)
+        _update_project_result_snapshot(partial, detail)
+        _persist_result_snapshot(
+            result_path,
+            partial,
+            stage="project_detail_ready",
+            runtime_db_path=runtime_db_path,
+            bundle_db_path=bundle_db_path,
+        )
+
         detector_report = _maybe_build_external_detector_report(
             args,
             source_detector_text=_to_detector_text(source_markdown),
@@ -2798,9 +3122,21 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         )
         if detector_report is not None:
             partial["external_detector"] = detector_report
-        _sync_runtime_db_to_bundle(runtime_db_path=runtime_db_path, bundle_db_path=bundle_db_path)
+            _persist_result_snapshot(
+                result_path,
+                partial,
+                stage="external_detector_ready",
+                runtime_db_path=runtime_db_path,
+                bundle_db_path=bundle_db_path,
+            )
         partial["status"] = "done"
-        _write_json(result_path, partial)
+        _persist_result_snapshot(
+            result_path,
+            partial,
+            stage="done",
+            runtime_db_path=runtime_db_path,
+            bundle_db_path=bundle_db_path,
+        )
         _safe_print_json(partial)
         return 0
     except Exception as exc:  # pragma: no cover - exercised by live runs
@@ -2824,6 +3160,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-title", default=None, help="Optional project title override for pipeline mode.")
     parser.add_argument("--source-name", default="manual-originality-check", help="Tracked article source label.")
     parser.add_argument("--owner", default="originality-check", help="Project owner for pipeline mode.")
+    parser.add_argument(
+        "--include-assets-publish",
+        action="store_true",
+        help="Continue pipeline mode through generate-assets and build-publish-package, and persist those artifacts.",
+    )
     parser.add_argument(
         "--tone-profile-name",
         default=None,
@@ -2854,8 +3195,25 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional OPENAI_REQUEST_TIMEOUT_SECONDS override for this run only.",
     )
+    parser.add_argument(
+        "--openai-allow-local-creative-fallbacks",
+        choices=("true", "false"),
+        default=None,
+        help="Optional OPENAI_ALLOW_LOCAL_CREATIVE_FALLBACKS override for this run only.",
+    )
+    parser.add_argument(
+        "--openai-creative-quality-retry-max-attempts",
+        type=int,
+        default=None,
+        help="Optional OPENAI_CREATIVE_QUALITY_RETRY_MAX_ATTEMPTS override for this run only.",
+    )
     parser.add_argument("--openai-image-api-key", default=None, help="Optional OPENAI_IMAGE_API_KEY override for this run only.")
     parser.add_argument("--openai-image-base-url", default=None, help="Optional OPENAI_IMAGE_BASE_URL override for this run only.")
+    parser.add_argument(
+        "--clear-openai-image-base-url",
+        action="store_true",
+        help="Clear OPENAI_IMAGE_BASE_URL for this run only, so image requests inherit the current text base URL.",
+    )
     parser.add_argument("--openai-image-model", default=None, help="Optional OPENAI_IMAGE_MODEL override for this run only.")
     parser.add_argument(
         "--openai-image-request-timeout-seconds",
@@ -2864,9 +3222,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional OPENAI_IMAGE_REQUEST_TIMEOUT_SECONDS override for this run only.",
     )
     parser.add_argument(
+        "--openai-image-generation-max-attempts",
+        type=int,
+        default=None,
+        help="Optional OPENAI_IMAGE_GENERATION_MAX_ATTEMPTS override for this run only.",
+    )
+    parser.add_argument(
         "--probe-ai-routes",
         action="store_true",
-        help="Probe responses.create / responses.parse / chat.completions and persist the route status into result.json.",
+        help="Probe the current text and image AI routes, then persist the route status into result.json.",
+    )
+    parser.add_argument("--openai-image-fallback-api-key", default=None, help="Optional OPENAI_IMAGE_FALLBACK_API_KEY override for this run only.")
+    parser.add_argument("--openai-image-fallback-base-url", default=None, help="Optional OPENAI_IMAGE_FALLBACK_BASE_URL override for this run only.")
+    parser.add_argument(
+        "--clear-openai-image-fallback-base-url",
+        action="store_true",
+        help="Clear OPENAI_IMAGE_FALLBACK_BASE_URL for this run only, so the fallback image route inherits the current image base URL.",
+    )
+    parser.add_argument("--openai-image-fallback-model", default=None, help="Optional OPENAI_IMAGE_FALLBACK_MODEL override for this run only.")
+    parser.add_argument(
+        "--openai-image-fallback-request-timeout-seconds",
+        type=float,
+        default=None,
+        help="Optional OPENAI_IMAGE_FALLBACK_REQUEST_TIMEOUT_SECONDS override for this run only.",
     )
     parser.add_argument(
         "--skip-enrich",
@@ -2903,6 +3281,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--export-prompts-only",
         action="store_true",
         help="Build the tracked-article project context and export outline/draft prompt bundles without calling the model.",
+    )
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="Only print the current effective AI config summary without building pipeline state or calling any live model route.",
     )
     parser.add_argument("--source-title", default=None, help="Optional source title for compare mode.")
     parser.add_argument("--draft-title", default=None, help="Optional draft title for compare mode.")
@@ -2986,6 +3369,10 @@ def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
     _apply_ai_overrides(args)
+
+    if args.summary_only:
+        _safe_print_json(_collect_ai_config_summary_payload())
+        return 0
 
     if args.audit_result_json or args.audit_result_root:
         if args.audit_result_json and args.audit_result_root:
