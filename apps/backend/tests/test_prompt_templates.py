@@ -2671,6 +2671,9 @@ def test_build_assets_prompt_includes_strategy_package_theme_guard_for_tracked_a
                 "ending_move": "结尾回到一个继续生活、继续珍惜、继续往前的小动作或新期待上。",
                 "positive_direction": "标题和导语最后都要把人带回继续生活、继续珍惜、继续往前，而不是停在年中自责上。",
                 "packaging_focus": "包装优先抓阶段节点上的误判和回神点，不要只概括成长道理。",
+                "benchmark_summary": "只借阶段节点的回神感，不借原文骨架。",
+                "packaging_hook": "先抓年中清单，再回到继续生活。",
+                "share_reason": "读者会想把这段话发给正在清算自己的朋友。",
             },
             "benchmarks": [],
             "draft": {
@@ -2693,6 +2696,10 @@ def test_build_assets_prompt_includes_strategy_package_theme_guard_for_tracked_a
     assert "问题澄清：为什么很多人一到年中就会把没完成、没拥有和没赶上一起算成自己不够好。" in template.prompt
     assert "结构模式：阶段回望再出发推进" in template.prompt
     assert "结构执行：先守住阶段节点上的自我盘点和误判" in template.prompt
+    assert "参考基准：" not in template.prompt
+    assert "执行协议：" not in template.prompt
+    assert "包装主钩子：" not in template.prompt
+    assert "转发理由：" not in template.prompt
     assert "包装必须优先抓这个入口：包装优先抓阶段节点上的误判和回神点，不要只概括成长道理。" in template.instructions
     assert "标题、导语和封面最终都要把人带回这个落点：标题和导语最后都要把人带回继续生活、继续珍惜、继续往前，而不是停在年中自责上。" in template.instructions
 
@@ -2743,6 +2750,9 @@ def test_build_publish_package_prompt_includes_strategy_package_theme_guard_for_
                 "ending_move": "结尾回到一个继续生活、继续珍惜、继续往前的小动作或新期待上。",
                 "positive_direction": "发布导语最后要把人带回继续生活、继续珍惜、继续往前，而不是停在阶段性自责上。",
                 "packaging_focus": "发布标题和导语优先抓阶段节点上的误判和回神点，不要只概括成长道理。",
+                "benchmark_summary": "只借阶段节点的回神感，不借原文骨架。",
+                "packaging_hook": "先抓年中清单，再回到继续生活。",
+                "share_reason": "读者会想把这段话发给正在清算自己的朋友。",
             },
             "benchmarks": [],
             "draft": {
@@ -2770,6 +2780,10 @@ def test_build_publish_package_prompt_includes_strategy_package_theme_guard_for_
     assert "不要套“你以为……其实……”" in template.prompt
     assert "不要用“很多人会……”这类群体概括句起手" in template.prompt
     assert "创作策略包（执行摘要）：" in template.prompt
+    assert "参考基准：" not in template.prompt
+    assert "执行协议：" not in template.prompt
+    assert "包装主钩子：" not in template.prompt
+    assert "转发理由：" not in template.prompt
     assert "当前收束方向：结尾回到一个继续生活、继续珍惜、继续往前的小动作或新期待上。" in template.instructions
     assert "包装必须优先抓这个入口：发布标题和导语优先抓阶段节点上的误判和回神点，不要只概括成长道理。" in template.instructions
     assert "标题、导语和封面最终都要把人带回这个落点：发布导语最后要把人带回继续生活、继续珍惜、继续往前，而不是停在阶段性自责上。" in template.instructions

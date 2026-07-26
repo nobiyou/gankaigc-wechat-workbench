@@ -5187,7 +5187,7 @@ def _render_strategy_package_section(
     *,
     compact: bool = False,
     extra_compact: bool = False,
-    strategy_first_draft_compact: bool = False,
+    minimal_compact: bool = False,
 ) -> str:
     problem_brief = payload.get("problem_brief")
     strategy_card = payload.get("strategy_card")
@@ -5313,7 +5313,7 @@ def _render_strategy_package_section(
             lines.append(f"情绪回报：{_truncate_text(emotional_value_goal)}")
         if positive_direction:
             lines.append(f"正向落点：{_truncate_text(positive_direction)}")
-        if share_reason and not strategy_first_draft_compact:
+        if share_reason and not minimal_compact:
             lines.append(f"转发理由：{_truncate_text(share_reason)}")
         if target_reader_situation and not extra_compact:
             lines.append(f"读者定位：{_truncate_text(target_reader_situation)}")
@@ -5327,7 +5327,7 @@ def _render_strategy_package_section(
             lines.append(f"短句目标：{_truncate_text(quotable_line_goal)}")
         if packaging_focus and not extra_compact:
             lines.append(f"包装抓手：{_truncate_text(packaging_focus)}")
-        if packaging_hook and not strategy_first_draft_compact:
+        if packaging_hook and not minimal_compact:
             lines.append(f"包装主钩子：{_truncate_text(packaging_hook)}")
         if writing_texture_notes:
             lines.append(f"写法纹理：{' / '.join(writing_texture_notes[:2])}")
@@ -5360,9 +5360,9 @@ def _render_strategy_package_section(
             lines.append(f"主动拉开距离：{' / '.join(divergence_axes[:divergence_limit])}")
         if execution_checklist and not extra_compact:
             lines.append(f"执行检查：{' / '.join(execution_checklist[:3])}")
-        if benchmark_summary and not strategy_first_draft_compact:
+        if benchmark_summary and not minimal_compact:
             lines.append(f"参考基准：{_truncate_text(benchmark_summary)}")
-        if not strategy_first_draft_compact:
+        if not minimal_compact:
             compact_protocol = _build_dbskill_problem_execution_protocol(compact=True)
             if compact_protocol:
                 lines.append(compact_protocol)
@@ -6455,7 +6455,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             payload,
             compact=False if export_prompt_bundle_mode else compact_strategy_mode or strategy_first_draft_mode,
             extra_compact=False if export_prompt_bundle_mode else explicit_strategy_first_draft_mode,
-            strategy_first_draft_compact=not export_prompt_bundle_mode and strategy_first_draft_mode,
+            minimal_compact=not export_prompt_bundle_mode and strategy_first_draft_mode,
         )
     )
     strategy_resonance_instructions = (
@@ -6687,7 +6687,7 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     theme_first_execution_instructions = _build_theme_first_execution_instructions(payload, stage="assets")
     post_strategy_reference_boundary = _render_post_strategy_reference_boundary(payload, stage="assets")
     theme_first_execution_card = _render_theme_first_execution_card(payload, stage="assets")
-    strategy_package_section = _render_strategy_package_section(payload, compact=True)
+    strategy_package_section = _render_strategy_package_section(payload, compact=True, minimal_compact=True)
     strategy_resonance_instructions = _build_strategy_resonance_instructions(payload, stage="assets")
     packaging_theme_alignment_instructions = _build_packaging_theme_alignment_instructions(payload, stage="assets")
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="assets", payload=payload)
@@ -6931,7 +6931,7 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
     theme_first_execution_instructions = _build_theme_first_execution_instructions(payload, stage="publish_package")
     post_strategy_reference_boundary = _render_post_strategy_reference_boundary(payload, stage="publish_package")
     theme_first_execution_card = _render_theme_first_execution_card(payload, stage="publish_package")
-    strategy_package_section = _render_strategy_package_section(payload, compact=True)
+    strategy_package_section = _render_strategy_package_section(payload, compact=True, minimal_compact=True)
     strategy_resonance_instructions = _build_strategy_resonance_instructions(payload, stage="publish_package")
     packaging_theme_alignment_instructions = _build_packaging_theme_alignment_instructions(
         payload,
