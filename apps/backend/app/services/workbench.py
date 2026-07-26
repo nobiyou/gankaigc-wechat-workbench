@@ -9609,6 +9609,29 @@ def _resolve_local_fallback_mode(payload: Mapping[str, object]) -> str:
         for token in ("韧性", "重新长出力量", "最难走的路", "筋骨", "被生活按回去", "重新起身")
     ):
         return "resilience_reconstruction"
+    emotional_text = f"{title} {str(payload.get('topic_angle') or '').strip()} {corpus}"
+    emotional_hits = sum(
+        1
+        for token in (
+            "感谢相遇",
+            "不谈亏欠",
+            "允许一切结束",
+            "接纳离开",
+            "关系结束",
+            "走到最后",
+            "白费",
+            "告别",
+            "离开",
+            "回忆",
+            "遗憾",
+            "释怀",
+            "放下",
+            "过去",
+        )
+        if token in emotional_text
+    )
+    if emotional_hits >= 2:
+        return "emotional_engine_direct"
     if any(
         token in corpus
         for token in (
@@ -9745,29 +9768,6 @@ def _resolve_local_fallback_mode(payload: Mapping[str, object]) -> str:
         for token in ("评论", "点赞", "追问", "补问", "言外之意", "读懂", "我没事", "有点累", "轻互动")
     ):
         return "response_priority"
-    emotional_text = f"{title} {str(payload.get('topic_angle') or '').strip()} {corpus}"
-    emotional_hits = sum(
-        1
-        for token in (
-            "感谢相遇",
-            "不谈亏欠",
-            "允许一切结束",
-            "接纳离开",
-            "关系结束",
-            "走到最后",
-            "白费",
-            "告别",
-            "离开",
-            "回忆",
-            "遗憾",
-            "释怀",
-            "放下",
-            "过去",
-        )
-        if token in emotional_text
-    )
-    if emotional_hits >= 2:
-        return "emotional_engine_direct"
     if _has_broad_emotional_release_focus(
         {
             "source_type": "tracked_article",
@@ -10589,6 +10589,14 @@ def _uses_local_emotional_endings_acceptance_variant(payload: Mapping[str, objec
             "关系结束",
             "聚散终有时",
             "过客",
+            "停在半路",
+            "圆满结局",
+            "圆满收场",
+            "认真过的关系",
+            "认真过的相遇",
+            "成全后来的你",
+            "悄悄成全",
+            "留下来的温暖",
             "任务完成了",
             "自然会退场",
             "最好的祝福",
@@ -13325,6 +13333,8 @@ def _resolve_mode_shaped_local_packaging_title(
         return "有些人走远了，还是会在一个背影里轻轻回来"
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_reflux_variant(payload):
         return "那段旧关系没收好，往事就会在某个普通时刻回潮"
+    if mode == "emotional_engine_direct" and _uses_local_emotional_endings_acceptance_variant(payload):
+        return "有些关系停在半路，也会成全后来的你"
     mode_title = str(mode_titles.get(mode) or "").strip()
     if mode_title:
         return mode_title
@@ -13485,6 +13495,8 @@ def _resolve_local_assets_cover_copy(
             return "有些人明明走远了，还是会在一个背影里轻轻回来。"
         if _uses_local_emotional_memory_reflux_variant(payload):
             return "想起不是回头，是心里那段旧关系还需要被轻轻安放。"
+        if _uses_local_emotional_endings_acceptance_variant(payload):
+            return "有些关系停在半路，也会成全后来的你。"
         mode_copy = short_map.get(mode, "").strip()
         if mode_copy:
             return mode_copy
@@ -13601,6 +13613,8 @@ def _resolve_local_assets_social_teaser(
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_reflux_variant(payload):
         lead = first if first_is_safe else "你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。"
         return _compose_local_followup(lead, "真正反复回来的，不只是那个人，更是那段没说完的话和没被接住的自己。")
+    if mode == "emotional_engine_direct" and _uses_local_emotional_endings_acceptance_variant(payload):
+        return "人最难放下的，往往不是离开，而是总想替一段认真过的关系要一个圆满结局。可有些相遇就算停在半路，也已经把成长和勇气留在了你身上。"
     if first_is_safe:
         if tail:
             combined = _compose_local_followup(first, tail)
@@ -14079,6 +14093,9 @@ def _build_local_publish_package_fallback(
             elif _uses_local_emotional_memory_reflux_variant(focus_payload):
                 publish_lead = "你以为自己早就放下了，直到街头一个像他的背影、深夜一页旧聊天记录，还是会让心里轻轻一沉。真正反复回来的，不只是那个人，更是那段没说完的话、没被接住的自己。"
                 abstract = "你挂在心上的，很多时候不是那个人后来去了哪里，而是那几次本来能好好说完、最后却停在半路的话。等你肯承认那段路确实走完了，再想起时，心里那一下就不会总那么重。"
+            elif _uses_local_emotional_endings_acceptance_variant(focus_payload):
+                publish_lead = "人最难放下的，往往不是离开本身，而是总想替一段认真过的关系讨一个圆满结局。可关系不是考试，不是每一次用力都要换来“走到最后”这四个字。它留下的眼界、分寸和成长，早就在悄悄成全后来的你。"
+                abstract = "别再拿今天去补昨天的结局了。不是每段相遇都要圆满收场，才算来得值得。把舍不得交给时间，把成长收回自己身上，你会更轻一点，也会更坚定一点。"
             else:
                 publish_lead = "有些人离开很久了，你还是会在某个普通时刻想起。真正难过的，不只是失去，而是舍不得承认，那段认真过的相遇已经走完。"
                 abstract = "后来你会慢慢承认，有些人没能陪你走到最后，可那段相遇也不是白来。你从里面带走的认真、勇气和被照亮过的那一下，会继续留在你身上，陪你去过后面的日子。"
@@ -14218,6 +14235,15 @@ def _build_local_publish_package_fallback(
                 ]
             )
             intro_options = _dedupe_nonempty_text_options([publish_lead, *self_worth_intro_options, *intro_options])
+        elif mode == "emotional_engine_direct" and _uses_local_emotional_endings_acceptance_variant(focus_payload):
+            intro_options = _dedupe_nonempty_text_options(
+                [
+                    publish_lead,
+                    "不是每段相遇都要走到最后，才算来得值得。",
+                    "有些关系停在半路，却把后来的你悄悄托亮了。",
+                    *intro_options,
+                ]
+            )
         elif mode == "trust_boundary":
             intro_options = _dedupe_nonempty_text_options(
                 [
