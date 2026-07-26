@@ -160,6 +160,7 @@ _COVER_PROMPT_DOUBLE_SCREEN_PATTERN = re.compile(
     r"(?:双面手机|两面手机|前后双屏|前后两块屏幕|背面屏幕|背屏|后背屏幕|手机背面[^，。；;\n]{0,20}屏幕|背面[^，。；;\n]{0,20}聊天界面)",
     re.IGNORECASE,
 )
+_COVER_PROMPT_PHONE_BACK_SCENE = "人物看手机，手机背面或侧面朝向镜头，屏幕不朝向镜头，不展示可读内容"
 _PROJECT_VERSION_LOCKS: dict[str, threading.Lock] = {}
 _PROJECT_VERSION_LOCKS_GUARD = threading.Lock()
 _TRACKED_ARTICLE_DANGER_FRAGMENT_REPLACEMENTS = {
@@ -19280,6 +19281,7 @@ def _normalize_cover_prompt_layout(prompt: str) -> str:
     normalized = str(prompt).strip()
     raw_prompt_for_layout = normalized
     positive_phone_scene_requested = bool(re.search(r"(?:看|握着|拿着|在看|人物[^。！？!?；;\n]{0,24}手机)手机", raw_prompt_for_layout))
+    chat_ui_requested = bool(_COVER_PROMPT_CHAT_UI_PATTERN.search(raw_prompt_for_layout))
     negative_chat_guard = bool(
         re.search(
             r"(?:不要|禁止|避免|不出现|不展示)[^。！？!?；;\n]{0,80}(?:聊天界面|聊天框|输入框|消息气泡|微信聊天|聊天记录|对话界面|对话框|可读屏幕)",
@@ -19300,28 +19302,29 @@ def _normalize_cover_prompt_layout(prompt: str) -> str:
         )
     )
     if positive_phone_scene_requested and not re.search(r"(?:手机|屏幕)", normalized):
-        normalized = f"{normalized}，人物看手机，屏幕暗掉或虚化，不展示可读内容" if normalized else "人物看手机，屏幕暗掉或虚化，不展示可读内容"
+        normalized = f"{normalized}，{_COVER_PROMPT_PHONE_BACK_SCENE}" if normalized else _COVER_PROMPT_PHONE_BACK_SCENE
         phone_layout_guard_needed = True
     normalized = re.sub(r"21\s*[:：]\s*9", "16:9", normalized)
     normalized = re.sub(
         r"(?:手机)?聊天界面[和及、，,\s]*(?:消息气泡|输入框|聊天框)(?:作为主视觉)?",
-        "人物看手机，屏幕暗掉或虚化，不展示可读内容",
+        _COVER_PROMPT_PHONE_BACK_SCENE,
         normalized,
     )
     if _COVER_PROMPT_CHAT_UI_PATTERN.search(normalized):
         phone_layout_guard_needed = True
-        normalized = _COVER_PROMPT_CHAT_UI_PATTERN.sub("人物看手机，屏幕暗掉或虚化，不展示可读内容", normalized)
+        normalized = _COVER_PROMPT_CHAT_UI_PATTERN.sub(_COVER_PROMPT_PHONE_BACK_SCENE, normalized)
         normalized = re.sub(
-            r"(?:人物看手机，屏幕暗掉或虚化，不展示可读内容[，,、和\s]*){2,}(?:作为主视觉)?",
-            "人物看手机，屏幕暗掉或虚化，不展示可读内容",
+            rf"(?:{re.escape(_COVER_PROMPT_PHONE_BACK_SCENE)}[，,、和\s]*){{2,}}(?:作为主视觉)?",
+            _COVER_PROMPT_PHONE_BACK_SCENE,
             normalized,
         )
+    normalized = re.sub(r"(?:作为主视觉|手机背面也有|背面也有)(?=[，,。！？!?；;]|$)", "", normalized)
     if _COVER_PROMPT_DOUBLE_SCREEN_PATTERN.search(normalized):
         phone_layout_guard_needed = True
-        normalized = _COVER_PROMPT_DOUBLE_SCREEN_PATTERN.sub("普通单屏手机，不要双面手机、前后双屏或背面屏幕", normalized)
+        normalized = _COVER_PROMPT_DOUBLE_SCREEN_PATTERN.sub("普通单屏手机，手机背面没有屏幕，不要双面手机、前后双屏或背面屏幕", normalized)
     normalized = re.sub(
-        r"(?:普通单屏手机，不要双面手机、前后双屏或背面屏幕[、，,\s]*){2,}",
-        "普通单屏手机，不要双面手机、前后双屏或背面屏幕，",
+        r"(?:普通单屏手机，手机背面没有屏幕，不要双面手机、前后双屏或背面屏幕[、，,\s]*){2,}",
+        "普通单屏手机，手机背面没有屏幕，不要双面手机、前后双屏或背面屏幕，",
         normalized,
     )
     normalized = re.sub(r"(?:普通单屏手机[、，,\s]*){2,}", "普通单屏手机，", normalized)
@@ -19329,7 +19332,7 @@ def _normalize_cover_prompt_layout(prompt: str) -> str:
     normalized = re.sub(r"([。！？!?])\s*[，,]", r"\1", normalized)
     normalized = re.sub(r"\s{2,}", " ", normalized)
     normalized = normalized.strip(" ，,；;")
-    if negative_chat_guard and "不出现聊天界面、输入框、消息气泡或可读屏幕文字" not in normalized:
+    if (negative_chat_guard or chat_ui_requested or phone_layout_guard_needed) and "不出现聊天界面、输入框、消息气泡或可读屏幕文字" not in normalized:
         separator = "" if normalized.endswith(("。", "！", "？", "!", "?")) else "，"
         normalized = f"{normalized}{separator}不出现聊天界面、输入框、消息气泡或可读屏幕文字" if normalized else "不出现聊天界面、输入框、消息气泡或可读屏幕文字"
     if "真实摄影感" not in normalized:
@@ -19352,7 +19355,7 @@ def _normalize_cover_prompt_layout(prompt: str) -> str:
     if "安全区" not in normalized:
         prefix_parts.append("主体位于画面中部安全区")
     if phone_layout_guard_needed and "不要双面手机" not in normalized and "前后双屏" not in normalized:
-        prefix_parts.append("普通单屏手机，不要双面手机、前后双屏或背面屏幕")
+        prefix_parts.append("普通单屏手机，手机背面没有屏幕，不要双面手机、前后双屏或背面屏幕")
 
     if prefix_parts and normalized:
         return f"{'，'.join(prefix_parts)}，{normalized}"

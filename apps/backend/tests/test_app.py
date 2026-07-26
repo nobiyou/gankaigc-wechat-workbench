@@ -11584,6 +11584,23 @@ def test_build_local_publish_package_fallback_scene_first_household_uses_positiv
     assert package["abstract"] != package["publish_lead"]
 
 
+def test_normalize_cover_prompt_keeps_phone_screen_away_from_camera() -> None:
+    normalized = workbench._normalize_cover_prompt_layout(
+        "竖版手机聊天界面作为主视觉，人物在看手机，手机背面也有聊天界面，双面手机，温暖现实感。"
+    )
+
+    assert "16:9" in normalized
+    assert "横版公众号封面" in normalized
+    assert "普通单屏手机" in normalized
+    assert "手机背面没有屏幕" in normalized
+    assert "手机背面或侧面朝向镜头" in normalized
+    assert "屏幕不朝向镜头" in normalized
+    assert "不出现聊天界面、输入框、消息气泡或可读屏幕文字" in normalized
+    assert "竖版" not in normalized
+    assert "双面手机" in normalized
+    assert "手机背面也有聊天界面" not in normalized
+
+
 def test_cover_refresh_updates_project_publish_artifacts_with_new_cover_image(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     topic_slug = "scene-first-transit-cover-refresh-topic"
     project_slug = "scene-first-transit-cover-refresh-project"
