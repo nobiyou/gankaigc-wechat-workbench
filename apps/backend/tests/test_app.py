@@ -6067,9 +6067,8 @@ def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypat
         "检查配图、错别字和发布时间建议后再发布",
     ]
     markdown_text = Path(publish_package["markdown_path"]).read_text(encoding="utf-8")
-    assert "办公室倦怠后，先把自己的电量接回来" in markdown_text
-    assert "风格：" in markdown_text
-    assert "女性成长克制陪伴风" in markdown_text
+    assert markdown_text.startswith("# 不是你矫情，是你真的太久没休息了")
+    assert "那天晚上十点，你坐在工位前" in markdown_text
     manifest_text = Path(publish_package["manifest_path"]).read_text(encoding="utf-8")
     assert "情绪恢复" in manifest_text
     assert "publish_checklist" in manifest_text
@@ -6079,8 +6078,8 @@ def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypat
 
     publish_file_response = client.get(publish_package["markdown_url"])
     assert publish_file_response.status_code == 200
-    assert "办公室倦怠后，先把自己的电量接回来" in publish_file_response.text
-    assert "女性成长克制陪伴风" in publish_file_response.text
+    assert publish_file_response.text.startswith("# 不是你矫情，是你真的太久没休息了")
+    assert "那天晚上十点，你坐在工位前" in publish_file_response.text
 
     detail_after_publish_response = client.get("/api/projects/office-burnout-recovery-weekly")
     assert detail_after_publish_response.status_code == 200
