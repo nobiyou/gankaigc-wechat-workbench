@@ -362,6 +362,58 @@ test("buildWorkbenchActionPlan blocks publish actions while the API cover is pen
   assert.equal(publishPlan.showPublishReviewForm, false);
 });
 
+test("buildWorkbenchActionPlan sends quality-blocked assets back to asset generation", () => {
+  const detail: Parameters<typeof buildWorkbenchActionPlan>[0]["detail"] = {
+    project: {
+      ...baseProject,
+      stage: "assets_quality_blocked",
+      chain_status: "stale",
+      current_chain_state: "assets_quality_blocked",
+      next_required_step: "generate_assets",
+      current_outline_version: 1,
+      current_draft_version: 1,
+      current_assets_version: 1,
+    },
+    outline: null,
+    draft: {
+      project_slug: "demo-project",
+      outline_version: 1,
+      version: 1,
+      title: "draft title",
+      body_markdown: "# draft",
+      word_count: 1000,
+      tone_profile_id: null,
+      tone_profile_name: null,
+    },
+    assets: {
+      project_slug: "demo-project",
+      draft_version: 1,
+      version: 1,
+      title_options: ["title a"],
+      cover_prompt: "prompt",
+      cover_copy: "cover copy",
+      social_teaser: "teaser",
+      cover_image_path: "",
+      cover_image_url: "",
+      cover_image_status: "quality_blocked" as const,
+      cover_image_error: "素材包装未通过主题质量门，已跳过封面图 API。请先重新生成素材包。",
+      tone_profile_id: null,
+      tone_profile_name: null,
+    },
+    publish_package: null,
+    retro: null,
+  };
+
+  const assetsPlan = buildWorkbenchActionPlan({ stage: "assets", detail, historyEntryCount: 1 });
+  assert.equal(assetsPlan.primaryAction?.kind, "polish_and_generate_assets");
+  assert.equal(assetsPlan.secondaryActions.some((action) => action.kind === "generate_assets"), true);
+  assert.equal(assetsPlan.secondaryActions.some((action) => action.kind === "regenerate_cover_image"), false);
+
+  const publishPlan = buildWorkbenchActionPlan({ stage: "publish", detail, historyEntryCount: 1 });
+  assert.equal(publishPlan.primaryAction, null);
+  assert.equal(publishPlan.secondaryActions.some((action) => action.kind === "build_publish_package"), false);
+});
+
 test("shouldKeepWorkbenchActionActive only keeps submitted background actions locked", () => {
   assert.equal(shouldKeepWorkbenchActionActive("build_publish_package", true), true);
   assert.equal(shouldKeepWorkbenchActionActive("polish_and_build_publish_package", true), true);

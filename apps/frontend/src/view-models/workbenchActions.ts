@@ -305,7 +305,10 @@ export function buildWorkbenchActionPlan({
 
   if (stage === "assets") {
     const needsReferenceIsolation = hasReferenceIsolationRisk(detail);
-    const coverPending = detail.assets?.cover_image_status === "pending" || (detail.assets ? !detail.assets.cover_image_url : false);
+    const assetsQualityBlocked = detail.assets?.cover_image_status === "quality_blocked";
+    const coverPending =
+      !assetsQualityBlocked &&
+      (detail.assets?.cover_image_status === "pending" || (detail.assets ? !detail.assets.cover_image_url : false));
     return {
       primaryAction: coverPending
         ? { kind: "regenerate_cover_image", label: "重试图片 API" }
@@ -323,7 +326,9 @@ export function buildWorkbenchActionPlan({
         : { kind: "generate_assets", label: detail.assets ? "重新生成素材包" : "生成素材包" },
       secondaryActions: [
         ...(detail.draft ? [{ kind: "generate_assets" as const, label: detail.assets ? "仅重生成素材包" : "仅生成素材包" }] : []),
-        ...(detail.assets && !coverPending ? [{ kind: "regenerate_cover_image" as const, label: "重生成封面图" }] : []),
+        ...(detail.assets && !coverPending && !assetsQualityBlocked
+          ? [{ kind: "regenerate_cover_image" as const, label: "重生成封面图" }]
+          : []),
         ...(historyEntryCount > 1 ? [{ kind: "restore_assets" as const, label: "恢复历史素材" }] : []),
       ],
       canRestoreHistory: historyEntryCount > 1,
@@ -334,7 +339,10 @@ export function buildWorkbenchActionPlan({
   }
 
   if (stage === "publish") {
-    const coverPending = detail.assets?.cover_image_status === "pending" || (detail.assets ? !detail.assets.cover_image_url : false);
+    const assetsQualityBlocked = detail.assets?.cover_image_status === "quality_blocked";
+    const coverPending =
+      !assetsQualityBlocked &&
+      (detail.assets?.cover_image_status === "pending" || (detail.assets ? !detail.assets.cover_image_url : false));
     if (coverPending) {
       return {
         primaryAction: { kind: "regenerate_cover_image", label: "重试图片 API" },

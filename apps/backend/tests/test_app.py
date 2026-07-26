@@ -5882,6 +5882,7 @@ def test_generate_assets_surfaces_upstream_failure_when_packaging_retry_times_ou
         return len(retry_checks) == 1
 
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 1)
     monkeypatch.setattr(workbench, "_should_retry_assets_for_packaging", should_retry_once)
     monkeypatch.setattr(
         workbench,
@@ -8405,6 +8406,106 @@ def test_generate_assets_skips_packaging_quality_retry_by_default(monkeypatch) -
     assert "那句我没事" in assets.recommended_title
 
 
+def test_generate_assets_skips_cover_api_when_packaging_quality_gate_still_fails(monkeypatch) -> None:
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "assets-quality-blocked-source",
+            "source_name": "夜读关系实验室",
+            "title": "夜里那句我没事，背后都是责任",
+            "url": "https://example.com/assets-quality-blocked-source",
+            "author": "北岛",
+            "summary": "从成年人把疲惫先咽回去写起，再把辛苦回收到家里的安稳和被护住的秩序里。",
+            "structure_notes": "现实接口起手 + 责任代价推进 + 回到家里安稳。",
+            "tags": ["中年责任", "家庭安稳"],
+            "body_source": "manual",
+            "body_markdown": "# 原文\n\n他说没事的时候，手心其实已经凉了。",
+        },
+    )
+    client.post(
+        "/api/tracked-articles/assets-quality-blocked-source/to-topic",
+        json={
+            "slug": "assets-quality-blocked-topic",
+            "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "angle": "从成年人为什么总把“我没事”说得很轻切入，写责任怎样把辛苦压回去。",
+        },
+    )
+    project_response = client.post(
+        "/api/topics/assets-quality-blocked-topic/create-project",
+        json={
+            "slug": "assets-quality-blocked-project",
+            "title": "assets quality blocked 项目",
+            "owner": "editorial",
+        },
+    )
+    assert project_response.status_code == 201
+    assert client.post("/api/projects/assets-quality-blocked-project/generate-strategy-package").status_code == 201
+    assert client.post("/api/projects/assets-quality-blocked-project/adopt-strategy-card/1").status_code == 200
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.asset_calls: list[dict[str, object]] = []
+            self.cover_calls: list[dict[str, object]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "他说没事的时候，手心其实已经凉了。",
+                "outline_body": "1. 为什么先把自己往后放\n2. 责任怎样把辛苦压回去\n3. 家里的安稳怎么把意义接回来",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            return {
+                "title": "肩上有责任的人，心里也要留一盏灯",
+                "body_markdown": "很多时候，说这句话的人并不轻松。\n\n可他还是得先把家里的气稳住，再把自己的慌乱往后放。",
+            }
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            self.asset_calls.append(dict(payload))
+            return {
+                "title_options": ["后来才懂，平淡最珍贵"],
+                "recommended_title": "后来才懂，平淡最珍贵",
+                "cover_prompt": "16:9 横版公众号头图，夜里灯还亮着",
+                "cover_copy": "很多人都在悄悄把生活接住。",
+                "social_teaser": "很多时候，生活就是这样慢慢变好。",
+                "social_teaser_options": ["很多时候，生活就是这样慢慢变好。"],
+            }
+
+        def generate_cover_image(self, payload: dict[str, object]) -> bytes:
+            self.cover_calls.append(dict(payload))
+            raise AssertionError("cover image API should not run when assets packaging is quality-blocked")
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 0)
+    monkeypatch.setattr(workbench, "_should_retry_assets_for_packaging", lambda **_: True)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+
+    assert client.post("/api/projects/assets-quality-blocked-project/generate-outline").status_code == 201
+    assert client.post("/api/projects/assets-quality-blocked-project/generate-draft").status_code == 201
+
+    assets = workbench.generate_assets("assets-quality-blocked-project")
+
+    assert len(fake_generator.asset_calls) == 1
+    assert fake_generator.cover_calls == []
+    assert assets.cover_image_status == "quality_blocked"
+    assert "已跳过封面图 API" in str(assets.cover_image_error)
+    detail = workbench.get_project_detail("assets-quality-blocked-project")
+    assert detail.project.stage == "assets_quality_blocked"
+    assert detail.project.current_chain_state == "assets_quality_blocked"
+    assert detail.project.next_required_step == "generate_assets"
+
+    with pytest.raises(HTTPException) as exc_info:
+        workbench.build_publish_package("assets-quality-blocked-project")
+    assert exc_info.value.status_code == 409
+    assert "素材包装未通过主题质量门" in str(exc_info.value.detail)
+
+
 def test_build_publish_package_keeps_api_result_when_packaging_retry_stays_generic(monkeypatch) -> None:
     client.post(
         "/api/tracked-articles",
@@ -8489,6 +8590,7 @@ def test_build_publish_package_keeps_api_result_when_packaging_retry_stays_gener
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
     monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 1)
+    monkeypatch.setattr(workbench, "_should_retry_assets_for_packaging", lambda **_: False)
     monkeypatch.setattr(
         workbench,
         "_should_use_tracked_article_strategy_first_draft_mode",
@@ -8597,6 +8699,7 @@ def test_build_publish_package_skips_packaging_quality_retry_by_default(monkeypa
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
     monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 0)
+    monkeypatch.setattr(workbench, "_should_retry_assets_for_packaging", lambda **_: False)
     monkeypatch.setattr(workbench, "_should_retry_publish_package_for_packaging", lambda **_: True)
     monkeypatch.setattr(
         workbench,
@@ -8702,6 +8805,7 @@ def test_build_publish_package_retries_compact_prompt_after_custom_tracked_artic
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_should_retry_assets_for_packaging", lambda **_: False)
     monkeypatch.setattr(
         workbench,
         "_should_use_tracked_article_strategy_first_draft_mode",

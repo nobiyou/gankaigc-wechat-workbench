@@ -6135,6 +6135,10 @@ def _derive_project_chain_state(
         chain_status = "stale"
         current_chain_state = "draft_ready"
         next_required_step = "generate_assets"
+    elif str(assets_row["cover_image_status"] or "pending") == "quality_blocked":
+        chain_status = "stale"
+        current_chain_state = "assets_quality_blocked"
+        next_required_step = "generate_assets"
     elif (
         str(assets_row["cover_image_status"] or "pending") != "ready"
         or not str(assets_row["cover_image_url"] or "").strip()
@@ -20283,17 +20287,20 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                     list_fields=("title_options", "social_teaser_options"),
                 )
                 ai_result = _sanitize_assets_packaging_result(ai_result)
-                if (not used_local_assets_fallback) and _should_retry_assets_for_packaging(
+                assets_packaging_quality_failed = (not used_local_assets_fallback) and _should_retry_assets_for_packaging(
                     strategy_bundle_payload={
                         "problem_brief": assets_payload.get("problem_brief"),
                         "strategy_card": assets_payload.get("strategy_card"),
                     },
                     ai_result=ai_result,
-                ):
+                )
+                if assets_packaging_quality_failed:
                     logger.warning(
                         "Assets post-processing failed packaging quality gate for project %s; keeping API result and skipping local fallback.",
                         project_slug,
                     )
+            else:
+                assets_packaging_quality_failed = False
             recommended_title = str(ai_result.get("recommended_title") or "").strip()
             title_options = list(ai_result["title_options"])
             if not recommended_title:
@@ -20310,33 +20317,45 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
             cover_image_route_label: str | None = None
             cover_image_route_model: str | None = None
             cover_image_route_base_url: str | None = None
-            try:
-                cover_result = _generate_cover_image_file(
-                    generator=generator,
-                    project_slug=project_slug,
-                    project_title=str(project["title"]),
-                    normalized_cover_prompt=normalized_cover_prompt,
-                    cover_copy=str(ai_result["cover_copy"]),
-                    cover_file_path=cover_file_path,
-                )
-            except HTTPException as exc:
-                if exc.status_code != 502:
-                    raise
-                cover_image_error = str(exc.detail)
-                cover_image_route_label = getattr(exc, "cover_image_route_label", None)
-                cover_image_route_model = getattr(exc, "cover_image_route_model", None)
-                cover_image_route_base_url = getattr(exc, "cover_image_route_base_url", None)
+            packaging_quality_blocked = (
+                str(project["source_type"]) == "tracked_article"
+                and bool(assets_packaging_quality_failed)
+            )
+            if packaging_quality_blocked:
+                cover_image_status = "quality_blocked"
+                cover_image_error = "素材包装未通过主题质量门，已跳过封面图 API。请先重新生成素材包。"
                 logger.warning(
-                    "Cover image remains pending for project %s; preserving generated text assets for API retry.",
+                    "Assets packaging quality gate failed for project %s; skipping cover image API call.",
                     project_slug,
                 )
             else:
-                cover_image_path = cover_result.path
-                cover_image_url = cover_result.url
-                cover_image_status = "ready"
-                cover_image_route_label = cover_result.route_label
-                cover_image_route_model = cover_result.route_model
-                cover_image_route_base_url = cover_result.route_base_url
+                try:
+                    cover_result = _generate_cover_image_file(
+                        generator=generator,
+                        project_slug=project_slug,
+                        project_title=str(project["title"]),
+                        normalized_cover_prompt=normalized_cover_prompt,
+                        cover_copy=str(ai_result["cover_copy"]),
+                        cover_file_path=cover_file_path,
+                    )
+                except HTTPException as exc:
+                    if exc.status_code != 502:
+                        raise
+                    cover_image_error = str(exc.detail)
+                    cover_image_route_label = getattr(exc, "cover_image_route_label", None)
+                    cover_image_route_model = getattr(exc, "cover_image_route_model", None)
+                    cover_image_route_base_url = getattr(exc, "cover_image_route_base_url", None)
+                    logger.warning(
+                        "Cover image remains pending for project %s; preserving generated text assets for API retry.",
+                        project_slug,
+                    )
+                else:
+                    cover_image_path = cover_result.path
+                    cover_image_url = cover_result.url
+                    cover_image_status = "ready"
+                    cover_image_route_label = cover_result.route_label
+                    cover_image_route_model = cover_result.route_model
+                    cover_image_route_base_url = cover_result.route_base_url
             connection.execute(
                 """
                 INSERT INTO assets (
@@ -20379,7 +20398,14 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
             )
             connection.execute(
                 "UPDATE projects SET stage = ? WHERE slug = ?",
-                ("assets_ready" if cover_image_status == "ready" else "assets_pending_cover", project_slug),
+                (
+                    "assets_ready"
+                    if cover_image_status == "ready"
+                    else "assets_quality_blocked"
+                    if cover_image_status == "quality_blocked"
+                    else "assets_pending_cover",
+                    project_slug,
+                ),
             )
             connection.commit()
 
@@ -20569,6 +20595,14 @@ def _create_publish_package(
             )
         assets = _hydrate_asset_row(assets_row)
         if assets.cover_image_status != "ready" or not assets.cover_image_url.strip():
+            if assets.cover_image_status == "quality_blocked":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "发布包暂未生成：素材包装未通过主题质量门。请先重新生成素材包，再生成封面和发布包。"
+                        + (f" 原始返回：{assets.cover_image_error}" if assets.cover_image_error else "")
+                    ),
+                )
             cover_pending_error = HTTPException(
                 status_code=409,
                 detail=(

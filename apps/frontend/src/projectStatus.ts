@@ -2,6 +2,7 @@ const projectChainStateLabelMap: Record<string, string> = {
   missing_outline: "待生成大纲",
   outline_ready: "待生成初稿",
   draft_ready: "待生成素材",
+  assets_quality_blocked: "素材需重生成",
   cover_pending: "封面待补齐",
   assets_ready: "待生成发布包",
   publish_ready: "待审核发布包",

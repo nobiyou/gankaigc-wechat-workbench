@@ -209,7 +209,7 @@ export type AssetItem = {
   social_teaser_options: string[];
   cover_image_path: string;
   cover_image_url: string;
-  cover_image_status?: "ready" | "pending";
+  cover_image_status?: "ready" | "pending" | "quality_blocked";
   cover_image_error?: string | null;
   cover_image_route_label?: string | null;
   cover_image_route_model?: string | null;

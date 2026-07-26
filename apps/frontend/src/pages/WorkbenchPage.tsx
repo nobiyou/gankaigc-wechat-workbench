@@ -125,11 +125,16 @@ function buildStageContent(stage: WorkbenchStage, detail: ProjectDetail): { titl
   }
   if (stage === "assets") {
     const coverRouteMeta = buildCoverRouteMetaLine(detail.assets);
-    const coverPending = detail.assets?.cover_image_status === "pending" || (detail.assets ? !detail.assets.cover_image_url : false);
+    const assetsQualityBlocked = detail.assets?.cover_image_status === "quality_blocked";
+    const coverPending =
+      !assetsQualityBlocked &&
+      (detail.assets?.cover_image_status === "pending" || (detail.assets ? !detail.assets.cover_image_url : false));
 
     return {
       title: detail.assets?.recommended_title || detail.assets?.title_options[0] || "还没有素材包",
-      body: coverPending
+      body: assetsQualityBlocked
+        ? "标题、导语或封面文案未通过主题质量门；已跳过封面图 API，请先重新生成素材包。"
+        : coverPending
         ? "标题、导语和封面文案已经保存；封面图片仍待 API 补齐，可直接重试，不会改走本地生成。"
         : detail.assets?.cover_copy ?? "当前项目还没有素材包，可在生成后回到这里查看标题与封面文案。",
       meta: [
