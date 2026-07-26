@@ -430,7 +430,9 @@ def _extract_headings(markdown: str) -> list[str]:
 
 
 def _extract_sentences(markdown: str) -> list[str]:
-    stripped = _strip_markdown(markdown)
+    stripped = re.sub(r"^\s{0,3}#{1,6}\s*", "", markdown or "", flags=re.MULTILINE)
+    stripped = re.sub(r"\[(.*?)\]\((.*?)\)", r"\1", stripped)
+    stripped = re.sub(r"[*`>_-]+", " ", stripped)
     sentences: list[str] = []
     for part in _SENTENCE_SPLIT_RE.split(stripped):
         normalized = _compact_inline(part)

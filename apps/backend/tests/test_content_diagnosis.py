@@ -63,6 +63,28 @@ def test_reference_originality_report_flags_reference_residue() -> None:
     assert report.quality_signals["functional_equivalence_ready"] is False
 
 
+def test_reference_originality_report_detects_body_overlap_after_draft_heading_cleanup() -> None:
+    source_title = "别急着解释，先把那一下失望接住"
+    copied_body = "先写失望现场，再把那一下没有被回应的委屈慢慢拆开。"
+
+    report = build_reference_originality_report(
+        source_title=source_title,
+        source_markdown=f"# {source_title}\n\n{copied_body}",
+        draft_title=source_title,
+        draft_markdown=copied_body,
+    )
+
+    assert report.risk_level == "high"
+    assert report.overlap.title_same is True
+    assert report.overlap.exact_long_sentence_overlap_count == 1
+    assert report.overlap.exact_long_sentence_overlap_samples == [
+        "先写失望现场，再把那一下没有被回应的委屈慢慢拆开"
+    ]
+    assert report.danger_fragment_hits
+    assert report.quality_signals["surface_reuse_detected"] is True
+    assert report.quality_signals["functional_equivalence_ready"] is False
+
+
 def test_reference_originality_report_allows_functional_equivalence_without_surface_reuse() -> None:
     report = build_reference_originality_report(
         source_title="别总把身体提醒排到最后",
