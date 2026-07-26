@@ -6381,7 +6381,88 @@ def test_generate_draft_auto_polish_for_custom_provider_keeps_strategy_bundle_on
         assert "去模板化重写" in str(payload["polish_instruction"] or "")
 
 
-def test_generate_draft_auto_polish_retries_when_ai_flavor_still_remains(monkeypatch) -> None:
+def test_generate_draft_auto_polish_skips_extra_quality_retry_by_default(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def generate_outline(self, _: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "夜里安静下来，人才会想起那些一直往后拖的事。",
+                "outline_body": "1. 夜里回想\n2. 身体的账\n3. 失去后的空\n4. 别把日子往后押",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(("draft", payload))
+            instruction = str(payload.get("polish_instruction") or "")
+            if instruction:
+                if "上一次精修后，模板风险还没压够" in instruction:
+                    return {
+                        "title": "别把日子过反了",
+                        "body_markdown": (
+                            "# 别把日子过反了\n\n"
+                            "夜深了，人才会慢慢看见，自己把哪些真正重要的东西一再往后放。\n\n"
+                            "阿杰总说项目结束再休息，可身体不会一直等人腾空。\n\n"
+                            "外婆走后，我翻手机时才知道，有些平常时刻当时没留住，后来就真的没有了。\n\n"
+                            "想做的事别全押给以后，把今天该顾到的先顾住。"
+                        ),
+                    }
+                return {
+                    "title": "别把日子过反了",
+                    "body_markdown": (
+                        "# 别把日子过反了\n\n"
+                        "夜里收拾抽屉时，她翻到那张旧车票，才想起那次说好要去看的海，后来一直没去成。\n\n"
+                        "阿杰总说项目结束再休息，可日历翻过去一页又一页，身体和身边人都没有一直等他腾空。\n\n"
+                        "外婆走后，她才发现很多想留下来的瞬间，当时都只是顺手放到了以后。\n\n"
+                        "想做的事别全押给以后，把今天该顾到的先顾住。"
+                    ),
+                }
+
+            return {
+                "title": "别把日子过反了",
+                "body_markdown": (
+                    "# 别把日子过反了\n\n"
+                    "不是失去了才知道痛，而是很多东西在拥有的时候，就已经被我们慢慢忽略。\n\n"
+                    "朋友阿杰总说等忙完这阵就休息，外婆离世后我才发现有些话再也来不及说。\n\n"
+                    "从今天开始，别再把重要的东西推到以后。"
+                ),
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+
+    outline_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-outline")
+    assert outline_response.status_code == 201
+
+    draft_response = client.post("/api/projects/office-burnout-recovery-weekly/generate-draft")
+    assert draft_response.status_code == 201
+    draft = draft_response.json()
+
+    assert draft["title"] == "别把日子过反了"
+    assert "从今天开始" not in draft["body_markdown"]
+    assert "夜里收拾抽屉" in draft["body_markdown"]
+    assert "夜深了" not in draft["body_markdown"]
+
+    draft_calls = [call for call in fake_generator.calls if call[0] == "draft"]
+    assert len(draft_calls) == 2
+    assert draft_calls[0][1].get("polish_instruction") in {None, ""}
+    instructions = [str(call[1].get("polish_instruction") or "") for call in draft_calls[1:]]
+    assert any("去模板化重写" in instruction for instruction in instructions)
+    assert not any("上一次精修后，模板风险还没压够" in instruction for instruction in instructions)
+    assert not any("最后一轮局部清理" in instruction for instruction in instructions)
+
+
+def test_generate_draft_auto_polish_retries_when_quality_retry_enabled(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:
             self.calls: list[tuple[str, dict[str, object]]] = []
@@ -6430,11 +6511,7 @@ def test_generate_draft_auto_polish_retries_when_ai_flavor_still_remains(monkeyp
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
-    monkeypatch.setattr(
-        workbench,
-        "_should_use_tracked_article_strategy_first_draft_mode",
-        lambda payload, *, is_polish_mode: False,
-    )
+    monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 1)
     monkeypatch.setattr(
         workbench,
         "_should_use_tracked_article_strategy_first_draft_mode",

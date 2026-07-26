@@ -18985,6 +18985,9 @@ def _maybe_auto_polish_ai_flavor_draft_output(
     ):
         return best_markdown, best_title
 
+    if _creative_quality_retry_max_attempts() <= 0:
+        return best_markdown, best_title
+
     retried_body_markdown, retried_title = _maybe_retry_polish_for_structure_drift(
         project=project,
         outline_row=outline_row,
