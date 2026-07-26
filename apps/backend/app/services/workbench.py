@@ -4636,7 +4636,7 @@ def _allow_local_creative_fallbacks() -> bool:
 
 
 def _creative_quality_retry_max_attempts() -> int:
-    return max(0, int(getattr(settings, "openai_creative_quality_retry_max_attempts", 1) or 0))
+    return max(0, int(getattr(settings, "openai_creative_quality_retry_max_attempts", 0) or 0))
 
 
 def _image_generation_max_attempts() -> int:
@@ -7607,7 +7607,6 @@ def _generate_draft(
                 generator=generator,
                 draft_payload=draft_payload,
             )
-            has_multiple_initial_candidates = len(initial_candidates) > 1
             title = ""
             body_markdown = ""
             best_title = ""
@@ -7636,7 +7635,6 @@ def _generate_draft(
                         generator=generator,
                         title=current_title,
                         body_markdown=current_body_markdown,
-                        skip_nested_compact_polish=has_multiple_initial_candidates,
                     )
                     current_title = finalized_candidate.title
                     current_body_markdown = finalized_candidate.body_markdown
@@ -7760,7 +7758,6 @@ def _generate_draft(
                     generator=generator,
                     title=title,
                     body_markdown=body_markdown,
-                    skip_nested_compact_polish=has_multiple_initial_candidates,
                 )
                 body_markdown = finalized_candidate.body_markdown
                 title = finalized_candidate.title
@@ -8301,6 +8298,19 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
                 (
                     "他愿意替关系多留一点余地，也愿意在风雨来的时候，先把温柔递出去。",
                     "很多柔软都不是天生迟钝，而是明明看得清，还是愿意给在乎的人多留一点暖意。",
+                ),
+            )
+
+    if mode == "self_reliance_inward_support":
+        if _uses_local_self_reliance_shared_burden_variant(payload) or any(
+            token in corpus for token in ("向内求", "自救自渡", "自己熬过寒冬", "负重前行", "只有靠自己", "没人可找", "大家都在忙", "先把自己稳住", "日子接回来", "向外等")
+        ):
+            return _pick_local_seeded_text_variant(
+                payload,
+                (
+                    "有些难处不是不想说，只是话到嘴边，才发现对方也正被自己的生活推着走。",
+                    "真正长大以后你会发现，很多关口不是等谁来替你扛，而是先把脚下这一步走稳。",
+                    "人最清醒的一刻，常常不是突然不难了，而是终于愿意把力气一点点收回自己手里。",
                 ),
             )
 
@@ -8876,6 +8886,7 @@ def _clean_local_fallback_instruction_phrase(text: str) -> str:
     cleaned = re.sub(r"[，,；;]?\s*把[^。！？!?；;\n]{0,48}写透[。！？!?]?$", "", cleaned).strip()
     cleaned = re.sub(r"[，,；;]?\s*让[^。！？!?；;\n]{0,48}写透[。！？!?]?$", "", cleaned).strip()
     cleaned = re.sub(r"[。；，]?\s*不要收成.*$", "", cleaned).strip()
+    cleaned = re.sub(r"[。；，]?\s*不要只写.*$", "", cleaned).strip()
     cleaned = re.sub(r"[。；，]?\s*不要写成.*$", "", cleaned).strip()
     cleaned = cleaned.strip("：:，,；; ")
     return cleaned
@@ -9873,7 +9884,7 @@ def _resolve_local_generic_opening(
     mode_openings = {
         "everyday_warmth_return": "有些晚上，推开家门闻到饭香，人才忽然不想再和谁比较了。",
         "inner_settlement": "忙完一天回到家，把鞋摆好，给自己倒杯水；没有答案也没关系，心先有地方安静下来。",
-        "self_reliance_inward_support": "事情一多的时候，先把眼前能确定的一件事抓住。",
+        "self_reliance_inward_support": "有些难处不是一下子就能解决，先把手边这一件事做稳，心就不会一直悬着。",
         "self_worth_rebuild": "你其实已经不舒服了，可那句“都可以”还是比真实想法先出了口。",
         "supportive_appreciation": "饭桌上她先问一句“还吃吗？”，像什么都没发生；可她把那口气咽下去的样子，只有熟悉她的人看得见。",
         "relationship_aftercare": "门关上以后，屋里安静了几分钟；他去厨房倒了杯水，回来时没有继续争输赢，只问你刚才是不是难受。",
@@ -10343,6 +10354,11 @@ def _uses_local_self_reliance_shared_burden_variant(payload: Mapping[str, object
             "先把今天过完",
             "大家都被生活拽着",
             "没人腾得出手",
+            "判断还在",
+            "行动还在",
+            "请别人一起分担",
+            "把选择重新拿回来",
+            "帮助在该出现的时候进得来",
         )
         if token in corpus
     )
@@ -10861,46 +10877,54 @@ def _build_local_mode_shaped_generic_paragraphs(
             "他会回来，把话说完，把情绪接住，也把那份失望一点点接回去。",
         ]
     if mode == "self_reliance_inward_support":
+        stale_markers = (
+            "外面的帮扶",
+            "没人能立刻搭把手",
+            "没有人能随时赶来",
+            "等不到外面的手",
+            "等外面的安慰",
+            "即使没有帮助",
+            "外面的安慰",
+            "向内稳住",
+            "自我托底",
+            "今天先撑过去",
+            "孤立无援",
+            "每个人都在各自扛事",
+            "四周都腾不出空",
+            "想找人倾诉",
+            "事情压到眼前",
+            "把顺序重新理回来",
+            "把慌乱收回一个动作",
+            "能让人重新站稳的",
+            "当眼前这一小步被接住",
+        )
+
+        def _self_reliance_point(value: str, default: str) -> str:
+            cleaned = _clean_local_fallback_instruction_phrase(value)
+            if (
+                not cleaned
+                or _looks_like_local_fallback_instruction_fragment(cleaned)
+                or _looks_like_local_fallback_strategy_scaffold(cleaned)
+                or any(marker in cleaned for marker in stale_markers)
+            ):
+                return default
+            return cleaned
+
         if "不是不想开口" in point_one:
             point_one = "想开口的那一秒，先给自己留一点把话说清楚的空间"
+        point_one = _self_reliance_point(point_one, "先把能做的一件事放到手上，水烧开、文件理好、明天要说的话写下来，人就不会一直悬着")
+        point_two = _self_reliance_point(point_two, "把今天过稳以后，再去想该向谁开口、该把哪件事交出去")
+        point_three = _self_reliance_point(point_three, "真正托住人的，是判断还在、行动还在，也知道什么时候请别人一起分担")
+        point_four = _self_reliance_point(point_four, "先走稳今天这一小步，后面的路才会一点点亮起来")
         return [
             intro,
-            _compose_local_followup(
-                "人被事情推着往前走时，最怕的不是忙，而是一下子乱了判断。",
-                "先把眼前能确定的一件事抓住，心里就会有一个落点。",
-            ),
-            _compose_local_followup(
-                "真正的稳，不是把委屈都咽回去。",
-                "是知道此刻先处理什么，哪些话可以晚一点说，哪些压力不必一次扛完。",
-            ),
-            _compose_local_followup(
-                "很多难关，都是这样被一点点走过去的。",
-                "不是突然变得无所不能，而是在慌乱里重新分清轻重缓急。",
-            ),
-            _compose_local_followup(
-                "你可以先停一停，把心里那团乱拆开。",
-                "能今天做的，就先落到手上；必须明天解决的，也别急着在今晚把自己耗干。",
-            ),
-            _compose_local_followup(
-                "把眼前能做的一件事落下去，心就会慢慢有方向。",
-                "等自己缓下来，再决定哪句话需要说清，哪份帮助可以认真交出去。",
-            ),
-            _compose_local_followup(
-                "自己先站稳，不等于把所有事都揽在身上。",
-                "它只是让你重新拥有选择：哪些事自己先做，哪些事认真交出去，哪些情绪需要被照顾。",
-            ),
-            _compose_local_followup(
-                "人最有力量的时候，不是从来不慌。",
-                "而是慌过以后，还能把判断捡回来，把下一步走稳。",
-            ),
-            _compose_local_followup(
-                "别把成熟理解成永远沉默。",
-                "真正成熟的人，会照顾情绪，也会安排事情；会自己往前走，也会在合适的时候开口。",
-            ),
-            _compose_local_followup(
-                "等心慢慢落下来，行动就会重新有方向。",
-                "你把这一刻接住了，后面的路才会一件件亮起来。",
-            ),
+            _ensure_sentence_end(point_one),
+            "能把日子往前带的人，往往不是从来不慌，而是慌过以后，还肯把事情一件件理回来。",
+            _ensure_sentence_end(point_two),
+            "人先稳一点，才看得清哪些事该马上做，哪些话该慢慢说，哪些重量可以交出去。",
+            _compose_local_followup(point_three, "这份力量会让人把选择重新拿回来，也让帮助在该出现的时候进得来。"),
+            "所以别急着把一段难走的日子，判成自己一个人的失败。你能把今天接住，就已经是在给明天留路。",
+            _compose_local_followup(point_four, "愿你在难的时候，依然相信自己有把日子过顺的能力。"),
         ]
     if mode == "pressure_interface_direct":
         return [
@@ -11160,7 +11184,6 @@ def _finalize_initial_draft_candidate(
     generator,
     title: str,
     body_markdown: str,
-    skip_nested_compact_polish: bool = False,
 ) -> _InitialDraftCandidateResult:
     def _finish(body: str, current_title: str) -> _InitialDraftCandidateResult:
         reference_source_markdown = _get_project_reference_source_markdown(project)
@@ -11211,7 +11234,6 @@ def _finalize_initial_draft_candidate(
             strategy_bundle_payload=strategy_bundle_payload,
             reference_article_payload=reference_article_payload,
             generator=generator,
-            skip_nested_compact_polish=skip_nested_compact_polish,
         )
         finalized_body_markdown, finalized_title = _maybe_retry_draft_for_positive_payoff(
             project=project,
@@ -13940,8 +13962,8 @@ def _build_local_publish_package_fallback(
                 abstract = "把水烧开，把灯关好，把明天要穿的衣服放在手边。等心先落回今天，那些想不通的事，往往也就没那么吵了。"
         elif mode == "self_reliance_inward_support":
             if _uses_local_self_reliance_shared_burden_variant(focus_payload):
-                publish_lead = "事情压到眼前时，先别急着把所有难处一起扛起来。把最要紧的一件事落到手上，判断会慢慢回来，后面的路也会重新有下一步。"
-                abstract = "人不是靠硬撑变强的，而是在一次次承压里学会分清轻重缓急。先稳住当下能做的一步，心会慢慢安稳，判断和行动也会更有力量。"
+                publish_lead = "想求一个回应却发现大家都在赶路时，先把手边最要紧的一件事落稳。判断回来以后，心就有了下一步，也更知道该向谁开口、把哪件事交出去。"
+                abstract = "人不是靠硬撑变强的，而是在承压时还能把判断和行动找回来。先把手边一件事做稳，心就有了落点，能自己往前走，也能在合适的时候请人分担。"
             else:
                 publish_lead = "事情一挤上来，人最怕的不是忙，是心里一下失了方向。先认领眼前最要紧的一件，把判断找回来，很多事就会重新有下一步。"
                 abstract = "真正能托住人的，不是咬牙把所有事都吞下去，而是在乱的时候仍然能分清先后。心里有了落脚处，明天的事也就不再只剩下硬撑。"
@@ -18862,7 +18884,6 @@ def _maybe_auto_polish_ai_flavor_draft_output(
     strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
-    skip_nested_compact_polish: bool = False,
 ) -> tuple[str, str]:
     if review_comment or polish_instruction:
         return body_markdown, title
@@ -18900,7 +18921,6 @@ def _maybe_auto_polish_ai_flavor_draft_output(
     ) and not _has_unbalanced_quote_fusion_signal(body_markdown):
         return body_markdown, title
 
-    uses_custom_base_url = bool(getattr(generator, "uses_custom_base_url", False))
     allow_structure_recomposition = is_tracked_article
     preserve_structure_anchors = not is_tracked_article
     initial_polish_instruction = build_ai_flavor_polish_instruction(summary)
@@ -18953,33 +18973,6 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         best_markdown, best_title = body_markdown, title
     working_title = polished_title
     working_markdown = polished_markdown
-
-    if uses_custom_base_url and allow_structure_recomposition and not skip_nested_compact_polish:
-        compact_polish_payload = dict(polish_payload)
-        compact_polish_payload["compact_polish_mode"] = True
-        compact_result = generator.generate_draft(compact_polish_payload)
-        compact_title = str(compact_result["title"])
-        compact_markdown = str(compact_result["body_markdown"])
-        if _should_prefer_retried_candidate_after_cleanup_preview(
-            current_title=working_title,
-            current_markdown=working_markdown,
-            retried_title=compact_title,
-            retried_markdown=compact_markdown,
-            source_type=str(project["source_type"]),
-            reference_source_markdown=_get_project_reference_source_markdown(project),
-            selection_context=candidate_selection_context,
-        ):
-            working_markdown, working_title = compact_markdown, compact_title
-        if _should_prefer_retried_candidate_after_cleanup_preview(
-            current_title=best_title,
-            current_markdown=best_markdown,
-            retried_title=working_title,
-            retried_markdown=working_markdown,
-            source_type=str(project["source_type"]),
-            reference_source_markdown=_get_project_reference_source_markdown(project),
-            selection_context=candidate_selection_context,
-        ):
-            best_markdown, best_title = working_markdown, working_title
 
     best_summary = evaluate_ai_flavor_risk(title=best_title, body_markdown=best_markdown)
     if best_summary.level == "低" and not is_tracked_article:

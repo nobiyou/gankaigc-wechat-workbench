@@ -6350,6 +6350,11 @@ def test_generate_draft_auto_polish_for_custom_provider_keeps_strategy_bundle_on
 
     assert len(initial_payloads) == 1
     assert polished_payloads
+    polish_signatures = [
+        (payload.get("compact_polish_mode") is True, str(payload.get("polish_instruction") or ""))
+        for payload in polished_payloads
+    ]
+    assert len(polish_signatures) == len(set(polish_signatures))
 
     benchmark_label = "真正让关系缓回来，不是解释，是先接住那一下失望"
 
@@ -6372,6 +6377,7 @@ def test_generate_draft_auto_polish_for_custom_provider_keeps_strategy_bundle_on
         assert_tracked_article_strategy_bundle(payload)
         assert payload["allow_structure_recomposition"] is True
         assert payload["preserve_structure_anchors"] is False
+        assert payload.get("compact_polish_mode") is True
         assert "去模板化重写" in str(payload["polish_instruction"] or "")
 
 
@@ -8171,6 +8177,7 @@ def test_generate_assets_keeps_api_result_when_packaging_retry_stays_generic(mon
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 1)
     monkeypatch.setattr(
         workbench,
         "_should_use_tracked_article_strategy_first_draft_mode",
@@ -8189,6 +8196,94 @@ def test_generate_assets_keeps_api_result_when_packaging_retry_stays_generic(mon
     assert assets.title_options == [assets.recommended_title]
     assert "说不出口的累" in assets.social_teaser
     assert "悄悄把生活接住" in assets.cover_copy
+
+
+def test_generate_assets_skips_packaging_quality_retry_by_default(monkeypatch) -> None:
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "assets-default-no-quality-retry-source",
+            "source_name": "夜读关系实验室",
+            "title": "夜里那句我没事，背后都是责任",
+            "url": "https://example.com/assets-default-no-quality-retry-source",
+            "author": "北岛",
+            "summary": "从成年人把疲惫先咽回去写起，再把辛苦回收到家里的安稳和被护住的秩序里。",
+            "structure_notes": "现实接口起手 + 责任代价推进 + 回到家里安稳。",
+            "tags": ["中年责任", "家庭安稳"],
+            "body_source": "manual",
+            "body_markdown": "# 原文\n\n他说没事的时候，手心其实已经凉了。",
+        },
+    )
+    client.post(
+        "/api/tracked-articles/assets-default-no-quality-retry-source/to-topic",
+        json={
+            "slug": "assets-default-no-quality-retry-topic",
+            "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "angle": "从成年人为什么总把“我没事”说得很轻切入，写责任怎样把辛苦压回去。",
+        },
+    )
+    project_response = client.post(
+        "/api/topics/assets-default-no-quality-retry-topic/create-project",
+        json={
+            "slug": "assets-default-no-quality-retry-project",
+            "title": "assets default no quality retry 项目",
+            "owner": "editorial",
+        },
+    )
+    assert project_response.status_code == 201
+    assert client.post("/api/projects/assets-default-no-quality-retry-project/generate-strategy-package").status_code == 201
+    assert client.post("/api/projects/assets-default-no-quality-retry-project/adopt-strategy-card/1").status_code == 200
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.asset_calls: list[dict[str, object]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "他说没事的时候，手心其实已经凉了。",
+                "outline_body": "1. 为什么先把自己往后放\n2. 责任怎样把辛苦压回去\n3. 家里的安稳怎么把意义接回来",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            return {
+                "title": "肩上有责任的人，心里也要留一盏灯",
+                "body_markdown": "很多时候，说这句话的人并不轻松。\n\n可他还是得先把家里的气稳住，再把自己的慌乱往后放。",
+            }
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            self.asset_calls.append(dict(payload))
+            return {
+                "title_options": ["很多人的那句我没事，藏着没说出口的累"],
+                "recommended_title": "很多人的那句我没事，藏着没说出口的累",
+                "cover_prompt": "16:9 横版公众号头图，夜里灯还亮着",
+                "cover_copy": "很多人都在悄悄把生活接住。",
+                "social_teaser": "很多时候，那句我没事背后，是成年人说不出口的累。",
+                "social_teaser_options": ["很多人都在悄悄把生活接住。"],
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 0)
+    monkeypatch.setattr(workbench, "_should_retry_assets_for_packaging", lambda **_: True)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+
+    assert client.post("/api/projects/assets-default-no-quality-retry-project/generate-outline").status_code == 201
+    assert client.post("/api/projects/assets-default-no-quality-retry-project/generate-draft").status_code == 201
+
+    assets = workbench.generate_assets("assets-default-no-quality-retry-project")
+
+    assert len(fake_generator.asset_calls) == 1
+    assert "那句我没事" in assets.recommended_title
+
 
 def test_build_publish_package_keeps_api_result_when_packaging_retry_stays_generic(monkeypatch) -> None:
     client.post(
@@ -8273,6 +8368,7 @@ def test_build_publish_package_keeps_api_result_when_packaging_retry_stays_gener
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 1)
     monkeypatch.setattr(
         workbench,
         "_should_use_tracked_article_strategy_first_draft_mode",
@@ -8298,6 +8394,105 @@ def test_build_publish_package_keeps_api_result_when_packaging_retry_stays_gener
     assert "藏着没说出口的累" in package["publish_title"]
     assert package["publish_lead"]
     assert package["intro_options"] == [package["publish_lead"]]
+
+
+def test_build_publish_package_skips_packaging_quality_retry_by_default(monkeypatch) -> None:
+    client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "publish-default-no-quality-retry-source",
+            "source_name": "夜读关系实验室",
+            "title": "夜里那句我没事，背后都是责任",
+            "url": "https://example.com/publish-default-no-quality-retry-source",
+            "author": "北岛",
+            "summary": "从成年人把疲惫先咽回去写起，再把辛苦回收到家里的安稳和被护住的秩序里。",
+            "structure_notes": "现实接口起手 + 责任代价推进 + 回到家里安稳。",
+            "tags": ["中年责任", "家庭安稳"],
+            "body_source": "manual",
+            "body_markdown": "# 原文\n\n他说没事的时候，手心其实已经凉了。",
+        },
+    )
+    client.post(
+        "/api/tracked-articles/publish-default-no-quality-retry-source/to-topic",
+        json={
+            "slug": "publish-default-no-quality-retry-topic",
+            "title": "夜里那句“没事，有我”，撑着的从来不只是一张账单",
+            "angle": "从成年人为什么总把“我没事”说得很轻切入，写责任怎样把辛苦压回去。",
+        },
+    )
+    project_response = client.post(
+        "/api/topics/publish-default-no-quality-retry-topic/create-project",
+        json={
+            "slug": "publish-default-no-quality-retry-project",
+            "title": "publish default no quality retry 项目",
+            "owner": "editorial",
+        },
+    )
+    assert project_response.status_code == 201
+    assert client.post("/api/projects/publish-default-no-quality-retry-project/generate-strategy-package").status_code == 201
+    assert client.post("/api/projects/publish-default-no-quality-retry-project/adopt-strategy-card/1").status_code == 200
+
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.publish_calls: list[dict[str, object]] = []
+
+        def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
+            return {
+                "hook": "他说没事的时候，手心其实已经凉了。",
+                "outline_body": "1. 为什么先把自己往后放\n2. 责任怎样把辛苦压回去\n3. 家里的安稳怎么把意义接回来",
+            }
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            return {
+                "title": "肩上有责任的人，心里也要留一盏灯",
+                "body_markdown": "很多时候，说这句话的人并不轻松。\n\n可他还是得先把家里的气稳住，再把自己的慌乱往后放。",
+            }
+
+        def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
+            return {
+                "title_options": ["肩上有责任的人，心里也要留一盏灯"],
+                "recommended_title": "肩上有责任的人，心里也要留一盏灯",
+                "cover_prompt": "16:9 横版公众号头图，夜里灯还亮着",
+                "cover_copy": "肩上有责任，心里也要留一盏灯。",
+                "social_teaser": "把家里放在心上的人，也要记得给自己留一点光。",
+                "social_teaser_options": ["把家里放在心上的人，也要记得给自己留一点光。"],
+            }
+
+        def generate_cover_image(self, _: dict[str, object]) -> bytes:
+            return b"img"
+
+        def generate_publish_package(self, payload: dict[str, object]) -> dict[str, object]:
+            self.publish_calls.append(dict(payload))
+            return {
+                "abstract": "很多人都在悄悄把生活接住。",
+                "publish_title": "很多人的那句我没事，藏着没说出口的累",
+                "publish_lead": "很多人会在一句我没事里，把所有累都放到后面。",
+                "intro_options": ["很多人会在一句我没事里，把所有累都放到后面。"],
+                "tags": ["中年责任", "家庭安稳"],
+                "editor_note": "泛概括包装。",
+            }
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+    monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 0)
+    monkeypatch.setattr(workbench, "_should_retry_publish_package_for_packaging", lambda **_: True)
+    monkeypatch.setattr(
+        workbench,
+        "_should_use_tracked_article_strategy_first_draft_mode",
+        lambda payload, *, is_polish_mode: False,
+    )
+
+    assert client.post("/api/projects/publish-default-no-quality-retry-project/generate-outline").status_code == 201
+    assert client.post("/api/projects/publish-default-no-quality-retry-project/generate-draft").status_code == 201
+    assert client.post("/api/projects/publish-default-no-quality-retry-project/generate-assets").status_code == 201
+
+    publish_response = client.post("/api/projects/publish-default-no-quality-retry-project/build-publish-package")
+
+    assert publish_response.status_code == 201
+    assert len(fake_generator.publish_calls) == 1
+    assert "那句我没事" in publish_response.json()["publish_title"]
 
 
 def test_build_publish_package_retries_compact_prompt_after_custom_tracked_article_transport_error(monkeypatch) -> None:
@@ -8964,19 +9159,21 @@ def test_build_local_tracked_article_draft_fallback_shapes_self_reliance_mode_wi
     )
 
     assert title == "扛事久了的人，最后都要学会把自己慢慢接回来"
-    assert body_markdown.startswith("事情一多的时候，先把眼前能确定的一件事抓住。")
+    assert not body_markdown.startswith("事情一多的时候，先把眼前能确定的一件事抓住。")
+    assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
     assert "事情一下撞到眼前、四周都腾不出空的时候，最先冒出来的往往是慌。" not in body_markdown
-    assert "真正的稳，不是把委屈都咽回去。" in body_markdown
-    assert "先把眼前能确定的一件事抓住" in body_markdown
-    assert "等心慢慢落下来，行动就会重新有方向。" in body_markdown
+    assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
+    assert "先把眼前能确定的一件事抓住" not in body_markdown
+    assert "能把日子往前带的人" in body_markdown
+    assert "把选择重新拿回来" in body_markdown
     assert "并不是认输" not in body_markdown
     assert "不等于只能硬撑" not in body_markdown
     assert "并不是一个人把所有难处硬熬过去" not in body_markdown
     assert "不是立刻想通所有事" not in body_markdown
-    assert "人最有力量的时候，不是从来不慌。" in body_markdown
+    assert "人最有力量的时候，不是从来不慌。" not in body_markdown
     assert "大家手里都各有难处" not in body_markdown
     assert "没人腾得出手" not in body_markdown
-    assert len([paragraph for paragraph in body_markdown.split("\n\n") if paragraph.strip()]) >= 9
+    assert len([paragraph for paragraph in body_markdown.split("\n\n") if paragraph.strip()]) >= 8
     for forbidden in ("磨钝", "睡眠", "胃口", "束手无策", "忍住不哭", "很多事真正难的地方", "每个人都在", "孤立无援", "靠自己，", "。这不是"):
         assert forbidden not in body_markdown
 
@@ -8999,9 +9196,10 @@ def test_build_local_tracked_article_draft_fallback_self_reliance_shared_burden_
     )
 
     assert title == "把眼前这一步接住，日子就会慢慢回稳"
-    assert body_markdown.startswith("事情一多的时候，先把眼前能确定的一件事抓住。")
-    assert "真正的稳，不是把委屈都咽回去。" in body_markdown
-    assert "把判断捡回来，把下一步走稳" in body_markdown
+    assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
+    assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
+    assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
+    assert "判断还在、行动还在" in body_markdown
     assert "把桌面清出一块地方，把明天最先要用的东西放到手边" not in body_markdown
     assert "电话要不要回，事情先做哪件" not in body_markdown
 
@@ -9379,7 +9577,7 @@ def test_resolve_local_generic_opening_skips_stale_self_reliance_hook_trigger() 
         core_conflict="",
     )
 
-    assert opening == "事情一多的时候，先把眼前能确定的一件事抓住。"
+    assert opening == "有些难处不是一下子就能解决，先把手边这一件事做稳，心就不会一直悬着。"
 
     default_opening = workbench._resolve_local_generic_opening(
         payload={},
@@ -9389,7 +9587,7 @@ def test_resolve_local_generic_opening_skips_stale_self_reliance_hook_trigger() 
         core_conflict="",
     )
 
-    assert default_opening == "事情一多的时候，先把眼前能确定的一件事抓住。"
+    assert default_opening == "有些难处不是一下子就能解决，先把手边这一件事做稳，心就不会一直悬着。"
 
 
 def test_resolve_local_generic_opening_uses_concrete_resilience_scene() -> None:
@@ -9514,17 +9712,19 @@ def test_build_local_tracked_article_draft_fallback_uses_mode_shaped_outline_for
     )
 
     assert title == "把眼前这一步接住，日子就会慢慢回稳"
-    assert body_markdown.startswith("事情一多的时候，先把眼前能确定的一件事抓住。")
+    assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
+    assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
     assert "也写一个人怎样" not in body_markdown
-    assert "分清轻重缓急" in body_markdown
-    assert "能有人同行当然很好。" in body_markdown
-    assert "等心慢慢落下来，行动就会重新有方向。" in body_markdown
+    assert "分清轻重缓急" not in body_markdown
+    assert "能有人同行当然很好。" not in body_markdown
+    assert "判断还在、行动还在" in body_markdown
     assert "并不是认输" not in body_markdown
     assert "不等于只能硬撑" not in body_markdown
     assert "并不是一个人把所有难处硬熬过去" not in body_markdown
     assert "愿你以后" not in body_markdown
-    assert len([paragraph for paragraph in body_markdown.split("\n\n") if paragraph.strip()]) >= 9
-    for forbidden in ("磨钝", "睡眠", "胃口", "忍住不哭", "束手无策", "每个人都在", "孤立无援", "靠自己，", "。这不是", "很多时候，先把自己扶稳", "愿你以后"):
+    assert len([paragraph for paragraph in body_markdown.split("\n\n") if paragraph.strip()]) >= 8
+    assert "不要只写" not in body_markdown
+    for forbidden in ("磨钝", "睡眠", "胃口", "忍住不哭", "束手无策", "每个人都在", "孤立无援", "靠自己，", "。这不是", "很多时候，先把自己扶稳", "愿你以后", "无人可依"):
         assert forbidden not in body_markdown
 
 
@@ -9564,8 +9764,8 @@ def test_build_local_publish_package_fallback_uses_shared_burden_self_reliance_v
         assets=assets,
     )
 
-    assert package["publish_lead"] == "事情压到眼前时，先别急着把所有难处一起扛起来。把最要紧的一件事落到手上，判断会慢慢回来，后面的路也会重新有下一步。"
-    assert package["abstract"] == "人不是靠硬撑变强的，而是在一次次承压里学会分清轻重缓急。先稳住当下能做的一步，心会慢慢安稳，判断和行动也会更有力量。"
+    assert package["publish_lead"] == "想求一个回应却发现大家都在赶路时，先把手边最要紧的一件事落稳。判断回来以后，心就有了下一步，也更知道该向谁开口、把哪件事交出去。"
+    assert package["abstract"] == "人不是靠硬撑变强的，而是在承压时还能把判断和行动找回来。先把手边一件事做稳，心就有了落点，能自己往前走，也能在合适的时候请人分担。"
     assert "先把判断找回来，很多事就会重新有下一步。" in package["intro_options"]
 
 

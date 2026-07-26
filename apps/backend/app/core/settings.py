@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     openai_trust_env: bool = False
     openai_reasoning_effort: str | None = "medium"
     openai_allow_local_creative_fallbacks: bool = False
-    openai_creative_quality_retry_max_attempts: int = 1
+    openai_creative_quality_retry_max_attempts: int = 0
     openai_image_api_key: str = ""
     openai_image_base_url: str | None = None
     openai_image_request_timeout_seconds: float | None = None

@@ -2624,18 +2624,16 @@ def test_generator_uses_dedicated_image_client_config_when_present(monkeypatch) 
     )
 
     assert len(captured_calls) == 2
-    assert captured_calls[0] == {
-        "api_key": "text-key",
-        "base_url": "https://text.example/v1",
-        "timeout": 45.0,
-        "max_retries": 0,
-    }
-    assert captured_calls[1] == {
-        "api_key": "image-key",
-        "base_url": "https://image.example/v1",
-        "timeout": 120.0,
-        "max_retries": 0,
-    }
+    assert captured_calls[0]["api_key"] == "text-key"
+    assert captured_calls[0]["base_url"] == "https://text.example/v1"
+    assert captured_calls[0]["timeout"] == 45.0
+    assert captured_calls[0]["max_retries"] == 0
+    assert "http_client" in captured_calls[0]
+    assert captured_calls[1]["api_key"] == "image-key"
+    assert captured_calls[1]["base_url"] == "https://image.example/v1"
+    assert captured_calls[1]["timeout"] == 120.0
+    assert captured_calls[1]["max_retries"] == 0
+    assert "http_client" in captured_calls[1]
 
 
 def test_generate_cover_image_uses_low_quality_variant_first(monkeypatch) -> None:

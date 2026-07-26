@@ -1049,8 +1049,8 @@ def get_ai_config_summary(config: Settings = settings) -> AIConfigSummary:
         default=1,
     )
     creative_quality_retry_max_attempts = _coerce_non_negative_int(
-        getattr(config, "openai_creative_quality_retry_max_attempts", 1),
-        default=1,
+        getattr(config, "openai_creative_quality_retry_max_attempts", 0),
+        default=0,
     )
     if not fallback_route_configured:
         fallback_route_recovery_actions = _build_image_check_recovery_actions(config=config, status="not_configured")

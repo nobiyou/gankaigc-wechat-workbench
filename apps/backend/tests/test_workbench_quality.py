@@ -1468,9 +1468,10 @@ def test_local_self_reliance_publish_package_fallback_shortens_long_explanatory_
     )
 
     assert str(result["publish_title"]) == "把眼前这一步接住，日子就会慢慢回稳"
-    assert "判断会慢慢回来" in str(result["publish_lead"])
-    assert "轻重缓急" in str(result["abstract"])
-    assert "判断和行动也会更有力量" in str(result["abstract"])
+    assert "判断回来以后" in str(result["publish_lead"])
+    assert "该向谁开口" in str(result["publish_lead"])
+    assert "判断和行动找回来" in str(result["abstract"])
+    assert "请人分担" in str(result["abstract"])
     for stale in ("先倒杯热水", "热水倒上", "桌面清出", "明天要用的东西"):
         assert stale not in str(result["publish_lead"])
         assert stale not in str(result["abstract"])
@@ -1492,8 +1493,8 @@ def test_local_self_reliance_draft_removes_external_absence_template() -> None:
 
     combined = f"{title}\n{body}"
     assert "把眼前这一步接住" in title
-    assert "眼前能做的一件事" in combined
-    assert "行动就会重新有方向" in combined
+    assert "先把能做的一件事放到手上" in combined
+    assert "把选择重新拿回来" in combined
     for stale in (
         "别人赶来之前",
         "先把自己从慌里带出来",
@@ -2131,5 +2132,4 @@ def test_local_trust_publish_package_fallback_uses_broken_trust_scene() -> None:
     assert "谎话落下来" in str(result["publish_lead"])
     assert "对方不用猜，也不用查" in str(result["abstract"])
     assert "坦荡认真守住" in str(result["abstract"])
-
 
