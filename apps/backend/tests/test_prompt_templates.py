@@ -104,6 +104,93 @@ JINWAN_YOUYU_TONE_PROFILE = {
 }
 
 
+def _build_tracked_article_prompt_budget_payloads() -> tuple[
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+]:
+    problem_brief = {
+        "clarified_problem": "这篇文章要解释，为什么人在阶段回望时容易把没完成、没拥有和没赶上一起算成失败。",
+        "observed_phenomenon": "翻到年初计划、看到未完成清单、听见家人一句关心时，人才慢慢意识到自己不是白走了一程。",
+        "writing_goal": "把阶段性回望里的误判、自责和重新接纳讲清楚。",
+        "emotional_value_goal": "让读者从自我清算里退一步，把力气收回到眼前的人和接下来的生活里。",
+        "theme_axis": "阶段节点上的自我清算，怎样被眼前的支撑和继续生活的勇气慢慢化开。",
+        "anti_drift_axis": "不要写成泛心安、泛放下或单纯失恋遗憾稿。",
+        "target_reader_situation": "一到年中、生日、年底就忍不住给自己打低分的人。",
+        "core_conflict": "不是这一阶段不够好，而是人总想用一个结果一次性证明自己有没有白走。",
+        "constraints": ["保留阶段回望主题", "正向回落", "不要负面诊断"],
+        "feedback_entry": "读者看完后要先松一口气，再愿意继续往前做眼前事。",
+    }
+    strategy_card = {
+        "reader_situation": "一到阶段节点就忍不住给自己打低分的人。",
+        "point_of_view": "不站高位安慰，先把自我清算是怎么发生的讲清楚。",
+        "conflict_frame": "不是这半年不够好，而是把遗憾都算成失败。",
+        "emotional_path": "从清算和自责进入，慢慢回到眼前仍在的支撑。",
+        "positive_direction": "最后把人带回继续生活、珍惜身边人和愿意重新期待。",
+        "hook_trigger": "翻到年初计划时那一下停顿。",
+        "progression_drive": "先拆误判，再写支撑，最后回到继续往前。",
+        "share_reason": "读者会想把它发给正在清算自己的朋友。",
+        "quotable_line_goal": "允许一句短句从眼前支撑里长出来，不要空喊励志。",
+        "packaging_focus": "包装优先抓阶段节点上的误判和回神点。",
+        "packaging_hook": "先抓年中清单，再回到继续生活。",
+        "realism_texture_goal": "多用计划页、天气提醒、家人电话、饭桌这些真实接口。",
+        "structure_mode": "inner_settlement",
+        "opening_move": "开头先写翻到年初计划时的停顿。",
+        "body_shift": "中段先拆把遗憾算成失败的误判，再写身边支撑。",
+        "ending_move": "结尾回到一件继续生活的小事。",
+        "recomposition_recipe": ["阶段节点", "误判拆开", "支撑回温", "继续生活"],
+        "benchmark_summary": "只借阶段节点的回神感，不借原文骨架。",
+        "expression_constraints": ["不要负面诊断", "不要统一写成心安稿", "不要套不是A而是B"],
+        "divergence_axes": ["标题骨架换", "开头动作换", "中段顺序换"],
+        "execution_checklist": ["主题是否一致", "是否正向回落", "是否有现实接口"],
+        "scene_anchor_requirements": ["年初计划页", "家人电话"],
+        "quotable_line_seeds": ["这半年没按你想的来，也不代表你白走"],
+        "writing_texture_notes": ["先现实动作再判断", "短句要从前文长出来"],
+    }
+    benchmarks = [{"reference_label": "阶段回望参考", "borrow_focus": "阶段回望入口", "avoid_focus": "原文骨架"}]
+    draft_payload = {
+        "trend_title": "参考文章 / 手动录入",
+        "topic_title": "这半年没按你想的那样来，也不代表你白走了一程",
+        "topic_angle": "从阶段节点上的自我清算切入，写人怎样重新安放遗憾、看见支撑，继续往前。",
+        "project_title": "半年回望",
+        "source_type": "tracked_article",
+        "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
+        "problem_brief": problem_brief,
+        "strategy_card": strategy_card,
+        "benchmarks": benchmarks,
+        "outline": {
+            "hook": "翻到年初计划时，她先停了一下。",
+            "outline_body": "1. 阶段回望里的清算\n2. 遗憾不等于失败\n3. 被支撑托住后继续往前",
+        },
+    }
+    draft = {
+        "title": "翻回年初那页计划时，先别忙着给这半年打分",
+        "body_markdown": "# 标题\n\n很多人一到年中，不是在复盘，而是在清算自己。\n\n后来一通家人的电话，把人重新拉回眼前。",
+    }
+    assets_payload = {key: value for key, value in draft_payload.items() if key != "outline"}
+    assets_payload["reference_article_hidden"] = True
+    assets_payload["draft"] = draft
+    assets = {
+        "cover_copy": "这半年没按你想的那样来，也不代表你白走了一程",
+        "social_teaser": "翻到年初计划那一刻，先别急着给自己打低分。",
+        "social_teaser_options": ["导语一", "导语二", "导语三"],
+        "recommended_title": "翻到年中清单时，别把几种遗憾算成同一种失败",
+        "title_options": ["标题一", "标题二", "标题三"],
+    }
+    publish_payload = {
+        "project_title": "半年回望",
+        "source_type": "tracked_article",
+        "reference_article_hidden": True,
+        "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
+        "problem_brief": problem_brief,
+        "strategy_card": strategy_card,
+        "benchmarks": benchmarks,
+        "draft": draft,
+        "assets": assets,
+    }
+    return draft_payload, assets_payload, publish_payload
+
+
 def test_theme_first_packaging_instruction_does_not_invite_gold_sentence_labels() -> None:
     instructions = _build_theme_first_execution_instructions(
         {
@@ -3262,6 +3349,22 @@ def test_build_draft_prompt_compacts_tracked_article_strategy_payload() -> None:
     assert "它应该像作者仍在推进中的一版，不是已经准备进编辑排版的完整示范文。" in template.instructions
     assert len(template.instructions) < 3200
     assert len(template.prompt) < 2600
+
+
+def test_tracked_article_prompt_surfaces_stay_within_budget_after_strategy_adoption() -> None:
+    draft_payload, assets_payload, publish_payload = _build_tracked_article_prompt_budget_payloads()
+
+    draft_template = build_draft_prompt(draft_payload)
+    assets_template = build_assets_prompt(assets_payload)
+    publish_template = build_publish_package_prompt(publish_payload)
+
+    assert "主题主线：阶段节点上的自我清算" in draft_template.prompt
+    assert "包装必须继续服务当前正文主题" in assets_template.instructions
+    assert "发布标题、发布导语、摘要和编辑备注只允许压缩正文主线" in publish_template.instructions
+
+    assert len(draft_template.instructions) + len(draft_template.prompt) < 5400
+    assert len(assets_template.instructions) + len(assets_template.prompt) < 4500
+    assert len(publish_template.instructions) + len(publish_template.prompt) < 4300
 
 
 def test_build_draft_prompt_sanitizes_outline_section_labels_and_instruction_phrases() -> None:
