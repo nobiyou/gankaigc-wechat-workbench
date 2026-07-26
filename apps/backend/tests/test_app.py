@@ -9722,7 +9722,7 @@ def test_build_local_publish_package_fallback_self_worth_uses_luxury_profile_var
         assets=assets,
     )
 
-    assert package["publish_lead"] == "你越轻易把自己放低，别人越容易把你的体面当成可商量。后来你才懂，把自己看重，不是端着，而是不再拿委屈去换关系。"
+    assert package["publish_lead"] == "你越轻易把自己放低，别人越容易把你的体面当成可商量。后来你才懂，把自己看重，是把委屈从关系里慢慢撤出来。"
     assert any(token in package["abstract"] for token in ("门槛", "标准", "能答应", "不能退", "真正想珍惜你"))
     assert any(token in package["abstract"] for token in ("认真靠近", "认真地对待", "更认真"))
 
@@ -10578,7 +10578,7 @@ def test_build_local_publish_package_fallback_response_priority_uses_time_priori
     )
 
     assert package["publish_lead"] == "你当然知道大家都忙。可真把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。"
-    assert package["abstract"] == "忙不是问题，最怕的是你把在意递过去，后来像没落到实处。不是非要立刻回，只要那句“忙完找你”最后真的补回来了，心里悬着的那一下就会慢慢放下。"
+    assert package["abstract"] == "忙本身并不伤人，真正让人失落的，是你把在意递过去，后来像没落到实处。那句“忙完找你”最后真的补回来，心里悬着的那一下就会慢慢放下。"
     assert package["intro_options"][:2] == [
         "你当然知道大家都忙。可真把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。",
         assets.social_teaser,
@@ -10604,10 +10604,10 @@ def test_build_local_publish_package_fallback_response_priority_uses_followup_sc
         assets=assets,
     )
 
-    assert package["publish_lead"] == "那条朋友圈发出去以后，别人看见的是晚霞，真正在意你的人，看见的却是你那句轻描淡写后面的疲惫。他不会只留个赞就走，而是会顺着那点情绪，多问一句。"
+    assert package["publish_lead"] == "那条朋友圈发出去以后，别人看见了晚霞，真正在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。"
     assert package["abstract"] == "一条朋友圈下面热闹不难，难的是有人看懂你那句轻描淡写，追着问一句“是不是又扛着没说”。被这样惦记一次，人心里那根绷着的弦会先松一点。"
     assert package["intro_options"][:2] == [
-        "那条朋友圈发出去以后，别人看见的是晚霞，真正在意你的人，看见的却是你那句轻描淡写后面的疲惫。他不会只留个赞就走，而是会顺着那点情绪，多问一句。",
+        "那条朋友圈发出去以后，别人看见了晚霞，真正在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。",
         assets.social_teaser,
     ]
 
@@ -10765,7 +10765,7 @@ def test_build_local_publish_package_fallback_inner_settlement_uses_mode_lead_an
     )
 
     assert any(fragment in package["publish_lead"] for fragment in ("心里那点事", "心一直悬着", "心安"))
-    assert any(fragment in package["publish_lead"] for fragment in ("今晚想明白", "今天", "饭吃好"))
+    assert any(fragment in package["publish_lead"] for fragment in ("明天", "安顿好", "心里那点事"))
     assert any(fragment in package["abstract"] for fragment in ("把水烧开", "把灯关好", "心先落回今天"))
     assert any(fragment in package["abstract"] for fragment in ("想不通", "没那么吵", "日常"))
     assert package["intro_options"][0] == package["publish_lead"]
@@ -10791,8 +10791,8 @@ def test_build_local_publish_package_fallback_inner_settlement_uses_homecoming_v
         assets=assets,
     )
 
-    assert package["publish_lead"] == "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。人真正安稳下来的时候，往往不是所有事都有了答案，而是眼前这个普通的日子，终于又能好好过下去。"
-    assert package["abstract"] == "心安不是把生活按停，是还能把一顿饭吃热，把一句话说慢，把今天过清楚。外面的风停不停由不得你，屋里的灯，却可以由你亲手打开。"
+    assert package["publish_lead"] == "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。人真正安稳下来的时候，眼前这个普通的日子，终于又能好好过下去。"
+    assert package["abstract"] == "心安会落在很小的动作里：把一顿饭吃热，把一句话说慢，把今天过清楚。外面的风停不停由不得你，屋里的灯，却可以由你亲手打开。"
     assert "把鞋摆好，给自己倒杯水，普通的一天也能重新落稳。" in package["intro_options"]
 
 
@@ -10834,7 +10834,7 @@ def test_build_local_publish_package_fallback_inner_settlement_uses_future_relea
         assets=assets,
     )
 
-    assert package["publish_lead"].startswith("不是每件事都要今晚想通")
+    assert package["publish_lead"].startswith("很多事不用今晚想通")
     assert "先把今天过完" in package["publish_lead"]
     assert any(fragment in package["abstract"] for fragment in ("已经过去", "还没发生", "把饭吃好", "把灯关好"))
 
@@ -11096,7 +11096,7 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_warmt
     )
 
     assert package["publish_lead"] == "别人递来一点暖意，他常常会想办法再多还回去一点。这样的人，未必最会说，可你会在很多小事里看见他的认真：记得你的难处，也舍得把自己的好一遍遍落回来。被这样的人放在心上，日子会慢慢暖起来。"
-    assert package["abstract"] == "真正稀缺的，不是说得多动听，而是把温柔一遍遍落进小事里的人。别等他把失望咽多了，才想起他的体谅有多珍贵。"
+    assert package["abstract"] == "真正稀缺的，是把温柔一遍遍落进小事里的人。别等他把失望咽多了，才想起他的体谅有多珍贵。"
     assert package["abstract"] != assets.social_teaser
     assert "一句道歉不难" not in package["abstract"]
     assert "心软的人，一生难遇，也值得被人好好珍惜。" in package["intro_options"]
@@ -11850,7 +11850,7 @@ def test_build_local_publish_package_fallback_scene_first_office_uses_positive_r
     )
 
     assert package["publish_lead"].startswith("会已经散了，那页改过的方案还亮在屏幕上。")
-    assert package["abstract"] == "你不是没判断，只是总把场面放在前面。关键时刻肯开口，不是逞强，是把自己放回该在的位置。"
+    assert package["abstract"] == "你有判断，只是总把场面放在前面。关键时刻肯开口，会把自己放回该在的位置。"
     assert "那句你明明该在当场说的话" in package["publish_lead"]
     assert all("现场切入" not in item and "写一个人怎样" not in item for item in package["intro_options"])
     assert package["editor_note"] == "这版现场感已经够了，发布时别把导语写太满，留一点会后回味就行。"

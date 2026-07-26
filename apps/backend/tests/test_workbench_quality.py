@@ -188,6 +188,49 @@ def test_local_response_priority_time_draft_avoids_not_ab_skeleton() -> None:
     assert summary.score < 20
 
 
+def test_local_response_priority_followup_publish_package_keeps_theme_and_avoids_not_ab() -> None:
+    assets = AssetItem(
+        project_slug="response-followup-project",
+        draft_version=1,
+        version=1,
+        title_options=["你轻轻带过的话，值得有人认真接下去"],
+        recommended_title="你轻轻带过的话，值得有人认真接下去",
+        cover_prompt="16:9横版封面",
+        cover_copy="你轻轻带过的话，有人真的听进去了。",
+        social_teaser="那条晚霞发出去以后，最暖的不是那排点赞，是有人从“终于下班了”里听出了你的累。",
+        social_teaser_options=["那条晚霞发出去以后，最暖的不是那排点赞，是有人从“终于下班了”里听出了你的累。"],
+        cover_image_path="",
+        cover_image_url="",
+        cover_image_status="ready",
+        cover_image_error=None,
+        cover_image_route_label="primary",
+        cover_image_route_model="gpt-image-2",
+        cover_image_route_base_url="https://example.test/v1",
+        created_at="2026-07-19T00:00:00Z",
+        origin="generate",
+        tone_profile_id=None,
+        tone_profile_name=None,
+    )
+
+    result = _build_local_publish_package_fallback(
+        draft_title="你轻轻带过的话，值得有人认真接下去",
+        draft_body_markdown=(
+            "你发了一张晚霞照，本来只想轻轻带过一天。\n\n"
+            "别人顺手点了赞，只有一个人问你：是不是项目又出岔子了？\n\n"
+            "被这样追问一次，人就会知道什么叫被放在心上。"
+        ),
+        assets=assets,
+    )
+    combined = "\n\n".join(str(result.get(key) or "") for key in ("publish_lead", "abstract", "cover_title"))
+    summary = evaluate_ai_flavor_risk(title=str(result["publish_title"]), body_markdown=combined)
+
+    assert "晚霞" in str(result["publish_lead"])
+    assert "多问一句" in str(result["publish_lead"])
+    assert "主心骨" not in combined
+    assert "眼前的路" not in combined
+    assert all("不是A，是B" not in hit for hit in summary.hits)
+
+
 def test_positive_payoff_keeps_relationship_theme_separate_from_home_warmth() -> None:
     strategy = _strategy(
         structure_mode="relationship_aftercare",

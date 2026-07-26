@@ -8482,9 +8482,9 @@ def _resolve_local_scene_first_outline_points(
 def _resolve_local_scene_first_packaging_copy(scene_variant: str) -> tuple[str, str, str]:
     mapping = {
         "office": (
-            "会已经散了，那页改过的方案还亮在屏幕上。真正让人难受的，不是没人点你名，是那句你明明该在当场说的话，最后又留给了自己。",
+            "会已经散了，那页改过的方案还亮在屏幕上。真正让人难受的，是那句你明明该在当场说的话，最后又留给了自己。",
             "该说的时候开口，才不会总在散会以后后悔。",
-            "你不是没判断，只是总把场面放在前面。关键时刻肯开口，不是逞强，是把自己放回该在的位置。",
+            "你有判断，只是总把场面放在前面。关键时刻肯开口，会把自己放回该在的位置。",
         ),
         "transit": (
             "她那句“最近有点忙”刚落下去，你就知道她不止这一句话。可摆渡车一到，今晚最该问的那一句，还是跟着风一起被你按了回去。",
@@ -9207,7 +9207,7 @@ def _build_local_supportive_appreciation_paragraphs(
         "这样的人，心里常常很软，也很重感情。不是不会累，只是看见别人对他的好，就舍不得让那份好落空。",
         "他未必把感谢说得很响，却会在很多小事里慢慢还回来：记得你的难处，留意你的情绪，也愿意在你需要的时候多往前走一步。",
         "心软的人最难得的地方，从来不只是脾气好。是他把关系看得认真，把别人给过的温暖，也认真放在心上。",
-        "所以，别把他的柔软看得太轻。那不是随手就有的好脾气，而是一个人愿意把善意继续传下去的能力。",
+        "所以，别把他的柔软看得太轻。那份好脾气背后，是一个人愿意把善意继续传下去的能力。",
         "一生那么长，真正愿意把温暖回给你的人并不多。遇见了，就别只享受他的好，也要让他知道：他的真心有人看见。",
         "被认真珍惜过的温柔，会越来越亮。它会在平淡日子里慢慢长成踏实的爱，也会让两个人都更愿意靠近。",
     ]
@@ -10193,6 +10193,16 @@ def _resolve_local_generic_mode_closing(mode: str) -> str:
 
 def _build_local_response_priority_followup_corpus(payload: Mapping[str, object]) -> str:
     parts = [_extract_local_fallback_corpus(payload)]
+    for key in ("cover_copy", "social_teaser", "recommended_title"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            parts.append(value)
+    title_options = payload.get("title_options")
+    if isinstance(title_options, list):
+        parts.extend(str(item or "").strip() for item in title_options if str(item or "").strip())
+    social_teaser_options = payload.get("social_teaser_options")
+    if isinstance(social_teaser_options, list):
+        parts.extend(str(item or "").strip() for item in social_teaser_options if str(item or "").strip())
     outline = payload.get("outline")
     if isinstance(outline, Mapping):
         parts.extend(
@@ -13911,6 +13921,7 @@ def _build_local_publish_package_fallback(
         "body_markdown": draft_body_markdown,
         "cover_copy": assets.cover_copy,
         "social_teaser": assets.social_teaser,
+        "social_teaser_options": list(assets.social_teaser_options),
         "title_options": list(assets.title_options),
         "recommended_title": assets.recommended_title,
     }
@@ -13996,13 +14007,13 @@ def _build_local_publish_package_fallback(
         if mode == "response_priority":
             if _uses_local_response_priority_time_priority_variant(focus_payload):
                 publish_lead = "你当然知道大家都忙。可真把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。"
-                abstract = "忙不是问题，最怕的是你把在意递过去，后来像没落到实处。不是非要立刻回，只要那句“忙完找你”最后真的补回来了，心里悬着的那一下就会慢慢放下。"
+                abstract = "忙本身并不伤人，真正让人失落的，是你把在意递过去，后来像没落到实处。那句“忙完找你”最后真的补回来，心里悬着的那一下就会慢慢放下。"
             else:
                 if any(token in response_priority_scene_corpus for token in ("晚霞", "夕阳", "落日", "朋友圈", "照片")) and any(
                     token in response_priority_scene_corpus
                     for token in ("点赞", "评论", "追问", "补问", "项目又出岔子了", "打电话", "我没事", "我有点累")
                 ):
-                    publish_lead = "那条朋友圈发出去以后，别人看见的是晚霞，真正在意你的人，看见的却是你那句轻描淡写后面的疲惫。他不会只留个赞就走，而是会顺着那点情绪，多问一句。"
+                    publish_lead = "那条朋友圈发出去以后，别人看见了晚霞，真正在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。"
                     abstract = "一条朋友圈下面热闹不难，难的是有人看懂你那句轻描淡写，追着问一句“是不是又扛着没说”。被这样惦记一次，人心里那根绷着的弦会先松一点。"
                 else:
                     publish_lead = "那天你把手机扣在桌上，顺手说了句“没事”。他没有急着追问，只是把手边的水推过来，等你愿意开口。真正的在意，不会催你马上说明白。"
@@ -14019,13 +14030,13 @@ def _build_local_publish_package_fallback(
                 abstract = "家里人平安，想说的话有人听，再普通的一天也会让人心里发暖。日子很多时候就是这样，一顿热饭、一句惦记，就够人踏实很久。"
         elif mode == "inner_settlement":
             if _uses_local_inner_settlement_homecoming_variant(focus_payload):
-                publish_lead = "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。人真正安稳下来的时候，往往不是所有事都有了答案，而是眼前这个普通的日子，终于又能好好过下去。"
-                abstract = "心安不是把生活按停，是还能把一顿饭吃热，把一句话说慢，把今天过清楚。外面的风停不停由不得你，屋里的灯，却可以由你亲手打开。"
+                publish_lead = "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。人真正安稳下来的时候，眼前这个普通的日子，终于又能好好过下去。"
+                abstract = "心安会落在很小的动作里：把一顿饭吃热，把一句话说慢，把今天过清楚。外面的风停不停由不得你，屋里的灯，却可以由你亲手打开。"
             elif any(token in draft_body_markdown for token in ("已经过去的事", "还没发生的事", "提前在心里演很多遍", "很多答案不会今晚就来")):
-                publish_lead = "不是每件事都要今晚想通，也不是每一段情绪都要立刻处理干净。人真正慢慢松下来的时候，往往只是先把今天过完。"
+                publish_lead = "很多事不用今晚想通，很多情绪也不必立刻处理干净。人真正慢慢松下来的时候，往往只是先把今天过完。"
                 abstract = "已经过去的先放一放，还没发生的也先别追着跑。把饭吃好，把灯关好，心就会一点点回到眼前。"
             else:
-                publish_lead = "很多夜里，屋里已经安静下来了，心里那点事还在来回翻。后来你才懂，不是每件事都要今晚想明白。"
+                publish_lead = "很多夜里，屋里已经安静下来了，心里那点事还在来回翻。后来你才懂，许多事可以先放到明天，今晚只要把自己安顿好。"
                 abstract = "把水烧开，把灯关好，把明天要穿的衣服放在手边。等心先落回今天，那些想不通的事，往往也就没那么吵了。"
         elif mode == "self_reliance_inward_support":
             if _uses_local_self_reliance_shared_burden_variant(focus_payload):
@@ -14051,11 +14062,11 @@ def _build_local_publish_package_fallback(
                     focus_payload,
                     (
                         (
-                            "事情一挤上来，人最怕的不是忙，是心里一下失了方向。把最要紧的一件事落稳，力气就会慢慢回到自己手里。",
+                            "事情一挤上来，人最怕的是心里一下失了方向。把最要紧的一件事落稳，力气就会慢慢回到自己手里。",
                             "真正能托住人的，是乱的时候仍然能看见下一步。心里有了光，明天就会多出一个新的开口。",
                         ),
                         (
-                            "越是乱的时候，越要把手边那件能做的小事先做好。那不是逃避，是把主心骨一点点找回来。",
+                            "越是乱的时候，越要把手边那件能做的小事先做好。这个动作会把主心骨一点点找回来。",
                             "把生活重新握住，常常从一个很小的动作开始。先有落点，再有方向；先有方向，路就会慢慢亮起来。",
                         ),
                         (
@@ -14069,8 +14080,8 @@ def _build_local_publish_package_fallback(
             abstract = "生活的顺序，常常是从一个很小的动作开始回来的。体检照约、饭按时吃、该停的时候停一停，人先回稳，后面的责任和日子才会更有力量。"
         elif mode == "supportive_appreciation":
             if _has_local_supportive_misread_profile(focus_payload):
-                publish_lead = "太好说话的人，也会疼。她愿意翻篇，不是因为没受伤，只是把情分看得更重。真正该被珍惜的，是这份体谅没有再被当成理所当然。"
-                abstract = "她愿意再把话接起来，已经是在给这段关系一次机会。下一次记得先听完她的话，也把答应过的改变做到。心软的人最看重的，从来不是漂亮道歉，是你真的没有让同一件事再发生。"
+                publish_lead = "太好说话的人，也会疼。她愿意翻篇，是因为把情分看得更重。真正该被珍惜的，是这份体谅没有再被当成理所当然。"
+                abstract = "她愿意再把话接起来，已经是在给这段关系一次机会。下一次记得先听完她的话，也把答应过的改变做到。心软的人最看重的，是你真的没有让同一件事再发生。"
             elif _has_local_supportive_discernment_profile(focus_payload):
                 publish_lead = "他其实什么都懂，只是轮到在乎的人，还是会先把语气放软一点。看得清，却愿意把情分放在前面，这样的温柔最难得，也最该被认真珍惜。"
                 abstract = "心软不是迟钝，退让也不是没分寸。真正难得的，是一个人明明看得清，还愿意给关系留一点暖意。若你身边有这样的人，请记得好好接住他的温柔。"
@@ -14079,7 +14090,7 @@ def _build_local_publish_package_fallback(
                 abstract = "道歉最有分量的部分，往往发生在下一次：你记得她为什么难过，也真的把那件事做得不一样。温柔被认真接住，才会一直是温柔。"
             elif _has_local_supportive_warmth_profile(focus_payload):
                 publish_lead = "别人递来一点暖意，他常常会想办法再多还回去一点。这样的人，未必最会说，可你会在很多小事里看见他的认真：记得你的难处，也舍得把自己的好一遍遍落回来。被这样的人放在心上，日子会慢慢暖起来。"
-                abstract = "真正稀缺的，不是说得多动听，而是把温柔一遍遍落进小事里的人。别等他把失望咽多了，才想起他的体谅有多珍贵。"
+                abstract = "真正稀缺的，是把温柔一遍遍落进小事里的人。别等他把失望咽多了，才想起他的体谅有多珍贵。"
             else:
                 publish_lead = "饭桌上的气氛刚有点僵，她先夹了一筷子菜，问了句：“还吃吗？”她不是没脾气，只是舍不得让在乎的人一直隔着一口气。"
                 abstract = "肯先把话接回来的人，已经把关系放在了输赢前面。别让这份主动总是一个人的习惯；你也往前走一步，很多误会就能停在今晚。"
@@ -14087,7 +14098,7 @@ def _build_local_publish_package_fallback(
             publish_lead, abstract = _resolve_trust_boundary_publish_copy()
         elif mode == "self_worth_rebuild":
             if _has_local_self_worth_luxury_profile(focus_payload):
-                publish_lead = "你越轻易把自己放低，别人越容易把你的体面当成可商量。后来你才懂，把自己看重，不是端着，而是不再拿委屈去换关系。"
+                publish_lead = "你越轻易把自己放低，别人越容易把你的体面当成可商量。后来你才懂，把自己看重，是把委屈从关系里慢慢撤出来。"
                 abstract = "别总怕自己一开口就显得难相处。你把什么能答应、什么不能退说清以后，真正想珍惜你的人，不会嫌你麻烦，反而会更认真地对待你。"
             else:
                 publish_lead = "有一天你终于把那句“这次不行”说出口，关系没有天塌，生活也没有乱。你才发现，认真对待自己，并不会把真正爱你的人推远。"
