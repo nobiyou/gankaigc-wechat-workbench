@@ -6724,7 +6724,49 @@ def test_generate_draft_uses_strategy_first_full_prompt_for_tracked_article_with
     assert draft_payload["benchmarks"]
 
 
-def test_generate_initial_draft_candidates_runs_full_branch_when_compact_candidate_is_low_risk_but_over_smoothed(
+def test_generate_initial_draft_candidates_skips_full_branch_when_quality_retry_budget_is_zero(
+    monkeypatch,
+) -> None:
+    class FakeGenerator:
+        uses_custom_base_url = True
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append(dict(payload))
+            if payload.get("compact_strategy_mode"):
+                return {
+                    "title": "过度顺滑 compact 稿",
+                    "body_markdown": "过度顺滑 compact 正文",
+                }
+            raise AssertionError("full strategy branch should not run when quality retry budget is zero")
+
+    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
+        return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
+
+    monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 0)
+    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
+    monkeypatch.setattr(
+        workbench,
+        "_looks_like_over_smoothed_tracked_article_candidate",
+        lambda markdown: markdown == "过度顺滑 compact 正文",
+    )
+    monkeypatch.setattr(workbench, "_looks_like_tracked_article_fragment_chain_candidate", lambda _: False)
+
+    generator = FakeGenerator()
+    candidates = workbench._generate_initial_draft_candidates(
+        project={"source_type": "tracked_article", "slug": "compact-over-smoothed-no-budget-demo"},
+        generator=generator,
+        draft_payload={},
+    )
+
+    assert len(generator.calls) == 1
+    assert generator.calls[0]["compact_strategy_mode"] is True
+    assert candidates == [("过度顺滑 compact 稿", "过度顺滑 compact 正文")]
+
+
+def test_generate_initial_draft_candidates_runs_full_branch_when_quality_retry_enabled(
     monkeypatch,
 ) -> None:
     class FakeGenerator:
@@ -6748,6 +6790,7 @@ def test_generate_initial_draft_candidates_runs_full_branch_when_compact_candida
     def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
         return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
 
+    monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 1)
     monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
     monkeypatch.setattr(
         workbench,

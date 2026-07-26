@@ -4653,6 +4653,10 @@ def _creative_quality_retry_max_attempts() -> int:
     return max(0, int(getattr(settings, "openai_creative_quality_retry_max_attempts", 0) or 0))
 
 
+def _allow_extra_quality_candidate_generation() -> bool:
+    return _creative_quality_retry_max_attempts() > 0
+
+
 def _image_generation_max_attempts() -> int:
     return max(1, int(getattr(settings, "openai_image_generation_max_attempts", 1) or 1))
 
@@ -7995,6 +7999,10 @@ def _generate_initial_draft_candidates(
                 project["slug"],
                 recovery_exc,
             )
+            if not _allow_local_creative_fallbacks():
+                if isinstance(recovery_exc, _OUTLINE_TRANSIENT_PROVIDER_ERRORS):
+                    _raise_creative_upstream_failure("正文生成", recovery_exc)
+                raise
             full_fallback_payload = dict(draft_payload)
             full_fallback_payload["full_fallback_single_attempt_mode"] = True
             initial_result = generator.generate_draft(full_fallback_payload)
@@ -8023,6 +8031,8 @@ def _generate_initial_draft_candidates(
         if not _looks_like_over_smoothed_tracked_article_candidate(compact_body_markdown):
             return candidates
     if _looks_like_tracked_article_fragment_chain_candidate(compact_body_markdown):
+        return candidates
+    if not _allow_extra_quality_candidate_generation():
         return candidates
 
     try:
