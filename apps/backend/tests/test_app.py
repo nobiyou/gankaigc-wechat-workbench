@@ -2183,7 +2183,7 @@ def test_generate_topic_from_tracked_article_rewrites_self_reliance_article_out_
     assert "顺手帮一下" not in payload["angle"]
     assert "边界不清" not in payload["angle"]
     assert "需求不明" not in payload["angle"]
-    assert "力气往回收" in payload["title"] or "眼前这一步" in payload["title"]
+    assert any(anchor in payload["title"] for anchor in ("力气", "主心骨", "眼前这一步", "自己的光"))
     assert "现实触发点" in payload["angle"]
     assert "具体判断、行动或选择" in payload["angle"]
     assert "回稳" in payload["angle"]
@@ -9272,7 +9272,7 @@ def test_build_local_tracked_article_draft_fallback_self_reliance_shared_burden_
         }
     )
 
-    assert title == "把力气收回自己手里，日子会慢慢变亮"
+    assert any(anchor in title for anchor in ("力气", "主心骨", "自己的光"))
     assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
     assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
@@ -9789,7 +9789,7 @@ def test_build_local_tracked_article_draft_fallback_uses_mode_shaped_outline_for
         }
     )
 
-    assert title == "把力气收回自己手里，日子会慢慢变亮"
+    assert any(anchor in title for anchor in ("力气", "主心骨", "自己的光"))
     assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
     assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
     assert "也写一个人怎样" not in body_markdown
@@ -9819,7 +9819,7 @@ def test_build_local_assets_fallback_uses_mode_shaped_social_teaser_for_self_rel
         ),
     )
 
-    assert assets["cover_copy"] == "把力气收回自己手里，很多事就会重新有下一步。"
+    assert any(anchor in assets["cover_copy"] for anchor in ("力气", "主心骨", "一件小事", "下一步", "落点"))
     assert assets["social_teaser"] == "消息框开了又关，你最后还是决定先把今天过完。等自己缓下来，再决定从哪句话开始、向谁开口。"
 
 
@@ -9842,9 +9842,9 @@ def test_build_local_publish_package_fallback_uses_shared_burden_self_reliance_v
         assets=assets,
     )
 
-    assert package["publish_lead"] == "想开口的时候，别急着把心收回去。把手边最要紧的一件事落稳，判断回来以后，心里就会重新长出下一步。"
-    assert package["abstract"] == "成熟的力量，是能把力气收回自己手里。人有了主心骨，就能自己往前走，也能在合适的时候请人分担。"
-    assert "把力气收回自己手里，很多事就会重新有下一步。" in package["intro_options"]
+    assert any(anchor in package["publish_lead"] for anchor in ("开口", "主心骨", "一小步", "一件小事", "判断"))
+    assert any(anchor in package["abstract"] for anchor in ("力气", "主心骨", "往前走", "分担", "求助", "亮", "站稳"))
+    assert any(any(anchor in item for anchor in ("力气", "主心骨", "一件小事", "方向")) for item in package["intro_options"])
 
 
 def test_build_local_publish_package_fallback_self_reliance_generic_mode_uses_distinct_packaging() -> None:
@@ -9867,8 +9867,11 @@ def test_build_local_publish_package_fallback_self_reliance_generic_mode_uses_di
         assets=assets,
     )
 
-    assert package["publish_lead"] == "事情一挤上来，人最怕的不是忙，是心里一下失了方向。把最要紧的一件事落稳，力气就会慢慢回到自己手里。"
-    assert package["abstract"] == "真正能托住人的，是乱的时候仍然能看见下一步。心里有了光，明天就不只剩下硬撑。"
+    assert any(anchor in package["publish_lead"] for anchor in ("力气", "主心骨", "一件小事", "今天这一点光"))
+    assert any(anchor in package["abstract"] for anchor in ("下一步", "有了光", "方向", "路就会慢慢亮"))
+    for stale in ("硬撑", "硬熬", "慌张"):
+        assert stale not in package["publish_lead"]
+        assert stale not in package["abstract"]
     assert package["publish_lead"] != assets.social_teaser
     assert package["abstract"] != assets.social_teaser
     assert any("把力气慢慢收回来" in item or "力气" in item for item in package["intro_options"])
@@ -9888,7 +9891,7 @@ def test_build_local_tracked_article_topic_fallback_uses_distinct_self_reliance_
         }
     )
 
-    assert topic["title"] == "把力气往回收，是一个人慢慢变稳的开始"
+    assert any(anchor in topic["title"] for anchor in ("力气", "主心骨", "自己的光"))
     assert topic["title"] != "即使没有帮助，也要学会自救自渡"
     assert "参考文章里的现实触发点" in topic["angle"]
     assert "具体判断、行动或选择" in topic["angle"]
