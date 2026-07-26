@@ -8569,6 +8569,9 @@ def _looks_like_local_responsibility_shelter_payload(payload: Mapping[str, objec
         for token in (
             "没事，有我",
             "没事有我",
+            "家稳住",
+            "把家稳住",
+            "家里一有事",
             "账单",
             "补习费用",
             "缴费",
@@ -8599,6 +8602,7 @@ def _looks_like_local_responsibility_shelter_payload(payload: Mapping[str, objec
         1
         for token in (
             "父母",
+            "爸妈",
             "孩子",
             "伴侣",
             "家里",
@@ -8622,6 +8626,8 @@ def _looks_like_local_responsibility_shelter_payload(payload: Mapping[str, objec
             "有我",
             "安排",
             "顺序",
+            "排顺序",
+            "家稳住",
             "复查",
             "医院",
             "请假",
@@ -8654,9 +8660,11 @@ def _looks_like_local_responsibility_shelter_payload(payload: Mapping[str, objec
             "责任",
             "账单",
             "父母",
+            "爸妈",
             "孩子",
             "伴侣",
             "家里",
+            "家稳住",
             "安稳",
             "撑住",
             "中年",
@@ -8666,11 +8674,11 @@ def _looks_like_local_responsibility_shelter_payload(payload: Mapping[str, objec
         )
         if token in corpus
     )
-    if responsibility_hits >= 4 and any(token in corpus for token in ("账单", "父母", "孩子", "伴侣", "家里", "安稳", "医院", "请假", "接送", "放学")):
+    if responsibility_hits >= 4 and any(token in corpus for token in ("账单", "父母", "爸妈", "孩子", "伴侣", "家里", "安稳", "医院", "请假", "接送", "放学")):
         return True
     scene_hits = sum(
         1
-        for token in ("缴费", "请假", "工作考核", "复查", "复诊", "医院", "校门口", "接孩子", "接送", "放学", "安排", "顺序")
+        for token in ("缴费", "请假", "工作考核", "复查", "复诊", "医院", "校门口", "接孩子", "接送", "放学", "安排", "顺序", "排顺序")
         if token in corpus
     )
     return hard_responsibility_hits >= 1 and family_hits >= 1 and core_responsibility_hits >= 1 and scene_hits >= 1
@@ -13752,7 +13760,13 @@ def _build_local_assets_fallback(
             draft_body_markdown,
             cover_copy,
         )
-        if scene_variant == "transit":
+        if mode == "everyday_warmth_return":
+            cover_prompt = (
+                f"16:9横版公众号封面，真实摄影感，傍晚家中餐桌或客厅一角，暖灯、一碗热饭、家人围坐或留灯等生活细节，"
+                f"画面温暖明亮，保留左下标题安全区，主题是《{recommended_title}》，副文案是“{cover_copy}”。"
+                "画面聚焦日常餐桌、灯光和人物互动，清爽留白，生活抓拍感。"
+            )
+        elif scene_variant == "transit":
             cover_prompt = (
                 f"16:9横版公众号封面，雨后傍晚的出站口和摆渡车现场，湿路反光，站牌、车灯、薄雾和人物侧影形成真实生活感，"
                 f"人物只是站在现场，左侧留标题安全区，主题是《{recommended_title}》，副文案是“{cover_copy}”。"
@@ -16830,6 +16844,12 @@ def _soften_responsibility_shelter_not_ab_residue(value: str) -> str:
     return cleaned
 
 def _looks_like_responsibility_shelter_output(*, title: str, body_markdown: str, reference_source_markdown: str = "") -> bool:
+    combined = re.sub(r"\s+", "", f"{title}\n{body_markdown}\n{reference_source_markdown}")
+    if any(token in combined for token in ("肩上有责任", "家里排顺序", "把家稳住", "家里的事")) and any(
+        token in combined
+        for token in ("手机刚震", "手机一响", "身体会记账", "情绪硬吞", "身体先报警", "一个人先顶着")
+    ):
+        return True
     payload = {
         "source_type": "tracked_article",
         "article_title": title,
@@ -17277,6 +17297,8 @@ def _sanitize_responsibility_shelter_result_fields(
                 "家里一有事，总是你先把顺序理出来",
                 "家里一有事，你总会先把家稳住",
                 "家里一有事，你总先把顺序理出来",
+                "别再先把事情接住",
+                "先把事情接住",
                 "定心骨",
                 "定盘星",
             )
@@ -18175,6 +18197,11 @@ def _resolve_tracked_article_candidate_mode(*, title: str, markdown: str) -> str
         return "supportive_appreciation"
     if _has_self_worth_rebuild_focus(payload):
         return "self_worth_rebuild"
+    if any(
+        token in scene_text
+        for token in ("信任", "谎言", "隐瞒", "辜负", "坦诚", "说到做到", "赤诚", "裂了一道缝")
+    ):
+        return "trust_boundary"
     if _has_local_trust_boundary_focus(payload):
         return "trust_boundary"
     if _has_response_priority_focus(payload):
