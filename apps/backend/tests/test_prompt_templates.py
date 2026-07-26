@@ -2224,7 +2224,8 @@ def test_build_outline_prompt_includes_broad_emotional_release_guard() -> None:
 
     assert "大纲不要自动缩成坏关系止损手册或单一关系复盘。" in template.instructions
     assert "不要把整篇大纲压成“等回复 / 看聊天框 / 一段关系怎么收场”这类单一样本" in template.instructions
-    assert "开头钩子不要只拿聊天框、消息提醒、对方回没回来做唯一现实接口" in template.instructions
+    assert "开头钩子不要只拿单一关系界面做现实接口" in template.instructions
+    assert "聊天框、消息提醒、对方回没回来" not in template.instructions
 
 
 def test_build_outline_prompt_keeps_broad_emotional_release_guard_when_reference_is_hidden() -> None:
@@ -2382,7 +2383,8 @@ def test_inner_settlement_focus_adds_guardrails_across_topic_outline_and_draft()
     assert "开篇方式：先从那颗心还没完全落回今天的现实接口起笔" in draft_template.prompt
     assert "至少保住 2 处可摘录短句" in draft_template.prompt
     assert "收束方式：结尾回到一个心终于稍微放平下来的轻动作、现实余波或继续生活的安排" in draft_template.prompt
-    assert "不要固定滑向灯光、饭点、水杯、房间这组物件" in draft_template.instructions
+    assert "不要固定滑向同一组室内物件" in draft_template.instructions
+    assert "灯光、饭点、水杯、房间" not in draft_template.instructions
     assert "第一屏最好压成 3 到 4 个短段" in draft_template.instructions
     assert "前四段不要排成“先总结现象、再解释原因、再给正确答案”的匀整三步走" in draft_template.instructions
     assert "第 2 到第 4 段之间，至少要有一句直接把读者从自责、僵着或反复较劲里接住" in draft_template.instructions
@@ -2477,7 +2479,8 @@ def test_build_draft_prompt_includes_broad_emotional_release_guard() -> None:
     assert "正文不要自动收窄成坏关系止损、分手复盘或单一关系博弈。" in template.instructions
     assert "不要把正文压成聊天框、等回复、试探态度这一类单一关系等待戏" in template.instructions
     assert "至少留一段专门写“人原本已经拥有、后来却在拉扯中慢慢忽略掉的东西”" in template.instructions
-    assert "开头第一屏不要只剩消息框、对话框、回没回这类关系界面" in template.instructions
+    assert "开头第一屏不要只剩关系界面" in template.instructions
+    assert "消息框、对话框、回没回" not in template.instructions
 
 
 def test_self_worth_focus_detector_and_topic_guards() -> None:
@@ -2628,7 +2631,11 @@ def test_self_reliance_focus_detector_and_prompt_guards() -> None:
     assert "前六段至少留 2 处能单独成段的短句" in draft_template.instructions
     assert "不要连续两段都在解释困境" in draft_template.instructions
     assert "自我支撑的动作、判断或能力最迟在第 3 段出现" in draft_template.instructions
-    assert "不要写成“第一步往往很小”“方法也不复杂”“你能做的，是”这类教程口吻" in draft_template.instructions
+    assert "不要写成固定教程开场或自助说明口吻" in draft_template.instructions
+    assert "第一步往往很小" not in draft_template.instructions
+    assert "方法也不复杂" not in draft_template.instructions
+    assert "你能做的，是" not in draft_template.instructions
+    assert "连续自助步骤" in draft_template.instructions
     assert "只挑 1 到 2 个贴着处境的动作" in draft_template.instructions
     assert "不要连续三句都用“先”起手" in draft_template.instructions
     assert "同一段里如果前一句已经用了“先”，后一句尽量改成直接动作或结果" in draft_template.instructions
