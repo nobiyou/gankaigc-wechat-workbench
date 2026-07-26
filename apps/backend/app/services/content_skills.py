@@ -122,6 +122,53 @@ TRACKED_ARTICLE_STRATEGY_DIRECT_ANSWER_SKILL = ContentSkill(
 )
 
 
+TRACKED_ARTICLE_THEME_FIRST_PACKAGING_SKILL = ContentSkill(
+    key="direct_answer_scene_budget",
+    label="参考文章主题优先包装节奏",
+    stages=("assets", "publish_package"),
+    instructions_by_stage={
+        "assets": (
+            "包装仍然要清楚，但不要默认先把问题、答案和收益压成同一种直答标题模板。"
+            "标题、封面文案和分发导语优先服从这篇的主题主线、包装抓手和正向落点。"
+            "允许先用一个阶段节点、现实接口、关系落差、引用或短判断把读者截住，再把落点带回正文已经成立的方向。"
+            "导语尽量短句化，但不要为了显得利落，把不同题材统一写成同一类问题解答或情绪结论。"
+        ),
+        "publish_package": (
+            "发布包表达要清楚，但不要默认先把摘要、标题和导语压成标准答案或统一结论句。"
+            "发布标题、导语、摘要和编辑备注优先服从正文主线、正向落点和包装钩子。"
+            "允许先给一个更像真人会转发的开口，再把读者带回正文已经成立的主题，而不是为了顺口偷换成另一条泛情绪赛道。"
+        ),
+    },
+)
+
+
+TRACKED_ARTICLE_THEME_FIRST_PLATFORM_VALUE_SKILL = ContentSkill(
+    key="wechat_platform_value",
+    label="参考文章主题优先守门",
+    stages=("outline", "draft", "assets", "publish_package"),
+    instructions_by_stage={
+        "outline": (
+            "先根据上游主题主线、正向落点和结构模式安排段落职责。"
+            "不要把不同参考文章统一压成同一种反常识开头、整齐三段式或标准答案节拍。"
+            "只要服务当前主题，场景、判断、关系接口、引用和现实细节都可以成为开场抓手。"
+        ),
+        "draft": (
+            "先把这篇真正的主题、正向落点和现实抓手写对，再追求统一平台腔。"
+            "情绪价值要正向，但要从当前这篇的处境里长出来，不要把不同题材都写成同一类内耗、自救、放下或心安模板。"
+            "入口、段落快慢和人味细节优先服从当前主题与结构模式，不统一压成“现实接口 + 判断 + 答案”的厂牌样板。"
+        ),
+        "assets": (
+            "标题、封面文案和分发导语先服务正文主线、正向落点和包装抓手。"
+            "要像真人会转发时写下的开口，不要为了更顺手把主题换成另一条泛情绪赛道。"
+        ),
+        "publish_package": (
+            "发布标题、导语、摘要和编辑备注都先服务正文主线和正向落点。"
+            "要像真人发布前的取舍与开场，不要把这篇稿子改写成更常见的泛成长、泛疗愈或泛关系结论。"
+        ),
+    },
+)
+
+
 DEFAULT_CONTENT_SKILLS: tuple[ContentSkill, ...] = (
     WECHAT_PLATFORM_VALUE_SKILL,
     DIRECT_ANSWER_SCENE_BUDGET_SKILL,
@@ -142,13 +189,19 @@ def _resolve_content_skills(
     payload: Mapping[str, object] | None,
     skills: Iterable[ContentSkill],
 ) -> tuple[ContentSkill, ...]:
-    if stage not in {"outline", "draft"} or not _has_tracked_article_strategy_package(payload):
+    if stage not in {"outline", "draft", "assets", "publish_package"} or not _has_tracked_article_strategy_package(payload):
         return tuple(skills)
 
     resolved: list[ContentSkill] = []
     for skill in skills:
+        if skill.key == WECHAT_PLATFORM_VALUE_SKILL.key:
+            resolved.append(TRACKED_ARTICLE_THEME_FIRST_PLATFORM_VALUE_SKILL)
+            continue
         if skill.key == DIRECT_ANSWER_SCENE_BUDGET_SKILL.key:
-            resolved.append(TRACKED_ARTICLE_STRATEGY_DIRECT_ANSWER_SKILL)
+            if stage in {"outline", "draft"}:
+                resolved.append(TRACKED_ARTICLE_STRATEGY_DIRECT_ANSWER_SKILL)
+            else:
+                resolved.append(TRACKED_ARTICLE_THEME_FIRST_PACKAGING_SKILL)
             continue
         resolved.append(skill)
     return tuple(resolved)

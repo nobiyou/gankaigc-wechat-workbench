@@ -116,7 +116,7 @@ PROMPT_TEMPLATE_DESCRIPTORS: list[PromptTemplateDescriptor] = [
         key="cover_image",
         label="封面图生成",
         role="图片生成器",
-        objective="根据封面提示词生成 21:9 横版封面图。",
+        objective="根据封面提示词生成 16:9 横版封面图。",
         output_fields=["image/png"],
         supports_tone_profile=False,
         supports_domain_pack=False,
@@ -141,6 +141,272 @@ def _as_clean_text(value: object) -> str:
     return str(value).strip()
 
 
+_RESPONSIBILITY_SHELTER_PROMPT_REPLACEMENTS = (
+    ("撑不撑得住", "怎样把顺序理清"),
+    ("撑不住", "想歇一歇"),
+    ("长期扛压", "长期把家里的事放在心上"),
+    ("扛住压力", "先把事情接住"),
+    ("一路忍着、扛着", "一步步安排、一件件接住"),
+    ("忍着、扛着", "安排着、接住着"),
+    ("成年人扛着的那些压力", "成年人放在心上的那些责任"),
+    ("真正扛着压力往前走", "把责任放在心上认真往前走"),
+    ("扛着压力", "带着责任"),
+    ("白天扛事晚上崩一下", "白天把事情理顺、晚上才松一口气"),
+    ("扛事", "接事"),
+    ("长期在家庭里当支柱", "长期把家里的事放在心上"),
+    ("天生坚强", "没有自己的难处"),
+    ("崩一下", "松一口气"),
+    ("这些辛苦没有白扛", "这些认真没有白费"),
+    ("辛苦没有白扛", "认真没有白费"),
+    ("辛苦未必值得歌颂，但也没有白扛", "这些认真不必夸大，也没有白费"),
+    ("辛苦未必值得歌颂", "这些认真不必夸大"),
+    ("苦情赞歌", "吃苦叙事"),
+    ("没有白扛", "没有白忙"),
+    ("没白扛", "没有白忙"),
+    ("白扛", "白忙"),
+    ("暂时不能倒", "还要先把事情理顺"),
+    ("不能倒下", "还要把顺序理清"),
+    ("不能倒", "还要把顺序理清"),
+    ("这么苦还要撑", "这么不容易还要把家里理顺"),
+    ("吞下去的辛苦", "一路走来的认真"),
+    ("把慌乱咽下去", "把顺序理清楚"),
+    ("身体报警", "身体提醒"),
+    ("身体告警", "身体提醒"),
+    ("没事，有我", "先稳住场面"),
+    ("没事有我", "先稳住场面"),
+    ("“我没事”", "先稳住场面"),
+    ("我没事", "先稳住场面"),
+    ("那句“有我”", "那份先把家里稳住的责任"),
+    ("那句有我", "那份先把家里稳住的责任"),
+    ("有我", "先稳住"),
+    ("先稳住场面", "先把家里理顺"),
+    ("喉咙发紧", "心里开始排顺序"),
+    ("却还得继续撑住", "也要先让家里稳下来"),
+    ("继续撑下去", "继续认真往前走"),
+    ("撑下去", "继续往前走"),
+    ("硬扛压力", "认真托住家里的事"),
+    ("硬扛", "先把事情接住"),
+    ("长期硬撑", "长时间不容易"),
+    ("夜里硬撑", "夜里不容易"),
+    ("硬撑", "认真托住日子"),
+    ("多能扛", "多厉害"),
+    ("不是天生能把事情接住，而是很多责任都赶在同一段日子里压了上来", "很多责任常常赶在同一段日子里压上来，你就习惯先把顺序理清"),
+    ("不是天生能扛，而是很多责任都赶在同一段日子里压了上来", "很多责任常常赶在同一段日子里压上来，你就习惯先把顺序理清"),
+    ("不是天生能把事情接住", "很多责任常常赶在同一段日子里压上来"),
+    ("不是天生能扛", "很多责任常常赶在同一段日子里压上来"),
+    ("能扛", "能把事情接住"),
+    ("强撑", "先把事情稳住"),
+    ("或倒下", "或停下"),
+    ("倒下", "停下"),
+    ("沉默疲惫", "不张扬的责任感"),
+    ("长期疲惫、委屈、想停下却不敢停的内在消耗", "现实责任和自己也需要被照顾之间的拉扯"),
+    ("长期疲惫", "长时间不容易"),
+    ("疲惫", "不容易"),
+    ("委屈", "心里的不容易"),
+    ("内在消耗", "心里的不容易"),
+    ("孤撑感", "被理解的责任感"),
+    ("孤立无援", "有人一起分担"),
+    ("苦难必有回报", "认真走过的日子会慢慢有回响"),
+    ("苦难勋章", "日子回响"),
+    ("苦难赞歌", "空泛吃苦叙事"),
+    ("苦难", "难处"),
+    ("苦水", "不容易"),
+    ("风浪", "忙乱"),
+    ("白熬", "白费"),
+    ("苦熬", "认真走过"),
+    ("一句“先把家里理顺”背后那点心里开始排顺序、也要先让家里稳下来的当场", "家里临时有事时，自己先把顺序理清、让所有人安心的当场"),
+    ("账单", "现实开销"),
+    ("补习费用", "孩子的安排"),
+    ("缴费窗口", "办事窗口"),
+    ("这个月的绩效", "手头的工作考核"),
+    ("这个月的", "眼下这段时间的"),
+    ("万般辛苦", "那些认真托住日子的时刻"),
+    ("人间安稳", "家里的踏实"),
+    ("回到家那一刻", "推门听见回应时"),
+    ("有人在门口等你", "有人还在惦记你"),
+    ("小安稳", "细小踏实"),
+)
+
+
+def _sanitize_responsibility_shelter_prompt_text(value: object) -> str:
+    sanitized = re.sub(r"\s+", " ", _as_clean_text(value)).strip()
+    for source, replacement in sorted(
+        _RESPONSIBILITY_SHELTER_PROMPT_REPLACEMENTS,
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        sanitized = sanitized.replace(source, replacement)
+    return sanitized.strip()
+
+
+def _sanitize_responsibility_shelter_analysis_contract(
+    contract: "TrackedArticleAnalysisContract",
+) -> "TrackedArticleAnalysisContract":
+    return TrackedArticleAnalysisContract(
+        theme=_sanitize_responsibility_shelter_prompt_text(contract.theme),
+        core_conflict=_sanitize_responsibility_shelter_prompt_text(contract.core_conflict),
+        emotional_exit=_sanitize_responsibility_shelter_prompt_text(contract.emotional_exit),
+        opening_pattern=_sanitize_responsibility_shelter_prompt_text(contract.opening_pattern),
+        hook_trigger=_sanitize_responsibility_shelter_prompt_text(contract.hook_trigger),
+        progression_drive=_sanitize_responsibility_shelter_prompt_text(contract.progression_drive),
+        share_reason=_sanitize_responsibility_shelter_prompt_text(contract.share_reason),
+        do_not_turn_into=_sanitize_responsibility_shelter_prompt_text(contract.do_not_turn_into),
+        structure_mode=contract.structure_mode,
+    )
+
+
+@dataclass(frozen=True)
+class TrackedArticleAnalysisContract:
+    theme: str = ""
+    core_conflict: str = ""
+    emotional_exit: str = ""
+    opening_pattern: str = ""
+    hook_trigger: str = ""
+    progression_drive: str = ""
+    share_reason: str = ""
+    do_not_turn_into: str = ""
+    structure_mode: str = ""
+
+
+def _normalize_analysis_contract_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip(" \n\t。；;，,")
+
+
+def _strip_analysis_leadin(text: str) -> str:
+    normalized = _normalize_analysis_contract_text(text)
+    if not normalized:
+        return ""
+    prefixes = (
+        "这篇文章真正想讨论的是：",
+        "这篇文章真正讨论的是：",
+        "这篇文章真正想谈的是：",
+        "这篇文章想谈的是：",
+        "文章真正想讨论的是：",
+        "文章真正讨论的是：",
+        "文章真正想谈的是：",
+        "文章重点不是：",
+        "文章重点是：",
+        "主线是",
+    )
+    for prefix in prefixes:
+        if normalized.startswith(prefix):
+            stripped = normalized[len(prefix) :].lstrip("：:，, ")
+            return stripped or normalized
+    return normalized
+
+
+def _build_tracked_article_analysis_contract(payload: Mapping[str, object]) -> TrackedArticleAnalysisContract:
+    contract = TrackedArticleAnalysisContract(
+        theme=_normalize_analysis_contract_text(
+            _as_clean_text(payload.get("analysis_theme") or payload.get("reference_article_analysis_theme"))
+        ),
+        core_conflict=_normalize_analysis_contract_text(
+            _as_clean_text(payload.get("analysis_core_conflict") or payload.get("reference_article_analysis_core_conflict"))
+        ),
+        emotional_exit=_normalize_analysis_contract_text(
+            _as_clean_text(payload.get("analysis_emotional_exit") or payload.get("reference_article_analysis_emotional_exit"))
+        ),
+        opening_pattern=_normalize_analysis_contract_text(
+            _as_clean_text(payload.get("analysis_opening_pattern") or payload.get("reference_article_analysis_opening_pattern"))
+        ),
+        hook_trigger=_normalize_analysis_contract_text(
+            _as_clean_text(payload.get("analysis_hook_trigger") or payload.get("reference_article_analysis_hook_trigger"))
+        ),
+        progression_drive=_normalize_analysis_contract_text(
+            _as_clean_text(
+                payload.get("analysis_progression_drive") or payload.get("reference_article_analysis_progression_drive")
+            )
+        ),
+        share_reason=_normalize_analysis_contract_text(
+            _as_clean_text(payload.get("analysis_share_reason") or payload.get("reference_article_analysis_share_reason"))
+        ),
+        do_not_turn_into=_normalize_analysis_contract_text(
+            _as_clean_text(payload.get("analysis_do_not_turn_into") or payload.get("reference_article_analysis_do_not_turn_into"))
+        ),
+        structure_mode=_normalize_analysis_contract_text(
+            _as_clean_text(payload.get("analysis_structure_mode") or payload.get("reference_article_analysis_structure_mode"))
+        ),
+    )
+    if _has_everyday_warmth_responsibility_shelter_focus(payload):
+        return _sanitize_responsibility_shelter_analysis_contract(contract)
+    return contract
+
+
+def _build_analysis_first_topic_summary(contract: TrackedArticleAnalysisContract) -> str:
+    parts: list[str] = []
+    theme = _strip_analysis_leadin(contract.theme)
+    core_conflict = _strip_analysis_leadin(contract.core_conflict)
+    emotional_exit = _strip_analysis_leadin(contract.emotional_exit)
+    share_reason = _strip_analysis_leadin(contract.share_reason)
+    if theme:
+        parts.append(f"文章真正要谈的是：{theme}。")
+    if core_conflict:
+        parts.append(f"真正卡人的那层矛盾是：{core_conflict}。")
+    if emotional_exit:
+        parts.append(f"最后要把人带回：{emotional_exit}。")
+    if share_reason:
+        parts.append(f"它之所以容易让人想转发，是因为：{share_reason}。")
+    return "".join(parts)
+
+
+def _build_analysis_first_topic_structure_notes(contract: TrackedArticleAnalysisContract) -> str:
+    parts: list[str] = []
+    opening_pattern = _strip_analysis_leadin(contract.opening_pattern)
+    hook_trigger = _strip_analysis_leadin(contract.hook_trigger)
+    core_conflict = _strip_analysis_leadin(contract.core_conflict)
+    progression_drive = _strip_analysis_leadin(contract.progression_drive)
+    emotional_exit = _strip_analysis_leadin(contract.emotional_exit)
+    do_not_turn_into = _strip_analysis_leadin(contract.do_not_turn_into)
+    if opening_pattern:
+        parts.append(f"先按这个起笔方式进入：{opening_pattern}。")
+    if hook_trigger:
+        parts.append(f"开头第一下先让读者停在：{hook_trigger}。")
+    if core_conflict:
+        parts.append(f"中段重点拆开：{core_conflict}。")
+    if progression_drive:
+        parts.append(f"中段主要靠这股力往前推：{progression_drive}。")
+    if emotional_exit:
+        parts.append(f"结尾回到：{emotional_exit}。")
+    if do_not_turn_into:
+        parts.append(f"全程不要写成：{do_not_turn_into}。")
+    return "".join(parts)
+
+
+def _build_analysis_first_topic_body_cue_section(contract: TrackedArticleAnalysisContract) -> str:
+    cue_lines: list[str] = []
+    opening_pattern = _strip_analysis_leadin(contract.opening_pattern)
+    hook_trigger = _strip_analysis_leadin(contract.hook_trigger)
+    theme = _strip_analysis_leadin(contract.theme)
+    core_conflict = _strip_analysis_leadin(contract.core_conflict)
+    progression_drive = _strip_analysis_leadin(contract.progression_drive)
+    emotional_exit = _strip_analysis_leadin(contract.emotional_exit)
+    share_reason = _strip_analysis_leadin(contract.share_reason)
+    do_not_turn_into = _strip_analysis_leadin(contract.do_not_turn_into)
+    if opening_pattern:
+        cue_lines.append(f"- 起笔入口：{opening_pattern}")
+    if hook_trigger:
+        cue_lines.append(f"- 开头触发点：{hook_trigger}")
+    if theme:
+        cue_lines.append(f"- 主题主线：{theme}")
+    if core_conflict:
+        cue_lines.append(f"- 真正矛盾：{core_conflict}")
+    if progression_drive:
+        cue_lines.append(f"- 中段推进力：{progression_drive}")
+    if emotional_exit:
+        cue_lines.append(f"- 情绪出口：{emotional_exit}")
+    if share_reason:
+        cue_lines.append(f"- 容易被转发的原因：{share_reason}")
+    if do_not_turn_into:
+        cue_lines.append(f"- 跑偏提醒：{do_not_turn_into}")
+    if not cue_lines:
+        return ""
+    return (
+        "参考文章分析抓手候选：\n"
+        + "\n".join(cue_lines)
+        + "\n优先围绕这些分析结论重组新选题，不要因为结构模式相近，就回收另一篇更顺手的旧骨架。\n"
+    )
+
+
 _INTERNAL_PRESSURE_GUARD_KEYWORDS = (
     "心事",
     "杂念",
@@ -156,7 +422,9 @@ _INTERNAL_PRESSURE_GUARD_KEYWORDS = (
     "健康",
     "身体",
     "体检",
+    "复查",
     "疲惫",
+    "紧绷",
     "耗尽",
     "报警",
     "熬夜",
@@ -323,6 +591,22 @@ _BROAD_EMOTIONAL_RELEASE_PRIORITY_KEYWORDS = (
     "未完成",
     "回潮",
     "意难平",
+    "感谢相遇",
+    "不谈亏欠",
+    "允许一切发生",
+    "允许一切结束",
+    "接纳离开",
+    "接纳结束",
+    "关系结束",
+    "离别",
+    "过客",
+    "聚散终有时",
+    "相遇",
+    "退场",
+    "最好的祝福",
+    "变成了你自己",
+    "整理行囊",
+    "未知的山海",
 )
 _SELF_RELIANCE_INWARD_SUPPORT_KEYWORDS = (
     "向内求",
@@ -387,6 +671,14 @@ _BROAD_EMOTIONAL_RELEASE_THESIS_MARKERS = (
     "只适合收藏",
     "带着遗憾往前走",
     "不会自动沉下去",
+    "感谢相遇",
+    "不谈亏欠",
+    "允许一切发生",
+    "允许一切结束",
+    "接纳离开",
+    "接纳结束",
+    "聚散终有时",
+    "最好的祝福",
 )
 _BROAD_EMOTIONAL_RELEASE_EXAMPLE_PREFIXES = (
     "你有没有过这样的时刻",
@@ -462,6 +754,12 @@ _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS = (
     "上半年",
     "下半年",
     "半年",
+    "年中",
+    "阶段节点",
+    "阶段回望",
+    "阶段误判",
+    "年中清单",
+    "清单",
     "这一年过半",
     "年初定下的目标",
     "目标又实现了多少",
@@ -481,6 +779,7 @@ _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS = (
     "接受每一个阶段的自己",
     "过好每一个阶段的人生",
     "迎接新的美好",
+    "继续往前",
     "努力不被辜负",
     "不期而遇",
 )
@@ -489,10 +788,15 @@ _EVERYDAY_WARMTH_RETURN_ACHIEVEMENT_KEYWORDS = (
     "轰轰烈烈",
     "出人头地",
     "改变世界",
+    "大富大贵",
     "赚大钱",
     "住大房子",
+    "香车美宅",
+    "高朋满座",
     "大公司",
     "大名声",
+    "排场",
+    "热闹",
     "成就",
     "成就叙事",
     "宏大叙事",
@@ -503,11 +807,22 @@ _EVERYDAY_WARMTH_RETURN_ACHIEVEMENT_KEYWORDS = (
 _EVERYDAY_WARMTH_RETURN_DAILY_KEYWORDS = (
     "人间烟火",
     "陪在爱的人身边",
+    "家人安康",
+    "吃穿不愁",
+    "知己二三",
+    "四季平安",
+    "简单快乐",
+    "一家温暖",
+    "平安健康",
+    "有家可回",
+    "有人可爱",
     "陪爱人",
     "爱人的话",
     "做了一顿晚饭",
     "接孩子",
     "一家老小",
+    "热腾腾的饭",
+    "一盏灯",
     "热汤",
     "夜灯",
     "晚安",
@@ -523,9 +838,58 @@ _EVERYDAY_WARMTH_RETURN_DAILY_KEYWORDS = (
     "陪伴",
     "细水长流",
 )
+_EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_KEYWORDS = (
+    "没事，有我",
+    "没事有我",
+    "父母",
+    "孩子",
+    "伴侣",
+    "账单",
+    "补习费用",
+    "绩效",
+    "辞职",
+    "扛住压力",
+    "喉咙发紧",
+    "撑起一个家",
+    "父母的拐杖",
+    "孩子的雨伞",
+    "伴侣的靠山",
+    "缴费窗口",
+    "风雨来临",
+    "家在哪里",
+    "有人在爱你",
+    "羹汤",
+)
+_EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_MARKERS = (
+    "人间安稳",
+    "万般辛苦",
+    "终会如愿",
+    "值不值得",
+    "撑起一片晴空",
+    "生活给你最好的补偿",
+    "天一定会亮",
+    "感谢那个熬过了苦难的自己",
+)
+_EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_STRONG_ANCHORS = (
+    "没事，有我",
+    "没事有我",
+    "账单",
+    "补习费用",
+    "绩效",
+    "辞职",
+    "扛住压力",
+    "喉咙发紧",
+    "撑起一个家",
+    "缴费窗口",
+    "安稳",
+)
 _EVERYDAY_WARMTH_RETURN_THESIS_MARKERS = (
     "最重要的事",
     "祛魅",
+    "人生不求大富大贵",
+    "人生不求高朋满座",
+    "人生不求香车美宅",
+    "知足最幸福",
     "才属于你我",
     "才是我们的一生",
     "把“大事”放一放",
@@ -554,6 +918,17 @@ _SUPPORTIVE_APPRECIATION_CHERISH_KEYWORDS = (
     "并不傻",
     "比谁都拎得清",
     "值得被珍惜",
+    "被珍惜",
+    "认真珍惜",
+    "珍惜",
+    "温柔有分寸",
+    "看懂这份柔软",
+    "舍不得轻慢",
+    "认真回应",
+    "柔软被珍惜",
+    "看的是分寸，也看回应",
+    "明明拎得清",
+    "珍贵",
     "请你一定要牵紧",
     "一定要牵紧他的手",
     "一生难遇",
@@ -569,6 +944,83 @@ _SUPPORTIVE_APPRECIATION_NEGATIVE_EXCLUSION_KEYWORDS = (
     "争吵以后还想要继续走下去",
     "回避修复",
     "把日子接回去",
+)
+_SELF_WORTH_REBUILD_KEYWORDS = (
+    "爱自己",
+    "自爱",
+    "自尊",
+    "自我价值",
+    "价值感",
+    "养贵",
+    "把自己养贵",
+    "打折品",
+    "奢侈品",
+    "活成打折品",
+    "活成奢侈品",
+    "你不贵重",
+    "不自爱",
+    "被辜负",
+    "将就",
+    "降级",
+    "贬值",
+    "配得上",
+    "关系里的分寸",
+    "认真对待自己",
+    "位置摆正",
+    "尊重这两秒",
+    "身价",
+    "抬高门槛",
+    "标准收紧",
+    "树边界",
+    "重新定义",
+    "别低到尘埃里",
+    "把自己放在心上",
+    "都可以",
+    "把自己放轻",
+    "往后退",
+    "退让",
+    "位置摆正",
+    "关系里的分寸",
+    "不舒服",
+)
+_SELF_WORTH_REBUILD_THESIS_MARKERS = (
+    "你爱自己的程度，决定了谁能走进你的人生",
+    "别人怎么对你，其实都是你教的",
+    "人必自爱，然后人爱之",
+    "当你开始爱自己，世界才会开始爱你",
+    "把自己养贵一点",
+    "你越将就",
+    "你越讲究",
+    "你对自己大方",
+    "只要你不随意降低自己的身价",
+    "别总把那句“都可以”说得太顺口",
+    "那句“都可以”",
+    "把那点不舒服重新当回事",
+)
+_SELF_WORTH_REBUILD_POSITIVE_MARKERS = (
+    "尊重自己",
+    "守住边界",
+    "把精力留给自己",
+    "把门槛抬高一点",
+    "把标准收紧一点",
+    "托举自己",
+    "活得体面",
+    "值得",
+    "配得上",
+    "关系里的分寸",
+    "认真对待自己",
+    "位置摆正",
+    "尊重这两秒",
+)
+_SELF_WORTH_REBUILD_RESPONSE_PRIORITY_EXCLUSION_KEYWORDS = (
+    "没时间",
+    "回信息",
+    "回消息",
+    "回电话",
+    "红灯30秒",
+    "24小时在线",
+    "时间在哪儿",
+    "心就在哪儿",
 )
 _RESPONSE_PRIORITY_TIME_KEYWORDS = (
     "没时间",
@@ -609,6 +1061,32 @@ _RESPONSE_PRIORITY_THESIS_MARKERS = (
     "不够重要",
     "顺序没那么优先",
 )
+_RESPONSE_PRIORITY_INTERACTION_KEYWORDS = (
+    "消息",
+    "回复",
+    "回应",
+    "朋友圈",
+    "点赞",
+    "评论",
+    "追问",
+    "多问一句",
+    "回头",
+)
+_RESPONSE_PRIORITY_FOLLOWUP_KEYWORDS = (
+    "评论的人",
+    "给你评论",
+    "多问一句",
+    "追问",
+    "愿意停下来",
+    "言外之意",
+    "读懂",
+    "没说完",
+    "接住",
+    "注意力分给你",
+    "我没事",
+    "我有点累",
+    "飞得累不累",
+)
 _RESPONSE_PRIORITY_RELATIONSHIP_EXCLUSION_KEYWORDS = (
     "吵架",
     "冷战",
@@ -620,6 +1098,45 @@ _RESPONSE_PRIORITY_RELATIONSHIP_EXCLUSION_KEYWORDS = (
     "争执",
     "推开",
     "示弱",
+)
+_TRUST_BOUNDARY_CORE_KEYWORDS = (
+    "信任",
+    "相信",
+    "信任感",
+)
+_TRUST_BOUNDARY_BREACH_KEYWORDS = (
+    "谎言",
+    "谎话",
+    "隐瞒",
+    "遮掩",
+    "撒谎",
+    "说谎",
+    "欺骗",
+    "欺瞒",
+    "辜负",
+    "裂缝",
+    "裂了一道缝",
+    "疙瘩",
+    "出轨",
+    "怀疑",
+    "敏感多疑",
+    "不敢再信",
+)
+_TRUST_BOUNDARY_REPAIR_KEYWORDS = (
+    "坦诚",
+    "真诚",
+    "诚实",
+    "赤诚",
+    "透明",
+    "说到做到",
+    "交代",
+    "心安",
+    "安全感",
+    "不查手机",
+    "不追问行踪",
+    "给你自由",
+    "把心交出来",
+    "守护",
 )
 _RELATIONSHIP_EXAMPLE_NARROWING_MARKERS = (
     "一段关系",
@@ -785,6 +1302,8 @@ def _infer_tracked_article_pressure_guard(payload: Mapping[str, object]) -> str:
         return ""
     if _has_relationship_aftercare_focus(payload):
         return ""
+    if _has_trust_boundary_focus(payload):
+        return ""
 
     fields = [
         payload.get("article_title"),
@@ -808,6 +1327,15 @@ def _infer_tracked_article_pressure_guard(payload: Mapping[str, object]) -> str:
     for tag_value in tag_values:
         if isinstance(tag_value, list):
             tag_corpus_parts.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
+    if not field_corpus_parts:
+        field_corpus_parts.extend(
+            [
+                _as_clean_text(payload.get("topic_title")),
+                _as_clean_text(payload.get("topic_angle")),
+                _as_clean_text(payload.get("body_markdown")),
+            ]
+        )
+        field_corpus_parts = [part for part in field_corpus_parts if part]
 
     field_corpus = " ".join(field_corpus_parts)
     tag_corpus = " ".join(tag_corpus_parts)
@@ -866,9 +1394,13 @@ def _infer_tracked_article_pressure_guard(payload: Mapping[str, object]) -> str:
 def _has_broad_emotional_release_focus(payload: Mapping[str, object]) -> bool:
     if _as_clean_text(payload.get("source_type")) != "tracked_article":
         return False
+    if _has_everyday_warmth_return_focus(payload):
+        return False
     if _has_inner_settlement_focus(payload):
         return False
     if _has_self_reliance_inward_support_focus(payload):
+        return False
+    if _has_trust_boundary_focus(payload):
         return False
 
     fields = [
@@ -1099,6 +1631,20 @@ def _has_inner_settlement_focus(payload: Mapping[str, object]) -> bool:
 def _has_everyday_warmth_return_focus(payload: Mapping[str, object]) -> bool:
     if _as_clean_text(payload.get("source_type")) != "tracked_article":
         return False
+    strategy_card = payload.get("strategy_card")
+    if isinstance(strategy_card, Mapping) and _as_clean_text(strategy_card.get("structure_mode")) in {
+        "everyday_warmth_return",
+        "responsibility_shelter",
+    }:
+        return True
+    if any(
+        _as_clean_text(value) == "everyday_warmth_return"
+        for value in (
+            payload.get("analysis_structure_mode"),
+            payload.get("reference_article_analysis_structure_mode"),
+        )
+    ):
+        return True
 
     fields = [
         payload.get("topic_title"),
@@ -1107,10 +1653,26 @@ def _has_everyday_warmth_return_focus(payload: Mapping[str, object]) -> bool:
         payload.get("summary"),
         payload.get("structure_notes"),
         payload.get("body_markdown"),
+        payload.get("analysis_theme"),
+        payload.get("analysis_core_conflict"),
+        payload.get("analysis_emotional_exit"),
+        payload.get("analysis_opening_pattern"),
+        payload.get("analysis_hook_trigger"),
+        payload.get("analysis_progression_drive"),
+        payload.get("analysis_share_reason"),
+        payload.get("analysis_do_not_turn_into"),
         payload.get("reference_article_title"),
         payload.get("reference_article_summary"),
         payload.get("reference_article_structure_notes"),
         payload.get("reference_article_body_markdown"),
+        payload.get("reference_article_analysis_theme"),
+        payload.get("reference_article_analysis_core_conflict"),
+        payload.get("reference_article_analysis_emotional_exit"),
+        payload.get("reference_article_analysis_opening_pattern"),
+        payload.get("reference_article_analysis_hook_trigger"),
+        payload.get("reference_article_analysis_progression_drive"),
+        payload.get("reference_article_analysis_share_reason"),
+        payload.get("reference_article_analysis_do_not_turn_into"),
     ]
     problem_brief = payload.get("problem_brief")
     if isinstance(problem_brief, Mapping):
@@ -1125,7 +1687,6 @@ def _has_everyday_warmth_return_focus(payload: Mapping[str, object]) -> bool:
                 problem_brief.get("feedback_entry"),
             ]
         )
-    strategy_card = payload.get("strategy_card")
     if isinstance(strategy_card, Mapping):
         fields.extend(
             [
@@ -1139,6 +1700,9 @@ def _has_everyday_warmth_return_focus(payload: Mapping[str, object]) -> bool:
                 strategy_card.get("benchmark_summary"),
             ]
         )
+    for tag_value in (payload.get("tags"), payload.get("reference_article_tags")):
+        if isinstance(tag_value, list):
+            fields.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
     corpus = " ".join(_as_clean_text(value) for value in fields if _as_clean_text(value))
     if not corpus:
         return False
@@ -1146,7 +1710,151 @@ def _has_everyday_warmth_return_focus(payload: Mapping[str, object]) -> bool:
     achievement_hits = sum(1 for keyword in _EVERYDAY_WARMTH_RETURN_ACHIEVEMENT_KEYWORDS if keyword in corpus)
     daily_hits = sum(1 for keyword in _EVERYDAY_WARMTH_RETURN_DAILY_KEYWORDS if keyword in corpus)
     thesis_hits = sum(1 for marker in _EVERYDAY_WARMTH_RETURN_THESIS_MARKERS if marker in corpus)
-    return achievement_hits >= 2 and daily_hits >= 3 and thesis_hits >= 1
+    simple_happiness_hits = sum(
+        1
+        for keyword in (
+            "大富大贵",
+            "简单快乐",
+            "知己二三",
+            "家人安康",
+            "四季平安",
+            "一家温暖",
+            "知足最幸福",
+        )
+        if keyword in corpus
+    )
+    responsibility_hits = sum(1 for keyword in _EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_KEYWORDS if keyword in corpus)
+    responsibility_marker_hits = sum(
+        1 for marker in _EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_MARKERS if marker in corpus
+    )
+    responsibility_strong_hits = sum(
+        1 for keyword in _EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_STRONG_ANCHORS if keyword in corpus
+    )
+    return (achievement_hits >= 2 and daily_hits >= 3 and thesis_hits >= 1) or (
+        simple_happiness_hits >= 3 and daily_hits >= 4 and thesis_hits >= 1
+    ) or (
+        responsibility_hits >= 5 and daily_hits >= 2 and responsibility_marker_hits >= 1
+    ) or (
+        responsibility_hits >= 4 and daily_hits >= 2 and responsibility_marker_hits >= 2
+    ) or (
+        responsibility_hits >= 6
+        and daily_hits >= 2
+        and responsibility_strong_hits >= 3
+        and any(token in corpus for token in ("安稳", "一个家", "家里", "有我"))
+    )
+
+
+def _has_everyday_warmth_responsibility_shelter_focus(payload: Mapping[str, object]) -> bool:
+    if not _has_everyday_warmth_return_focus(payload):
+        return False
+    strategy_card = payload.get("strategy_card")
+    if isinstance(strategy_card, Mapping) and _as_clean_text(strategy_card.get("structure_mode")) == "responsibility_shelter":
+        return True
+
+    fields = [
+        payload.get("topic_title"),
+        payload.get("topic_angle"),
+        payload.get("article_title"),
+        payload.get("summary"),
+        payload.get("structure_notes"),
+        payload.get("body_markdown"),
+        payload.get("analysis_theme"),
+        payload.get("analysis_core_conflict"),
+        payload.get("analysis_emotional_exit"),
+        payload.get("analysis_opening_pattern"),
+        payload.get("analysis_hook_trigger"),
+        payload.get("analysis_progression_drive"),
+        payload.get("analysis_share_reason"),
+        payload.get("analysis_do_not_turn_into"),
+        payload.get("reference_article_title"),
+        payload.get("reference_article_summary"),
+        payload.get("reference_article_structure_notes"),
+        payload.get("reference_article_body_markdown"),
+        payload.get("reference_article_analysis_theme"),
+        payload.get("reference_article_analysis_core_conflict"),
+        payload.get("reference_article_analysis_emotional_exit"),
+        payload.get("reference_article_analysis_opening_pattern"),
+        payload.get("reference_article_analysis_hook_trigger"),
+        payload.get("reference_article_analysis_progression_drive"),
+        payload.get("reference_article_analysis_share_reason"),
+        payload.get("reference_article_analysis_do_not_turn_into"),
+    ]
+    for tag_value in (payload.get("tags"), payload.get("reference_article_tags")):
+        if isinstance(tag_value, list):
+            fields.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
+    corpus = " ".join(_as_clean_text(value) for value in fields if _as_clean_text(value))
+    if not corpus:
+        return False
+
+    analysis_mode_locked = any(
+        _as_clean_text(value) == "everyday_warmth_return"
+        for value in (
+            payload.get("analysis_structure_mode"),
+            payload.get("reference_article_analysis_structure_mode"),
+        )
+    )
+    responsibility_hits = sum(1 for keyword in _EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_KEYWORDS if keyword in corpus)
+    responsibility_marker_hits = sum(
+        1 for marker in _EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_MARKERS if marker in corpus
+    )
+    daily_hits = sum(1 for keyword in _EVERYDAY_WARMTH_RETURN_DAILY_KEYWORDS if keyword in corpus)
+    responsibility_strong_hits = sum(
+        1 for keyword in _EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_STRONG_ANCHORS if keyword in corpus
+    )
+    if analysis_mode_locked and responsibility_hits >= 4 and (
+        "责任" in corpus or "安稳" in corpus or "一个家" in corpus or "家里" in corpus
+    ):
+        return True
+    if (
+        responsibility_hits >= 6
+        and daily_hits >= 2
+        and responsibility_strong_hits >= 3
+        and any(token in corpus for token in ("安稳", "一个家", "家里", "有我"))
+    ):
+        return True
+    return (responsibility_hits >= 4 and daily_hits >= 2 and responsibility_marker_hits >= 1) or (
+        responsibility_hits >= 3 and responsibility_marker_hits >= 2
+    )
+
+
+def _has_everyday_warmth_simple_happiness_focus(payload: Mapping[str, object]) -> bool:
+    if not _has_everyday_warmth_return_focus(payload):
+        return False
+    if _has_everyday_warmth_responsibility_shelter_focus(payload):
+        return False
+
+    fields = [
+        payload.get("topic_title"),
+        payload.get("topic_angle"),
+        payload.get("article_title"),
+        payload.get("summary"),
+        payload.get("structure_notes"),
+        payload.get("body_markdown"),
+        payload.get("reference_article_title"),
+        payload.get("reference_article_summary"),
+        payload.get("reference_article_structure_notes"),
+        payload.get("reference_article_body_markdown"),
+    ]
+    corpus_parts = [_as_clean_text(value) for value in fields if _as_clean_text(value)]
+    tag_values = [payload.get("tags"), payload.get("reference_article_tags")]
+    for tag_value in tag_values:
+        if isinstance(tag_value, list):
+            corpus_parts.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
+    corpus = " ".join(corpus_parts)
+    if not corpus:
+        return False
+
+    happiness_hits = sum(
+        1
+        for keyword in ("大富大贵", "简单快乐", "知足最幸福", "高朋满座", "香车美宅")
+        if keyword in corpus
+    )
+    grounding_hits = sum(
+        1
+        for keyword in ("家人安康", "知己二三", "一家温暖", "平安健康", "有家可回", "有人可爱", "四季平安")
+        if keyword in corpus
+    )
+    return happiness_hits >= 2 and grounding_hits >= 2
 
 
 def _has_resilience_reconstruction_focus(payload: Mapping[str, object]) -> bool:
@@ -1285,6 +1993,88 @@ def _has_supportive_appreciation_focus(payload: Mapping[str, object]) -> bool:
     return softness_hits >= 3 and cherish_hits >= 1 and hard_pressure_hits == 0 and negative_aftercare_hits == 0
 
 
+def _has_self_worth_rebuild_focus(payload: Mapping[str, object]) -> bool:
+    if _as_clean_text(payload.get("source_type")) != "tracked_article":
+        return False
+    if _has_everyday_warmth_return_focus(payload):
+        return False
+
+    fields = [
+        payload.get("topic_title"),
+        payload.get("topic_angle"),
+        payload.get("article_title"),
+        payload.get("summary"),
+        payload.get("structure_notes"),
+        payload.get("body_markdown"),
+        payload.get("analysis_theme"),
+        payload.get("analysis_core_conflict"),
+        payload.get("analysis_emotional_exit"),
+        payload.get("analysis_do_not_turn_into"),
+        payload.get("reference_article_title"),
+        payload.get("reference_article_summary"),
+        payload.get("reference_article_structure_notes"),
+        payload.get("reference_article_body_markdown"),
+        payload.get("reference_article_analysis_theme"),
+        payload.get("reference_article_analysis_core_conflict"),
+        payload.get("reference_article_analysis_emotional_exit"),
+        payload.get("reference_article_analysis_do_not_turn_into"),
+    ]
+    problem_brief = payload.get("problem_brief")
+    if isinstance(problem_brief, Mapping):
+        fields.extend(
+            [
+                problem_brief.get("raw_goal"),
+                problem_brief.get("clarified_problem"),
+                problem_brief.get("observed_phenomenon"),
+                problem_brief.get("writing_goal"),
+                problem_brief.get("target_reader_situation"),
+                problem_brief.get("core_conflict"),
+                problem_brief.get("feedback_entry"),
+            ]
+        )
+    strategy_card = payload.get("strategy_card")
+    if isinstance(strategy_card, Mapping):
+        fields.extend(
+            [
+                strategy_card.get("reader_situation"),
+                strategy_card.get("point_of_view"),
+                strategy_card.get("conflict_frame"),
+                strategy_card.get("emotional_path"),
+                strategy_card.get("opening_move"),
+                strategy_card.get("body_shift"),
+                strategy_card.get("ending_move"),
+                strategy_card.get("benchmark_summary"),
+            ]
+        )
+    tag_values = [payload.get("tags"), payload.get("reference_article_tags")]
+    corpus_parts = [_as_clean_text(value) for value in fields if _as_clean_text(value)]
+    for tag_value in tag_values:
+        if isinstance(tag_value, list):
+            corpus_parts.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
+    corpus = " ".join(corpus_parts)
+    if not corpus:
+        return False
+
+    theme_hits = sum(1 for keyword in _SELF_WORTH_REBUILD_KEYWORDS if keyword in corpus)
+    thesis_hits = sum(1 for marker in _SELF_WORTH_REBUILD_THESIS_MARKERS if marker in corpus)
+    positive_hits = sum(1 for marker in _SELF_WORTH_REBUILD_POSITIVE_MARKERS if marker in corpus)
+    response_priority_hits = sum(1 for keyword in _SELF_WORTH_REBUILD_RESPONSE_PRIORITY_EXCLUSION_KEYWORDS if keyword in corpus)
+    hard_pressure_hits = sum(1 for keyword in _INTERNAL_PRESSURE_BODY_HARD_SIGNALS if keyword in corpus)
+    return (
+        theme_hits >= 5
+        and thesis_hits >= 1
+        and positive_hits >= 2
+        and response_priority_hits <= 2
+        and hard_pressure_hits == 0
+    ) or (
+        theme_hits >= 4
+        and thesis_hits >= 2
+        and positive_hits >= 1
+        and response_priority_hits <= 2
+        and hard_pressure_hits == 0
+    )
+
+
 def _has_relationship_aftercare_focus(payload: Mapping[str, object]) -> bool:
     if _as_clean_text(payload.get("source_type")) != "tracked_article":
         return False
@@ -1368,11 +2158,85 @@ def _has_relationship_aftercare_focus(payload: Mapping[str, object]) -> bool:
     return (classic_aftercare or withdrawn_aftercare) and hard_pressure_hits == 0
 
 
+def _has_trust_boundary_focus(payload: Mapping[str, object]) -> bool:
+    source_type = _as_clean_text(payload.get("source_type"))
+    if source_type and source_type != "tracked_article":
+        return False
+    corpus = _build_trust_boundary_corpus(payload)
+    if not corpus:
+        return False
+    core_hits = sum(1 for keyword in _TRUST_BOUNDARY_CORE_KEYWORDS if keyword in corpus)
+    breach_hits = sum(1 for keyword in _TRUST_BOUNDARY_BREACH_KEYWORDS if keyword in corpus)
+    repair_hits = sum(1 for keyword in _TRUST_BOUNDARY_REPAIR_KEYWORDS if keyword in corpus)
+    pressure_hits = sum(1 for keyword in _INTERNAL_PRESSURE_BODY_HARD_SIGNALS if keyword in corpus)
+    return core_hits >= 2 and pressure_hits == 0 and (breach_hits >= 2 or (breach_hits >= 1 and repair_hits >= 2))
+
+
+def _build_trust_boundary_corpus(payload: Mapping[str, object]) -> str:
+    fields = [
+        payload.get("topic_title"),
+        payload.get("topic_angle"),
+        payload.get("article_title"),
+        payload.get("summary"),
+        payload.get("structure_notes"),
+        payload.get("body_markdown"),
+        payload.get("analysis_theme"),
+        payload.get("analysis_core_conflict"),
+        payload.get("analysis_emotional_exit"),
+        payload.get("analysis_do_not_turn_into"),
+        payload.get("reference_article_title"),
+        payload.get("reference_article_summary"),
+        payload.get("reference_article_structure_notes"),
+        payload.get("reference_article_body_markdown"),
+        payload.get("reference_article_analysis_theme"),
+        payload.get("reference_article_analysis_core_conflict"),
+        payload.get("reference_article_analysis_emotional_exit"),
+        payload.get("reference_article_analysis_do_not_turn_into"),
+    ]
+    tag_values = [payload.get("tags"), payload.get("reference_article_tags")]
+    corpus_parts = [_as_clean_text(value) for value in fields if _as_clean_text(value)]
+    for tag_value in tag_values:
+        if isinstance(tag_value, list):
+            corpus_parts.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
+    return " ".join(corpus_parts)
+
+
 def _has_response_priority_focus(payload: Mapping[str, object]) -> bool:
     if _as_clean_text(payload.get("source_type")) != "tracked_article":
         return False
     if _has_everyday_warmth_return_focus(payload):
         return False
+    if _has_self_worth_rebuild_focus(payload):
+        return False
+    if _has_trust_boundary_focus(payload):
+        return False
+
+    corpus = _build_response_priority_corpus(payload)
+    if not corpus:
+        return False
+
+    time_hits = sum(1 for keyword in _RESPONSE_PRIORITY_TIME_KEYWORDS if keyword in corpus)
+    priority_hits = sum(1 for keyword in _RESPONSE_PRIORITY_PRIORITY_KEYWORDS if keyword in corpus)
+    thesis_hits = sum(1 for marker in _RESPONSE_PRIORITY_THESIS_MARKERS if marker in corpus)
+    interaction_hits = sum(1 for keyword in _RESPONSE_PRIORITY_INTERACTION_KEYWORDS if keyword in corpus)
+    followup_hits = sum(1 for keyword in _RESPONSE_PRIORITY_FOLLOWUP_KEYWORDS if keyword in corpus)
+    care_hits = sum(1 for keyword in ("在意", "在乎", "关心", "注意力") if keyword in corpus)
+    relationship_conflict_hits = sum(
+        1 for keyword in _RESPONSE_PRIORITY_RELATIONSHIP_EXCLUSION_KEYWORDS if keyword in corpus
+    )
+    hard_pressure_hits = sum(1 for keyword in _INTERNAL_PRESSURE_BODY_HARD_SIGNALS if keyword in corpus)
+    classic_branch = time_hits >= 4 and priority_hits >= 2 and thesis_hits >= 1
+    followup_branch = interaction_hits >= 3 and followup_hits >= 3 and (care_hits >= 1 or priority_hits >= 1)
+    return (
+        (classic_branch or followup_branch)
+        and relationship_conflict_hits <= 2
+        and hard_pressure_hits == 0
+    )
+
+
+def _build_response_priority_corpus(payload: Mapping[str, object]) -> str:
+    if _as_clean_text(payload.get("source_type")) != "tracked_article":
+        return ""
 
     fields = [
         payload.get("topic_title"),
@@ -1418,24 +2282,42 @@ def _has_response_priority_focus(payload: Mapping[str, object]) -> bool:
     for tag_value in tag_values:
         if isinstance(tag_value, list):
             corpus_parts.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
-    corpus = " ".join(corpus_parts)
+    return " ".join(corpus_parts)
+
+
+def _uses_response_priority_followup_variant(payload: Mapping[str, object]) -> bool:
+    if not _has_response_priority_focus(payload):
+        return False
+    corpus = _build_response_priority_corpus(payload)
     if not corpus:
         return False
 
-    time_hits = sum(1 for keyword in _RESPONSE_PRIORITY_TIME_KEYWORDS if keyword in corpus)
-    priority_hits = sum(1 for keyword in _RESPONSE_PRIORITY_PRIORITY_KEYWORDS if keyword in corpus)
-    thesis_hits = sum(1 for marker in _RESPONSE_PRIORITY_THESIS_MARKERS if marker in corpus)
-    relationship_conflict_hits = sum(
-        1 for keyword in _RESPONSE_PRIORITY_RELATIONSHIP_EXCLUSION_KEYWORDS if keyword in corpus
+    followup_hits = sum(1 for keyword in _RESPONSE_PRIORITY_FOLLOWUP_KEYWORDS if keyword in corpus)
+    interaction_hits = sum(
+        1 for keyword in ("评论", "追问", "多问一句", "读懂", "没说完", "停下来", "我没事", "我有点累", "注意力")
+        if keyword in corpus
     )
-    hard_pressure_hits = sum(1 for keyword in _INTERNAL_PRESSURE_BODY_HARD_SIGNALS if keyword in corpus)
-    return (
-        time_hits >= 4
-        and priority_hits >= 2
-        and thesis_hits >= 1
-        and relationship_conflict_hits <= 2
-        and hard_pressure_hits == 0
+    care_hits = sum(1 for keyword in ("在意", "在乎", "关心", "理解", "珍惜") if keyword in corpus)
+    classic_hits = sum(
+        1
+        for keyword in (
+            "没时间",
+            "很忙",
+            "红灯30秒",
+            "等红绿灯",
+            "24小时在线",
+            "优先",
+            "优先级",
+            "顺序",
+            "时间在哪儿",
+            "心就在哪儿",
+            "不够重要",
+            "忙不是借口",
+            "没时间也不是理由",
+        )
+        if keyword in corpus
     )
+    return followup_hits >= 3 and interaction_hits >= 4 and care_hits >= 1 and (followup_hits + interaction_hits) >= classic_hits + 2
 
 
 def _render_forbidden_phrases(value: object) -> str:
@@ -1536,7 +2418,13 @@ def _score_tracked_article_everyday_warmth_cue(sentence: str) -> int:
     for keyword in _EVERYDAY_WARMTH_RETURN_DAILY_KEYWORDS:
         if keyword in compact:
             score += 2
+    for keyword in _EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_KEYWORDS:
+        if keyword in compact:
+            score += 2
     for marker in _EVERYDAY_WARMTH_RETURN_THESIS_MARKERS:
+        if marker in compact:
+            score += 2
+    for marker in _EVERYDAY_WARMTH_RETURN_RESPONSIBILITY_MARKERS:
         if marker in compact:
             score += 2
     if "“" in sentence or "\"" in sentence:
@@ -1630,6 +2518,12 @@ def _score_tracked_article_response_priority_cue(sentence: str) -> int:
     for keyword in _RESPONSE_PRIORITY_TIME_KEYWORDS:
         if keyword in compact:
             score += 2
+    for keyword in _RESPONSE_PRIORITY_INTERACTION_KEYWORDS:
+        if keyword in compact:
+            score += 2
+    for keyword in _RESPONSE_PRIORITY_FOLLOWUP_KEYWORDS:
+        if keyword in compact:
+            score += 2
     for keyword in _RESPONSE_PRIORITY_PRIORITY_KEYWORDS:
         if keyword in compact:
             score += 2
@@ -1704,6 +2598,96 @@ def _should_relax_direct_answer_rules_for_tracked_article(payload: Mapping[str, 
     return True
 
 
+def _build_inner_settlement_variant_corpus(payload: Mapping[str, object]) -> str:
+    problem_brief = payload.get("problem_brief")
+    strategy_card = payload.get("strategy_card")
+    parts: list[str] = [
+        _as_clean_text(payload.get("topic_title")),
+        _as_clean_text(payload.get("topic_angle")),
+        _as_clean_text(payload.get("article_title")),
+        _as_clean_text(payload.get("summary")),
+        _as_clean_text(payload.get("structure_notes")),
+        _as_clean_text(payload.get("body_markdown")),
+    ]
+    draft = payload.get("draft")
+    assets = payload.get("assets")
+    if isinstance(draft, Mapping):
+        parts.extend(
+            [
+                _as_clean_text(draft.get("title")),
+                _as_clean_text(draft.get("body_markdown")),
+            ]
+        )
+    if isinstance(assets, Mapping):
+        parts.extend(
+            [
+                _as_clean_text(assets.get("cover_copy")),
+                _as_clean_text(assets.get("social_teaser")),
+                _as_clean_text(assets.get("recommended_title")),
+            ]
+        )
+        for list_key in ("social_teaser_options", "title_options"):
+            list_value = assets.get(list_key)
+            if isinstance(list_value, list):
+                parts.extend(_as_clean_text(item) for item in list_value if _as_clean_text(item))
+    if isinstance(problem_brief, Mapping):
+        parts.extend(
+            [
+                _as_clean_text(problem_brief.get("clarified_problem")),
+                _as_clean_text(problem_brief.get("observed_phenomenon")),
+                _as_clean_text(problem_brief.get("writing_goal")),
+                _as_clean_text(problem_brief.get("emotional_value_goal")),
+                _as_clean_text(problem_brief.get("theme_axis")),
+                _as_clean_text(problem_brief.get("anti_drift_axis")),
+                _as_clean_text(problem_brief.get("target_reader_situation")),
+                _as_clean_text(problem_brief.get("core_conflict")),
+            ]
+        )
+    if isinstance(strategy_card, Mapping):
+        parts.extend(
+            [
+                _as_clean_text(strategy_card.get("reader_situation")),
+                _as_clean_text(strategy_card.get("point_of_view")),
+                _as_clean_text(strategy_card.get("conflict_frame")),
+                _as_clean_text(strategy_card.get("emotional_path")),
+                _as_clean_text(strategy_card.get("positive_direction")),
+                _as_clean_text(strategy_card.get("quotable_line_goal")),
+                _as_clean_text(strategy_card.get("packaging_focus")),
+                _as_clean_text(strategy_card.get("packaging_hook")),
+                _as_clean_text(strategy_card.get("opening_move")),
+                _as_clean_text(strategy_card.get("body_shift")),
+                _as_clean_text(strategy_card.get("ending_move")),
+                _as_clean_text(strategy_card.get("benchmark_summary")),
+            ]
+        )
+        for list_key in ("scene_anchor_requirements", "quotable_line_seeds"):
+            list_value = strategy_card.get(list_key)
+            if isinstance(list_value, list):
+                parts.extend(_as_clean_text(item) for item in list_value if _as_clean_text(item))
+    for tag_key in ("tags", "reference_article_tags"):
+        tag_value = payload.get(tag_key)
+        if isinstance(tag_value, list):
+            parts.extend(_as_clean_text(tag) for tag in tag_value if _as_clean_text(tag))
+    return " ".join(part for part in parts if part)
+
+
+def _resolve_inner_settlement_variant(payload: Mapping[str, object]) -> str:
+    strategy_card = payload.get("strategy_card")
+    structure_mode = ""
+    if isinstance(strategy_card, Mapping):
+        structure_mode = _as_clean_text(strategy_card.get("structure_mode"))
+    if structure_mode != "inner_settlement" and not _has_inner_settlement_focus(payload):
+        return ""
+    corpus = _build_inner_settlement_variant_corpus(payload)
+    stage_restart_hits = sum(1 for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS if keyword in corpus)
+    theme_hits = sum(1 for marker in _INNER_SETTLEMENT_THESIS_MARKERS if marker in corpus)
+    daily_hits = sum(1 for keyword in _INNER_SETTLEMENT_DAILY_GROUNDING_KEYWORDS if keyword in corpus)
+    daily_return_hits = sum(1 for keyword in _INNER_SETTLEMENT_DAILY_RETURN_KEYWORDS if keyword in corpus)
+    if stage_restart_hits >= 4 or (stage_restart_hits >= 2 and (theme_hits >= 1 or daily_hits >= 1 or daily_return_hits >= 1)):
+        return "stage_restart"
+    return ""
+
+
 TRACKED_ARTICLE_STRUCTURE_TONE_OVERRIDES: dict[str, dict[str, str]] = {
     "response_priority": {
         "opening_style": (
@@ -1753,30 +2737,30 @@ TRACKED_ARTICLE_STRUCTURE_TONE_OVERRIDES: dict[str, dict[str, str]] = {
     },
     "everyday_warmth_return": {
         "opening_style": (
-            "先从重要感为什么总被押在更大的目标上切入，或者先落一个被长期挪后的普通安排。"
+            "先从重要感为什么总被押在更大的目标上切入，或者先落一个总被略过去、后来突然舍不得再错过的小日常。"
             "不要一上来就端出顿悟，也不要把家庭动作清单摆成开场。"
         ),
         "paragraph_rhythm": (
-            "前半篇写大事叙事为什么慢慢失重，后半篇写普通陪伴和低声量联系怎样重新回到眼前。"
+            "前半篇写大事叙事为什么慢慢失重，后半篇写饭桌、回家、有人惦记这些小日常怎样重新回到眼前。"
             "段落长短要有快慢，允许 1 到 2 处一句一段的温热短句，但不要排成并列清单或整齐排比。"
         ),
         "closing_style": (
-            "结尾落在一顿饭、一次散步、一次接送或一个重新放慢的普通安排上，"
+            "结尾落在一顿饭、一次散步、一次接送、一次回家或一句终于说出口的家常话上，"
             "让人感觉生活重新有了轻重，不靠顿悟翻牌。"
         ),
         "value_constraints": (
             "情绪价值优先落在被生活接住、被关系轻轻回温和重新看见日常分量上，"
-            "不要把暖意写成大面积抒情，也不要把普通陪伴写成三四个并列动作。"
+            "不要把暖意写成大面积抒情，也不要把日常温度写成三四个并列动作。"
         ),
         "default_polish_instruction": (
             "如果是小事回归题材，删掉宏大顿悟和并列家庭动作清单，"
-            "改成成就叙事慢慢失重、普通安排重新有分量的推进。"
+            "改成成就叙事慢慢失重、眼前日子重新有分量的推进。"
         ),
     },
     "inner_settlement": {
         "opening_style": (
             "先从那颗心还没完全落回今天的现实接口起笔。"
-            "不要先讲大道理，也不要先把不同主题硬拽成关系等待、身体告警或固定夜深小失序。"
+            "不要先讲大道理，也不要先把不同主题硬拽成关系等待、身体提醒或固定夜深小失序。"
         ),
         "paragraph_rhythm": (
             "第一屏尽量拆成 3 到 4 个短段，先让人认出那颗一直悬着的心。"
@@ -1798,45 +2782,42 @@ TRACKED_ARTICLE_STRUCTURE_TONE_OVERRIDES: dict[str, dict[str, str]] = {
     },
     "self_reliance_inward_support": {
         "opening_style": (
-            "先从一个现实阻力已经顶上来的接口切入，比如看见别人也在硬撑、临时发现没人能分神、或事情偏偏都在这一刻撞到一起。"
-            "镜头优先落在现实一下子挤满眼前、自己只能先把脚跟站稳这件事上，"
-            "不要把主镜头钉在聊天界面、输入状态或一句悬着没落地的话上。"
-            "也不要把电话打出去一圈、回电慢一点、语气短一点这种回应戏当主抓手。"
-            "先让读者认出那一下外援慢半拍的空落感，不要一上来就抽象解释自救自渡。"
+            "先服从参考文章分析中的主题、起笔方式和触发点，不为结构模式另造一套开场。"
+            "自我支撑题材优先从一个人开始理清顺序、作出决定、恢复行动或重新找回节奏的现实接口切入。"
+            "外部压力只保留为理解处境所必需的背景，开场主镜头要落在当前文章独有的行动、判断或回稳细节上。"
+            "第一屏让读者看见人开始把注意力、秩序和选择权收回自己手里。"
         ),
         "paragraph_rhythm": (
-            "前半篇先写外面的帮扶为什么常常来不及，中后段再写人怎样把情绪放稳、把日子一件件接回来。"
-            "段落要短，前六段至少留 2 处一句一段的人话短句，其中 1 处最好把“先别慌，先把自己站稳”这类托底感压成一句。"
-            "不要连续两段都在解释机制，也不要把全文排成均匀的自助步骤清单。"
+            "前半篇就让自我支撑的能力出现：一个动作、一个判断或一次重新安排，都可以把主题带起来。"
+            "段落要短，前六段至少留 2 处一句一段的人话短句，其中 1 处要从参考文的具体处境里自然长出来。"
+            "不要连续两段都在解释困境，也不要把全文排成均匀的自助步骤清单。"
             "不要写成“第一步往往很小”“方法也不复杂”或“你能做的，是”这类教程口吻。"
             "如果要写托底动作，选 1 到 2 个贴着当前处境的动作就够了，不要排成吃饭、喝水、睡觉、列清单的连续步骤。"
             "少用“先……先……先……”往下推整段，尤其不要连续三句都用“先”起手。"
             "少用“一点、一下、一件、一条”这类泛量词去托节奏，能直接写动作、物件、时间点时就直接写。"
-            "前半篇不要把空落感越写越重，最迟到第 4 段附近就要给出第一个自我托底动作或顺序恢复动作。"
+            "自我支撑的动作、判断或能力最迟在第 3 段出现，不让负面处境占满第一屏。"
             "独立短句也要是完整人话，不要为了停顿感留下半截句、悬空转折或没接上的句头。"
             "除非原文主冲突本来就建在身体代价上，否则不要顺手排成胸口、胃口、睡眠这类症状句群。"
-            "前半篇允许出现他人，但不要把镜头固定在界面细节、求助动作或等一个表态上。"
-            "不要反复围着那一下空落原地打转，后半程必须把重心换回自己怎样把今天过下去。"
+            "可以出现他人，但镜头最终要回到当事人的判断、行动和恢复力上。"
+            "全文始终围绕参考文真正讨论的那种力量，不把自我支撑统一写成熬过一个夜晚。"
         ),
         "closing_style": (
-            "结尾落在一个把自己托住的普通动作上，比如写下来、吃口饭、先睡一觉、把明天缩成第一件事。"
-            "给读者被稳住、还能继续过下去的感觉，让人觉得今晚也许还能先把自己安顿一下，不写硬扛口号，也不写空泛自励。"
-            "最后不要收在悬着的情绪上，要收在已经发生的回稳动作和能继续过日子的托底感上。"
+            "结尾服从分析合同里的情绪出口，可以落在已经作出的选择、恢复的行动、重新确认的能力或继续生活的具体安排上。"
+            "给读者清醒、温暖和向前的力量，不写硬扛口号，也不把每篇都收成今晚先睡、明天再说。"
+            "最后要让正向变化已经发生，而不是仍停在等待、失落或自我安慰里。"
         ),
         "value_constraints": (
-            "这类稿子的情绪价值，要先让读者认出“原来不是我太脆弱，是现实真的未必总能刚好腾出手来帮我”，"
-            "再慢慢把力气收回自己身上；至少保住 1 到 2 处贴着当前处境长出来、能单独成段的可摘录短句，"
-            "不要把全文写成匀速说明文。"
-            "重点是被看见以后慢慢回稳，不是把失落再诊断一遍。"
-            "正向价值要落在‘即便外界慢半拍，我也还能把今天过完’这种可落地的托底感上。"
-            "标题、首屏和短句尽量写得温一点，多用“先把自己安顿一下”“先把今天过完”“把日子接回来”这类有人味的表达。"
+            "这类稿子的情绪价值，要让读者看见自己已经拥有的判断力、行动力和恢复力。"
+            "至少保住 1 到 2 处贴着当前处境长出来、能单独成段的可摘录短句，不要把全文写成匀速说明文。"
+            "重点是正向能力怎样在现实里发生，不再诊断失落，也不靠贬低外界关系来抬高自救。"
+            "标题、首屏和短句尽量温暖、有力、具体，表达应随参考文主题变化，不固定复用‘安顿自己’‘把今天过完’或‘把日子接回来’。"
         ),
         "default_polish_instruction": (
-            "如果是向内求自救题材，先删掉平均讲解和万能自助步骤，优先补 1 到 2 处从现实压力里突然冒出来的人话短句；"
-            "前半篇先让读者认出自己，再把“向内稳住、把自己托过去”慢慢写实。"
-            "如果前半篇一直在扩写外援来不及的失落，就删掉其中一段，让回稳动作更早出现。"
+            "如果是向内求或自我支撑题材，先删掉平均讲解、负面诊断和万能自助步骤，优先补 1 到 2 处从参考文具体处境里长出来的人话短句；"
+            "开头就让读者看见一种正在发生的正向能力，再按分析合同把主题写实。"
+            "如果前半篇仍在扩写没人帮助、外援来不及或等待落空，直接删掉这条自造前提。"
             "如果出现症状化句群，优先拆回动作、顺序和当场反应。"
-            "把过于管理化、诊断化的词换成更温和的人话，让读者感到是在被安顿，而不是被分析。"
+            "把过于管理化、诊断化的词换成更接近现实的人话，让读者得到力量，而不是被分析。"
         ),
     },
     "relationship_aftercare": {
@@ -1885,6 +2866,58 @@ TRACKED_ARTICLE_STRUCTURE_TONE_OVERRIDES: dict[str, dict[str, str]] = {
     },
 }
 
+TRACKED_ARTICLE_EVERYDAY_WARMTH_RESPONSIBILITY_TONE_OVERRIDE: dict[str, str] = {
+    "opening_style": (
+        "先从肩上责任带来的现实重量切入：来电、日历安排、复查预约、请假前协调，"
+        "或者那种自己先把顺序理清、让家里跟着稳下来的当场。"
+        "不要先空讲成年人都不容易，也不要一上来就套“更大的目标慢慢失重”那层总论。"
+    ),
+    "paragraph_rhythm": (
+        "前半篇先让责任为什么会让人多想一步落地，中段再写父母、孩子、伴侣和一个家为什么会让人愿意认真把日子托稳。"
+        "段落要短，前四段至少 2 段先给动作、停顿、回话或物件接口，不要每段都立刻作者总结。"
+        "允许 1 到 2 处一句一段的人话短句，但短句要从责任、顺序和回温里自己长出来，不要排成匀速励志句墙。"
+        "后半篇把情绪带回家里被护住的安稳感，以及那个一直用心的人也值得被照顾，不要一路只数苦、只喊值。"
+    ),
+    "closing_style": (
+        "结尾落在一盏灯、一碗热汤、校门口一张画、或一句终于能松下来的回话上，"
+        "让人感觉这些辛苦最后真的托住了家里的安稳，不写成苦难勋章或万能鸡汤。"
+    ),
+    "value_constraints": (
+        "这类稿子的情绪价值，要落在“原来我的辛苦有人懂，而且它真的护住了我在意的人”这层安稳感上；"
+        "重点不是歌颂吃苦，也不是写消耗诊断，而是让责任、安稳、分担和回温之间的关系被看见。"
+    ),
+    "default_polish_instruction": (
+        "如果是责任托家题材，先删掉泛中年感慨、苦难勋章和“更大目标祛魅”的通用空话，"
+        "把现实接口、动作停顿、先把家里理顺的顺序、有人一起分担和家里被护住的安稳写实。"
+    ),
+}
+
+TRACKED_ARTICLE_RESPONSE_PRIORITY_FOLLOWUP_TONE_OVERRIDE: dict[str, str] = {
+    "opening_style": (
+        "先从一句轻描淡写的话有没有被听懂切入：一张随手发的照片、一句“我没事”、一次看似平常的状态更新。"
+        "先让读者认出被路过和被真正停下来理解之间的差别，不要先把镜头压成等回复、回没回或关系排位审判。"
+    ),
+    "paragraph_rhythm": (
+        "前半篇先写点赞、表情、路过式评论这些回应为什么会让人误以为自己已经被在意，再写一句追问、一次补问、一次认真停下来怎样把人轻轻接住。"
+        "段落要有松紧差，允许 2 到 3 处一句一段的人话短句，让“被读懂”的那一下自己发亮。"
+        "少把“轻互动”“真正的关心”“很多时候”“其实”这类概念词放在段首做总结，前四段至少 2 段先给动作、对话或停顿，再让判断慢慢冒出来。"
+        "后半篇把情绪带回安稳、珍惜和双向在乎，不要一路写成判断谁更靠前。"
+    ),
+    "closing_style": (
+        "结尾落在被理解、被记得、被认真放在心上的安稳感上，"
+        "让读者读完更暖一点、更松一点，不写成关系排名或清醒判词。"
+    ),
+    "value_constraints": (
+        "这类稿子的情绪价值，不是教读者认清谁不值得，而是让读者重新认出真正的关心长什么样；"
+        "前半篇至少留 1 到 2 处能单独成段的人话短句，其中至少 1 处要像被轻轻读懂后的松口气。"
+    ),
+    "default_polish_instruction": (
+        "如果是评论、追问、被读懂这一类回应差别题材，先把“谁把你排在前面”“别再等了”这类关系排序句降下来，"
+        "改成让被看见、被读懂、被认真追问的差别自己长出来；"
+        "同时补足被理解后的安稳、珍惜和双向在乎，不要把全文修成回复等待稿。"
+    ),
+}
+
 
 def _get_tracked_article_structure_mode(payload: Mapping[str, object] | None) -> str:
     if not isinstance(payload, Mapping):
@@ -1901,6 +2934,12 @@ def _get_tracked_article_structure_tone_override(payload: Mapping[str, object] |
     structure_mode = _get_tracked_article_structure_mode(payload)
     if not structure_mode:
         return None
+    if structure_mode == "responsibility_shelter" or (
+        structure_mode == "everyday_warmth_return" and payload and _has_everyday_warmth_responsibility_shelter_focus(payload)
+    ):
+        return dict(TRACKED_ARTICLE_EVERYDAY_WARMTH_RESPONSIBILITY_TONE_OVERRIDE)
+    if structure_mode == "response_priority" and payload and _uses_response_priority_followup_variant(payload):
+        return dict(TRACKED_ARTICLE_RESPONSE_PRIORITY_FOLLOWUP_TONE_OVERRIDE)
     override = TRACKED_ARTICLE_STRUCTURE_TONE_OVERRIDES.get(structure_mode)
     if not override:
         return None
@@ -2059,7 +3098,7 @@ def _build_jinwan_youyu_stage_instructions(
                 "避免“因为……所以……”“因此”“于是”“结果”这类显性因果串联。"
                 "删掉“总之”“说到底”“归根结底”“值得一提的是”“不可否认”“在当今社会”这类套话。"
                 "不要写“以后会好的”“明天又是新的一天”“一切都会过去”这类未来安慰句。"
-                "“不是A，是B”句式整篇最多使用 2 次。"
+                "默认不要使用“不是A，是B”句式；只有参考文核心金句本身依赖这种对照时，正文最多保留 1 次，且不能放在标题、开头或结尾。"
                 "破折号整篇最多使用 2 处。"
                 "不要写成逐条列举、逐项解释的导购式结构。"
                 "删掉没有它也不影响前后文的空段、虚段和泛感慨段。"
@@ -2086,7 +3125,7 @@ def _build_jinwan_youyu_stage_instructions(
             "避免“因为……所以……”“因此”“于是”“结果”这类显性因果串联。"
             "删掉“总之”“说到底”“归根结底”“值得一提的是”“不可否认”“在当今社会”这类套话。"
             "不要写“以后会好的”“明天又是新的一天”“一切都会过去”这类未来安慰句。"
-            "“不是A，是B”句式整篇最多使用 2 次。"
+            "默认不要使用“不是A，是B”句式；只有参考文核心金句本身依赖这种对照时，正文最多保留 1 次，且不能放在标题、开头或结尾。"
             "破折号整篇最多使用 2 处。"
             "不要写成逐条列举、逐项解释的导购式结构。"
             "删掉没有它也不影响前后文的空段、虚段和泛感慨段。"
@@ -2414,7 +3453,16 @@ def _extract_tracked_article_topic_cues(
 
 
 def _build_tracked_article_topic_summary(payload: Mapping[str, object]) -> str:
+    analysis_contract = _build_tracked_article_analysis_contract(payload)
+    analysis_summary = _build_analysis_first_topic_summary(analysis_contract)
+    if analysis_summary:
+        return analysis_summary
     if _has_response_priority_focus(payload):
+        if _uses_response_priority_followup_variant(payload):
+            return (
+                "文章借点赞、评论和追问这些轻互动差别，讨论真正的在乎为什么不在热闹，而在有没有人愿意停下来读懂你。"
+                "主线落在被看见、被读懂和被认真放在心上的安稳感上。"
+            )
         return (
             "文章借日常联系里的“没时间”现象，讨论回应顺序和时间投向如何显出一个人的真实在乎程度。"
             "主线落在时间分配、回应动作和位置感判断上。"
@@ -2430,22 +3478,7 @@ def _build_tracked_article_topic_summary(payload: Mapping[str, object]) -> str:
             "再意识到真正被压后、被带过或被撤回的那句话、那个动作或那次靠近。"
         )
     if _has_inner_settlement_focus(payload):
-        stage_restart_hits = sum(
-            1
-            for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS
-            if keyword in " ".join(
-                part
-                for part in (
-                    _as_clean_text(payload.get("article_title")),
-                    _as_clean_text(payload.get("summary")),
-                    _as_clean_text(payload.get("structure_notes")),
-                    _as_clean_text(payload.get("body_markdown")),
-                    " ".join(_as_clean_text(tag) for tag in payload.get("tags") or [] if _as_clean_text(tag)),
-                )
-                if part
-            )
-        )
-        if stage_restart_hits >= 4:
+        if _resolve_inner_settlement_variant(payload) == "stage_restart":
             return (
                 "文章借半年节点、事与愿违和身边仍在的牵挂，讨论人为什么总会在阶段回望里先否定自己。"
                 "主线落在遗憾怎样被安放、眼前的人怎样把人托住，以及怎样重新接纳这个阶段的自己。"
@@ -2456,52 +3489,66 @@ def _build_tracked_article_topic_summary(payload: Mapping[str, object]) -> str:
         )
     if _has_self_reliance_inward_support_focus(payload):
         return (
-            "文章把成年人低谷里的无助感和现实里大家都在赶路这件事放在一起写，"
-            "主线落在一个人怎样从等外面的安慰，慢慢走到先把自己安顿好、把日子接回来。"
+            "文章把成年人低谷里的承压感和自我支撑方式放在一起写，"
+            "主线落在一个人怎样从慌乱里回神，用具体判断、行动或选择把日子一点点接回来。"
         )
     if _has_everyday_warmth_return_focus(payload):
+        if _has_everyday_warmth_simple_happiness_focus(payload):
+            return (
+                "文章不是在反对努力，而是在重估幸福的坐标：比起不断加码财富、排场和热闹，"
+                "真正让人踏实的常常是家人平安、知己仍在和日子简单。"
+                "主线落在幸福为什么会被误判，以及一个人怎样把生活重心慢慢收回到眼前。"
+            )
         return (
             "文章把成就叙事与慢下来后的价值重估放在一起比较，重点不是某一个具体家庭动作，"
-            "而是更大的目标为什么会失重，被长期挪后的普通安排和低声量联系为什么重新显出分量。"
+            "而是更大的目标为什么会失重，那些总被放轻的吃饭、回家和有人惦记为什么重新显出分量。"
         )
     return _as_clean_text(payload.get("summary"))
 
 
 def _build_tracked_article_topic_structure_notes(payload: Mapping[str, object]) -> str:
+    analysis_contract = _build_tracked_article_analysis_contract(payload)
+    analysis_structure_notes = _build_analysis_first_topic_structure_notes(analysis_contract)
+    if analysis_structure_notes:
+        return analysis_structure_notes
     if _has_response_priority_focus(payload):
+        if _uses_response_priority_followup_variant(payload):
+            return "先从点赞、评论或一句轻描淡写的话有没有被听懂切入，再拆轻互动为什么不等于真正的关心，中段把读懂、追问和补问怎样把人轻轻接住讲清，结尾回到被理解带来的踏实和珍惜。"
         return "先从“忙到没时间回应”这句常见托词切入，再拆时间为什么总会投向更在乎的人，中段把回应顺序、投入意愿和关系优先级一步步讲清。"
     if _has_supportive_appreciation_focus(payload):
         return "先写柔软为什么常被误读成好说话，中段再拆明明拎得清却仍愿意体谅和包容的分量，结尾回到这样的人为什么最值得被认真珍惜。"
     if _as_clean_text(payload.get("analysis_structure_mode")) == "scene_first_progression":
         return "先守住前两到三段连续现场，让动作、停顿和气氛带路，中段再把真正被压后的话或被撤回的表达讲明白，不要一上来平铺道理。"
     if _has_inner_settlement_focus(payload):
-        corpus = " ".join(
-            part
-            for part in (
-                _as_clean_text(payload.get("article_title")),
-                _as_clean_text(payload.get("summary")),
-                _as_clean_text(payload.get("structure_notes")),
-                _as_clean_text(payload.get("body_markdown")),
-                " ".join(_as_clean_text(tag) for tag in payload.get("tags") or [] if _as_clean_text(tag)),
-            )
-            if part
-        )
-        stage_restart_hits = sum(1 for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS if keyword in corpus)
-        if stage_restart_hits >= 4:
+        if _resolve_inner_settlement_variant(payload) == "stage_restart":
             return (
                 "先写阶段节点上最容易冒出来的自责和比较，再拆人为什么总会把没完成、没拥有和没赶上一起算成失败，"
                 "中段回到眼前仍在身边的人、普通支撑和每个阶段自己的分量，结尾落到重新接纳此刻、带着期待继续往前。"
             )
         return "先写心为什么在阶段回望里容易悬着、自责或不甘，再拆人为什么总想把遗憾和未完成一起算成失败，中段回到当下、眼前的人和每个阶段的自己怎样重新有了位置和轻重。"
     if _has_self_reliance_inward_support_focus(payload):
-        return "先写人也想有人分担、却发现大家都抽不开身的现实处境，中段再拆为什么外面的帮扶未必总能赶上，结尾回到向内稳住、把自己安顿住和慢慢把日子接回来。"
+        return "先服从参考文章分析出的真实入口和核心冲突，前三段内就让判断力、行动力、恢复力或主动选择出现；中段写具体自我支撑方式怎样发生，结尾回到分析合同里的正向出口，不固定补写没人帮或外援来不及。"
     if _has_everyday_warmth_return_focus(payload):
-        return "先写成就叙事，再用慢下来后的价值转向做转折，中段回到普通陪伴和日常分量，结尾回到小事为什么更重要。"
+        if _has_everyday_warmth_simple_happiness_focus(payload):
+            return "先写人为什么总把幸福押在更大的拥有上，再拆财富、圈子和房子为什么替代不了踏实感；中段回到知己、家人和平安日常怎样重新显出分量，结尾落到简单快乐为什么反而更难被真正守住。"
+        return "先写成就叙事，再用慢下来后的价值转向做转折，中段回到眼前陪伴和日常分量，结尾回到小事为什么更重要。"
     return _as_clean_text(payload.get("structure_notes"))
 
 
 def _build_tracked_article_topic_body_cue_section(payload: Mapping[str, object]) -> str:
+    analysis_contract = _build_tracked_article_analysis_contract(payload)
+    analysis_body_cues = _build_analysis_first_topic_body_cue_section(analysis_contract)
+    if analysis_body_cues:
+        return analysis_body_cues
     if _has_response_priority_focus(payload):
+        if _uses_response_priority_followup_variant(payload):
+            return (
+                "参考文章正文抓手候选：\n"
+                "- 为什么热闹互动很多，人却还是会因为少了一句追问而心里发空\n"
+                "- 一个人愿不愿意停下来读懂你的言外之意，为什么比表面热络更能说明关心\n"
+                "- 被看见、被读懂、被认真放在心上，为什么会把人从硬撑里轻轻放回生活\n"
+                "优先围绕这些抓手类型重组新选题，让标题、角度和后续正文都继续停留在被理解、被接住和双向珍惜上。\n"
+            )
         return (
             "参考文章正文抓手候选：\n"
             "- “没时间”这句话，为什么很多时候说的不是日程，而是顺序\n"
@@ -2526,19 +3573,7 @@ def _build_tracked_article_topic_body_cue_section(payload: Mapping[str, object])
             "优先围绕连续现场、动作停顿和当场撤回来重组新选题，不要把题眼先抬成抽象关系判断、人生道理或万能解释。\n"
         )
     if _has_inner_settlement_focus(payload):
-        corpus = " ".join(
-            part
-            for part in (
-                _as_clean_text(payload.get("article_title")),
-                _as_clean_text(payload.get("summary")),
-                _as_clean_text(payload.get("structure_notes")),
-                _as_clean_text(payload.get("body_markdown")),
-                " ".join(_as_clean_text(tag) for tag in payload.get("tags") or [] if _as_clean_text(tag)),
-            )
-            if part
-        )
-        stage_restart_hits = sum(1 for keyword in _INNER_SETTLEMENT_STAGE_RESTART_KEYWORDS if keyword in corpus)
-        if stage_restart_hits >= 4:
+        if _resolve_inner_settlement_variant(payload) == "stage_restart":
             return (
                 "参考文章正文抓手候选：\n"
                 "- 一到半年、年中或阶段节点，人为什么总会先清算自己，而不是先看见自己已经走了多远\n"
@@ -2558,19 +3593,27 @@ def _build_tracked_article_topic_body_cue_section(payload: Mapping[str, object])
     if _has_self_reliance_inward_support_focus(payload):
         return (
             "参考文章正文抓手候选：\n"
-            "- 一个人难的时候，为什么常常先看见别人也在赶路，而不是刚好等到谁停下来\n"
-            "- 人为什么会从等外面的安慰，慢慢走到先把自己安顿好\n"
-            "- 真正把人托过去的，为什么常常不是立刻等来帮忙，而是自己先把今天过完、把日子继续接回来\n"
+            "- 参考文里的现实触发点，究竟怎样让人一下子乱了顺序\n"
+            "- 人为什么会从慌乱、承压或低谷里，慢慢找到一个能先稳住自己的动作\n"
+            "- 真正把人托过去的，为什么常常是具体判断、主动选择和把日子继续接回来的能力\n"
             "优先围绕这些抓手类型重组新选题，让标题、角度和后续正文都继续停留在自我支撑、自救自渡这条主线上。\n"
         )
     if _has_everyday_warmth_return_focus(payload):
+        if _has_everyday_warmth_simple_happiness_focus(payload):
+            return (
+                "参考文章正文抓手候选：\n"
+                "- 人为什么总把好日子押在更大的拥有、更体面的配置和更热闹的人生上\n"
+                "- 走到后来，真正让人踏实的为什么反而变成家人平安、知己仍在和日子简单\n"
+                "- 财富、排场和热闹，为什么替代不了被记挂、被惦记和有家可回的安稳\n"
+                "优先围绕这些抓手类型重组新选题，让标题、角度和后续正文继续停留在幸福观重估、生活排序回正和踏实感回归这条主线上。\n"
+            )
         return (
             "参考文章正文抓手候选：\n"
             "- 成就叙事为什么会在某个阶段突然失重\n"
-            "- 被长期挪后的普通安排怎样慢慢暴露日子被挤空\n"
-            "- 慢下来以后，低声量联系和在场动作为什么重新显出分量\n"
+            "- 那些总被往后放的小日常，为什么会让人后知后觉地觉得心里空了一块\n"
+            "- 慢下来以后，一顿饭、一次回家、有人惦记为什么会重新显出分量\n"
             "优先围绕这些抓手类型重组新选题，不要把题眼压回某个可直接映回原文的单一家庭场景，"
-            "优先把它上提成被长期挪后的普通安排、低声量联系或在场动作。\n"
+            "优先把它上提成一类真正托住人的日常分量，而不是复述参考文现成动作。\n"
         )
 
     body_cues = _extract_tracked_article_topic_cues(payload)
@@ -2593,14 +3636,27 @@ def _render_outline_target_wording(tone_profile: Mapping[str, object] | None) ->
         f"目标字数：{target_word_count}\n"
         "请按目标字数规划篇幅，保证 4 到 6 段的大纲能自然支撑正文长度。\n"
         "避免在大纲阶段写得过满，每一段只保留核心推进点，不要预写过多案例、分叉解释和重复论述。\n"
+        "不要写“开头/中段/结尾”标签，也不要写给作者看的命令句。\n"
         "outline_body 只写段落职责和推进动作，尽量控制在 220 字以内。\n"
     )
 
 
-def _render_draft_target_wording(tone_profile: Mapping[str, object] | None) -> str:
+def _render_draft_target_wording(
+    tone_profile: Mapping[str, object] | None,
+    *,
+    payload: Mapping[str, object] | None = None,
+) -> str:
     target_word_count = tone_profile.get("target_word_count") if tone_profile else None
     if not target_word_count:
         return ""
+    if payload is not None and _as_clean_text(payload.get("source_type")) == "tracked_article":
+        stable_target = min(int(target_word_count), 900)
+        return (
+            f"目标字数：{stable_target}\n"
+            "这是参考文章链路的稳定首稿目标，先写成短句清晰、情绪价值集中的发布基础稿。\n"
+            "正文篇幅请严格贴近目标字数，允许上下浮动 10% 到 15%。\n"
+            "如果明显超出目标字数，请主动压缩场景、避免重复抒情和重复论述。\n"
+        )
     return (
         f"目标字数：{target_word_count}\n"
         "正文篇幅请严格贴近目标字数，允许上下浮动 10% 到 15%。\n"
@@ -2685,6 +3741,9 @@ def _render_reference_article_section(payload: Mapping[str, object], *, stage: s
     analysis_emotional_exit = _as_clean_text(payload.get("reference_article_analysis_emotional_exit"))
     analysis_structure_mode = _as_clean_text(payload.get("reference_article_analysis_structure_mode"))
     analysis_opening_pattern = _as_clean_text(payload.get("reference_article_analysis_opening_pattern"))
+    analysis_hook_trigger = _as_clean_text(payload.get("reference_article_analysis_hook_trigger"))
+    analysis_progression_drive = _as_clean_text(payload.get("reference_article_analysis_progression_drive"))
+    analysis_share_reason = _as_clean_text(payload.get("reference_article_analysis_share_reason"))
     analysis_do_not_turn_into = _as_clean_text(payload.get("reference_article_analysis_do_not_turn_into"))
     tags_value = payload.get("reference_article_tags")
 
@@ -2705,6 +3764,9 @@ def _render_reference_article_section(payload: Mapping[str, object], *, stage: s
             f"参考文章情绪出口：{analysis_emotional_exit or '无'}\n"
             f"参考文章结构模式：{analysis_structure_mode or '无'}\n"
             f"参考文章开头方式：{analysis_opening_pattern or '无'}\n"
+            f"参考文章开头触发点：{analysis_hook_trigger or '无'}\n"
+            f"参考文章中段推进力：{analysis_progression_drive or '无'}\n"
+            f"参考文章转发理由：{analysis_share_reason or '无'}\n"
             f"参考文章不要写成：{analysis_do_not_turn_into or '无'}\n"
             f"参考文章标签：{' / '.join(tags) or '无'}\n"
         )
@@ -2719,6 +3781,9 @@ def _render_reference_article_section(payload: Mapping[str, object], *, stage: s
         f"上游情绪出口：{analysis_emotional_exit or '无'}\n"
         f"上游结构模式：{analysis_structure_mode or '无'}\n"
         f"上游开头方式：{analysis_opening_pattern or '无'}\n"
+        f"上游开头触发点：{analysis_hook_trigger or '无'}\n"
+        f"上游中段推进力：{analysis_progression_drive or '无'}\n"
+        f"上游转发理由：{analysis_share_reason or '无'}\n"
         f"上游不要写成：{analysis_do_not_turn_into or '无'}\n"
         "原标题、原摘要措辞和结构备注已经在上游选题阶段消化完毕，这一阶段不要再沿着原文标题骨架、开头入口或段落顺序继续展开。\n"
     )
@@ -2744,6 +3809,142 @@ def _render_post_strategy_reference_boundary(payload: Mapping[str, object], *, s
     )
 
 
+def _should_use_tracked_article_theme_first_strategy(payload: Mapping[str, object]) -> bool:
+    return _as_clean_text(payload.get("source_type")) == "tracked_article" and _has_strategy_package(payload)
+
+
+def _build_theme_first_execution_instructions(payload: Mapping[str, object], *, stage: str) -> str:
+    if not _should_use_tracked_article_theme_first_strategy(payload):
+        return ""
+
+    if stage in {"outline", "draft"}:
+        return (
+            "先根据主题锚点卡判断这篇更适合从场景、判断、引用还是关系接口开，不要先挑一个熟悉模板再往里装内容。"
+            "段落节奏、短句位置和现实抓手优先服从这篇文章自己的主题主线与正向落点。"
+            "结构模式只是一层弱提示，用来防止明显跑偏，不负责把同类文章压成同一个骨架。"
+            "如果通用写法习惯、平台规则或局部顺手表达和主题锚点卡冲突，以主题锚点卡、策略包和主题守卫为准，不要换题。"
+        )
+    if stage in {"assets", "publish_package"}:
+        return (
+            "包装先认主题锚点卡，再决定标题、导语、封面和摘要怎么截住读者。"
+            "可摘录短句和钩子都要从正文已经成立的主线里长出来，不要为了抓眼另起一篇更顺手的泛情绪稿；不要在输出里标注“金句”。"
+            "结构模式只是一层弱提示，用来防止明显跑偏，不负责把同类文章压成同一个包装骨架。"
+            "如果平台包装习惯和包装锚点卡冲突，以正文主线、正向落点和包装主题守卫为准，不要为了抓眼换题。"
+        )
+    return ""
+
+
+def _render_theme_first_execution_card(
+    payload: Mapping[str, object],
+    *,
+    stage: str,
+    compact: bool = False,
+) -> str:
+    if stage not in {"outline", "draft", "assets", "publish_package"}:
+        return ""
+    if not _should_use_tracked_article_theme_first_strategy(payload):
+        return ""
+
+    problem_brief = payload.get("problem_brief")
+    strategy_card = payload.get("strategy_card")
+    if not isinstance(problem_brief, Mapping) or not isinstance(strategy_card, Mapping):
+        return ""
+
+    clarified_problem = _normalize_clarified_problem(_as_clean_text(problem_brief.get("clarified_problem")))
+    theme_axis = _as_clean_text(problem_brief.get("theme_axis"))
+    core_conflict = _as_clean_text(problem_brief.get("core_conflict"))
+    emotional_value_goal = _as_clean_text(problem_brief.get("emotional_value_goal"))
+    positive_direction = _as_clean_text(strategy_card.get("positive_direction"))
+    hook_trigger = _as_clean_text(strategy_card.get("hook_trigger"))
+    progression_drive = _as_clean_text(strategy_card.get("progression_drive"))
+    share_reason = _as_clean_text(strategy_card.get("share_reason"))
+    packaging_focus = _as_clean_text(strategy_card.get("packaging_focus"))
+    packaging_hook = _as_clean_text(strategy_card.get("packaging_hook"))
+    opening_move = _as_clean_text(strategy_card.get("opening_move"))
+    ending_move = _as_clean_text(strategy_card.get("ending_move"))
+    scene_anchor_requirements_value = strategy_card.get("scene_anchor_requirements")
+    quotable_line_seeds_value = strategy_card.get("quotable_line_seeds")
+    scene_anchor_requirements = (
+        [_as_clean_text(item) for item in scene_anchor_requirements_value if _as_clean_text(item)]
+        if isinstance(scene_anchor_requirements_value, list)
+        else []
+    )
+    quotable_line_seeds = (
+        [_as_clean_text(item) for item in quotable_line_seeds_value if _as_clean_text(item)]
+        if isinstance(quotable_line_seeds_value, list)
+        else []
+    )
+    if _has_everyday_warmth_responsibility_shelter_focus(payload):
+        clarified_problem = _sanitize_responsibility_shelter_prompt_text(clarified_problem)
+        theme_axis = _sanitize_responsibility_shelter_prompt_text(theme_axis)
+        core_conflict = _sanitize_responsibility_shelter_prompt_text(core_conflict)
+        emotional_value_goal = _sanitize_responsibility_shelter_prompt_text(emotional_value_goal)
+        positive_direction = _sanitize_responsibility_shelter_prompt_text(positive_direction)
+        hook_trigger = _sanitize_responsibility_shelter_prompt_text(hook_trigger)
+        progression_drive = _sanitize_responsibility_shelter_prompt_text(progression_drive)
+        share_reason = _sanitize_responsibility_shelter_prompt_text(share_reason)
+        packaging_focus = _sanitize_responsibility_shelter_prompt_text(packaging_focus)
+        packaging_hook = _sanitize_responsibility_shelter_prompt_text(packaging_hook)
+        opening_move = _sanitize_responsibility_shelter_prompt_text(opening_move)
+        ending_move = _sanitize_responsibility_shelter_prompt_text(ending_move)
+        scene_anchor_requirements = [
+            _sanitize_responsibility_shelter_prompt_text(item) for item in scene_anchor_requirements
+        ]
+        quotable_line_seeds = [
+            _sanitize_responsibility_shelter_prompt_text(item) for item in quotable_line_seeds
+        ]
+
+    if stage in {"outline", "draft"}:
+        lines = ["主题锚点卡："]
+        if theme_axis:
+            lines.append(f"这篇真正要写的是：{_truncate_text(theme_axis)}")
+        elif clarified_problem:
+            lines.append(f"这篇真正要写的是：{_truncate_text(clarified_problem)}")
+        if core_conflict:
+            lines.append(f"真正要拆开的矛盾：{_truncate_text(core_conflict)}")
+        if emotional_value_goal:
+            lines.append(f"读者最后要得到：{_truncate_text(emotional_value_goal)}")
+        if positive_direction:
+            lines.append(f"后半篇回正到：{_truncate_text(positive_direction)}")
+        if hook_trigger:
+            lines.append(f"开头先停在：{_truncate_text(hook_trigger)}")
+        if progression_drive:
+            lines.append(f"中段主要靠这股力往前推：{_truncate_text(progression_drive)}")
+        if scene_anchor_requirements:
+            max_anchor_items = 2 if compact else 3
+            lines.append(f"优先写出的现实抓手：{' / '.join(scene_anchor_requirements[:max_anchor_items])}")
+        if quotable_line_seeds:
+            lines.append(f"短句尽量从这里长出来：{' / '.join(quotable_line_seeds[:2])}")
+        if opening_move:
+            lines.append(f"开头先守：{_truncate_text(opening_move)}")
+        if ending_move:
+            lines.append(f"结尾回到：{_truncate_text(ending_move)}")
+        lines.append("执行顺序：先守主题和情绪出口，再决定场景、判断和短句怎么展开，不要反过来先找一个熟悉模板往里装。")
+        return "\n".join(lines) + "\n\n"
+
+    lines = ["包装锚点卡："]
+    if theme_axis:
+        lines.append(f"正文主线：{_truncate_text(theme_axis)}")
+    elif clarified_problem:
+        lines.append(f"正文主线：{_truncate_text(clarified_problem)}")
+    if core_conflict:
+        lines.append(f"正文矛盾：{_truncate_text(core_conflict)}")
+    if positive_direction:
+        lines.append(f"最后把人带回：{_truncate_text(positive_direction)}")
+    if share_reason:
+        lines.append(f"这类包装之所以容易截住人，是因为：{_truncate_text(share_reason)}")
+    if packaging_focus:
+        lines.append(f"包装先抓：{_truncate_text(packaging_focus)}")
+    elif packaging_hook:
+        lines.append(f"包装先抓：{_truncate_text(packaging_hook)}")
+    if quotable_line_seeds:
+        lines.append(f"能截住人的真话优先从这里长出来：{' / '.join(quotable_line_seeds[:2])}")
+    if ending_move:
+        lines.append(f"收束气口：{_truncate_text(ending_move)}")
+    lines.append("包装顺序：先守正文主线，再挑最能截住人的入口，不为抓眼再换题。")
+    return "\n".join(lines) + "\n\n"
+
+
 def _build_packaging_theme_alignment_instructions(payload: Mapping[str, object], *, stage: str) -> str:
     if stage not in {"assets", "publish_package"}:
         return ""
@@ -2759,77 +3960,98 @@ def _build_packaging_theme_alignment_instructions(payload: Mapping[str, object],
 
     structure_mode = _as_clean_text(strategy_card.get("structure_mode"))
     clarified_problem = _as_clean_text(problem_brief.get("clarified_problem"))
+    theme_axis = _as_clean_text(problem_brief.get("theme_axis"))
     writing_goal = _as_clean_text(problem_brief.get("writing_goal"))
     conflict_frame = _as_clean_text(strategy_card.get("conflict_frame"))
     ending_move = _as_clean_text(strategy_card.get("ending_move"))
+    positive_direction = _as_clean_text(strategy_card.get("positive_direction"))
+    share_reason = _as_clean_text(strategy_card.get("share_reason"))
+    packaging_focus = _as_clean_text(strategy_card.get("packaging_focus"))
+    packaging_hook = _as_clean_text(strategy_card.get("packaging_hook"))
+    quotable_line_seeds_value = strategy_card.get("quotable_line_seeds")
+    quotable_line_seeds = (
+        [_as_clean_text(item) for item in quotable_line_seeds_value if _as_clean_text(item)]
+        if isinstance(quotable_line_seeds_value, list)
+        else []
+    )
 
     base_lines = [
         "包装必须继续服务当前正文主题，不允许在标题、导语、封面文案或编辑备注阶段二次换题。",
-        "优先服从策略包里的问题澄清、冲突框架和结尾方向，不要把正文已经守住的主题改写成另一篇更顺手的泛情绪稿。",
+        "先根据正文主线、正向落点和包装抓手决定标题、导语、封面和摘要，不要先挑一个更顺手的流量模板。",
     ]
 
     if clarified_problem:
         base_lines.append(f"当前主题问题：{clarified_problem}")
+    if theme_axis:
+        base_lines.append(f"当前主题主线：{theme_axis}")
     if writing_goal:
         base_lines.append(f"当前写作目标：{writing_goal}")
     if conflict_frame:
         base_lines.append(f"当前冲突主线：{conflict_frame}")
+    if positive_direction:
+        base_lines.append(f"标题、导语和封面最终都要把人带回这个落点：{positive_direction}")
+    if share_reason:
+        base_lines.append(f"这篇之所以容易让人想转发，主要因为：{share_reason}")
+    if packaging_focus:
+        base_lines.append(f"包装必须优先抓这个入口：{packaging_focus}")
+    elif packaging_hook:
+        base_lines.append(f"包装主钩子：{packaging_hook}")
+    if quotable_line_seeds:
+        base_lines.append(f"优先从这些真话入口起题：{' / '.join(quotable_line_seeds[:2])}")
     if ending_move:
         base_lines.append(f"当前收束方向：{ending_move}")
+    base_lines.append("标题和导语要像真人会转发时写下的开口，不要写成编辑说明、万能安慰句或空泛抒情。")
 
     if structure_mode == "inner_settlement":
         base_lines.append(
-            "如果当前正文属于心安归位、阶段回望或重新出发这条线，包装不要改写成关系等待、深夜自责、身体告警、失恋复盘或泛幸福定义。"
+            "如果当前正文属于心安归位、阶段回望或重新出发这条线，优先抓阶段误判、回神瞬间、继续生活和被眼前托住的分量。"
         )
+    elif structure_mode == "responsibility_shelter":
         base_lines.append(
-            "标题、导语和封面文案都要继续守住正文真正的主线：阶段误判、遗憾安放、被支撑托住、接纳当下或慢慢回到眼前生活。"
+            "如果当前正文属于责任托家、先把顺序理清再把家稳住这条线，优先抓来电、安排、有人被护住和家里慢慢踏实下来的回温感。"
         )
     elif structure_mode == "everyday_warmth_return":
         base_lines.append(
-            "如果当前正文属于大事祛魅、小事回归这条线，包装不要改写成身体告警、自我耗空、关系排序或泛成长鸡汤。"
-        )
-        base_lines.append(
-            "标题、导语和封面文案都要继续守住正文真正的主线：重要感失重、普通陪伴回归、日常重新显出分量。"
+            "如果当前正文属于大事祛魅、小事回归这条线，优先抓重要感失重、眼前日常回温和生活重新有分量。"
         )
     elif structure_mode == "response_priority":
-        base_lines.append(
-            "如果当前正文属于回应顺序和时间投向这条线，包装不要改写成争吵修复、单纯关系冷暖评判或泛内耗诊断。"
-        )
-        base_lines.append(
-            "标题、导语和封面文案都要继续守住正文真正的主线：顺序、时间分配、投入意愿和位置感。"
-        )
+        if _uses_response_priority_followup_variant(payload):
+            base_lines.append(
+                "如果当前正文属于轻互动里的被看见、被读懂这条线，优先抓一句追问、一次补问、一次认真停下来和被理解后的安稳感。"
+            )
+        else:
+            base_lines.append(
+                "如果当前正文属于回应顺序和时间投向这条线，优先抓顺序、时间分配、投入意愿和位置感回正。"
+            )
     elif structure_mode == "supportive_appreciation":
         base_lines.append(
-            "如果当前正文属于柔软被误读、心软被正名和值得被珍惜这条线，包装不要改写成耗空诊断、自我托底或争执后善后。"
-        )
-        base_lines.append(
-            "标题、导语和封面文案都要继续守住正文真正的主线：柔软的分量、被误读的代价、值得被认真珍惜。"
+            "如果当前正文属于柔软被误读和值得被珍惜这条线，优先抓柔软的分量、被误读的代价和被认真珍惜的方向。"
         )
     elif structure_mode == "self_reliance_inward_support":
         base_lines.append(
-            "如果当前正文属于向内求、自我支撑和自救自渡这条线，包装不要改写成关系表达、求助被拒、边界沟通或泛负能量诊断。"
-        )
-        base_lines.append(
-            "标题、导语和封面文案都要继续守住正文真正的主线：外援未必及时、怎样先把自己托住、怎样把日子接回来。"
+            "如果当前正文属于向内求、自我支撑和自救自渡这条线，优先抓参考文自己的现实触发点、正向能力或具体行动，以及人怎样把日子接回来。"
         )
     elif structure_mode == "relationship_aftercare":
         base_lines.append(
-            "如果当前正文属于争执后修复态度这条线，包装不要改写成单人内耗、泛自我成长或生活排序失衡。"
-        )
-        base_lines.append(
-            "标题、导语和封面文案都要继续守住正文真正的主线：谁回来善后、谁接住情绪、冷暴力怎样磨掉安全感。"
+            "如果当前正文属于争执后修复态度这条线，优先抓谁回来善后、谁接住情绪和关系有没有被继续往前带。"
         )
     elif structure_mode == "resilience_reconstruction":
         base_lines.append(
-            "如果当前正文属于命运重击后的重建这条线，包装不要改写成轻量自助、自我照顾提醒或空泛励志鸡汤。"
-        )
-        base_lines.append(
-            "标题、导语和封面文案都要继续守住正文真正的主线：重击、训练、重建和不被定义。"
+            "如果当前正文属于命运重击后的重建这条线，优先抓重击、训练、重建和不被定义。"
         )
 
     if stage == "assets":
+        base_lines.append("标题不要套“你以为……其实……”“最难受的不是……而是……”或“不是……只是……”这类翻转骨架。")
+        base_lines.append("标题不要用“很多人”“有些人”“总有人”这类泛主语起手；如果原文主题必须群体概括，只能放到正文中段，不能放在交付字段开头。")
+        base_lines.append("社媒导语要像真人转发前顺手写下的开场，不要写成编辑说明或空泛概述。")
+        base_lines.append("社媒导语不要写成“这篇想讲清楚”“这篇想说的是”“这篇文章写给”这种作者说明句。")
+        base_lines.append("社媒导语不要用“很多人会……”“人总会……”这类群体概括句起手；先给具体入口、动作或一句能落地的回神话。")
         base_lines.append("封面文案和社媒导语只允许提炼正文已经成立的题眼，不要额外发明更抓眼但偏题的新论点。")
     if stage == "publish_package":
+        base_lines.append("发布导语和导语候选要像真人转发前顺手写下的开场，不要写成编辑说明或复述正文。")
+        base_lines.append("发布标题不要套“你以为……其实……”“最难受的不是……而是……”或“不是……只是……”这类翻转骨架。")
+        base_lines.append("发布标题不要用“很多人”“有些人”“总有人”这类泛主语起手；如果原文主题必须群体概括，只能放到正文中段，不能放在交付字段开头。")
+        base_lines.append("发布导语不要用“很多人会……”“很多人总会……”这种群体概括句起手；先给具体入口、动作或一句能落地的回神话。")
         base_lines.append("发布标题、发布导语、摘要和编辑备注只允许压缩正文主线，不要为了顺口把主题偷换成别的情绪赛道。")
 
     return "".join(base_lines)
@@ -2920,7 +4142,7 @@ def _build_tracked_article_emotional_release_guard_instructions(payload: Mapping
             "前两段里至少有一段主职责必须落在关系之外的生活秩序、身体代价或已经拥有却被忽略的部分，不要把前半篇全部交给关系拉扯。"
         )
     if stage == "draft":
-        return (
+        base = (
             "如果参考文章重心是放下强求、珍惜已有或知足感，正文不要自动收窄成坏关系止损、分手复盘或单一关系博弈。"
             "即便出现关系例子，也只把它当成共鸣入口之一，不要让它取代“放下强求 / 停止拉扯 / 珍惜已有”的真正主线。"
             "不要把幸福写成输赢、诚意、沉没成本或关系谈判问题；要把重点落回人为什么总在失去后才看见已经拥有的部分。"
@@ -2929,40 +4151,121 @@ def _build_tracked_article_emotional_release_guard_instructions(payload: Mapping
             "开头第一屏不要只剩消息框、对话框、回没回这类关系界面；如果保留关系接口，同段必须并列一个已经被挪走的现实抓手，比如睡眠、吃饭、工作判断、身体信号或家里日常。"
             "正文至少要有两段不以消息、回复、对方、关系这些词为主抓手，而是直接写生活秩序、身体代价和已经到手却被拿去垫付的安稳。"
         )
+        corpus = " ".join(
+            part
+            for part in (
+                _as_clean_text(payload.get("topic_title")),
+                _as_clean_text(payload.get("topic_angle")),
+                _as_clean_text(payload.get("article_title")),
+                _as_clean_text(payload.get("summary")),
+                _as_clean_text(payload.get("structure_notes")),
+                _as_clean_text(payload.get("body_markdown")),
+                _as_clean_text(payload.get("reference_article_title")),
+                _as_clean_text(payload.get("reference_article_summary")),
+                _as_clean_text(payload.get("reference_article_structure_notes")),
+                _as_clean_text(payload.get("reference_article_body_markdown")),
+            )
+            if part
+        )
+        if any(
+            token in corpus
+            for token in (
+                "感谢相遇",
+                "不谈亏欠",
+                "允许一切结束",
+                "接纳离开",
+                "接纳结束",
+                "聚散终有时",
+                "关系结束",
+            )
+        ):
+            base += (
+                "如果当前题材属于关系结束后的接纳与释怀，少用“白费”“亏了”“算账”“审判自己值不值”这类过重的核账词。"
+                "即便要写舍不得，也优先把重心落在相遇留下来的温暖、边界、眼界和成长怎样继续留在一个人身上。"
+                "让语气更像把一段相遇轻轻安放回心里，而不是拿着结局反复给自己下判词。"
+            )
+        return base
     return ""
 
 
 def _build_tracked_article_everyday_warmth_guard_instructions(payload: Mapping[str, object], *, stage: str) -> str:
     if not _has_everyday_warmth_return_focus(payload):
         return ""
+    simple_happiness_focus = _has_everyday_warmth_simple_happiness_focus(payload)
+    responsibility_shelter_focus = _has_everyday_warmth_responsibility_shelter_focus(payload)
 
     if stage == "topic":
+        if responsibility_shelter_focus:
+            return (
+                "如果参考文章重心是成年人把一家人的安稳放在心上，选题不要滑成放下执念、感谢相遇、关系回应排序或泛中年励志。"
+                "标题和切入角度优先围绕：为什么很多人会先把家里理顺、责任为什么会让人多想一步、这些辛苦后来又为什么会变成家里安稳和继续往前的底气。"
+                "不要把题眼压成单一苦情控诉、身体提醒复盘或“中年人有多难”的大概括，也不要只剩开销、孩子、父母这些标签堆砌。"
+                "标题、切入角度和后续正文尽量贴着第二人称“你”写，少把读者推远成“她/他/他们”的旁观叙述。"
+            )
+        if simple_happiness_focus:
+            return (
+                "如果参考文章重心是幸福观重估、家人平安、知己仍在和简单快乐，"
+                "不要把选题改写成哪顿饭又没吃成、哪次回家又往后放这种单点机制稿。"
+                "也不要缩成“怎么安排时间”“怎么平衡工作和生活”这类工具型题目。"
+                "标题和切入角度优先围绕：人为什么总把好日子押在更大的拥有上、为什么到了后来才明白家人平安和知己仍在更贵、为什么简单快乐反而最容易被忽略。"
+                "可以写财富、体面、圈子、房子和热闹怎样失重，但不要把题眼再降成某一顿饭、某条消息或某个待办被改期。"
+            )
         return (
             "如果参考文章重心是“大事祛魅”、日常陪伴回归和普通生活重新变重要，"
-            "不要把选题收窄成身体告警、自我照料积压或单一复查拖延主线。"
+            "不要把选题收窄成身体提醒、自我照料积压或单一复查拖延主线。"
             "也不要把题眼改写成“有人等你回应”“先把关系接住”或谁被排在回应顺序后面这类关系回应排序。"
             "不要把它再抽象成“女性要重建生活托底感”“意义供给退潮后怎么办”这类泛成长标题。"
             "不要写成“女人中年以后更需要重估哪些事”这类年龄阶段提问式抽象标题。"
             "文中的手术、停下来和休养只是价值转向的触发点，不是整篇唯一主命题。"
             "标题和切入角度优先围绕成就叙事为什么会祛魅、普通陪伴为什么反而最重要来重组；"
             "不要把题眼收缩成某个可直接映回原文的单一家庭场景或日常动作名词，"
-            "优先把它上提成一类被长期挪后的普通安排、低声量联系或在场动作。"
-            "尽量把被长期挪后的普通安排、低声量联系和在场动作当成情绪证明，而不是把重点压回体检、复查和身体追债。"
+            "优先把它上提成一类真正托住人的日常分量，比如吃饭、回家、有人惦记和有人说话。"
+            "尽量把这些被放轻的日常分量当成情绪证明，而不是把重点压回体检、复查和身体追债。"
         )
     if stage == "outline":
+        if responsibility_shelter_focus:
+            return (
+                "如果参考文章重心是成年人把一家人的安稳放在心上，大纲不要缩成泛中年感慨、苦难励志或单一身体追债稿。"
+                "前半篇先守住先把家里理顺的现实重量，比如来电、日历安排、请假前协调、家里要稳住的那一下；中段再写责任为什么会让人多想一步，以及这些辛苦怎样慢慢变成父母、孩子、伴侣和家里的安稳。"
+                "结尾回到家还亮着、有人被护住或人终于松下一口气的回温动作，不要收成空泛正能量。"
+                "整体尽量贴着第二人称“你”来推进，不要把读者写成隔着一层看的她/他/他们。"
+            )
+        if simple_happiness_focus:
+            return (
+                "如果参考文章重心是幸福观重估、家人平安和知己仍在，大纲不要自动缩成“哪件小事又被往后放了”的机制稿。"
+                "前半篇先守住外在拥有为什么会慢慢失重，中段再把知己、家人和平安日常怎样托住一个人讲清。"
+                "不要把主线压成消息改期、饭局取消或联系变稀的后效分析，那些最多只能做例子。"
+            )
         return (
             "如果参考文章重心是“大事祛魅”和日常陪伴回归，大纲不要自动缩成身体提醒追债稿。"
             "手术、停下来和休养只能承担转折证据，主线必须回到：人为什么总把重要感押在更大的目标上，又为什么总要慢下来后才看见身边这些小事。"
-            "中段至少留一段写普通陪伴和细小日常怎样托住生活，不要整篇都围着身体提醒转。"
+            "中段至少留一段写吃饭、回家、有人惦记这些小日常怎样托住生活，不要整篇都围着身体提醒转。"
         )
     if stage == "draft":
+        if responsibility_shelter_focus:
+            return (
+                "如果参考文章重心是成年人把一家人的安稳放在心上，正文不要滑成放下执念稿、关系回应排序稿、苦难歌颂稿或泛中年励志。"
+                "真正要写的是：责任为什么会让人先把家里理顺、多想一步，以及那些认真走过的夜，后来为什么会在父母、孩子、伴侣和家里的安稳里慢慢显出意义。"
+                "开头优先落先把家里稳住的现实重量：来电、日历安排、请假前协调或一次先让家人安心的回话，不要先空讲成年人都不容易。"
+                "中段要把“我为什么愿意认真过好这个家”写出来，让父母变老、孩子长大、伴侣一起过日子这些现实分量自己长出来，不要只数苦，也不要只喊值。"
+                "结尾回到一盏灯、一碗热汤、家里有人被护住或一句终于能松下来的回温动作，不要收成苦难勋章、万能鸡汤或自我感动。"
+                "正文尽量用第二人称“你”贴住读者，除非必须保留源文语境，否则少写成第三人称旁观口吻。"
+            )
+        if simple_happiness_focus:
+            return (
+                "如果参考文章重心是幸福观重估、家人平安、知己仍在和简单快乐，正文不要滑成“被推迟的小安排”“联系慢慢变稀”或“消息没回”的机制分析。"
+                "真正要写的是：为什么人总把幸福押在更多财富、更大圈子和更体面的拥有上，后来又为什么会被家人平安、知己仍在和日子踏实重新接住。"
+                "开头可以用外在标准失重的那一下切入，也可以用一句朴素愿望切入，但不要再落回聊天框、待办清单或某个被改期的约。"
+                "中段至少留一段专门写知己、家人或有家可回这类东西为什么比排场更能托住人，不要把它们抽成“轻联系”“小安排”这种发虚概念。"
+                "结尾回到简单快乐、日子踏实、家人平安或知己仍在这类更贴近原主题的落点，不要收成冷冰冰的机制结论、关系余波或任务回填。"
+            )
         return (
             "如果参考文章重心是“大事祛魅”和日常陪伴回归，正文不要把手术、休养或身体提醒写成唯一主轴。"
-            "它们只是价值转向的触发点，真正要写的是：那些被高估的大事为什么会慢慢祛魅，普通陪伴和微小日常为什么反而最能托住一个人。"
-            "开头可以直接点破这种误认，但需要留 1 到 2 个被长期挪后的普通安排、低声量联系或在场动作作情绪证明；不要复述参考文现成家庭动作，也不要把它们铺成大段场景。"
-            "不要把普通陪伴重新写成三四个轻小动作的并列清单或排比，优先挑一个新的现实接口、关系余波或延迟代价，把分量落在位置变化和后续影响上。"
-            "不要用直给的顿悟提示句直接翻牌，让价值转向贴着前后反应、联系变稀和开口变生疏这些后效自己长出来。"
-            "结尾回到一个尚未处理完的普通安排、关系余波或日常决定上，不要又拐回身体告警、自我责备或万能祝福。"
+            "它们只是价值转向的触发点，真正要写的是：那些被高估的大事为什么会慢慢祛魅，饭桌、回家、有人惦记这些小日常为什么反而最能托住一个人。"
+            "开头可以直接点破这种误认，但需要留 1 到 2 个被放轻的饭桌、回家、有人惦记或有人说话作情绪证明；不要复述参考文现成家庭动作，也不要把它们铺成大段场景。"
+            "不要把这些日常温度重新写成三四个轻小动作的并列清单或排比，优先挑一个新的现实接口，把分量落在位置变化和后续影响上。"
+            "不要用直给的顿悟提示句直接翻牌，让价值转向贴着前后反应、心里那一下松动和眼前日常重新被看见自己长出来。"
+            "结尾回到一个还在发热的日常动作或日常决定上，不要又拐回身体提醒、自我责备或万能祝福。"
         )
     return ""
 
@@ -2998,33 +4301,104 @@ def _build_tracked_article_response_priority_guard_instructions(payload: Mapping
     if not _has_response_priority_focus(payload):
         return ""
 
+    followup_variant = _uses_response_priority_followup_variant(payload)
+
+    if followup_variant and stage == "topic":
+        return (
+            "如果参考文章重心是评论、追问、被读懂和被认真放在心上，"
+            "先根据参考文里“轻互动很多，但真正让人踏实的是有人愿意停下来理解你”这条主线重组新选题。"
+            "标题和切入角度优先围绕：为什么有人会路过式回应、为什么有人愿意多问一句、被读懂为什么比热闹互动更让人安稳。"
+            "主线留在被看见、被理解和双向珍惜上，不转去顺序排名、关系排位判断或谁回消息更快。"
+            "可以把评论、追问、读懂言外之意、一句“我没事”、一张随手发的照片这些接口当成抓手，但不要把题眼改成等回复或关系排序。"
+        )
+    if followup_variant and stage == "outline":
+        return (
+            "如果参考文章重心是评论、追问、被读懂和被认真放在心上，大纲要继续顺着这条主线推进。"
+            "前半篇先守住一个轻互动差别接口，比如一句“我没事”有没有被听懂、点赞路过和认真评论的差别，或有没有人在忙完以后回来多问一句。"
+            "中段至少要把“表面热闹”和“真正理解”之间的分量差别讲清。"
+            "后半篇把重心带回被理解后的安稳、被认真放在心上的踏实，以及为什么要珍惜那些愿意停下来理解你的人。"
+            "结尾回到被看见、被接住或双向珍惜，不要收成谁更靠前的判断题。"
+        )
+    if followup_variant and stage == "draft":
+        return (
+            "如果参考文章重心是评论、追问、被读懂和被认真放在心上，正文要继续守住这条主题主线。"
+            "重点要落在：为什么点赞、表情、路过式评论都不算冷清，人还是会悬着；为什么一句追问、一次补问、一次认真听懂，会比表面热络更让人安稳。"
+            "第一屏优先落一个轻描淡写的话有没有被听懂的现实差别，先让“被路过”和“被读懂”显形，不要先把镜头压成等回复、回没回或关系排位判断。"
+            "可以保留 1 到 2 个现实接口，比如评论、追问、一句“我没事”、一张随手发的照片、忙完以后补回来的一句确认，但这些接口要服务于“那句没说完的话有没有被接住”，不要滑成关系排序戏。"
+            "中段至少留一段把“表面互动”和“真正理解”拆开，但少下总括句，多让读者从补问、停顿、记得和回头确认里自己感觉到差别。"
+            "少写“谁更在乎你”“谁把你排在前面”这种定胜负句，多让判断从追问、补问、记得和读懂这些动作里自己长出来。"
+            "后半篇把情绪带回被理解后的安稳和双向珍惜：主线要稳稳落在被看见、被理解和双向珍惜上，让读者读完更暖一点，也更松一点。"
+            "少用“不是点赞不算在意，而是评论才算真关心”这种整齐对照句；能直接写谁停下来、谁多问了一句、谁听懂了那句轻描淡写的话，就直接写。"
+            "少用“一个 / 一下 / 一点 / 一些”去敲节奏，尤其不要连续几句都拿这种一字量词起手。"
+            "少用“很多人”“很多女生”“很多时候”“其实”这种成熟讲解词顶段首，前四段至少 2 段先写动作或对话，再让判断出现。"
+            "结尾回到被理解以后那种不用反复猜的安稳感。"
+            "前六段至少留 2 处能单独成段的短句，其中 1 处最好像从现实接口里突然冒出来的真话，不要空降大道理。"
+        )
+
     if stage == "topic":
         return (
-            "如果参考文章重心是“没时间”背后的关系优先级、回应顺序和时间投向，"
-            "先根据参考文里“顺序、时间分配、在乎程度”这条主线重组新选题。"
-            "标题和切入角度优先围绕：为什么“没时间”很多时候说的是顺序、时间分配怎样显出在乎程度、一个人该凭什么判断自己有没有被放在前面。"
-            "主线留在回应顺序和位置感判断上，不转去争执修复或关系冷暖总论。"
-            "可以把红灯30秒、回信息、回电话、24小时在线、时间在哪儿心就在哪儿这些接口当成抓手，但不要照抄原文句子。"
+            "如果参考文章重心是回应顺序、表层互动背后的真实在乎，"
+            "先根据参考文里“顺序、追问、回应动作、在乎程度”这条主线重组新选题。"
+            "标题和切入角度优先围绕：为什么表层回应常被误认成在乎、追问和回头动作怎样显出真实分量、一个人该凭什么判断自己有没有被真正放在心上。"
+            "主线留在回应差别和位置感判断上，不转去争执修复或关系冷暖总论。"
+            "可以把红灯30秒、回信息、回电话、点赞、评论、追问、时间在哪儿心就在哪儿这些接口当成抓手，但不要照抄原文句子。"
         )
     if stage == "outline":
         return (
-            "如果参考文章重心是回应顺序和时间投向，大纲要继续顺着这条主线推进。"
-            "前半篇先守住“忙到没空回应”这句常见托词，再顺着时间为什么总会投向更在乎的人往下推。"
-            "中段至少要把回应顺序、投入意愿和关系优先级之间的关系讲清。"
-            "后半篇要把文章从等待感拉回位置感：不是只问该不该继续等，而是写人怎样慢慢认清顺序、把时间留给真正愿意回应的人。"
+            "如果参考文章重心是回应顺序、表层互动和真实在乎，大纲要继续顺着这条主线推进。"
+            "前半篇先守住一个回应差别接口，比如忙到没空回应、点赞路过、评论只停在表层或有没有继续追问。"
+            "中段至少要把回应顺序、追问动作、投入意愿和关系位置之间的关系讲清。"
+            "后半篇把重心从等回复慢慢收回到位置感判断上，写人怎样认清顺序和分量，再把心力留给真正愿意回应的人。"
             "结尾回到判断标准或自我位置感。"
         )
     if stage == "draft":
         return (
-            "如果参考文章重心是回应顺序和时间投向，正文要继续守住这条主题主线。"
-            "重点要落在：为什么很多“没时间”其实说的是顺序、一个人把时间给了谁、这种分配怎样比语言更早暴露在乎程度。"
-            "第一屏优先落一个回应接口、顺序落差或被安排先后的现实差别，先让顺序显形，不要先把重心压成受伤诊断。"
-            "可以保留 1 到 2 个现实接口，比如回消息、回电话、点赞、等红灯时的碎片时间，但这些接口要服务于“优先级如何显形”，不要滑成关系修复戏。"
-            "中段至少留一段把“忙”与“愿不愿意回应”拆开，让读者看见时间分配本身就是答案的一部分。"
-            "少写“你不重要”“他不爱你”这种一锤定音式判词，多让判断从顺序、投入和回应动作里自己长出来。"
-            "后半篇要把情绪从等待感拉回位置感：把“他到底爱不爱”换成“我以后把时间留给谁”，让读者读完更清醒，也更轻一点。"
-            "结尾回到时间该留给谁、自己该怎么认清顺序。"
+            "如果参考文章重心是回应顺序、表层互动和真实在乎，正文要继续守住这条主题主线。"
+            "重点要落在：为什么表层回应常被误认成在乎、一个人把时间和心力给了谁、追问和回头动作怎样比语言更早暴露分量。"
+            "第一屏优先落一个回应接口、顺序落差或被轻轻带过的现实差别，先让回应显形，不要先把重心压成受伤诊断。"
+            "可以保留 1 到 2 个现实接口，比如回消息、回电话、点赞、评论、追问、等红灯时的碎片时间，但这些接口要服务于“在乎程度如何显形”，不要滑成关系修复戏。"
+            "中段至少留一段把“表层回应”和“真正愿意回应”拆开，让读者看见顺序、投入和追问本身就是答案的一部分。"
+            "少写“你不重要”“他不爱你”这种一锤定音式判词，多让判断从顺序、投入、追问和回应动作里自己长出来。"
+            "后半篇把情绪从等待感慢慢收回位置感：把重心落在“我以后把心力留给谁”，让读者读完更清醒，也更轻一点。"
+            "少写“不是他忙，而是你不重要”“不是没时间，而是没把你放前面”这种整齐对照句；能直接写先回了谁、有没有追问、哪条消息一直挂着、哪句评论只停在表层，就直接写。"
+            "少用“一个 / 一下 / 一点 / 一些”去敲节奏，尤其不要连续几句都拿这种一字量词起手。"
+            "结尾回到心力该留给谁、自己该怎么认清顺序。"
             "前六段至少留 2 处能单独成段的短句，其中 1 处最好像从现实接口里突然冒出来的真话，不要空降大道理。"
+        )
+    return ""
+
+
+def _build_tracked_article_self_worth_guard_instructions(payload: Mapping[str, object], *, stage: str) -> str:
+    if not _has_self_worth_rebuild_focus(payload):
+        return ""
+
+    if stage == "topic":
+        return (
+            "如果参考文章重心是自爱、自尊、自我价值和边界重新立住，"
+            "标题和切入角度优先围绕：一个人怎样在关系和生活里重新尊重自己、为什么总在将就里把自己放轻、分寸重新回来后生活为什么会慢慢变稳。"
+            "不要把主线改写成‘没时间就是不够在乎’‘被敷衍’‘回应顺序’这类优先级判断稿，也不要写成教人冷漠抬价的爽文套路。"
+            "主线要留在自我价值感、边界、标准和自我尊重上。"
+        )
+    if stage == "outline":
+        return (
+            "如果参考文章重心是自我价值感和边界重新立住，大纲要继续顺着这条主线推进。"
+            "前半篇先守住一个总在将就、讨好、顺手答应或先把自己往后放的小接口，"
+            "不要把大纲自动滑成消息框、解释、善后、谁先回头沟通这类关系表达稿。"
+            "中段再拆为什么一个人被怎样对待，常常和她是否尊重自己、是否守住边界有关。"
+            "后半篇要把文章从受委屈感拉回自我定义：不要只问别人为什么轻慢你，要写一个人怎样把分寸放回自己手里、把精力收回自己身上。"
+            "结尾回到体面、边界和自我尊重，不要滑成关系优先级判断稿。"
+        )
+    if stage == "draft":
+        return (
+            "如果参考文章重心是自爱、自尊和自我价值重建，正文要继续守住这条主题主线。"
+            "重点要落在：一个人怎样在将就、讨好和自我压低里慢慢弄丢分寸，又怎样重新尊重自己的感受，让边界和标准回到自己手里。"
+            "第一屏优先落一个总把自己顺手放后面的现实接口，比如一句‘都行’、一次明明不舒服却还是答应、一次明明该拒绝却先怕别人失望。"
+            "第一屏不要写消息框、聊天框、打了又删、解释、善后、怕对方嫌烦这类关系沟通外壳。"
+            "不要把第一屏改成‘没时间’‘回消息慢’‘优先级’这类回应顺序稿，也不要滑成谁爱不爱你的情感审判。"
+            "不要把主线收窄成‘这句话要不要说’‘谁先回头沟通’‘谁先递台阶’这类关系表达稿。"
+            "中段至少留一段把‘别人怎么对你，常常和你怎样对自己有关’讲透，但不要写成高位口号，要贴着原文里的将就、降级、贬值、边界让渡这些现实动作。"
+            "后半篇要把情绪从受委屈感拉回自我抬升：把分寸放回自己手里，把精力留给自己和真正值得的人。"
+            "结尾回到体面、边界、自我尊重和配得上，不要收成冷漠断联，也不要收成‘优先级’判断。"
         )
     return ""
 
@@ -3067,6 +4441,11 @@ def _build_tracked_article_inner_settlement_guard_instructions(payload: Mapping[
                 "重点要落在：人为什么一到阶段节点就容易先否定自己，为什么总会把没完成、没拥有和没赶上一起误算成失败；又怎样被眼前仍在的人、普通支撑和阶段积累慢慢托回来。"
                 "开头第一屏先落一个阶段节点上的现实接口：年初目标、这半年过得怎样、某个人还在不在、自己是不是又慢了一点。"
                 "第一屏不要写成深夜翻消息、等一个回应、聊不聊得来这类关系界面，也不要滑成抽象心灵总论。"
+                "前四段不要急着排成现象总结、原因拆解、结论落点都齐了的成熟讲解稿，先让那一下自我盘点、自责误判或心里发沉的现实感自己顶上来。"
+                "前六段里至少留一处像人正在心里改口、停一下，或忽然意识到自己又在先怪自己的人话，不要每句都像整理好的复盘结论。"
+                "不要连续两段都用“很多人”“人一到”“有些人”这类泛主体起手；群体概括用过一次后，下一段就换成你眼前的动作、当时的后果或后面留下的余波。"
+                "正文标题也尽量别用“很多人”“有些人”“总有人”起手；比起总结别人，先把六月那一页、那张没勾完的清单、那句冒出来的自责写上来。"
+                "中段不要连续三段都在解释为什么会这样、真正卡在哪里、所以该怎么想；讲完一个判断后，至少换一次普通动作、关系余波或生活后果。"
                 "中段至少留一段把“事与愿违不等于白走一程”这件事讲透，再留一段把珍惜眼前的人和每个阶段的自己写出分量。"
                 "最后两段要明显往更暖、更有力的方向走，写出继续生活、继续珍惜和继续往前的感觉，不要收成空泛祝福。"
             )
@@ -3097,9 +4476,15 @@ def _build_tracked_article_inner_settlement_guard_instructions(payload: Mapping[
             "开头优先从参考文真正的牵挂接口、回稳动作、日常归位、旧念头或仍在继续的生活入口里找等价新接口，不要固定滑向灯光、饭点、水杯、房间这组物件，也不要固定写成没说完的话模板。"
             "第一屏不要把消息、回复、聊天框、对方回没回、等一个表态这类关系界面写成主镜头；即便正文里出现外部回应，也只能当成次级压力，不要盖过日常归位和心慢慢落回当下这条主线。"
             "第一屏最好压成 3 到 4 个短段；如果前一段已经偏长，下一段就换回一句一段的动作残留或扎心判断。"
+            "前四段不要排成“先总结现象、再解释原因、再给正确答案”的匀整三步走；先让那一下误判自己、心里发紧或忽然沉下去的感觉出现。"
             "第 2 到第 4 段之间，至少要有一句直接把读者从自责、僵着或反复较劲里接住，但不要把这句写成固定安抚模板。"
             "前六段至少留 2 处能单独成段的短句，其中 1 处最好像从前文动作里突然冒出来的真话，长度尽量压在 8 到 18 个字。"
+            "前六段里至少有 1 处句子要像真人写作时的停顿、改口或心里一沉，不要每句都抛光到同一种顺滑力度。"
+            "不要连续两段都用“很多人”“人总是”“有些人”这类泛主体起手；群体概括用过一次后，下一段就换成动作、余波或当下接口。"
+            "正文标题也尽量别用“很多人”“有些人”“总有人”起手；比起总结别人，先把那颗没放平的心、那顿没吃安稳的饭，或那一下忽然沉下去的当下写上来。"
+            "中段不要连续三段都在解释为什么会这样、真正卡在哪里、所以该怎么想；讲完一个判断后，至少换一次普通动作、关系余波或生活后果。"
             "如果要留可摘录短句，优先写成贴着当前处境长出来的人话，不要空降万能金句，也不要反复复用同一句骨架。"
+            "少用“很多时候”“其实”“真正”“所以”连着把句子抬成成熟讲解稿，尤其前六段不要连续三段都靠判断句往前推。"
             "正文至少留一段把心安落回一餐一饮、一呼一吸、把心放平这类日常归位，不要只写抽象豁达。"
             "中后段多写松下来、落地、重新住回日子、终于有地方放这类回暖感，少写待命、警报、被借走、拖累这类诊断口吻。"
             "除非参考文本身就把身体代价当成主冲突，否则不要顺手排成胸口发紧、胃口变浅、睡不沉这类症状化句群。"
@@ -3115,37 +4500,35 @@ def _build_tracked_article_self_reliance_guard_instructions(payload: Mapping[str
 
     if stage == "topic":
         return (
-            "如果参考文章重心是向内求、自我支撑、自救自渡和成年人在低谷里怎样把自己托起来，"
-            "不要把选题收窄成关系里说不出口、边界表达、误解修复或求助被拒后的亲密关系主题。"
-            "标题和切入角度优先围绕：外面的帮扶为什么未必总能及时赶上、一个人怎样慢慢学会先把自己安顿住、低谷里真正能托住自己的力量从哪里来。"
-            "不要把题眼改写成“需要说得很轻”“不好意思开口”“总怕被误解”这类表达技巧或关系沟通问题。"
-            "标题尽量带一点把自己安顿住、把日子接回来的温度，不要写成冷冰冰的管理判断句。"
-            "重点要留在自我支撑、自我修复和自救自渡，不要让关系表达取代原文真正的主题。"
+            "如果参考文章重心是向内求、自我支撑、自救自渡和成年人在低谷里怎样找回判断、行动和恢复力，"
+            "选题先服从参考文章分析出的主题、核心冲突和正向出口，优先写一个人已经在使用的判断力、行动力或恢复力。"
+            "如果参考文确实写到外部支持缺席，也只把它当作背景压力；题眼仍要回到人怎样把力量、秩序和希望重新收回自己手里。"
+            "标题和切入角度要带现实抓手，也要让读者看到主动性正在发生。"
+            "标题要正向、有现实抓手，也要随参考文章变化，不固定套用安顿自己、撑过今天或把日子接回来。"
+            "重点留在参考文真正讨论的自我支撑方式，不让关系表达或统一自救模板取代原文主题。"
         )
     if stage == "outline":
         return (
-            "如果参考文章重心是向内求、自我支撑和自救自渡，大纲不要自动滑成关系误会、表达退缩或求助技巧稿。"
-            "前半篇先守住外面的帮扶未必及时、别人也各自承压的现实感，中段再拆一个人为什么最终要先把自己安顿住。"
-            "开头钩子不要默认写成界面细节或等一句表态；即便保留求助接口，也要把重心放在现实承压和外援来不及时，不要放在镜头花样上。"
-            "不要复用“连借一只手都要排队”这类把注意力钉回求援姿态的旧钩子。"
-            "前四段附近就要给出第一个回稳动作，比如先吃饭、先做完一件小事、先把明天拆小，不要把前半篇全耗在空落和情绪回收上。"
-            "结尾回到自我支撑、自我修复和向内稳住，不要写成关系误解、沟通边界或重新开口的善后路线。"
+            "如果参考文章重心是向内求、自我支撑和自救自渡，大纲先服从分析合同中的起笔方式和推进逻辑。"
+            "第一部分就让参考文对应的正向能力、选择或行动出现，把外部压力压成必要背景。"
+            "开头钩子要从参考文真实入口长出来，可以是一次自我整理、一个继续行动的决定、一个把生活重新接稳的现实接口。"
+            "中段重点写人怎样从被动承受走向主动处理，让冷静、沉淀、判断或行动一步步显形。"
+            "正向变化最迟在第二个结构节点发生，可以是决定、行动、认知转向或关系中的主动选择，不限定为吃饭、睡觉、列清单。"
+            "结尾回到分析合同指定的情绪出口，不写成关系误解、沟通边界或统一的安顿自己路线。"
         )
     if stage == "draft":
         return (
-            "如果参考文章重心是向内求、自我支撑和自救自渡，正文不要自动改写成关系误会、表达退缩或求助技巧稿。"
-            "重点要落在：外面的帮扶为什么未必总能及时赶上、成年人怎样从慌乱和无助里慢慢把自己安顿住、一个人怎样学会自我修复和自我托住。"
-            "即便出现朋友、同事或家人，也只把他们当成现实处境的一部分，不要让单次求助动作、表达方式或关系误会变成全文主线。"
-            "第一屏优先写现实承压和外援来不及，不要先写关系误会、表达收缩或一句悬着的话。"
-            "第一屏不要把界面细节、输入状态或等一句表态这类旧镜头当主画面。"
-            "开头优先落在‘事情已经堆到眼前、人只能先把自己站稳’这类外部现实，不要把主题偷换成谁回没回、谁听没听见。"
-            "不要把一句悬着没落地的话当成开头主镜头或结尾收束。"
-            "不要复用“谁都没法分神来接你一下”“消息还在往前推”“我快撑不住了”“说出口也未必有人接得住”“身边的人也都在”“大家都在忙”这类旧骨架。"
-            "不要把电话打出去一圈、回得慢一点、语气短一点、等回音、随叫随到这类回应戏写成主推进。"
-            "不要把“等消息、等回音、等什么时候轮到我”这类等待戏重新带回来。"
+            "如果参考文章重心是向内求、自我支撑和自救自渡，正文必须先守住分析合同里的主题、起笔方式、推进驱动力和情绪出口。"
+            "正文先服从参考文章分析出的主题、起笔方式、推进驱动力和情绪出口，不为自我支撑模式补写固定前史。"
+            "即便出现朋友、同事或家人，也只按参考文需要安排，让人物和关系服务自我支撑这条主线。"
+            "第一屏必须服从参考文章分析里的起笔方式和触发点，并在前三段内让正向能力、选择或行动出现。"
+            "第一屏优先写当前文章独有的现实接口：一个决定、一个动作、一次把心绪收回来的瞬间，或一个开始重新处理生活的细节。"
+            "前三段不要只陈列低谷，要让读者看见人已经开始把注意力、秩序或行动拿回来。"
+            "推进时多写判断、动作、选择和现实结果怎样轮换出现，少把注意力停在等待别人回应上。"
+            "每篇都要从参考文生成新的开头路径，不沿用旧的等待、求援或沟通外壳。"
             "前六段至少留 2 处能单独成段的短句，其中 1 处最好像从当前处境里突然冒出来的人话，长度尽量压在 8 到 18 个字。"
-            "不要连续两段都在解释“为什么最后还是得靠自己”，先让读者认出那一下空落，再慢慢写向内稳住的动作。"
-            "最迟从第 4 到第 6 段之间开始转向可运转状态、顺序恢复和自我托底，不要把前半篇都耗在失落反刍上。"
+            "不要连续两段都在解释困境；动作、判断、选择和现实结果要轮换出现。"
+            "自我支撑的动作、判断或能力最迟在第 3 段出现，不让负面处境占满第一屏。"
             "不要写成“第一步往往很小”“方法也不复杂”“你能做的，是”这类教程口吻。"
             "如果要写托底动作，只挑 1 到 2 个贴着处境的动作，不要排成吃饭、喝水、睡觉、列清单的连续自助步骤。"
             "少用“先……先……先……”往下推整段，尤其不要连续三句都用“先”起手。"
@@ -3154,10 +4537,10 @@ def _build_tracked_article_self_reliance_guard_instructions(payload: Mapping[str
             "少用“一点、一下、一件、一条”这类泛量词去托节奏，能直接写动作、物件、时间点时就直接写。"
             "一句一段也要保持句子完整，不要留下半截句、悬空转折或只起了个句头就断掉。"
             "除非参考文本身把身体代价当成主冲突，否则不要顺手排成胸口发紧、胃口变浅、睡不沉这类症状串。"
-            "如果要留可摘录短句，优先写成贴着现实压力长出来的人话，不要空降万能金句。"
-            "结尾回到向内稳住、自救自渡和慢慢把日子撑过去，不要收成关系修复、重新开口或边界表达。"
-            "最后两段至少有一段要比前文更暖一点，写出人还能继续过、还能把明天缩小一点去面对的感觉。"
-            "结尾要给人被稳住的感觉，不只给操作建议，优先收在一个普通动作、一个新的时间点或一句把自己放回今天的人话上。"
+            "如果要留可摘录短句，优先写成贴着参考文具体处境长出来的人话，不要空降万能金句。"
+            "结尾回到分析合同里的正向出口，不收成关系修复、重新开口或统一的撑过今天。"
+            "最后两段要比前文更暖、更有力，让变化落实在选择、行动或正在形成的新生活里。"
+            "结尾要给读者真实的力量，不只给操作建议，也不要每次都收在一个普通动作或明天再继续。"
         )
     return ""
 
@@ -3257,9 +4640,9 @@ def _build_original_expression_instructions(*, stage: str, compact: bool = False
     if stage == "draft":
         if compact:
             lines = [
-                "正文先落一个具体动作、界面、物件或身体反应，再慢慢带出判断，不要开头先解释题眼。",
-                "把抽象情绪压回动作停顿、空间距离、环境声和身体反应，不要写成谁都能套用的万能感悟。",
-                "至少写出两条可见推进：什么先触发，人当场怎么反应，后面留下什么代价、变化或延迟影响。",
+                "正文先落一个具体动作、关系界面、物件、场景或当下卡点，再慢慢带出判断，不要开头先解释题眼。",
+                "把抽象情绪压回动作停顿、空间距离、环境声、关系张力和现实余波，不要写成谁都能套用的万能感悟。",
+                "至少写出两条可见推进：什么先触发，人当场怎么反应，后面留下什么变化、牵挂或延迟影响。",
                 "不要沿用“不是A，而是B”的对称判断骨架，也不要把正文排成“观点句 + 解释句”的标准答案模板。",
                 "不要按大纲顺手扩成并列分论点，允许段落先停在观察、动作残留、对话碎片或关系变化上。",
                 "独立短段只保留真实动作残留、没接上的一句话或身体反应，不要拿来单独敲道理。",
@@ -3276,17 +4659,17 @@ def _build_original_expression_instructions(*, stage: str, compact: bool = False
             return "".join(lines)
         lines = [
             "原创不是把现成观点换一批近义词，而是重新建立观察路径、场景重心和句子节奏。",
-            "优先从一个具体、可感知的瞬间起笔，让动作、环境、声音或身体感受先出现，再带出判断。",
+            "优先从一个具体、可感知的瞬间起笔，让动作、环境、声音、关系张力或当下卡点先出现，再带出判断。",
             "不要先复述题眼或给观点下定义，先把读者带进一个可见、可听、可感的当下。",
-            "把抽象情绪落到动作停顿、物件光线、空间距离或身体反应上，让情绪有抓手。",
-            "正文至少完成两条看得见的因果链：什么先触发，人当场怎么反应，后面留下什么代价、变化或延迟影响。",
+            "把抽象情绪落到动作停顿、物件光线、空间距离、关系变化或现实余波上，让情绪有抓手。",
+            "正文至少完成两条看得见的因果链：什么先触发，人当场怎么反应，后面留下什么变化、牵挂或延迟影响。",
             "每 2 到 3 段至少复用一个稳定抓手：同一个物件、界面、空间位置、时间节点或身体信号，让文本像沿着同一现实表面推进。",
             "少用“生活、感情、成长、幸福、重要的事”这类对所有人都成立的大词，优先写这篇稿子内部能反复指认的小动作、小术语和局部流程。",
             "允许出现少量偏说明性的句子，把事情为什么会变成这样讲清楚，但说明必须贴着前文细节走，不要拔高成大道理。",
             "如果一个段落只剩观点，就把它改写成过程：谁先触发、当时怎么反应、后来留下什么后果。",
             "正文不要写成标准答案式观点罗列，要让场景、情绪和判断自然推进。",
             "避免每段都写成“观点句 + 解释句”的模板结构，至少让一处段落先发生事情，再慢慢显出判断。",
-            "少用“不是A，是B”这类过于整齐的判断句，尤其不要连续拿它做标题、开头或结尾。",
+            "默认拆掉“不是A，是B”这类过于整齐的判断句，改成具体处境、动作、停顿或后果；不要拿它做标题、开头或结尾。",
             "标题禁止使用“不是A，而是B”或“不是A，只是B”这类对称判断句。",
             "如果选题标题或参考文章标题已经含有这类句式，正文标题必须改成具体处境入口，不要继续复用“不是、而是、只是”的判断骨架。",
             "正文主干也不要反复用“不是不爱，只是不知道”“不是不在意，只是不会表达”这类双重否定模板。",
@@ -3412,10 +4795,10 @@ def _build_dbskill_problem_execution_protocol(*, compact: bool = False) -> str:
 
     if compact:
         lines = merge_unique_lines(
-            brief_steps[:2],
-            divergence_checks[:2],
-            execution_protocol[:3],
-            self_checklist[:3],
+            brief_steps[:1],
+            divergence_checks[:1],
+            execution_protocol[:2],
+            self_checklist[:2],
         )
         if not lines:
             return ""
@@ -3496,15 +4879,18 @@ def _build_tracked_article_structure_priority_instructions(payload: Mapping[str,
     if stage == "outline":
         return (
             "这是一篇参考文章改写稿，而且当前已经有策略包。"
-            "结构模式、开头动作、中段推进和结尾动作的优先级，高于通用的厂牌风格惯性。"
+            "主题主线、核心矛盾、情绪出口和现实接口的优先级，高于通用的厂牌风格惯性。"
+            "结构模式只负责兜底防跑偏，不负责把所有同类文章写成同一个模板。"
             "如果通用风格里的“直接给答案”“标准三段式”“结尾落结论”与当前策略冲突，优先服从策略包。"
             "不同主题可以用不同推进法，不要把所有稿子都压回同一套判断节拍。"
         )
     return (
         "这是一篇参考文章改写稿，而且当前已经有策略包。"
-        "结构模式、开头动作、中段推进和结尾动作的优先级，高于通用的厂牌风格惯性。"
+        "主题主线、核心矛盾、情绪出口和现实接口的优先级，高于通用的厂牌风格惯性。"
+        "结构模式只负责兜底防跑偏，不负责把所有同类文章写成同一个模板。"
         "如果通用风格里的“直接给答案”“标准三段式”“结尾落结论”与当前策略冲突，优先服从策略包。"
         "允许不同主题保留不同的推进速度、段落形状和情绪落点，不要把所有稿子都压回同一种成熟讲解腔。"
+        "责任托家这类稿子优先用第二人称“你”贴住读者，少把正文写成第三人称旁观叙述。"
     )
 
 
@@ -3682,6 +5068,20 @@ def _normalize_clarified_problem(text: str) -> str:
     return normalized.strip()
 
 
+def _looks_like_outline_instruction_fragment(text: str) -> bool:
+    candidate = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not candidate:
+        return False
+    if re.match(r"^(?:开头|中段(?:[一二三四五六七八九十\d]+)?|前半篇|后半篇|结尾|尾段|标题|导语|正文)(?:[：:]\s*|$)", candidate):
+        return True
+    return bool(
+        re.search(
+            r"(?:写清楚|点出|说明|交代|拆开|收束到|不要(?:先)?(?:写成|复用|回收|直接|安排|把|用)|不写成|不要在)",
+            candidate,
+        )
+    )
+
+
 def _extract_outline_anchor_lines(outline_body: str, *, max_items: int = 6, max_length: int = 42) -> list[str]:
     anchors: list[str] = []
     for raw_line in outline_body.splitlines():
@@ -3690,6 +5090,13 @@ def _extract_outline_anchor_lines(outline_body: str, *, max_items: int = 6, max_
         line = re.sub(r"^\s*\d+[.)、]\s*", "", line)
         line = re.sub(r"\s+", " ", line).strip()
         if not line:
+            continue
+        section_match = re.match(r"^(?:开头|中段(?:[一二三四五六七八九十\d]+)?|前半篇|后半篇|结尾|尾段|标题|导语|正文)(?:[：:]\s*(.*))?$", line)
+        if section_match:
+            line = re.sub(r"^(?:开头|中段(?:[一二三四五六七八九十\d]+)?|前半篇|后半篇|结尾|尾段|标题|导语|正文)[：:]\s*", "", line).strip()
+            if not line:
+                continue
+        if _looks_like_outline_instruction_fragment(line):
             continue
         compact_line = _truncate_text(line, max_length=max_length)
         if compact_line in anchors:
@@ -3775,7 +5182,12 @@ def _render_polish_structure_anchor_section(current_draft: Mapping[str, object] 
     )
 
 
-def _render_strategy_package_section(payload: Mapping[str, object], *, compact: bool = False) -> str:
+def _render_strategy_package_section(
+    payload: Mapping[str, object],
+    *,
+    compact: bool = False,
+    extra_compact: bool = False,
+) -> str:
     problem_brief = payload.get("problem_brief")
     strategy_card = payload.get("strategy_card")
     benchmarks = payload.get("benchmarks")
@@ -3786,6 +5198,9 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
     clarified_problem = _normalize_clarified_problem(_as_clean_text(problem_brief.get("clarified_problem")))
     observed_phenomenon = _as_clean_text(problem_brief.get("observed_phenomenon"))
     writing_goal = _as_clean_text(problem_brief.get("writing_goal"))
+    emotional_value_goal = _as_clean_text(problem_brief.get("emotional_value_goal"))
+    theme_axis = _as_clean_text(problem_brief.get("theme_axis"))
+    anti_drift_axis = _as_clean_text(problem_brief.get("anti_drift_axis"))
     target_reader_situation = _as_clean_text(problem_brief.get("target_reader_situation"))
     core_conflict = _as_clean_text(problem_brief.get("core_conflict"))
     feedback_entry = _as_clean_text(problem_brief.get("feedback_entry"))
@@ -3798,6 +5213,14 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
     point_of_view = _as_clean_text(strategy_card.get("point_of_view"))
     conflict_frame = _as_clean_text(strategy_card.get("conflict_frame"))
     emotional_path = _as_clean_text(strategy_card.get("emotional_path"))
+    positive_direction = _as_clean_text(strategy_card.get("positive_direction"))
+    hook_trigger = _as_clean_text(strategy_card.get("hook_trigger"))
+    progression_drive = _as_clean_text(strategy_card.get("progression_drive"))
+    share_reason = _as_clean_text(strategy_card.get("share_reason"))
+    quotable_line_goal = _as_clean_text(strategy_card.get("quotable_line_goal"))
+    packaging_focus = _as_clean_text(strategy_card.get("packaging_focus"))
+    packaging_hook = _as_clean_text(strategy_card.get("packaging_hook"))
+    realism_texture_goal = _as_clean_text(strategy_card.get("realism_texture_goal"))
     structure_mode = _as_clean_text(strategy_card.get("structure_mode"))
     opening_move = _as_clean_text(strategy_card.get("opening_move"))
     body_shift = _as_clean_text(strategy_card.get("body_shift"))
@@ -3807,10 +5230,16 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
     expression_constraints_value = strategy_card.get("expression_constraints")
     divergence_axes_value = strategy_card.get("divergence_axes")
     execution_checklist_value = strategy_card.get("execution_checklist")
+    scene_anchor_requirements_value = strategy_card.get("scene_anchor_requirements")
+    quotable_line_seeds_value = strategy_card.get("quotable_line_seeds")
+    writing_texture_notes_value = strategy_card.get("writing_texture_notes")
     recomposition_recipe: list[str] = []
     expression_constraints: list[str] = []
     divergence_axes: list[str] = []
     execution_checklist: list[str] = []
+    scene_anchor_requirements: list[str] = []
+    quotable_line_seeds: list[str] = []
+    writing_texture_notes: list[str] = []
     if isinstance(recomposition_recipe_value, list):
         recomposition_recipe = [_as_clean_text(item) for item in recomposition_recipe_value if _as_clean_text(item)]
     if isinstance(expression_constraints_value, list):
@@ -3819,6 +5248,55 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
         divergence_axes = [_as_clean_text(item) for item in divergence_axes_value if _as_clean_text(item)]
     if isinstance(execution_checklist_value, list):
         execution_checklist = [_as_clean_text(item) for item in execution_checklist_value if _as_clean_text(item)]
+    if isinstance(scene_anchor_requirements_value, list):
+        scene_anchor_requirements = [
+            _as_clean_text(item) for item in scene_anchor_requirements_value if _as_clean_text(item)
+        ]
+    if isinstance(quotable_line_seeds_value, list):
+        quotable_line_seeds = [_as_clean_text(item) for item in quotable_line_seeds_value if _as_clean_text(item)]
+    if isinstance(writing_texture_notes_value, list):
+        writing_texture_notes = [_as_clean_text(item) for item in writing_texture_notes_value if _as_clean_text(item)]
+    if _has_everyday_warmth_responsibility_shelter_focus(payload):
+        clarified_problem = _sanitize_responsibility_shelter_prompt_text(clarified_problem)
+        observed_phenomenon = _sanitize_responsibility_shelter_prompt_text(observed_phenomenon)
+        writing_goal = _sanitize_responsibility_shelter_prompt_text(writing_goal)
+        emotional_value_goal = _sanitize_responsibility_shelter_prompt_text(emotional_value_goal)
+        theme_axis = _sanitize_responsibility_shelter_prompt_text(theme_axis)
+        target_reader_situation = _sanitize_responsibility_shelter_prompt_text(target_reader_situation)
+        core_conflict = _sanitize_responsibility_shelter_prompt_text(core_conflict)
+        feedback_entry = _sanitize_responsibility_shelter_prompt_text(feedback_entry)
+        reader_situation = _sanitize_responsibility_shelter_prompt_text(reader_situation)
+        point_of_view = _sanitize_responsibility_shelter_prompt_text(point_of_view)
+        conflict_frame = _sanitize_responsibility_shelter_prompt_text(conflict_frame)
+        emotional_path = _sanitize_responsibility_shelter_prompt_text(emotional_path)
+        positive_direction = _sanitize_responsibility_shelter_prompt_text(positive_direction)
+        hook_trigger = _sanitize_responsibility_shelter_prompt_text(hook_trigger)
+        progression_drive = _sanitize_responsibility_shelter_prompt_text(progression_drive)
+        share_reason = _sanitize_responsibility_shelter_prompt_text(share_reason)
+        quotable_line_goal = _sanitize_responsibility_shelter_prompt_text(quotable_line_goal)
+        packaging_focus = _sanitize_responsibility_shelter_prompt_text(packaging_focus)
+        packaging_hook = _sanitize_responsibility_shelter_prompt_text(packaging_hook)
+        realism_texture_goal = _sanitize_responsibility_shelter_prompt_text(realism_texture_goal)
+        opening_move = _sanitize_responsibility_shelter_prompt_text(opening_move)
+        body_shift = _sanitize_responsibility_shelter_prompt_text(body_shift)
+        ending_move = _sanitize_responsibility_shelter_prompt_text(ending_move)
+        benchmark_summary = _sanitize_responsibility_shelter_prompt_text(benchmark_summary)
+        constraints = [_sanitize_responsibility_shelter_prompt_text(item) for item in constraints]
+        recomposition_recipe = [_sanitize_responsibility_shelter_prompt_text(item) for item in recomposition_recipe]
+        expression_constraints = [_sanitize_responsibility_shelter_prompt_text(item) for item in expression_constraints]
+        divergence_axes = [_sanitize_responsibility_shelter_prompt_text(item) for item in divergence_axes]
+        execution_checklist = [_sanitize_responsibility_shelter_prompt_text(item) for item in execution_checklist]
+        scene_anchor_requirements = [
+            _sanitize_responsibility_shelter_prompt_text(item) for item in scene_anchor_requirements
+        ]
+        quotable_line_seeds = [
+            _sanitize_responsibility_shelter_prompt_text(item) for item in quotable_line_seeds
+        ]
+        writing_texture_notes = [
+            _sanitize_responsibility_shelter_prompt_text(item) for item in writing_texture_notes
+        ]
+
+    inner_settlement_variant = _resolve_inner_settlement_variant(payload)
 
     if compact:
         lines = ["创作策略包（执行摘要）："]
@@ -3828,13 +5306,40 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
             lines.append(f"观察焦点：{_truncate_text(observed_phenomenon)}")
         elif writing_goal:
             lines.append(f"写作目标：{_truncate_text(writing_goal)}")
-        if target_reader_situation:
+        if theme_axis:
+            lines.append(f"主题主线：{_truncate_text(theme_axis)}")
+        if emotional_value_goal:
+            lines.append(f"情绪回报：{_truncate_text(emotional_value_goal)}")
+        if positive_direction:
+            lines.append(f"正向落点：{_truncate_text(positive_direction)}")
+        if share_reason:
+            lines.append(f"转发理由：{_truncate_text(share_reason)}")
+        if target_reader_situation and not extra_compact:
             lines.append(f"读者定位：{_truncate_text(target_reader_situation)}")
-        if conflict_frame:
+        if conflict_frame and not extra_compact:
             lines.append(f"冲突框架：{_truncate_text(conflict_frame)}")
-        if emotional_path:
+        if emotional_path and not extra_compact:
             lines.append(f"情绪路径：{_truncate_text(emotional_path)}")
-        structure_mode_label, structure_mode_execution = _describe_structure_mode(structure_mode)
+        if anti_drift_axis:
+            lines.append(f"漂移禁区：{_truncate_text(anti_drift_axis)}")
+        if quotable_line_goal and not extra_compact:
+            lines.append(f"短句目标：{_truncate_text(quotable_line_goal)}")
+        if packaging_focus and not extra_compact:
+            lines.append(f"包装抓手：{_truncate_text(packaging_focus)}")
+        if packaging_hook:
+            lines.append(f"包装主钩子：{_truncate_text(packaging_hook)}")
+        if writing_texture_notes:
+            lines.append(f"写法纹理：{' / '.join(writing_texture_notes[:2])}")
+        if scene_anchor_requirements:
+            lines.append(f"现实接口：{' / '.join(scene_anchor_requirements[:2])}")
+        if realism_texture_goal and not extra_compact:
+            lines.append(f"真实质感：{_truncate_text(realism_texture_goal)}")
+        if quotable_line_seeds and not extra_compact:
+            lines.append(f"短句种子：{' / '.join(quotable_line_seeds[:2])}")
+        structure_mode_label, structure_mode_execution = _describe_structure_mode(
+            structure_mode,
+            inner_settlement_variant=inner_settlement_variant,
+        )
         if structure_mode_label:
             lines.append(f"结构模式：{structure_mode_label}")
             lines.append(f"结构执行：{_truncate_text(structure_mode_execution)}")
@@ -3844,13 +5349,15 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
             lines.append(f"中段推进：{_truncate_text(body_shift)}")
         if ending_move:
             lines.append(f"结尾动作：{_truncate_text(ending_move)}")
-        if recomposition_recipe:
+        if recomposition_recipe and not extra_compact:
             lines.append(f"替代骨架：{' / '.join(recomposition_recipe[:3])}")
         if expression_constraints:
-            lines.append(f"表达约束：{' / '.join(expression_constraints[:3])}")
+            constraint_limit = 2 if extra_compact else 3
+            lines.append(f"表达约束：{' / '.join(expression_constraints[:constraint_limit])}")
         if divergence_axes:
-            lines.append(f"主动拉开距离：{' / '.join(divergence_axes[:3])}")
-        if execution_checklist:
+            divergence_limit = 2 if extra_compact else 3
+            lines.append(f"主动拉开距离：{' / '.join(divergence_axes[:divergence_limit])}")
+        if execution_checklist and not extra_compact:
             lines.append(f"执行检查：{' / '.join(execution_checklist[:3])}")
         if benchmark_summary:
             lines.append(f"参考基准：{_truncate_text(benchmark_summary)}")
@@ -3867,6 +5374,12 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
         lines.append(f"观察到的现象：{observed_phenomenon}")
     if writing_goal:
         lines.append(f"写作目标：{writing_goal}")
+    if emotional_value_goal:
+        lines.append(f"情绪回报：{emotional_value_goal}")
+    if theme_axis:
+        lines.append(f"主题主线：{theme_axis}")
+    if anti_drift_axis:
+        lines.append(f"漂移禁区：{anti_drift_axis}")
     if target_reader_situation:
         lines.append(f"读者处境：{target_reader_situation}")
     if core_conflict:
@@ -3883,7 +5396,32 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
         lines.append(f"冲突框架：{conflict_frame}")
     if emotional_path:
         lines.append(f"情绪路径：{emotional_path}")
-    structure_mode_label, structure_mode_execution = _describe_structure_mode(structure_mode)
+    if positive_direction:
+        lines.append(f"正向落点：{positive_direction}")
+    if hook_trigger:
+        lines.append(f"开头触发点：{hook_trigger}")
+    if progression_drive:
+        lines.append(f"中段推进力：{progression_drive}")
+    if share_reason:
+        lines.append(f"转发理由：{share_reason}")
+    if quotable_line_goal:
+        lines.append(f"短句目标：{quotable_line_goal}")
+    if packaging_focus:
+        lines.append(f"包装抓手：{packaging_focus}")
+    if packaging_hook:
+        lines.append(f"包装主钩子：{packaging_hook}")
+    if writing_texture_notes:
+        lines.append(f"写法纹理：{' / '.join(writing_texture_notes)}")
+    if scene_anchor_requirements:
+        lines.append(f"现实接口：{' / '.join(scene_anchor_requirements)}")
+    if realism_texture_goal:
+        lines.append(f"真实质感：{realism_texture_goal}")
+    if quotable_line_seeds:
+        lines.append(f"短句种子：{' / '.join(quotable_line_seeds)}")
+    structure_mode_label, structure_mode_execution = _describe_structure_mode(
+        structure_mode,
+        inner_settlement_variant=inner_settlement_variant,
+    )
     if structure_mode_label:
         lines.append(f"结构模式：{structure_mode_label}")
         lines.append(f"结构执行：{structure_mode_execution}")
@@ -3919,6 +5457,9 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
                 borrow_focuses.append(borrow_focus)
             if avoid_focus:
                 avoid_focuses.append(avoid_focus)
+    if _has_everyday_warmth_responsibility_shelter_focus(payload):
+        borrow_focuses = [_sanitize_responsibility_shelter_prompt_text(item) for item in borrow_focuses]
+        avoid_focuses = [_sanitize_responsibility_shelter_prompt_text(item) for item in avoid_focuses]
 
     if borrow_focuses:
         lines.append(f"可借动作：{' / '.join(dict.fromkeys(borrow_focuses))}")
@@ -3931,7 +5472,128 @@ def _render_strategy_package_section(payload: Mapping[str, object], *, compact: 
     return "\n".join(lines) + "\n\n"
 
 
-def _describe_structure_mode(structure_mode: str) -> tuple[str, str]:
+def _build_strategy_resonance_instructions(
+    payload: Mapping[str, object],
+    *,
+    stage: str,
+    compact: bool = False,
+) -> str:
+    problem_brief = payload.get("problem_brief")
+    strategy_card = payload.get("strategy_card")
+    if not isinstance(problem_brief, Mapping) or not isinstance(strategy_card, Mapping):
+        return ""
+
+    emotional_value_goal = _as_clean_text(problem_brief.get("emotional_value_goal"))
+    theme_axis = _as_clean_text(problem_brief.get("theme_axis"))
+    anti_drift_axis = _as_clean_text(problem_brief.get("anti_drift_axis"))
+    positive_direction = _as_clean_text(strategy_card.get("positive_direction"))
+    quotable_line_goal = _as_clean_text(strategy_card.get("quotable_line_goal"))
+    packaging_focus = _as_clean_text(strategy_card.get("packaging_focus"))
+    packaging_hook = _as_clean_text(strategy_card.get("packaging_hook"))
+    realism_texture_goal = _as_clean_text(strategy_card.get("realism_texture_goal"))
+    scene_anchor_requirements_value = strategy_card.get("scene_anchor_requirements")
+    quotable_line_seeds_value = strategy_card.get("quotable_line_seeds")
+    writing_texture_notes_value = strategy_card.get("writing_texture_notes")
+    scene_anchor_requirements = (
+        [_as_clean_text(item) for item in scene_anchor_requirements_value if _as_clean_text(item)]
+        if isinstance(scene_anchor_requirements_value, list)
+        else []
+    )
+    quotable_line_seeds = (
+        [_as_clean_text(item) for item in quotable_line_seeds_value if _as_clean_text(item)]
+        if isinstance(quotable_line_seeds_value, list)
+        else []
+    )
+    writing_texture_notes = (
+        [_as_clean_text(item) for item in writing_texture_notes_value if _as_clean_text(item)]
+        if isinstance(writing_texture_notes_value, list)
+        else []
+    )
+    if _has_everyday_warmth_responsibility_shelter_focus(payload):
+        emotional_value_goal = _sanitize_responsibility_shelter_prompt_text(emotional_value_goal)
+        theme_axis = _sanitize_responsibility_shelter_prompt_text(theme_axis)
+        positive_direction = _sanitize_responsibility_shelter_prompt_text(positive_direction)
+        quotable_line_goal = _sanitize_responsibility_shelter_prompt_text(quotable_line_goal)
+        packaging_focus = _sanitize_responsibility_shelter_prompt_text(packaging_focus)
+        packaging_hook = _sanitize_responsibility_shelter_prompt_text(packaging_hook)
+        realism_texture_goal = _sanitize_responsibility_shelter_prompt_text(realism_texture_goal)
+        scene_anchor_requirements = [
+            _sanitize_responsibility_shelter_prompt_text(item) for item in scene_anchor_requirements
+        ]
+        quotable_line_seeds = [
+            _sanitize_responsibility_shelter_prompt_text(item) for item in quotable_line_seeds
+        ]
+        writing_texture_notes = [
+            _sanitize_responsibility_shelter_prompt_text(item) for item in writing_texture_notes
+        ]
+
+    notes: list[str] = []
+    if stage == "draft":
+        if theme_axis:
+            notes.append(
+                f"这篇真正要守住的主题主线：{_truncate_text(theme_axis) if compact else theme_axis}"
+            )
+        if anti_drift_axis:
+            notes.append(
+                f"这次不要漂去这条邻近假主题："
+                f"{_truncate_text(anti_drift_axis) if compact else anti_drift_axis}"
+            )
+        if emotional_value_goal:
+            notes.append(
+                f"正文必须服务这个情绪回报："
+                f"{_truncate_text(emotional_value_goal) if compact else emotional_value_goal}"
+            )
+        if positive_direction:
+            notes.append(
+                f"结尾必须落回这个正向方向："
+                f"{_truncate_text(positive_direction) if compact else positive_direction}"
+            )
+        else:
+            notes.append("结尾必须比前文更暖一点，给人被稳住、能继续往前的感觉。")
+        if writing_texture_notes:
+            limit = 2 if compact else 3
+            notes.append(f"写法纹理优先守这几条：{' / '.join(writing_texture_notes[:limit])}")
+        if scene_anchor_requirements:
+            limit = 2 if compact else len(scene_anchor_requirements)
+            notes.append(f"前六段至少把这些现实抓手写出来：{' / '.join(scene_anchor_requirements[:limit])}")
+        if realism_texture_goal:
+            notes.append(
+                f"正文真实质感要求："
+                f"{_truncate_text(realism_texture_goal) if compact else realism_texture_goal}"
+            )
+        if quotable_line_goal:
+            notes.append(
+                "如果要留可摘录短句，只允许 1 到 2 处，并且要满足："
+                f"{_truncate_text(quotable_line_goal) if compact else quotable_line_goal}"
+            )
+        if quotable_line_seeds:
+            limit = 2 if compact else len(quotable_line_seeds)
+            notes.append(f"短句优先从这些位置长出来：{' / '.join(quotable_line_seeds[:limit])}")
+        notes.append("不要把全文写成持续下坠、持续控诉或持续反刍；低点可以写，但后半篇必须开始回正。")
+        return "".join(notes)
+
+    if stage in {"assets", "publish_package"}:
+        if theme_axis:
+            notes.append(f"包装继续服务这条正文主线：{theme_axis}")
+        if anti_drift_axis:
+            notes.append(f"包装不要漂去：{anti_drift_axis}")
+        if packaging_focus:
+            notes.append(f"包装必须优先抓这个入口：{packaging_focus}")
+        if packaging_hook:
+            notes.append(f"包装主钩子要明显落在这里：{packaging_hook}")
+        if writing_texture_notes:
+            notes.append(f"包装也要守住这组写法纹理：{' / '.join(writing_texture_notes[:2])}")
+        if positive_direction:
+            notes.append(f"标题、导语和封面最终都要把人带回这个落点：{positive_direction}")
+        notes.append("不要只把正文改写成摘要；至少要有一个更抓人的入口、一个更清楚的误判或一个更暖的回收。")
+        return "".join(notes)
+
+    return ""
+
+
+def _describe_structure_mode(
+    structure_mode: str, *, inner_settlement_variant: str = ""
+) -> tuple[str, str]:
     if structure_mode == "fragment_chain_observation":
         return (
             "碎片回环观察推进",
@@ -3957,12 +5619,22 @@ def _describe_structure_mode(structure_mode: str) -> tuple[str, str]:
             "场景优先推进",
             "先让一到两个连续场景带路，再逐步展开判断，不要直接平铺成并列观点段。",
         )
+    if structure_mode == "responsibility_shelter":
+        return (
+            "责任托家回温推进",
+            "先守住来电、账单、安排调整和家里那一下先得稳住的现实接口，再顺着为什么总会先把顺序理清、这些认真怎样慢慢落成一家人的踏实往下推。",
+        )
     if structure_mode == "everyday_warmth_return":
         return (
             "大事祛魅后的小事回归",
-            "先拆成就叙事为什么会失重，再让普通陪伴、低声量联系和微小日常慢慢重新显出分量。",
+            "先拆成就叙事为什么会失重，再让饭桌、回家、有人惦记这些小日常慢慢重新显出分量。",
         )
     if structure_mode == "inner_settlement":
+        if inner_settlement_variant == "stage_restart":
+            return (
+                "阶段回望再出发推进",
+                "先守住阶段节点上的自我盘点和误判，再顺着为什么总把没完成、没拥有和没赶上一起算成失败，慢慢写到眼前支撑怎样把人接回来。",
+            )
         return (
             "心安归位推进",
             "先守住那一下还没被安放好的现实接口，再沿着向外求稳到慢慢住回日常的路径往下推。",
@@ -3970,12 +5642,17 @@ def _describe_structure_mode(structure_mode: str) -> tuple[str, str]:
     if structure_mode == "self_reliance_inward_support":
         return (
             "向内求自救推进",
-            "先守住向外找安慰却未必总被及时接住的现实处境，再沿着回稳、自我修复和把依靠收回自己身上的路径往下推。",
+            "先守住参考文里的现实触发点，再沿着回稳、自我修复和具体行动怎样把人托回来的路径往下推。",
         )
     if structure_mode == "response_priority":
         return (
             "回应顺序显形推进",
             "先守住等待和找补里的顺序落差，再让时间投向、回应动作和投入意愿自己把位置感显出来。",
+        )
+    if structure_mode == "trust_boundary":
+        return (
+            "信任边界推进",
+            "先守住信任出现裂缝的那一下，再写隐瞒、坦诚和说到做到怎样决定一段关系能不能继续让人心安。",
         )
     if structure_mode == "supportive_appreciation":
         return (
@@ -4000,6 +5677,7 @@ def _build_structure_mode_instructions(payload: Mapping[str, object], *, stage: 
     if not isinstance(strategy_card, Mapping):
         return ""
     structure_mode = _as_clean_text(strategy_card.get("structure_mode"))
+    inner_settlement_variant = _resolve_inner_settlement_variant(payload)
     if structure_mode == "fragment_chain_observation":
         if stage == "outline":
             return (
@@ -4044,12 +5722,28 @@ def _build_structure_mode_instructions(payload: Mapping[str, object], *, stage: 
                 "判断尽量压回事实和反应里，不要排成成熟讲解稿。"
             )
     if structure_mode == "inner_settlement":
+        if inner_settlement_variant == "stage_restart":
+            if stage == "outline":
+                return (
+                    "若策略包要求阶段回望再出发推进，大纲先守住一个阶段节点上的自我盘点、自责或比较，"
+                    "再顺着为什么总把没完成、没拥有和没赶上一起算成失败往下推。"
+                    "中段至少留一段写眼前仍在的爱、普通支撑或阶段积累怎样把人接回来。"
+                    "结尾回到接纳这个阶段的自己、继续生活和继续往前，不要写成励志口号或万能祝福。"
+                )
+            if stage == "draft":
+                return (
+                    "若策略包要求阶段回望再出发推进，正文第一屏先落一个阶段节点上的现实接口：某张清单、某个目标、某段时间、某个结果或某句先冒出来的自责。"
+                    "不要先滑成深夜等回应、关系回忆、身体症状或抽象心灵总论。"
+                    "前四段先让那一下阶段误判和心里发沉自己顶上来，不要一上来就排成成熟复盘稿。"
+                    "中段至少留一段把“没完成、没拥有和没赶上，不等于这段路白走了”讲透，再留一段把眼前仍在的人、普通支撑或阶段积累写出分量。"
+                    "最后两段明显往继续生活、继续珍惜和继续往前回正，不要收成空泛祝福或逆袭宣言。"
+                )
         if stage == "outline":
             return (
                 "若策略包要求心安归位推进，大纲先守住一个外界未必最糟、心却一直没松下来的时刻，"
                 "再顺着为什么总想把一切想明白、又怎样把自己慢慢放回一餐一饮和一呼一吸往下推。"
                 "前半篇尽量早点给读者一个被理解、被接住的落点。"
-                "不要把大纲改写成关系等待、身体告警或幸福定义翻案稿。"
+                "不要把大纲改写成关系等待、身体提醒或幸福定义翻案稿。"
             )
         if stage == "draft":
             return (
@@ -4064,19 +5758,39 @@ def _build_structure_mode_instructions(payload: Mapping[str, object], *, stage: 
                 "判断尽量压回轻动作和现实余波里，不要写成空泛看开文，也不要一路写成内耗诊断。"
                 "除非参考文冲突本来就建在身体代价上，否则不要顺手排成胸口、胃口、睡眠这类症状清单。"
             )
+    if structure_mode == "responsibility_shelter" or (
+        structure_mode == "everyday_warmth_return" and _has_everyday_warmth_responsibility_shelter_focus(payload)
+    ):
+        if stage == "outline":
+            return (
+                "若策略包要求责任托家推进，大纲先写肩上责任带来的现实重量，"
+                "比如来电、日历安排、请假前协调、复查预约或家里那一下先得理顺。"
+                "中段再把责任为什么会让人多想一步，以及这些辛苦怎样慢慢变成父母、孩子、伴侣和家里的安稳讲清。"
+                "不要把大纲压成苦难励志、身体追债或泛中年感慨。"
+            )
+        if stage == "draft":
+            return (
+                "若策略包要求责任托家推进，正文第一屏先落肩上责任带来的现实重量，"
+                "比如来电、日历安排、请假前协调、家里先得稳住的那一下，不要先空讲成年人都不容易。"
+                "前四段里至少有两段只写动作、对话或后果，不要连续两段都在解释责任。"
+                "可以保留一句像“我来安排”这样当场会说出口的人话，不要全改成作者替读者总结。"
+                "中段先写电话挂断后要挪的会、要接的人和要补的饭，再让责任为什么会把一个家的顺序慢慢理顺自己长出来。"
+                "不要把中段写成苦难陈列、身体提醒清单或关系回应排序讲解。"
+                "结尾收在家里仍亮着的一盏灯、一碗热汤、有人被护住或一句终于能松下来的回话上，让安稳自己落地。"
+            )
     if structure_mode == "everyday_warmth_return":
         if stage == "outline":
             return (
                 "若策略包要求大事祛魅后的小事回归推进，大纲先写成就叙事或重要感为什么慢慢失重，"
-                "再把普通陪伴、低声量联系和被长期挪后的日常重新接回来。"
+                "再把家人平安、知己仍在和有人可回去的日常重新接回来。"
                 "不要把大纲压成家庭动作清单、身体提醒追债稿或关系回应排序稿。"
             )
         if stage == "draft":
             return (
                 "若策略包要求大事祛魅后的小事回归推进，正文先写重要感为什么总被押在更大的目标上，"
-                "再让普通陪伴、低声量联系和日常分量慢慢回到眼前。"
-                "不要把中段写成三四个家庭动作并列清单，也不要滑成身体告警或关系排序讲解稿。"
-                "结尾收在一个普通安排、轻微余波或日常决定上，让人感觉生活重新有了轻重，不要靠祝福或顿悟翻牌。"
+                "再让家人平安、知己仍在和日常分量慢慢回到眼前。"
+                "不要把中段写成三四个家庭动作并列清单，也不要滑成身体提醒或关系排序讲解稿。"
+                "结尾收在一个还带着温度的日常动作或日常决定上，让人感觉生活重新有了轻重，不要靠祝福或顿悟翻牌。"
             )
     if structure_mode == "response_priority":
         if stage == "outline":
@@ -4093,19 +5807,33 @@ def _build_structure_mode_instructions(payload: Mapping[str, object], *, stage: 
                 "后半篇把情绪从等待感拉回位置感，不只是写受伤，而是写人怎样慢慢认清顺序、把时间留给值得的人。"
                 "结尾回到位置感回正和时间该留给谁，不写成苦情控诉。"
             )
+    if structure_mode == "trust_boundary":
+        if stage == "outline":
+            return (
+                "若策略包要求信任边界推进，大纲先守住一句谎言、一次隐瞒或一次迟到的交代让信任裂开的那一下，"
+                "再顺着怀疑怎样长出来、坦诚怎样把心安补回来往下推。"
+                "不要写成回消息速度、点赞评论、争吵善后或纯放下过去。"
+            )
+        if stage == "draft":
+            return (
+                "若策略包要求信任边界推进，正文第一屏先落一个关系里信任被动摇的现实接口，"
+                "比如一句没说清的话、一次迟到的坦白、一个后来才知道的隐瞒；不要从回消息、点赞评论或读懂你起手。"
+                "中段围绕信任为什么贵、隐瞒为什么会留下疙瘩、坦诚和说到做到怎样重新给人心安推进；"
+                "结尾回到珍惜那份敢信你的赤诚，也回到自己怎样把信任交给值得的人，不要收成苦情控诉。"
+            )
     if structure_mode == "supportive_appreciation":
         if stage == "outline":
             return (
                 "若策略包要求柔软珍惜推进，大纲先守住一次明明受了委屈却还是先把话放软、先照顾别人感受的小接口，"
                 "再顺着柔软为什么常被误读、明明拎得清为什么还愿意体谅和包容往下推。"
-                "结尾回到被认真回应、被珍惜或被牵紧的方向，不要改写成耗空诊断或泛自我成长稿。"
+                "结尾回到被认真回应、被珍惜或被牵紧的方向，让柔软的分量被看见。"
             )
         if stage == "draft":
             return (
                 "若策略包要求柔软珍惜推进，正文第一屏先落那个先让一步、先把话放软的小接口，"
-                "不要先写身体报警、长期耗空或谁在替关系善后。"
+                "先让读者看见这个人为什么温柔却不糊涂，为什么会在乎却仍有分寸。"
                 "中段围绕柔软为什么常被误读、明明拎得清为什么还愿意体谅和包容推进；"
-                "结尾收在被认真回应、被珍惜或重新看见这种柔软分量的方向，不要收成‘先把自己排回前面’的抽象结论。"
+                "结尾收在被认真回应、被珍惜或重新看见这种柔软分量的方向，把温暖落到一个具体回应上。"
             )
     if structure_mode == "relationship_aftercare":
         if stage == "outline":
@@ -4139,23 +5867,22 @@ def _build_structure_mode_instructions(payload: Mapping[str, object], *, stage: 
     if structure_mode == "self_reliance_inward_support":
         if stage == "outline":
             return (
-                "若策略包要求向内求自救推进，大纲先守住一个想找人说说、却发现别人也各自承压的现实接口，"
-                "再安排“外求未必及时 -> 委屈和失望如何收回来 -> 人怎样向内稳住和把自己慢慢托过去”的推进。"
+                "若策略包要求向内求或自我支撑推进，大纲先服从参考文章分析里的起笔方式、核心冲突和情绪出口，"
+                "第一部分就安排一种正在发生的正向能力、选择或行动，不默认补写外求落空的前史。"
                 "不要滑成关系里说不出口、需求包装、边界沟通或被误解退缩稿。"
             )
         if stage == "draft":
             return (
-                "若策略包要求向内求自救推进，正文第一屏优先写现实承压和外求落空，"
-                "先让‘想找人依靠，却发现别人也各自承压’这件事显形。"
-                "不要把回消息、聊天框、输入框、对方回没回、待办排队这类关系界面写成第一屏主镜头。"
-                "不要借‘回信息慢半拍’这类旧接口偷渡成回应顺序稿或表达退缩稿。"
+                "若策略包要求向内求或自我支撑推进，正文第一屏服从参考文章分析里的真实入口，"
+                "前三段内就让判断力、行动力、恢复力或主动选择显形，让主镜头落在当前文章独有的现实接口上。"
+                "关系或外部压力只作必要背景，不抢走向内求、自我支撑和正向变化的主线。"
                 "前六段至少留 2 处能单独成段的短句，其中 1 处最好像从现实接口里突然冒出来的人话。"
-                "不要连续两段都在平铺解释，先让落空感和回稳动作自己长出来。"
-                "前半篇不要把失落越写越重，最迟在中段前半切到可运转状态、顺序恢复和把自己慢慢托住。"
+                "不要连续两段都在平铺解释，动作、判断、选择和现实结果要轮换出现。"
+                "负面处境只保留主题所需的最小背景，全文重心始终放在正向变化怎样真实发生。"
                 "独立短句也要写成完整人话，不要为了节奏故意留半截句、悬空转折或没落地的句头。"
-                "中段围绕向内稳住、自我修复、自我支撑和自救自渡推进；"
+                "中段围绕参考文真正讨论的自我支撑方式推进，不固定套用向内稳住或自救自渡；"
                 "不要改写成关系里越解释越沉默、越想开口越说不出口的表达退缩稿，也不要写成一味硬扛的口号。"
-                "结尾优先收在一个把自己慢慢托住的普通动作上，给读者被稳住的感觉。"
+                "结尾服从分析合同里的正向出口，让读者获得清醒、温暖和继续向前的力量。"
             )
     if structure_mode == "emotional_engine_direct":
         if stage == "outline":
@@ -4252,6 +5979,45 @@ def _build_tracked_article_strategy_first_draft_owner_instructions(
     return "".join(lines)
 
 
+def _build_focused_quality_retry_prompt(
+    payload: Mapping[str, object],
+    *,
+    current_draft: Mapping[str, object],
+    tone_profile: Mapping[str, object] | None,
+    polish_instruction: str,
+) -> PromptTemplate:
+    problem_brief = payload.get("problem_brief")
+    strategy_card = payload.get("strategy_card")
+    problem = problem_brief if isinstance(problem_brief, Mapping) else {}
+    strategy = strategy_card if isinstance(strategy_card, Mapping) else {}
+    theme_axis = _as_clean_text(problem.get("theme_axis"))
+    anti_drift_axis = _as_clean_text(problem.get("anti_drift_axis"))
+    positive_direction = _as_clean_text(strategy.get("positive_direction"))
+    structure_mode = _as_clean_text(strategy.get("structure_mode"))
+    target_wording = _render_draft_target_wording(tone_profile, payload=payload)
+    instructions = (
+        "你是中文公众号终稿编辑。当前正文已经完成主题分析，本轮只做聚焦质量修复，不重新套模板，也不另起主题。"
+        "保留已有事实、人物关系和现实场景；直接修掉病句、重复字、截断对话、作者说明、过密推进词和重复翻转句。"
+        "多数段落保持一到三句，补足信息和情绪推进时使用新的现实阻力、家人反馈或动作后果，不重复原观点凑字数。"
+        "结尾必须落回当前主题的正向回报，但不要写万能祝福或漂亮口号。"
+        "只返回 title 与 body_markdown，不解释修改过程。"
+    )
+    prompt = (
+        f"选题标题：{_as_clean_text(payload.get('topic_title'))}\n"
+        f"项目标题：{_as_clean_text(payload.get('project_title'))}\n"
+        f"结构模式：{structure_mode or '沿用当前正文'}\n"
+        f"主题主线：{theme_axis or '沿用当前正文'}\n"
+        f"禁止漂移：{anti_drift_axis or '不要换题'}\n"
+        f"正向落点：{positive_direction or '沿用当前正文已成立的落点'}\n"
+        f"{target_wording}"
+        f"本轮必须修复：{polish_instruction}\n"
+        f"当前标题：{_as_clean_text(current_draft.get('title'))}\n"
+        f"当前正文：\n{_as_clean_text(current_draft.get('body_markdown'))}\n"
+        "返回：\n1. 标题 title\n2. 正文 markdown body_markdown"
+    )
+    return PromptTemplate(instructions=instructions, prompt=prompt)
+
+
 def _is_timeout_recovery_draft_mode(payload: Mapping[str, object], *, is_polish_mode: bool) -> bool:
     if is_polish_mode:
         return False
@@ -4273,19 +6039,126 @@ def _build_timeout_recovery_draft_instructions(payload: Mapping[str, object]) ->
     )
 
 
+def _build_tracked_article_timeout_recovery_draft_instructions(payload: Mapping[str, object]) -> str:
+    return (
+        "你是公众号作者。只返回 JSON 对象，字段 title 和 body_markdown。"
+        "正文 700 到 900 字，短段落，有正向情绪价值，保留 1 到 2 句金句。"
+        "语言像真人，具体、温暖，不卖惨，不成功学。"
+    )
+
+
+def _build_tracked_article_timeout_recovery_requirement(payload: Mapping[str, object]) -> str:
+    if _has_everyday_warmth_responsibility_shelter_focus(payload):
+        return "守住责任怎样落回家里踏实这条线，写现实开销、父母孩子和家人安心，不要写成吃苦赞歌。"
+    if _has_broad_emotional_release_focus(payload):
+        return "守住放下强求、珍惜已有或接纳结束这条线，不要缩成等回复、坏关系复盘或单一关系输赢。"
+    if _has_inner_settlement_focus(payload):
+        return "守住心安、从容和把心安放回日常这条线，不要改成关系试探、工作崩溃或身体告警。"
+    if _has_self_reliance_inward_support_focus(payload):
+        return "守住向内求、自救自渡和先把自己稳住这条线，不要改成没人回应或单一关系冷落。"
+    if _has_response_priority_focus(payload):
+        return "守住被认真回应、被读懂和双向在意这条线，不要只写发消息等回复。"
+    if _has_supportive_appreciation_focus(payload):
+        return "守住珍惜柔软、回应善意和双向珍重这条线，不要把好脾气写成好欺负。"
+    if _has_relationship_aftercare_focus(payload):
+        return "守住争执后的态度和关系修复这条线，不要把它写成单方忍让或冷处理总结。"
+    if _has_resilience_reconstruction_focus(payload):
+        return "守住韧性、重建和向上生长这条线，不要写成苦难崇拜。"
+    topic_angle = _as_clean_text(payload.get("topic_angle"))
+    if topic_angle:
+        return f"贴住当前切口：{_truncate_text(topic_angle, max_length=76)}。不要套用其它主题。"
+    return "贴住当前选题和大纲推进，不要套用责任、关系等待或自我消耗等其它主题。"
+
+
+def _render_tracked_article_timeout_recovery_draft_prompt(payload: Mapping[str, object]) -> str:
+    outline = payload.get("outline")
+    project_title = _as_clean_text(payload.get("project_title")) or _as_clean_text(payload.get("topic_title"))
+    lines = [f"主题：{project_title}"] if project_title else []
+
+    hook = _as_clean_text(outline.get("hook")) if isinstance(outline, Mapping) else ""
+    topic_angle = _as_clean_text(payload.get("topic_angle"))
+    if hook:
+        lines.append(f"开头：{_truncate_text(hook, max_length=44)}")
+    elif topic_angle:
+        lines.append(f"开头：{_truncate_text(topic_angle, max_length=52)}")
+
+    problem_brief = payload.get("problem_brief")
+    if isinstance(problem_brief, Mapping):
+        theme_axis = _as_clean_text(problem_brief.get("theme_axis"))
+        if theme_axis:
+            lines.append(f"主线：{_truncate_text(theme_axis, max_length=72)}")
+        core_conflict = _as_clean_text(problem_brief.get("core_conflict"))
+        if core_conflict:
+            lines.append(f"冲突：{_truncate_text(core_conflict, max_length=64)}")
+
+    strategy_card = payload.get("strategy_card")
+    if isinstance(strategy_card, Mapping):
+        positive_direction = _as_clean_text(strategy_card.get("positive_direction"))
+        if positive_direction:
+            lines.append(f"正向落点：{_truncate_text(positive_direction, max_length=64)}")
+
+    requirement = _build_tracked_article_timeout_recovery_requirement(payload)
+    lines.append(f"要求：{requirement}短句清晰，有现实动作，不要照搬原文，不要写成卖惨或成功学。")
+    return "\n".join(line for line in lines if line)
+
+
+def _build_outline_timeout_recovery_instructions() -> str:
+    return (
+        "你是公众号内容策划编辑。"
+        "只返回一个 JSON 对象，包含 hook 和 outline_body。"
+        "hook 1 句；outline_body 写 4 段 markdown 大纲，每段 1 行。"
+        "不要解释。"
+    )
+
+
+def _render_outline_timeout_recovery_brief(
+    payload: Mapping[str, object],
+    *,
+    tone_profile: Mapping[str, object] | None,
+) -> str:
+    strategy_card = payload.get("strategy_card")
+    if not isinstance(strategy_card, Mapping):
+        return ""
+
+    lines: list[str] = []
+    hook_trigger = _as_clean_text(strategy_card.get("hook_trigger"))
+    if hook_trigger:
+        opening = hook_trigger.replace("开头先停在：", "").replace("开头先停在", "").strip()
+        lines.append(f"开头：{_truncate_text(opening, max_length=22)}")
+    lines.append("中段：把它为什么会这样、代价落在哪、现实怎么顶上来写清楚。")
+    positive_direction = _as_clean_text(strategy_card.get("positive_direction"))
+    if positive_direction:
+        ending = positive_direction.replace("结尾回到", "回到").strip()
+        lines.append(f"结尾：{_truncate_text(ending, max_length=18)}")
+    lines.append("不要写成鸡汤。")
+    return "\n".join(lines) + "\n\n"
+
+
 def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
+    strategy_first_outline_mode = bool(payload.get("strategy_first_outline_mode"))
+    outline_timeout_recovery_mode = bool(payload.get("outline_timeout_recovery_mode"))
     raw_tone_profile = payload.get("tone_profile")
     tone_profile = (
         _build_effective_tone_profile(raw_tone_profile, payload=payload)
         if isinstance(raw_tone_profile, Mapping)
         else None
     )
+    if outline_timeout_recovery_mode:
+        return PromptTemplate(
+            instructions=_build_outline_timeout_recovery_instructions(),
+            prompt=(
+                f"标题：{payload['project_title']}\n"
+                f"{_render_outline_timeout_recovery_brief(payload, tone_profile=tone_profile)}"
+                "返回 JSON：hook, outline_body。"
+            ),
+        )
     style_section = render_tone_profile_section(tone_profile)
     preset_stage_instructions = _build_jinwan_youyu_stage_instructions(
         stage="outline",
         tone_profile=tone_profile,
         payload=payload,
     )
+    theme_first_execution_instructions = _build_theme_first_execution_instructions(payload, stage="outline")
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="outline", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="outline", payload=payload)
     target_wording = _render_outline_target_wording(tone_profile)
@@ -4295,7 +6168,16 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         else _render_reference_article_section(payload, stage="outline")
     )
     post_strategy_reference_boundary = _render_post_strategy_reference_boundary(payload, stage="outline")
-    strategy_package_section = _render_strategy_package_section(payload)
+    theme_first_execution_card = _render_theme_first_execution_card(
+        payload,
+        stage="outline",
+        compact=strategy_first_outline_mode,
+    )
+    strategy_package_section = _render_strategy_package_section(
+        payload,
+        compact=strategy_first_outline_mode,
+        extra_compact=strategy_first_outline_mode,
+    )
     reference_article_instructions = _build_reference_article_instructions(stage="outline")
     original_expression_instructions = _build_original_expression_instructions(stage="outline")
     humanizer_zh_review_instructions = _build_humanizer_zh_review_instructions(stage="outline")
@@ -4306,21 +6188,12 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     recomposition_recipe_instructions = _build_recomposition_recipe_instructions(payload, stage="outline")
     pressure_guard_instructions = _build_tracked_article_pressure_guard_instructions(payload, stage="outline")
     emotional_release_guard_instructions = _build_tracked_article_emotional_release_guard_instructions(payload, stage="outline")
-    everyday_warmth_guard_instructions = _build_tracked_article_everyday_warmth_guard_instructions(
-        payload, stage="outline"
-    )
-    response_priority_guard_instructions = _build_tracked_article_response_priority_guard_instructions(
-        payload, stage="outline"
-    )
-    supportive_appreciation_guard_instructions = _build_tracked_article_supportive_appreciation_guard_instructions(
-        payload, stage="outline"
-    )
-    inner_settlement_guard_instructions = _build_tracked_article_inner_settlement_guard_instructions(
-        payload, stage="outline"
-    )
-    self_reliance_guard_instructions = _build_tracked_article_self_reliance_guard_instructions(
-        payload, stage="outline"
-    )
+    everyday_warmth_guard_instructions = _build_tracked_article_everyday_warmth_guard_instructions(payload, stage="outline")
+    response_priority_guard_instructions = _build_tracked_article_response_priority_guard_instructions(payload, stage="outline")
+    supportive_appreciation_guard_instructions = _build_tracked_article_supportive_appreciation_guard_instructions(payload, stage="outline")
+    self_worth_guard_instructions = _build_tracked_article_self_worth_guard_instructions(payload, stage="outline")
+    inner_settlement_guard_instructions = _build_tracked_article_inner_settlement_guard_instructions(payload, stage="outline")
+    self_reliance_guard_instructions = _build_tracked_article_self_reliance_guard_instructions(payload, stage="outline")
     resilience_guard_instructions = _build_tracked_article_resilience_guard_instructions(payload, stage="outline")
     relationship_aftercare_guard_instructions = _build_tracked_article_relationship_aftercare_guard_instructions(payload, stage="outline")
     return PromptTemplate(
@@ -4330,6 +6203,7 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             domain_pack=payload.get("domain_pack"),
         )
         + preset_stage_instructions
+        + theme_first_execution_instructions
         + pressure_topic_tweak
         + content_skill_instructions
         + original_expression_instructions
@@ -4341,6 +6215,7 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         + everyday_warmth_guard_instructions
         + response_priority_guard_instructions
         + supportive_appreciation_guard_instructions
+        + self_worth_guard_instructions
         + inner_settlement_guard_instructions
         + self_reliance_guard_instructions
         + resilience_guard_instructions
@@ -4355,6 +6230,7 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             f"项目标题：{payload['project_title']}\n\n"
             f"{reference_article_section}"
             f"{post_strategy_reference_boundary}\n"
+            f"{theme_first_execution_card}"
             f"{strategy_package_section}"
             f"{style_section}"
             f"{target_wording}"
@@ -4392,6 +6268,9 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     supportive_appreciation_guard_instructions = _build_tracked_article_supportive_appreciation_guard_instructions(
         payload, stage="topic"
     )
+    self_worth_guard_instructions = _build_tracked_article_self_worth_guard_instructions(
+        payload, stage="topic"
+    )
     inner_settlement_guard_instructions = _build_tracked_article_inner_settlement_guard_instructions(
         payload, stage="topic"
     )
@@ -4409,6 +6288,9 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         analysis_emotional_exit = _as_clean_text(payload.get("analysis_emotional_exit"))
         analysis_structure_mode = _as_clean_text(payload.get("analysis_structure_mode"))
         analysis_opening_pattern = _as_clean_text(payload.get("analysis_opening_pattern"))
+        analysis_hook_trigger = _as_clean_text(payload.get("analysis_hook_trigger"))
+        analysis_progression_drive = _as_clean_text(payload.get("analysis_progression_drive"))
+        analysis_share_reason = _as_clean_text(payload.get("analysis_share_reason"))
         analysis_do_not_turn_into = _as_clean_text(payload.get("analysis_do_not_turn_into"))
         source_prompt = (
             f"来源类型：{source_type}\n"
@@ -4423,6 +6305,9 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             f"情绪出口：{analysis_emotional_exit or '无'}\n"
             f"结构模式：{analysis_structure_mode or '无'}\n"
             f"开头方式：{analysis_opening_pattern or '无'}\n"
+            f"开头触发点：{analysis_hook_trigger or '无'}\n"
+            f"中段推进力：{analysis_progression_drive or '无'}\n"
+            f"转发理由：{analysis_share_reason or '无'}\n"
             f"不要写成：{analysis_do_not_turn_into or '无'}\n"
             f"标签：{' / '.join(payload.get('tags') or []) or '无'}\n"
             f"{body_cue_section}"
@@ -4450,6 +6335,7 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             + everyday_warmth_guard_instructions
             + response_priority_guard_instructions
             + supportive_appreciation_guard_instructions
+            + self_worth_guard_instructions
             + inner_settlement_guard_instructions
             + self_reliance_guard_instructions
             + resilience_guard_instructions
@@ -4498,6 +6384,8 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         payload,
         is_polish_mode=is_polish_mode,
     )
+    explicit_strategy_first_draft_mode = bool(payload.get("strategy_first_draft_mode"))
+    export_prompt_bundle_mode = bool(payload.get("export_prompt_bundle_mode"))
     compact_strategy_mode = _should_use_compact_strategy_draft_mode(
         payload,
         is_polish_mode=is_polish_mode,
@@ -4508,6 +6396,18 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         if isinstance(raw_tone_profile, Mapping)
         else None
     )
+    if bool(payload.get("focused_quality_retry_mode")) and is_polish_mode and isinstance(current_draft, Mapping):
+        return _build_focused_quality_retry_prompt(
+            payload,
+            current_draft=current_draft,
+            tone_profile=tone_profile,
+            polish_instruction=raw_polish_instruction,
+        )
+    if timeout_recovery_mode and _as_clean_text(payload.get("source_type")) == "tracked_article":
+        return PromptTemplate(
+            instructions=_build_tracked_article_timeout_recovery_draft_instructions(payload),
+            prompt=_render_tracked_article_timeout_recovery_draft_prompt(payload),
+        )
     polish_instruction = _harmonize_polish_instruction_for_effective_tone_profile(
         raw_polish_instruction,
         tone_profile=tone_profile,
@@ -4527,25 +6427,41 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             )
         )
     )
+    theme_first_execution_instructions = _build_theme_first_execution_instructions(payload, stage="draft")
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="draft", payload=payload)
     content_skill_instructions = (
         ""
         if timeout_recovery_mode
         else build_content_skill_instructions(stage="draft", payload=payload)
     )
-    target_wording = _render_draft_target_wording(tone_profile)
+    target_wording = _render_draft_target_wording(tone_profile, payload=payload)
     reference_article_section = (
         ""
         if _has_strategy_package(payload)
         else _render_reference_article_section(payload, stage="draft")
     )
     post_strategy_reference_boundary = _render_post_strategy_reference_boundary(payload, stage="draft")
+    theme_first_execution_card = _render_theme_first_execution_card(
+        payload,
+        stage="draft",
+        compact=explicit_strategy_first_draft_mode,
+    )
     strategy_package_section = (
         ""
         if timeout_recovery_mode
         else _render_strategy_package_section(
             payload,
-            compact=compact_strategy_mode or strategy_first_draft_mode,
+            compact=False if export_prompt_bundle_mode else compact_strategy_mode or strategy_first_draft_mode,
+            extra_compact=False if export_prompt_bundle_mode else explicit_strategy_first_draft_mode,
+        )
+    )
+    strategy_resonance_instructions = (
+        ""
+        if timeout_recovery_mode
+        else _build_strategy_resonance_instructions(
+            payload,
+            stage="draft",
+            compact=compact_strategy_mode or explicit_strategy_first_draft_mode,
         )
     )
     reference_article_instructions = (
@@ -4555,7 +6471,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
     original_expression_instructions = (
         ""
-        if timeout_recovery_mode or strategy_first_draft_mode
+        if timeout_recovery_mode or (strategy_first_draft_mode and not export_prompt_bundle_mode)
         else _build_original_expression_instructions(
             stage="draft",
             compact=compact_strategy_mode,
@@ -4563,7 +6479,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
     humanizer_zh_review_instructions = (
         ""
-        if timeout_recovery_mode or strategy_first_draft_mode
+        if timeout_recovery_mode or (strategy_first_draft_mode and not export_prompt_bundle_mode)
         else _build_humanizer_zh_review_instructions(
             stage="draft",
             compact=compact_strategy_mode and not is_polish_mode,
@@ -4576,14 +6492,14 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
     ai_flavor_risk_instructions = (
         ""
-        if timeout_recovery_mode or strategy_first_draft_mode
+        if timeout_recovery_mode or (strategy_first_draft_mode and not export_prompt_bundle_mode)
         else _build_localized_ai_flavor_risk_instructions(
             compact=compact_strategy_mode and not is_polish_mode
         )
     )
     wechat_public_account_instructions = (
         ""
-        if timeout_recovery_mode or strategy_first_draft_mode
+        if timeout_recovery_mode or (strategy_first_draft_mode and not export_prompt_bundle_mode)
         else _build_wechat_public_account_draft_instructions(
             compact=compact_strategy_mode
         )
@@ -4591,21 +6507,12 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     timeout_recovery_instructions = _build_timeout_recovery_draft_instructions(payload)
     pressure_guard_instructions = _build_tracked_article_pressure_guard_instructions(payload, stage="draft")
     emotional_release_guard_instructions = _build_tracked_article_emotional_release_guard_instructions(payload, stage="draft")
-    everyday_warmth_guard_instructions = _build_tracked_article_everyday_warmth_guard_instructions(
-        payload, stage="draft"
-    )
-    response_priority_guard_instructions = _build_tracked_article_response_priority_guard_instructions(
-        payload, stage="draft"
-    )
-    supportive_appreciation_guard_instructions = _build_tracked_article_supportive_appreciation_guard_instructions(
-        payload, stage="draft"
-    )
-    inner_settlement_guard_instructions = _build_tracked_article_inner_settlement_guard_instructions(
-        payload, stage="draft"
-    )
-    self_reliance_guard_instructions = _build_tracked_article_self_reliance_guard_instructions(
-        payload, stage="draft"
-    )
+    everyday_warmth_guard_instructions = _build_tracked_article_everyday_warmth_guard_instructions(payload, stage="draft")
+    response_priority_guard_instructions = _build_tracked_article_response_priority_guard_instructions(payload, stage="draft")
+    supportive_appreciation_guard_instructions = _build_tracked_article_supportive_appreciation_guard_instructions(payload, stage="draft")
+    self_worth_guard_instructions = _build_tracked_article_self_worth_guard_instructions(payload, stage="draft")
+    inner_settlement_guard_instructions = _build_tracked_article_inner_settlement_guard_instructions(payload, stage="draft")
+    self_reliance_guard_instructions = _build_tracked_article_self_reliance_guard_instructions(payload, stage="draft")
     resilience_guard_instructions = _build_tracked_article_resilience_guard_instructions(payload, stage="draft")
     relationship_aftercare_guard_instructions = _build_tracked_article_relationship_aftercare_guard_instructions(payload, stage="draft")
     structure_mode_instructions = (
@@ -4707,6 +6614,8 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             domain_pack=payload.get("domain_pack"),
         )
         + preset_stage_instructions
+        + theme_first_execution_instructions
+        + strategy_resonance_instructions
         + pressure_topic_tweak
         + content_skill_instructions
         + timeout_recovery_instructions
@@ -4720,6 +6629,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         + everyday_warmth_guard_instructions
         + response_priority_guard_instructions
         + supportive_appreciation_guard_instructions
+        + self_worth_guard_instructions
         + inner_settlement_guard_instructions
         + self_reliance_guard_instructions
         + resilience_guard_instructions
@@ -4737,6 +6647,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             f"项目标题：{payload['project_title']}\n"
             f"{reference_article_section}"
             f"{post_strategy_reference_boundary}\n"
+            f"{theme_first_execution_card}"
             f"{strategy_package_section}"
             f"{style_section}"
             f"{target_wording}"
@@ -4753,6 +6664,11 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
 
 def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     draft = payload["draft"]
+    if bool(payload.get("assets_timeout_recovery_mode")):
+        return PromptTemplate(
+            instructions=_build_assets_timeout_recovery_instructions(),
+            prompt=_render_assets_timeout_recovery_prompt(payload, draft=draft),
+        )
     raw_tone_profile = payload.get("tone_profile")
     tone_profile = (
         _build_effective_tone_profile(raw_tone_profile, payload=payload)
@@ -4765,12 +6681,37 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         tone_profile=tone_profile,
         payload=payload,
     )
+    theme_first_execution_instructions = _build_theme_first_execution_instructions(payload, stage="assets")
     post_strategy_reference_boundary = _render_post_strategy_reference_boundary(payload, stage="assets")
+    theme_first_execution_card = _render_theme_first_execution_card(payload, stage="assets")
     strategy_package_section = _render_strategy_package_section(payload, compact=True)
+    strategy_resonance_instructions = _build_strategy_resonance_instructions(payload, stage="assets")
     packaging_theme_alignment_instructions = _build_packaging_theme_alignment_instructions(payload, stage="assets")
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="assets", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="assets", payload=payload)
     dbskill_assets_instructions = "".join(get_dbskill_rule_lines("assets", "extra_instructions"))
+    responsibility_shelter_packaging_instructions = (
+        "如果当前题材是责任托家回温稿，标题、封面文案和导语优先写成当场会冒出来的人话，不要先替读者总结意义。"
+        "标题优先抓电话响了、门口停住、先翻日历、先排顺序这类现实动作，少写“久了才明白”“后来才懂”“原来最难的是”这种回看型总结句。"
+        "标题也尽量别用“为什么”“究竟值不值得”“真正让人累的是不是”这类先讲判断再回收的句式。"
+        "标题尽量少用抽象比喻词，比如定盘星、灯塔、港湾、底气、铠甲这类先把人抬高的词。"
+        "责任类标题优先做成一句日常口语，而不是一整句修辞。"
+        "标题尽量短，优先 8 到 14 个字左右，优先从当前正文已经成立的现实动作或现场停顿起手。"
+        "标题不要写成“你是家里的安稳总要先经过你”这种回环句，也不要先起修辞再落判断。"
+        "标题可以从来电、门口、日历、接送、请假、复查、回家或开销等现实入口里选择，但必须跟正文主场景一致，少用“家里一有事”这种总括前缀。"
+        "不要为了套动作硬把电话、手机或日历塞进每篇；如果参考文主场景不是这些，就跟随参考文自己的现实接口。"
+        "尽量不要把标题写成“先稳住的人总是你”这种总结句。"
+        "如果能选，优先用一个具体动作或一个当场停顿来定标题。"
+        "封面图里手机必须入镜，最好是人正低头看手机或拿着手机；可以是暗屏、侧面或背向镜头，但不要露聊天界面。"
+        "封面文案尽量压到 1 句或 2 个短分句，像人一下说出口的话，不要写成完整解释。"
+        "封面文案要和标题拉开一点，不要把标题原样重复一遍。"
+        "主导语和导语候选先给一个现场入口，再轻轻带回家里安稳，不要一上来就讲道理。"
+        "导语首句优先短到像一下冒出来的话，最好先用 8 到 18 个字把电话、门口、日历、放学或回家这类现场顶出来。"
+        "导语不要写成“真正让人累的不是……”或者“等走到最后才明白……”这种先下结论再补解释的句式。"
+        "导语也别写成“这篇想写的”“这篇文章想说的是”这种编辑说明。"
+        "导语和封面文案都尽量少用“不是……而是……”“不是只会……你是在……”这种工整反转骨架。"
+        "导语也尽量少用“托稳”“撑起”“接住”这类过于整齐的总结词，优先写成日常动作和当下反应。"
+    ) if _has_everyday_warmth_responsibility_shelter_focus(payload) else ""
     review_comment = _as_clean_text(payload.get("review_comment"))
     review_section = (
         f"\n审核修改意见：{review_comment}\n"
@@ -4785,11 +6726,14 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             domain_pack=payload.get("domain_pack"),
         )
         + preset_stage_instructions
+        + theme_first_execution_instructions
+        + strategy_resonance_instructions
         + packaging_theme_alignment_instructions
         + pressure_topic_tweak
         + content_skill_instructions
         + dbskill_assets_instructions
-        + "封面图提示词必须服务于 21:9 横版公众号头图。"
+        + responsibility_shelter_packaging_instructions
+        + "封面图提示词必须服务于 16:9 横版公众号头图。"
         + "禁止输出竖版、9:16、手机海报、竖构图或会导致上下裁切的画幅描述。",
         prompt=(
             f"趋势标题：{payload['trend_title']}\n"
@@ -4797,25 +6741,79 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             f"切入角度：{payload['topic_angle']}\n"
             f"项目标题：{payload['project_title']}\n"
             f"{post_strategy_reference_boundary}\n"
+            f"{theme_first_execution_card}"
             f"{strategy_package_section}"
             f"{style_section}"
             f"正文标题：{draft['title']}\n"
             f"正文内容：\n{draft['body_markdown']}\n"
             f"{review_section}\n"
             "封面图提示词要求：\n"
-            "1. 明确写成 21:9 横版公众号头图或横向宽画幅构图\n"
+            "1. 明确写成 16:9 横版公众号头图或横向宽画幅构图\n"
             "2. 主体位于画面中部安全区，避免关键元素贴近上下边缘\n"
             "3. 禁止出现竖版、9:16、手机海报、竖构图等冲突词\n"
-            "4. 用场景、人物状态、光线和留白描述画面，不要把长文案直接写进图里\n"
+            "4. 封面默认不要手机聊天界面、输入框或消息气泡；如果手机作为道具，只画人在看手机或握着手机，屏幕可以暗掉、虚化或背向镜头，不展示可读聊天内容；不要把聊天界面画在手机背面，不要生成双面手机、前后双屏手机或背面屏幕，不要让后摄模组和屏幕 UI 同时出现在同一可见面上；任何屏幕都必须正常朝向，不要镜像、反字、反向 UI，也不要生成可辨认乱码文字\n"
+            "5. 用场景、人物状态、光线和留白描述画面，不要把长文案直接写进图里\n"
             "返回：\n"
-            "1. 3 个标题备选 title_options\n"
-            "2. 1 条主推标题 recommended_title（必须从 title_options 中选，优先最适合直接发布的一条）\n"
+            "1. 3 个标题备选 title_options（不要套“你以为……其实……”“最难受的不是……而是……”或“不是……只是……”这类翻转骨架；不要用“很多人”“有些人”“总有人”这类泛主语起手；优先具体节点、误判或动作入口；至少有 1 条明显贴着策略包里的包装抓手）\n"
+            "2. 1 条主推标题 recommended_title（必须从 title_options 中选，优先最适合直接发布的一条；不要选最像模板答案句的那条）\n"
             "3. 1 条封面图提示词 cover_prompt\n"
-            "4. 1 条封面文案 cover_copy\n"
-            "5. 1 条主社媒导语 social_teaser\n"
-            "6. 3 条导语候选 social_teaser_options（短句优先，彼此要有区分）"
+            "4. 1 条封面文案 cover_copy（优先短到一眼能截住人，少解释，像一句现场会冒出来的话）\n"
+            "5. 1 条主社媒导语 social_teaser（不要只概述正文，要带一个明确入口或回正落点；优先像真人顺口说出来的开场，不要写成解释文案；首句优先短句化）\n"
+            "6. 3 条导语候选 social_teaser_options（短句优先，彼此要有区分；不要用“很多人会……”这类群体概括句起手；如果必须群体概括，只能放句中，开头要先给具体入口或动作；首句优先短句化）"
         ),
     )
+
+
+def _build_assets_timeout_recovery_instructions() -> str:
+    return (
+        "你是公众号包装编辑。只返回 JSON 对象："
+        "title_options 数组3条、recommended_title、cover_prompt、cover_copy、"
+        "social_teaser、social_teaser_options 数组3条。推荐标题必须来自 title_options。"
+        "标题、封面文案和导语不要用“很多人”“有些人”“总有人”起手。"
+    )
+
+
+def _render_assets_timeout_recovery_prompt(
+    payload: Mapping[str, object],
+    *,
+    draft: Mapping[str, object],
+) -> str:
+    lines: list[str] = []
+    project_title = _as_clean_text(payload.get("project_title")) or _as_clean_text(payload.get("topic_title"))
+    if project_title:
+        lines.append(f"主题：{_truncate_text(project_title, max_length=32)}")
+
+    draft_title = _as_clean_text(draft.get("title"))
+    if draft_title and draft_title != project_title:
+        lines.append(f"正文标题：{_truncate_text(draft_title, max_length=32)}")
+
+    problem_brief = payload.get("problem_brief")
+    if isinstance(problem_brief, Mapping):
+        theme_axis = _as_clean_text(problem_brief.get("theme_axis"))
+        if theme_axis:
+            lines.append(f"主线：{_truncate_text(theme_axis, max_length=54)}")
+        emotional_value_goal = _as_clean_text(problem_brief.get("emotional_value_goal"))
+        if emotional_value_goal:
+            lines.append(f"情绪回报：{_truncate_text(emotional_value_goal, max_length=48)}")
+
+    strategy_card = payload.get("strategy_card")
+    if isinstance(strategy_card, Mapping):
+        packaging_focus = _as_clean_text(strategy_card.get("packaging_focus"))
+        if packaging_focus:
+            lines.append(f"包装抓手：{_truncate_text(packaging_focus, max_length=56)}")
+        positive_direction = _as_clean_text(strategy_card.get("positive_direction"))
+        if positive_direction:
+            lines.append(f"正向落点：{_truncate_text(positive_direction, max_length=48)}")
+
+    draft_excerpt = _truncate_text(
+        _as_clean_text(draft.get("body_markdown")).replace("\n", " "),
+        max_length=120,
+    )
+    if draft_excerpt:
+        lines.append(f"正文抓手：{draft_excerpt}")
+
+    lines.append("要求：标题短、有情绪价值；导语给现实入口和正向回落；标题、封面文案和导语不要用很多人/有些人/总有人起手；封面16:9横版，不要手机聊天界面，不要口号。")
+    return "\n".join(lines)
 
 
 def build_tracked_article_metadata_prompt(payload: Mapping[str, object]) -> PromptTemplate:
@@ -4837,17 +6835,21 @@ def build_tracked_article_metadata_prompt(payload: Mapping[str, object]) -> Prom
         + "这是参考文章分析与来源池字段补全，不是正文改写。"
         + "先分析文章，再补字段；不要跳过分析直接写摘要。"
         + "不要照搬原标题、摘要或正文原句。"
-        + "摘要要像人工写的来源备注，1 到 2 句话，写清核心冲突、观察角度或主要判断。"
-        + "结构备注要说明开头如何切入、中段如何推进、结尾如何收束，保持简洁具体。"
-        + "分析主题要一句话说清这篇文章真正想讨论什么。"
-        + "核心矛盾要写出文章想拆开的冲突或卡点，不要空泛。"
-        + "情绪出口要说明文章最后把读者带向哪里，尽量正向、有人被接住的感觉。"
-        + "结构模式只能从这些值里选一个：fragment_chain_observation / pressure_interface_direct / everyday_warmth_return / inner_settlement / self_reliance_inward_support / response_priority / relationship_aftercare / resilience_reconstruction / emotional_engine_direct / scene_first_progression。"
+            + "摘要要像人工写的来源备注，1 到 2 句话，写清核心冲突、观察角度或主要判断。"
+            + "结构备注要说明开头如何切入、中段如何推进、结尾如何收束，保持简洁具体。"
+            + "分析主题要一句话说清这篇文章真正想讨论什么。"
+            + "核心矛盾要写出文章想拆开的冲突或卡点，不要空泛。"
+            + "情绪出口要说明文章最后把读者带向哪里，尽量正向、有人被接住的感觉。"
+        + "开头触发点要写出原文第一下最容易把人停住的现实接口、物件、问句或画面，不要写成空泛的“很有代入感”。"
+        + "中段推进力要写出文章靠什么一路往前推，比如误判被点破、代价被看见、被爱托住或关系意义被重估。"
+        + "转发理由要说明它为什么容易让人觉得“这说的就是我”或“这段话我想发给谁看”，要具体，不要只写“有共鸣”。"
+        + "结构模式只能从这些值里选一个：fragment_chain_observation / pressure_interface_direct / everyday_warmth_return / inner_settlement / self_worth_rebuild / self_reliance_inward_support / response_priority / trust_boundary / supportive_appreciation / relationship_aftercare / resilience_reconstruction / emotional_engine_direct / scene_first_progression。"
+        + "如果原文重心是成年人把一家人的安稳放在心上，最后落回家里仍有灯、有回应、辛苦慢慢变成踏实，这也属于 everyday_warmth_return，不要误判成泛放下稿。"
         + "开头方式要说明原文如何起笔，例如从生活接口、关系现场、判断句、引用或身体信号切入。"
-        + "不要写成要明确提醒这篇参考文最不该被改写成什么主题或套路。"
-        + "标签输出 3 到 6 个短标签，优先主题、情绪线、关系场景和写法特征。"
-        + "如果作者名已经明确，就按文中已有作者输出；如果无法判断作者，author 留空字符串。"
-        + "禁止编造链接、平台、数据或原文没有出现的具体事实。",
+        + "偏题边界要写成一条最容易偏离的方向，短句即可，避免写成泛泛提醒或二次改写要求。"
+            + "标签输出 3 到 6 个短标签，优先主题、情绪线、关系场景和写法特征。"
+            + "如果作者名已经明确，就按文中已有作者输出；如果无法判断作者，author 留空字符串。"
+            + "禁止编造链接、平台、数据或原文没有出现的具体事实。",
         prompt=(
             f"来源类型：{_as_clean_text(payload.get('source_kind')) or 'manual'}\n"
             f"来源账号：{_as_clean_text(payload.get('source_name')) or '手动录入'}\n"
@@ -4868,21 +6870,49 @@ def build_tracked_article_metadata_prompt(payload: Mapping[str, object]) -> Prom
             "6. 情绪出口 analysis_emotional_exit\n"
             "7. 结构模式 analysis_structure_mode\n"
             "8. 开头方式 analysis_opening_pattern\n"
-            "9. 不要写成 analysis_do_not_turn_into\n"
-            "10. 标签 tags"
+            "9. 开头触发点 analysis_hook_trigger\n"
+            "10. 中段推进力 analysis_progression_drive\n"
+            "11. 转发理由 analysis_share_reason\n"
+            "12. 偏题边界 analysis_do_not_turn_into\n"
+            "13. 标签 tags"
         ),
     )
 
 
 def build_cover_image_prompt(payload: Mapping[str, object]) -> str:
+    strategy_card = payload.get("strategy_card")
+    responsibility_shelter_cover_focus = (
+        isinstance(strategy_card, Mapping)
+        and _as_clean_text(strategy_card.get("structure_mode")) == "responsibility_shelter"
+    ) or _has_everyday_warmth_responsibility_shelter_focus(payload)
+
+    responsibility_shelter_phone_requirement = (
+        "当前题材里，手机必须清晰入镜，优先画成人物正拿着手机、低头看手机，或把手机贴在耳边接电话。"
+        "不要只把手机远远丢在桌角，也不要被手、纸张或桌面杂物挡到几乎看不见。"
+    ) if responsibility_shelter_cover_focus else ""
+
     return (
-        "请生成适合公众号头图的横版封面图，目标视觉比例为 21:9。"
+        "请生成适合公众号头图的横版封面图，目标视觉比例为 16:9。"
         "主体信息放在画面中部安全区，避免关键人物或文字落在上下裁切边缘。"
+        "不要把画面做成整张雾化、过度柔焦或糊成大片色块；人物、门框、桌面物件要保持基本可辨识的轮廓和材质。"
+        "如果画面里有人物，不要画成过于规整的插画剪影、空白面部或海报摆拍；要更像真实生活里的抓拍瞬间。"
+        "人物可以是侧身、背身、低头或面部被自然遮挡，但整体气质要像真实回家、真实停顿，而不是抽象符号。"
+        "封面默认不要手机聊天界面、输入框、消息气泡或可读屏幕文字。"
+        f"{responsibility_shelter_phone_requirement}"
+        "如果手机作为道具，只画人在看手机、拿着手机或手机放在桌边；屏幕可以暗掉、虚化、侧过去或背向镜头。"
+        "即使原始创意提示词提到聊天界面，也要改成无可读屏幕内容的看手机场景。"
+        "不要把聊天界面画在手机背面，不要生成双面手机、前后双屏手机或背面屏幕，不要让后摄像头模组和屏幕 UI 同时出现在同一可见面上。"
+        "任何屏幕都必须保持正常朝向，不要镜像翻转，不要反字，不要生成可辨认乱码文字。"
         f"\n原始创意提示词：{payload['cover_prompt']}"
     )
 
 
 def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplate:
+    if bool(payload.get("publish_timeout_recovery_mode")):
+        return PromptTemplate(
+            instructions=_build_publish_timeout_recovery_instructions(),
+            prompt=_render_publish_timeout_recovery_prompt(payload),
+        )
     raw_tone_profile = payload.get("tone_profile")
     tone_profile = (
         _build_effective_tone_profile(raw_tone_profile, payload=payload)
@@ -4895,8 +6925,11 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
         tone_profile=tone_profile,
         payload=payload,
     )
+    theme_first_execution_instructions = _build_theme_first_execution_instructions(payload, stage="publish_package")
     post_strategy_reference_boundary = _render_post_strategy_reference_boundary(payload, stage="publish_package")
+    theme_first_execution_card = _render_theme_first_execution_card(payload, stage="publish_package")
     strategy_package_section = _render_strategy_package_section(payload, compact=True)
+    strategy_resonance_instructions = _build_strategy_resonance_instructions(payload, stage="publish_package")
     packaging_theme_alignment_instructions = _build_packaging_theme_alignment_instructions(
         payload,
         stage="publish_package",
@@ -4904,6 +6937,15 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
     pressure_topic_tweak = _build_jinwan_youyu_pressure_topic_tweak(stage="publish_package", payload=payload)
     content_skill_instructions = build_content_skill_instructions(stage="publish_package", payload=payload)
     dbskill_publish_instructions = "".join(get_dbskill_rule_lines("publish_package", "extra_instructions"))
+    responsibility_shelter_publish_instructions = (
+        "如果当前题材是责任托家回温稿，发布标题和导语优先保住那种先稳住家里、再轮到自己开口的口气。"
+        "标题不要写成大而整齐的总结句，优先保留一个现实动作、当场停顿或顺手先做的事。"
+        "标题尽量短，优先 8 到 14 个字左右，别做成长句收口。"
+        "publish_lead 和 intro_options 优先像人站在具体现场处理事情时会说出来的话，少写“这篇写的是”“说到底”“真正托住人的”这类作者替读者总结的句子。"
+        "导语首句尽量更短，先拿一个现场动作把人拽进去，再用下一句补回家里的安稳。"
+        "导语也别写成“这篇想写的”这种编辑说明。"
+        "发布导语里也尽量少用“不是……而是……”这种工整反转句。"
+    ) if _has_everyday_warmth_responsibility_shelter_focus(payload) else ""
     review_comment = _as_clean_text(payload.get("review_comment"))
     review_section = (
         f"\n审核修改意见：{review_comment}\n"
@@ -4918,13 +6960,17 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
             domain_pack=payload.get("domain_pack"),
         )
         + preset_stage_instructions
+        + theme_first_execution_instructions
+        + strategy_resonance_instructions
         + packaging_theme_alignment_instructions
         + pressure_topic_tweak
         + content_skill_instructions
-        + dbskill_publish_instructions,
+        + dbskill_publish_instructions
+        + responsibility_shelter_publish_instructions,
         prompt=(
             f"项目标题：{payload['project_title']}\n"
             f"{post_strategy_reference_boundary}\n"
+            f"{theme_first_execution_card}"
             f"{strategy_package_section}"
             f"{style_section}"
             f"正文标题：{payload['draft']['title']}\n"
@@ -4937,10 +6983,82 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
             f"{review_section}\n"
             "返回：\n"
             "1. 发布摘要 abstract\n"
-            "2. 最终发布标题 publish_title（优先基于标题备选微调，不要另起完全无关的新标题）\n"
-            "3. 最终发布导语 publish_lead（适合微信正文前的简短导语，尽量像真人写的开场）\n"
-            "4. 3 条导语候选 intro_options（用于正文开头前的导语备选，和 publish_lead 保持同主题但不要完全重复）\n"
+            "2. 最终发布标题 publish_title（优先基于标题备选微调，不要另起完全无关的新标题；不要套“你以为……其实……”“最难受的不是……而是……”或“不是……只是……”这类翻转骨架；不要用“很多人”“有些人”“总有人”这类泛主语起手；责任类题材尤其优先动作型、现场型、停顿型标题，不要先讲道理；可以从来电、门口、日历、接送、请假、回家或开销等现实入口里选择，但必须跟正文主场景一致；不要写成“你是家里的安稳总要先经过你”这种回环句，不要先用“家里一有事”这种总括前缀，也不要写成“先稳住的人总是你”这种总结句）\n"
+            "3. 最终发布导语 publish_lead（适合微信正文前的简短导语，尽量像真人写的开场；不要写成“这篇想讲清楚”“这篇文章想说的是”这种编辑说明；要有入口，也要带回正落点；优先保留口语停顿和现场感，不要先替读者下总结；首句优先短句化；责任类题材优先先写正文已经成立的现场动作，再落一点情绪，不要先抽象概括辛苦）\n"
+            "4. 3 条导语候选 intro_options（用于正文开头前的导语备选，和 publish_lead 保持同主题但不要完全重复；优先短句，允许口语停顿，不要整齐三段论；不要用“很多人会……”这类群体概括句起手；如果必须群体概括，只能放句中，开头要先给具体入口或动作；首句优先短句化；责任类题材里，先给现场动作，再给轻一点的回落；少用“托稳”“底气”“定盘星”这种太整齐的词；封面文案也不要和标题重复）\n"
             "5. 3 到 5 个标签 tags\n"
             "6. 编辑备注 editor_note"
         ),
     )
+
+
+def _build_publish_timeout_recovery_instructions() -> str:
+    return (
+        "你是公众号发布编辑。"
+        "只返回一个 JSON 对象。"
+        "字段必须包含 abstract、tags、editor_note、publish_title、publish_lead、intro_options。"
+        "tags 写 3 到 5 个短标签；intro_options 写 3 条字符串。"
+        "publish_title、abstract、publish_lead、intro_options 不要用“很多人”“有些人”“总有人”起手。"
+        "publish_lead 和 intro_options 要像真人写的开场，不要编辑说明腔，不要喊口号。"
+    )
+
+
+def _render_publish_timeout_recovery_prompt(payload: Mapping[str, object]) -> str:
+    draft = payload.get("draft")
+    assets = payload.get("assets")
+    lines = [f"项目标题：{_as_clean_text(payload.get('project_title'))}"]
+
+    if isinstance(draft, Mapping):
+        draft_title = _as_clean_text(draft.get("title"))
+        if draft_title:
+            lines.append(f"正文标题：{draft_title}")
+        draft_excerpt = _truncate_text(
+            _as_clean_text(draft.get("body_markdown")).replace("\n", " "),
+            max_length=380,
+        )
+        if draft_excerpt:
+            lines.append(f"正文要点：{draft_excerpt}")
+
+    if isinstance(assets, Mapping):
+        publish_title = _as_clean_text(assets.get("recommended_title"))
+        if publish_title:
+            lines.append(f"现成主推标题：{publish_title}")
+        cover_copy = _as_clean_text(assets.get("cover_copy"))
+        if cover_copy:
+            lines.append(f"封面文案：{_truncate_text(cover_copy, max_length=60)}")
+        social_teaser = _as_clean_text(assets.get("social_teaser"))
+        if social_teaser:
+            lines.append(f"现成导语：{_truncate_text(social_teaser, max_length=100)}")
+
+    problem_brief = payload.get("problem_brief")
+    if isinstance(problem_brief, Mapping):
+        theme_axis = _as_clean_text(problem_brief.get("theme_axis"))
+        if theme_axis:
+            lines.append(f"主线：{_truncate_text(theme_axis, max_length=78)}")
+        core_conflict = _as_clean_text(problem_brief.get("core_conflict"))
+        if core_conflict:
+            lines.append(f"冲突：{_truncate_text(core_conflict, max_length=72)}")
+        emotional_value_goal = _as_clean_text(problem_brief.get("emotional_value_goal"))
+        if emotional_value_goal:
+            lines.append(f"情绪回报：{_truncate_text(emotional_value_goal, max_length=72)}")
+
+    strategy_card = payload.get("strategy_card")
+    if isinstance(strategy_card, Mapping):
+        positive_direction = _as_clean_text(strategy_card.get("positive_direction"))
+        if positive_direction:
+            lines.append(f"正向落点：{_truncate_text(positive_direction, max_length=72)}")
+        packaging_focus = _as_clean_text(strategy_card.get("packaging_focus"))
+        if packaging_focus:
+            lines.append(f"包装抓手：{_truncate_text(packaging_focus, max_length=88)}")
+        packaging_hook = _as_clean_text(strategy_card.get("packaging_hook"))
+        if packaging_hook:
+            lines.append(f"主钩子：{_truncate_text(packaging_hook, max_length=72)}")
+
+    review_comment = _as_clean_text(payload.get("review_comment"))
+    if review_comment:
+        lines.append(f"审核意见：{_truncate_text(review_comment, max_length=72)}")
+
+    lines.append(
+        "要求：摘要别空泛，发布标题、摘要、导语和候选导语不要用很多人/有些人/总有人起手；发布导语先给现实入口再回到正向落点，标签要具体，编辑备注只写最该提醒的一件事。"
+    )
+    return "\n".join(lines)

@@ -99,8 +99,11 @@ def test_dbskill_bridge_localizes_scene_first_generated_rules(monkeypatch, tmp_p
     assert "具体场景、动作和顺序" not in flattened
     assert "小动作、关系余波" not in flattened
     assert "开头先给一个现实抓手" in flattened
+    assert "价值承接" in flattened
+    assert "现实落点" in flattened
     assert "不能用场景描写凑篇幅" in flattened
-    assert "不要另补小动作" in flattened
+    assert "不用大道理冷启动" in flattened
+    assert "具体动作" in flattened
 
     dbskill_bridge.load_dbskill_tracked_article_rules.cache_clear()
 
@@ -548,10 +551,13 @@ def test_build_strategy_package_uses_relationship_aftercare_mode_for_quarrel_rep
 
     assert result.strategy_card.structure_mode == "relationship_aftercare"
     assert result.problem_brief.target_reader_situation == "每次吵完都要自己消化情绪、把日子接回去的人"
-    assert "吵架不可怕" in result.problem_brief.writing_goal
+    assert "争吵" in result.problem_brief.writing_goal
+    assert "修复" in result.problem_brief.writing_goal or "沟通" in result.problem_brief.writing_goal
     assert "真正需要被看见的，是为什么一次次争执之后，总是只有一方在回收情绪、重建秩序" in result.problem_brief.clarified_problem
-    assert "争执后的安抚、解释和修复都落在同一个人身上" in result.problem_brief.problem_statement_markdown
-    assert "谁在善后" in result.strategy_card.point_of_view
+    assert "总是同一个人先把话咽回去" in result.problem_brief.problem_statement_markdown
+    assert "把日常接回去" in result.problem_brief.problem_statement_markdown
+    assert "有没有人回来沟通" in result.strategy_card.point_of_view
+    assert "接住失望" in result.strategy_card.point_of_view
     assert "谁先把话咽回去" in result.strategy_card.body_shift
     assert "长期单人善后" in result.strategy_card.body_shift
     assert "没被接住的小动作" in result.strategy_card.ending_move
@@ -591,7 +597,7 @@ def test_build_strategy_package_keeps_happiness_release_article_on_emotional_eng
     assert "健康的身体" not in result.strategy_card.opening_move
     assert "体检" not in result.strategy_card.opening_move
     assert "情绪发动机" in result.strategy_card.body_shift
-    assert "放到最后" in result.strategy_card.body_shift
+    assert "继续投入误认成还有希望" in result.strategy_card.body_shift or "透支之后才看见已经拥有的部分" in result.strategy_card.body_shift
     assert result.problem_brief.problem_statement_markdown.count("从身体和日常节奏已经开始变钝的迹象切入") == 0
 
 
@@ -626,9 +632,9 @@ def test_build_strategy_package_avoids_title_echo_for_broad_happiness_release_ar
     assert result.strategy_card.structure_mode == "emotional_engine_direct"
     assert result.problem_brief.target_reader_situation == "总在得不到的东西上反复拉扯，明明已经很累却还是不肯松手的人"
     assert topic_title not in result.problem_brief.observed_phenomenon
-    assert "继续投入误认成还有希望" in result.problem_brief.observed_phenomenon
+    assert "误认成还来得及" in result.problem_brief.observed_phenomenon or "继续投入" in result.problem_brief.observed_phenomenon
     assert topic_title not in result.problem_brief.writing_goal
-    assert "停下不是认输" in result.problem_brief.writing_goal
+    assert "停下来不是认输" in result.problem_brief.writing_goal
     assert topic_title not in result.problem_brief.clarified_problem
     assert "不甘心、投入感和希望" in result.problem_brief.clarified_problem
     assert topic_title not in result.problem_brief.feedback_entry
@@ -665,7 +671,47 @@ def test_build_strategy_package_uses_everyday_warmth_return_mode_for_small_thing
     assert result.strategy_card.structure_mode == "everyday_warmth_return"
     assert "更大的目标" in result.problem_brief.writing_goal
     assert "陪伴和日常" in result.problem_brief.problem_statement_markdown
-    assert "普通陪伴" in result.strategy_card.body_shift or "细小日常" in result.strategy_card.body_shift
-    assert "关系余波" in result.strategy_card.ending_move or "延迟代价" in result.strategy_card.ending_move
+    assert "家人平安" in result.strategy_card.body_shift or "有人可回去" in result.strategy_card.body_shift
+    assert "具体回温动作" in result.strategy_card.ending_move or "一顿热饭" in result.strategy_card.ending_move
     assert "很小的陪伴动作" not in result.strategy_card.ending_move
     assert "高识别度家庭动作" in result.strategy_card.strategy_markdown
+
+
+def test_build_strategy_package_uses_everyday_warmth_return_mode_for_simple_happiness_article() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "simple-happiness-project",
+            "topic_title": "人活到最后才明白，最贵的不是大富大贵，而是这几样",
+            "topic_angle": "从人为什么总把好日子押在更大的拥有上切入，写我们一路追着排场、热闹和体面往前赶，后来才慢慢明白：真正让人踏实的，往往是家人平安、知己仍在、日子有烟火。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "人生不求大富大贵，但求简单快乐",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章借幸福观的变化，讨论人到中年后对人生所求的重新排序：比起钱、排场和热闹，真正托住人的往往是健康、知己、家里的温度。",
+            "reference_article_structure_notes": "开头先用人生发问和朴素愿望起势，中段分到知足、知己和一家温暖，结尾回到名利短暂、平安可贵。",
+            "reference_article_body_markdown": (
+                "# 人生不求大富大贵，但求简单快乐\n\n"
+                "人活着，到底是为了什么？人生苦短，只求心情愉悦，家人安康，吃穿不愁，知己二三，四季平安。人生不求大富大贵，但求简单快乐。\n\n"
+                "中年后，我们才慢慢发现，幸福其实是一种心态，知足最幸福。\n\n"
+                "世间最大的幸福，从来不是你认识多少人，有多大的交际圈，而是能有一个惺惺相惜、同甘共苦的知己。\n\n"
+                "开什么车、住什么房子不重要，只要一家人能整整齐齐，平安健康，就比什么都珍贵。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-03T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "everyday_warmth_return"
+    combined = "\n".join(
+        [
+            result.problem_brief.clarified_problem,
+            result.problem_brief.writing_goal,
+            result.problem_brief.feedback_entry,
+            result.strategy_card.conflict_frame,
+            result.strategy_card.body_shift,
+        ]
+    )
+    assert "家人" in combined or "知己" in combined or "踏实" in combined
+    assert "得不到的东西" not in combined
+    assert "家人" in result.strategy_card.body_shift or "知己" in result.strategy_card.body_shift

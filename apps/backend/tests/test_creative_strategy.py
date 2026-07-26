@@ -1,3 +1,5 @@
+import json
+
 from app.services.creative_strategy import (
     _resolve_inner_settlement_variant,
     build_strategy_package,
@@ -76,6 +78,47 @@ def test_build_strategy_package_records_benchmark_borrow_and_avoid_boundaries() 
     assert "段落职责分配" in benchmark.borrow_focus
     assert "不要复用原标题骨架" in benchmark.avoid_focus
     assert "只借观察路径、冲突组织和节奏职责" in benchmark.rationale
+
+
+def test_responsibility_shelter_strategy_uses_reference_scene_lane_without_fixed_entry() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "responsibility-shelter-project",
+            "topic_title": "家里一有事，总是你先把顺序理出来",
+            "topic_angle": "从家里临时有事、自己先把顺序理清切入，写电话、日历、请假和孩子接送怎样一下子推到眼前，也写这些安排最后怎样变成家里的安稳。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "万般辛苦，皆为序章，人间安稳，终会如愿",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章围绕成年人把辛苦和委屈先往后收、把父母孩子伴侣的安稳顶在前面展开，重点不在控诉生活难，而在那些认真撑住的日子后来怎样变成一个家的底气。",
+            "reference_article_structure_notes": "先从一句没事有我和电话账单这些现实重量切入，中段写责任怎样让人把家里理顺，结尾落回家里安稳和这些辛苦没有白费。",
+            "reference_article_body_markdown": (
+                "电话的那头，是父母日渐佝偻的身影，是孩子越来越高的补习费用，是每个月如期而至的各种账单。\n\n"
+                "电话的这头，你扛住压力，喉咙发紧，却只能故作轻松地说一句：没事，有我。\n\n"
+                "人间安稳，从来不是没有风雨，而是风雨再大，你知道家在哪里，路再难走，你知道有人在爱你。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-21T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "responsibility_shelter"
+    combined = "\n".join(
+        [
+            result.problem_brief.clarified_problem,
+            result.strategy_card.point_of_view,
+            result.strategy_card.opening_move,
+            result.strategy_card.body_shift,
+            result.strategy_card.ending_move,
+        ]
+    )
+    assert "电话" in combined
+    assert "我来安排" in combined
+    assert "现实安排" in combined
+    assert "不要硬套电话、日历或消息入口" in combined
+    assert "中年励志" in combined
+    assert "回消息排序" not in combined
     assert any("不得沿用原标题骨架" in constraint for constraint in result.problem_brief.constraints)
 
 
@@ -101,6 +144,163 @@ def test_resolve_tracked_article_structure_mode_keeps_response_priority_when_ana
     assert resolved == "response_priority"
 
 
+def test_resolve_tracked_article_structure_mode_prefers_response_priority_for_comment_followup_article() -> None:
+    body_markdown = (
+        "朋友圈里，是给你点赞的人更在意你，还是给你评论的人更在意你？\n\n"
+        "而评论，却需要停下来，读懂你的言外之意，斟酌字句，再留下专属的痕迹。\n\n"
+        "真正关心你的人，愿意努力去读懂你的每一份脆弱，在力所能及的范围内接住破碎的你。\n\n"
+        "真正关心你的人，是哪怕相隔千里，也能透过你的一句“我没事”，听出你心底的“我有点累”。"
+    )
+
+    resolved = resolve_tracked_article_structure_mode(
+        body_markdown=body_markdown,
+        summary="文章不是讨论社交礼仪，而是借点赞和评论的差别，讨论什么才算真正把注意力和心力放在你身上。",
+        structure_notes="开头先从点赞和评论的差别切入，中段拆表层互动和真正关心之间的落差，结尾落到谁会回来追问、谁会接住你没说完的话。",
+        analysis_structure_mode_hint="emotional_engine_direct",
+        analysis_theme="这篇文章真正想讨论的是：在日常互动里，一个人是否真的在意你，往往不看热闹程度，而看他会不会停下来、追问你一句、读懂你没说完的话。",
+        analysis_core_conflict="表面上大家都在互动、点赞、寒暄，可真正让人安定的，从来不是路过式回应，而是有人愿意停下来，把注意力和心力真正落到你这里。",
+        analysis_emotional_exit="把心力慢慢收回那些愿意认真回应、愿意接住你情绪的人身上，不再替表层互动找补。",
+        analysis_opening_pattern="从点赞和评论的差别起笔，再落到一句“我没事”背后其实藏着的疲惫。",
+        analysis_do_not_turn_into="不要写成泛泛的高质量关系总论，也不要写成谁冷淡谁深情的空泛判断稿。",
+    )
+
+    assert resolved == "response_priority"
+
+
+def test_resolve_tracked_article_structure_mode_prefers_trust_boundary_when_trust_core_word_is_single() -> None:
+    body_markdown = (
+        "信任很贵，请别辜负。\n\n"
+        "一句谎言，一次隐瞒，那个叫信任的东西，就裂了一道缝。\n\n"
+        "你以为撒一个谎没事，以为瞒一次小事无妨，却不知道对方要花多少个夜晚，才能说服自己再信你一次。\n\n"
+        "每一次辜负，都是在对方的心上划一刀。后来他开始怀疑自己的判断，也变得敏感多疑。\n\n"
+        "愿你不辜负任何一份赤诚的交付，好好守护那个敢把心交给你的人。"
+    )
+
+    resolved = resolve_tracked_article_structure_mode(
+        article_title="信任很贵，请别辜负",
+        body_markdown=body_markdown,
+        summary="文章写一段关系里一次谎言、一次隐瞒怎样让放心裂开，也写赤诚交付需要被认真守护。",
+        structure_notes="开头先写信任裂开的瞬间，中段写辜负带来的怀疑和敏感，结尾回到守护赤诚。",
+        analysis_structure_mode_hint="emotional_engine_direct",
+        analysis_theme="这篇文章真正想讨论的是：亲密关系里最怕的不是一次解释不清，而是放心被含糊和隐瞒一点点耗掉。",
+        analysis_core_conflict="表面冲突是一个谎言、一件隐瞒，真正的冲突是一个人交出的赤诚被辜负后，再也不敢像从前那样放心。",
+        analysis_emotional_exit="让读者重新珍惜那份愿意交付的赤诚，也愿意用坦诚和守护把关系里的心安托住。",
+        analysis_opening_pattern="从一句判断起笔，再落到谎言和隐瞒让人心里有疙瘩的现实瞬间。",
+        analysis_do_not_turn_into="不要写成回消息、点赞评论或谁更在乎你的关系排序稿。",
+    )
+
+    assert resolved == "trust_boundary"
+
+
+def test_resolve_tracked_article_structure_mode_prefers_everyday_warmth_return_for_responsibility_shelter_article() -> None:
+    body_markdown = (
+        "电话的那头，是父母日渐佝偻的身影，是孩子越来越高的补习费用，是每个月如期而至的各种账单。"
+        "电话的这头，你扛住压力，喉咙发紧，却只能故作轻松地说一句：没事，有我。\n\n"
+        "生病了不敢请假，怕影响这个月的绩效；委屈了不敢辞职，因为你要撑起一个家的重量。\n\n"
+        "直到你看见，渐渐老去的父母，不必在医院的缴费窗口前踌躇；慢慢长大的孩子，拥有了对生活说“不”的底气；"
+        "深深爱着的伴侣，也能在风雨来临时有一处温暖的屋檐庇护。"
+    )
+
+    resolved = resolve_tracked_article_structure_mode(
+        body_markdown=body_markdown,
+        summary="文章借成年人常说的“我没事”，写父母养老、孩子缴费、家里开销和伴侣依靠一起压上来时，很多人怎样先把自己往后放。重点不在歌颂吃苦，而在说明很多硬撑后来真的会变成一家人的安稳。",
+        structure_notes="先从一句“没事，有我”和电话账单这些现实重量切入，中段写责任怎样让人把自己往后收，结尾落回家里安稳和这些辛苦没有白熬。",
+        analysis_structure_mode_hint="emotional_engine_direct",
+        analysis_theme="",
+        analysis_core_conflict="",
+        analysis_emotional_exit="",
+        analysis_opening_pattern="",
+        analysis_do_not_turn_into="",
+    )
+
+    assert resolved == "everyday_warmth_return"
+
+
+def test_resolve_tracked_article_structure_mode_prefers_everyday_warmth_return_for_simple_happiness_article_with_single_achievement_anchor() -> None:
+    resolved = resolve_tracked_article_structure_mode(
+        article_title="人生不求大富大贵，但求简单快乐",
+        body_markdown=(
+            "人活着，到底是为了什么？人生苦短，只求心情愉悦，家人安康，吃穿不愁，知己二三，四季平安。\n\n"
+            "生活简单就迷人，人心简单就幸福。\n\n"
+            "人这一辈子，谁也争不过朝夕，财富、名利、地位不过是过眼云烟。"
+        ),
+        summary="文章主线是幸福不一定在更大的拥有里，常常就在平凡日常和家人知己身边。",
+        structure_notes="从幸福被误认成更大拥有切入，落到一餐一饭和陪伴。",
+        analysis_structure_mode_hint="",
+        analysis_theme="",
+        analysis_core_conflict="",
+        analysis_emotional_exit="",
+        analysis_opening_pattern="",
+        analysis_do_not_turn_into="",
+    )
+
+    assert resolved == "everyday_warmth_return"
+
+
+def test_build_strategy_package_simple_happiness_uses_updated_everyday_angle() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "simple-happiness-strategy-project",
+            "topic_title": "日子过到后来，有家人有知己就很踏实",
+            "topic_angle": "人会一路追着更多拥有往前走，直到某个普通晚上被一顿热饭、一通惦记和一句到哪了轻轻接住，才重新看见家人平安、知己仍在的分量。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "人活着，不求大富大贵，但求简单快乐",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章借幸福观的变化，讨论人到中年后对人生所求的重新排序：比起钱、排场和热闹，真正托住人的往往是健康、知己和家里的温度。",
+            "reference_article_structure_notes": "开头先用人生发问和朴素愿望起势，中段分到知足、知己和一家温暖，结尾回到名利短暂、平安可贵。",
+            "reference_article_body_markdown": (
+                "人活着，到底是为了什么？家人安康，吃穿不愁，知己二三，四季平安。"
+                "人生不求大富大贵，但求简单快乐。家人平安，知己仍在，饭桌上还有热气。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-12T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "everyday_warmth_return"
+    combined = "\n".join(
+        [
+            result.problem_brief.problem_statement_markdown,
+            result.strategy_card.strategy_markdown,
+            result.strategy_card.body_shift,
+            result.strategy_card.ending_move,
+        ]
+    )
+    assert "一通惦记和一句到哪了轻轻接住" in combined
+    assert "有人等你接回来" not in combined
+
+
+def test_build_strategy_package_simple_happiness_keeps_reference_title_signal_when_body_is_lighter() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "simple-happiness-light-body-project",
+            "topic_title": "日子过到后来，有家人有知己就很踏实",
+            "topic_angle": "人会一路追着更多拥有往前走，直到某个普通晚上被一顿热饭、一通惦记和一句到哪了轻轻接住，才重新看见家人平安、知己仍在的分量。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "人生不求大富大贵，但求简单快乐",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章主线是幸福不一定在更大的拥有里，常常就在平凡日常和家人知己身边。",
+            "reference_article_structure_notes": "从幸福被误认成更大拥有切入，落到一餐一饭和陪伴。",
+            "reference_article_body_markdown": (
+                "人活着，到底是为了什么？人生苦短，只求心情愉悦，家人安康，吃穿不愁，知己二三，四季平安。\n\n"
+                "生活简单就迷人，人心简单就幸福。\n\n"
+                "人这一辈子，谁也争不过朝夕，财富、名利、地位不过是过眼云烟。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-15T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "everyday_warmth_return"
+    assert "家人平安、知己仍在" in result.problem_brief.theme_axis
+    assert "外在标准明明够了" in result.strategy_card.opening_move
+    assert "朴素却很准确的生活愿望" in result.strategy_card.opening_move
+    assert "继续投入" not in result.strategy_card.body_shift
+
 def test_resolve_tracked_article_structure_mode_prefers_supportive_appreciation_for_soft_hearted_article() -> None:
     resolved = resolve_tracked_article_structure_mode(
         body_markdown=(
@@ -119,6 +319,28 @@ def test_resolve_tracked_article_structure_mode_prefers_supportive_appreciation_
     )
 
     assert resolved == "supportive_appreciation"
+
+
+def test_resolve_tracked_article_structure_mode_prefers_self_worth_rebuild_for_self_worth_article() -> None:
+    body_markdown = (
+        "有一段话说得很好：你爱自己的程度，决定了谁能走进你的人生。\n\n"
+        "你越将就，遇见的人就对你越随便；你越讲究，遇见的人对你越认真。\n\n"
+        "所以，要学会把自己养贵一点。把门槛抬高一点，把标准收紧一点，把精力多用来喂养自己。"
+    )
+
+    resolved = resolve_tracked_article_structure_mode(
+        body_markdown=body_markdown,
+        summary="文章真正想讨论的是：一个人在关系和生活里被怎样对待，往往和她是否尊重自己、是否守住边界与标准密切相关。",
+        structure_notes="开头先借一句判断性引用立住前提，中段拆将就和贬值怎样慢慢发生，结尾回到尊重自己、抬高门槛和标准。",
+        analysis_structure_mode_hint="emotional_engine_direct",
+        analysis_theme="这篇文章真正想讨论的是：很多轻慢并不是突然发生的，而是从一个人不断将就、不断放轻自己开始的。",
+        analysis_core_conflict="一边是人总怕失去、总想证明自己值得被爱，另一边是边界、标准和体面在一次次迁就里被让出去。",
+        analysis_emotional_exit="把精力从无效关系里收回来，重新尊重自己、守住边界，让日子慢慢变稳、变体面。",
+        analysis_opening_pattern="从一句会让人停一下的判断性引语起笔，再落到现实里的将就接口。",
+        analysis_do_not_turn_into="不要写成没时间回消息、谁先回头沟通或争吵后善后的关系表达稿。",
+    )
+
+    assert resolved == "self_worth_rebuild"
 
 
 def test_resolve_tracked_article_structure_mode_does_not_blindly_trust_scene_first_hint_for_regret_release() -> None:
@@ -204,6 +426,26 @@ def test_resolve_tracked_article_structure_mode_promotes_scene_first_for_office_
     assert resolved == "scene_first_progression"
 
 
+def test_resolve_tracked_article_structure_mode_promotes_scene_first_for_household_checklist_scene() -> None:
+    resolved = resolve_tracked_article_structure_mode(
+        body_markdown=(
+            "夜里回到家，餐桌上的检查单还没收。她把包放下，先去摸了一下水壶外壁，还是温的。\n\n"
+            "孩子已经睡了，灯还留着一盏。她原本想问一句今天复查到底怎么说，可看见对方揉了揉眉心，话又先收了回去。\n\n"
+            "很多家里的心事，不是不能说，只是总被那句‘明天再说吧’轻轻按住了。"
+        ),
+        summary="文章重点不是抽象讲放下，而是让读者先认出夜里回家、看见检查单、想问又收回去的那个晚上。",
+        structure_notes="先把夜里回家、检查单、水壶、孩子睡了这些连续现场走完，再谈家里的沉默是怎么留下来的。",
+        analysis_structure_mode_hint="emotional_engine_direct",
+        analysis_theme="这篇文章真正想讨论的是：家里的很多沉默，不是没有爱，而是总有人先把更重要的话往后压。",
+        analysis_core_conflict="明明想问、也看见了对方的疲惫，可一回到那个晚上和那个家里的气氛里，人就先把更重要的话收回去。",
+        analysis_emotional_exit="先让人认出自己是怎么把话一天天压后的，后面才谈家为什么要慢慢把心事说开。",
+        analysis_opening_pattern="先从夜里回家和餐桌前的连续现场切入，再慢慢提判断。",
+        analysis_do_not_turn_into="不要一开头就把它写成抽象关系道理。",
+    )
+
+    assert resolved == "scene_first_progression"
+
+
 def test_resolve_tracked_article_structure_mode_prefers_verified_emotional_engine_hint_over_pressure_topic_copy() -> None:
     body_markdown = (
         "傍晚下楼扔垃圾，撞见邻居阿婆正蹲在垃圾桶旁，对着一袋旧衣物发呆。\n\n"
@@ -259,19 +501,37 @@ def test_build_strategy_package_keeps_scene_first_office_strategy_semantics() ->
     assert result.strategy_card.structure_mode == "scene_first_progression"
     assert result.problem_brief.target_reader_situation == "总在会议上先把关键意见、边界或需求压回去，散会后再一个人补救的人"
     assert result.problem_brief.writing_goal == "把人为什么总在会上先把关键意见、边界和需求压回去讲清楚，也让读者看见，事后补救为什么会慢慢把位置感和协作里的分量一起让出去。"
-    assert result.strategy_card.point_of_view == "不急着讲职场沟通技巧，先把一句话为什么总在会议室里被咽回去讲清楚。"
-    assert result.strategy_card.body_shift == "中段先拆那句话为什么在当场没说出口，再写散会后补邮件、补解释、自己兜底这套动作怎样把需求表达训练得越来越晚。"
+    assert result.strategy_card.point_of_view.startswith("不急着讲职场沟通技巧，先把一句话为什么总在会议室里被咽回去讲清楚。")
+    assert "下笔时先围着这层矛盾推进" in result.strategy_card.point_of_view
+    assert "表达需求压成了自我收缩" in result.strategy_card.point_of_view
+    assert result.strategy_card.hook_trigger == "会还没散，你已经把那句更重要的话咽回去了。"
+    assert "接口" not in result.strategy_card.hook_trigger
+    assert result.strategy_card.packaging_hook.startswith("会还没散，你已经开始替那句没说出口的话收尾了。")
+    assert "先抓" not in result.strategy_card.packaging_hook
+    assert "包装优先" not in result.strategy_card.packaging_focus
+    assert "会还没散" in result.strategy_card.packaging_focus
+    assert all("接口" not in item for item in result.strategy_card.scene_anchor_requirements)
+    assert "对外呈现：" in result.strategy_card.strategy_markdown
+    assert "对外主钩子：" in result.strategy_card.strategy_markdown
+    assert "画面锚点：" in result.strategy_card.strategy_markdown
+    assert "包装抓手：" not in result.strategy_card.strategy_markdown
+    assert "现实接口：" not in result.strategy_card.strategy_markdown
+    assert result.strategy_card.body_shift.startswith("中段先拆那句话为什么在当场没说出口，再写散会后补邮件、补解释、自己兜底这套动作怎样把需求表达训练得越来越晚。")
+    assert "中段优先把这层矛盾拆开" in result.strategy_card.body_shift
+    assert "表达需求压成了自我收缩" in result.strategy_card.body_shift
     assert "从会议现场里那句想说又咽回去的话切入，重点写人为什么总在会上先替气氛和秩序让路，事后又把需求和补救一起揽回自己身上。" in result.problem_brief.problem_statement_markdown
     assert "越想稳住越累" not in result.problem_brief.problem_statement_markdown
     assert "不要把场景优先稿写成泛内耗、单人稳情绪或勇敢发声技巧稿。" in result.strategy_card.expression_constraints
+    assert any("起笔方式" in item for item in result.strategy_card.writing_texture_notes)
+    assert any("现场" in item or "动作" in item for item in result.strategy_card.writing_texture_notes)
 
 
 def test_build_strategy_package_keeps_generic_scene_first_relationship_semantics() -> None:
     result = build_strategy_package(
         project={
             "slug": "scene-first-relationship-strategy-project",
-            "topic_title": "真正把关系拉远的，常常不是争吵，是那句在地铁口还是没问出口的话",
-            "topic_angle": "从地铁口等车、想问又收回、上车后谁都没再提那句话的连续现场切入，写很多关系怎样在一次次‘先算了’里慢慢失去继续靠近的机会。",
+            "topic_title": "没问出口的那句话，最容易把关系拖远",
+            "topic_angle": "从地铁口等车、看见不对劲却还是先没问、上车后话题彻底沉下去这一段连续现场切入，写关系怎样在一次次没追问里慢慢把靠近让掉。",
             "trend_title": "参考文章 / 手动录入",
             "source_type": "tracked_article",
             "reference_article_title": "很多关系后来变淡，不是因为吵散了，是因为每次想说的时候都先算了",
@@ -299,7 +559,13 @@ def test_build_strategy_package_keeps_generic_scene_first_relationship_semantics
     assert result.strategy_card.structure_mode == "scene_first_progression"
     assert result.problem_brief.target_reader_situation == "总在那个该开口的现场里，先把更重要的话压回去的人"
     assert result.problem_brief.writing_goal == "把人为什么总在该开口的现场里先把更重要的话压回去讲清楚，也让读者看见，一次次让位是怎样慢慢改写位置感和关系里的在场感。"
-    assert result.strategy_card.point_of_view == "不急着给关系道理或沟通答案，先把那句为什么总在现场里被压回去讲清楚。"
+    assert result.strategy_card.point_of_view.startswith("不急着给关系道理或沟通答案，先把那句为什么总在现场里被压回去讲清楚。")
+    assert "下笔时先围着这层矛盾推进" in result.strategy_card.point_of_view
+    assert "人还是先把更重要的话压后" in result.strategy_card.point_of_view
+    assert result.strategy_card.hook_trigger == "明明就差一句，话到嘴边时，人还是先沉默了。"
+    assert "接口" not in result.strategy_card.hook_trigger
+    assert "标题、导语和封面先沿着这句起笔往前走" in result.strategy_card.packaging_focus
+    assert all("接口" not in item for item in result.strategy_card.scene_anchor_requirements)
     assert "会议室" not in result.strategy_card.point_of_view
     assert "越想稳住越累" not in result.strategy_card.strategy_markdown
 
@@ -371,6 +637,26 @@ def test_resolve_tracked_article_structure_mode_detects_stage_restart_reference(
     assert resolved == "inner_settlement"
 
 
+def test_resolve_tracked_article_structure_mode_keeps_endings_acceptance_out_of_pressure_shell() -> None:
+    resolved = resolve_tracked_article_structure_mode(
+        body_markdown=(
+            "很喜欢汪曾祺先生的一段话：逝去的从容逝去，重来的依旧重来。\n\n"
+            "成年人的关系，原本就是一段一段的。接纳离开，才是对这段关系最好的祝福。\n\n"
+            "感谢相遇，不谈亏欠。带着这份从容与爱意，整理行囊，去拥抱下一场未知的山海。"
+        ),
+        summary="文章讨论关系结束后如何把失去从亏欠叙事里松开，重点不是劝人立刻忘记，而是接纳离开、保存相遇意义，并把留下来的温暖内化成继续往前的力量。",
+        structure_notes="开头先借一句引文点出聚散有时，中段拆为什么人会替一段关系追讨完整定义，结尾回到感谢相遇、不谈亏欠和继续前行。",
+        analysis_structure_mode_hint="pressure_interface_direct",
+        analysis_theme="这篇文章真正想讨论的是：成年人如何把一段关系的结束，从失去和亏欠的叙事，转化为对相遇意义的接纳与内在消化。",
+        analysis_core_conflict="真正让人反复受困的，不只是关系结束，而是对必须长久、必须有结果的执念，与关系本就会阶段性结束的现实之间的冲突。",
+        analysis_emotional_exit="承认离别会疼，但不再把自己困在追问里，而是把关系中留下的温暖内化成继续前行的力量。",
+        analysis_opening_pattern="以引语起笔，再从年轻时执着永远、后来才懂聚散有时切入主题。",
+        analysis_do_not_turn_into="不要改写成劝人立刻放下的鸡汤安慰，也不要写成所有离开都值得感恩的强行升华。",
+    )
+
+    assert resolved == "emotional_engine_direct"
+
+
 def test_build_strategy_package_keeps_self_reliance_theme_out_of_relationship_expression_sink() -> None:
     result = build_strategy_package(
         project={
@@ -401,20 +687,580 @@ def test_build_strategy_package_keeps_self_reliance_theme_out_of_relationship_ex
     )
 
     assert result.strategy_card.structure_mode == "self_reliance_inward_support"
-    assert "等外面的安慰" in result.problem_brief.writing_goal
-    assert "先把自己安顿好" in result.problem_brief.writing_goal
-    assert "先把日子稳稳接回来" in result.problem_brief.writing_goal
+    assert "等外面的安慰" not in result.problem_brief.writing_goal
+    assert "承压时先乱了顺序" in result.problem_brief.writing_goal
+    assert "具体判断、动作或选择" in result.problem_brief.writing_goal
+    assert "把日子稳稳接回来" in result.problem_brief.writing_goal
     assert "自救自渡不是硬扛" in result.problem_brief.problem_statement_markdown
     assert "低谷里" in result.strategy_card.reader_situation
     assert "安顿住" in result.strategy_card.reader_situation
     assert "想解释，却越来越不想开口" not in result.strategy_card.reader_situation
     assert "越想解释越说不出口" not in result.problem_brief.writing_goal
     assert "真正把关系拖住的" not in result.strategy_card.conflict_frame
-    assert "刚好有空的位置" in result.strategy_card.body_shift
-    assert "把今天过完" in result.strategy_card.emotional_path
-    assert "现实已经挤满眼前" in result.strategy_card.opening_move
-    assert "帮助未必赶得上" in result.strategy_card.opening_move
-    assert any("外面的帮扶一时赶不上的现实接口" in item for item in result.strategy_card.recomposition_recipe)
-    assert any("托底动作" in item for item in result.strategy_card.recomposition_recipe)
+    assert "刚好有空的位置" not in result.strategy_card.body_shift
+    assert "承压时刻" in result.strategy_card.body_shift
+    assert "顺序理回来" in result.strategy_card.body_shift
+    assert "把今天过稳" in result.strategy_card.emotional_path
+    assert "现实承压接口" in result.strategy_card.opening_move
+    assert "帮助未必赶得上" not in result.strategy_card.opening_move
+    assert any("参考文章真正给出的现实触发点" in item for item in result.strategy_card.recomposition_recipe)
+    assert any("主镜头更早落到当事人的判断、行动或回稳细节" in item for item in result.strategy_card.recomposition_recipe)
+    assert any("正向动作、选择或判断" in item for item in result.strategy_card.recomposition_recipe)
     assert any("现实承压" in axis for axis in result.strategy_card.divergence_axes)
+    assert all("无人帮忙" not in item for item in result.strategy_card.recomposition_recipe)
+    assert all("求助落空" not in item for item in result.strategy_card.recomposition_recipe)
+    assert all("关系误解" not in item for item in result.strategy_card.recomposition_recipe)
+    assert all("无人帮忙" not in axis for axis in result.strategy_card.divergence_axes)
+    assert all("关系误会" not in axis for axis in result.strategy_card.divergence_axes)
     assert any("回稳动作必须更早出现" in axis for axis in result.strategy_card.divergence_axes)
+
+
+def test_build_strategy_package_keeps_self_worth_theme_out_of_response_priority_sink() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "self-worth-strategy-project",
+            "topic_title": "把自己养贵一点，不是高傲，而是别再把自己一再放轻",
+            "topic_angle": "从一个人总说都可以、总先迁就、总怕让别人不高兴切入，写自我价值感偏低、边界一退再退时，人为什么会越来越容易被轻慢；也写怎样把尊重、标准和体面重新收回自己手里。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "把自己养贵一点，日子才能过好一点",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章真正想讨论的是：别人怎么对你，很多时候都和你是否尊重自己、是否守住边界和标准紧密相关。",
+            "reference_article_structure_notes": "开头先从一句带判断性的引语立住前提，中段拆将就和降级怎样慢慢发生，结尾回到把自己养贵、立起边界和标准。",
+            "reference_article_body_markdown": (
+                "有一段话说得很好：你爱自己的程度，决定了谁能走进你的人生。\n\n"
+                "你越将就，遇见的人就对你越随便；你越讲究，遇见的人对你越认真。\n\n"
+                "所以，要学会把自己养贵一点。把门槛抬高一点，把标准收紧一点，把精力多用来喂养自己。"
+            ),
+            "reference_article_analysis_structure_mode": "emotional_engine_direct",
+            "reference_article_analysis_theme": "文章真正想讨论的是：很多轻慢并不是突然发生的，而是从一个人不断将就、不断放轻自己开始的。",
+            "reference_article_analysis_core_conflict": "一边是人总怕失去、总想证明自己值得被爱，另一边是边界、标准和体面在一次次迁就里被让出去。",
+            "reference_article_analysis_emotional_exit": "把精力从无效关系里收回来，重新尊重自己、守住边界，让日子慢慢变稳、变体面。",
+            "reference_article_analysis_opening_pattern": "从一句带判断性的引语起笔，再落到现实里的将就接口。",
+            "reference_article_analysis_do_not_turn_into": "不要写成没时间回消息、谁先回头沟通或争吵后善后的关系表达稿。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-05T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "self_worth_rebuild"
+    assert "边界" in result.problem_brief.writing_goal
+    assert "标准" in result.problem_brief.writing_goal
+    assert "尊重自己" in result.strategy_card.point_of_view
+    assert "体面" in result.strategy_card.conflict_frame
+    assert "重新收回自己这边" in result.strategy_card.emotional_path
+    assert "边界、标准和体面" in result.strategy_card.body_shift
+    assert "边界重新立住" in result.strategy_card.ending_move
+    assert "精力终于收回自己手里" in result.strategy_card.ending_move
+    assert "门槛被抬高" not in result.strategy_card.ending_move
+    assert "顺序" not in result.strategy_card.conflict_frame
+    assert "回消息" not in result.strategy_card.body_shift
+    assert "善后" not in result.strategy_card.ending_move
+    assert any("消息悬停" in item or "沟通表达" in item for item in result.strategy_card.expression_constraints)
+    assert result.strategy_card.hook_trigger == "你其实已经不舒服了，可那句“都可以”还是比真实想法先出了口。"
+    assert "都可以" in result.strategy_card.opening_move
+
+
+def test_build_strategy_package_turns_comment_followup_article_to_seen_and_understood_variant() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "comment-followup-strategy-project",
+            "topic_title": "真正让人踏实的，不是有人路过你，而是有人愿意停下来读懂你",
+            "topic_angle": "从点赞、评论和一句“我没事”背后的分量差别切入，写为什么轻互动很多，人却还是会悬着；也写真正的关心，往往藏在一句追问、一次补问和被认真听懂的那一下。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "真正关心你的人，会停下来读懂你没说完的话",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章借点赞和评论的差别，讨论真正的在乎为什么不在热闹，而在有没有人愿意停下来、多问一句、读懂你没说完的话。",
+            "reference_article_structure_notes": "开头先拆点赞和评论的差别，中段写表层互动和真正关心之间的落差，结尾落到谁会回来追问、谁会接住你没说完的话。",
+            "reference_article_body_markdown": (
+                "朋友圈里，是给你点赞的人更在意你，还是给你评论的人更在意你？\n\n"
+                "而评论，却需要停下来，读懂你的言外之意。\n\n"
+                "真正关心你的人，是哪怕相隔千里，也能透过你的一句“我没事”，听出你心底的“我有点累”。"
+            ),
+            "reference_article_analysis_structure_mode": "response_priority",
+            "reference_article_analysis_theme": "这篇文章真正想讨论的是：在轻互动里，真正让人踏实的，不是热闹，而是有人愿意停下来读懂你。",
+            "reference_article_analysis_core_conflict": "表面上大家都在互动，可真正让人安稳的，从来不是路过式回应，而是有人愿意把注意力和心力真正落到你这里。",
+            "reference_article_analysis_emotional_exit": "让人重新认出真正的关心长什么样，也更愿意珍惜那些肯停下来理解自己的人。",
+            "reference_article_analysis_opening_pattern": "从点赞和评论的差别起笔，再落到一句“我没事”背后其实藏着的疲惫。",
+            "reference_article_analysis_do_not_turn_into": "不要写成谁更在乎你、谁把你排在前面的关系排序稿。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-05T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "response_priority"
+    combined = "\n".join(
+        [
+            result.problem_brief.clarified_problem,
+            result.problem_brief.writing_goal,
+            result.problem_brief.problem_explanation,
+            result.strategy_card.point_of_view,
+            result.strategy_card.conflict_frame,
+            result.strategy_card.emotional_path,
+            result.strategy_card.opening_move,
+            result.strategy_card.body_shift,
+            result.strategy_card.ending_move,
+            result.strategy_card.positive_direction,
+        ]
+    )
+
+    assert "读懂" in combined or "理解" in combined
+    assert "追问" in combined or "补问" in combined
+    assert "安稳" in combined or "踏实" in combined or "珍惜" in combined
+    assert "没时间" not in combined
+    assert "红灯30秒" not in combined
+    assert "优先级" not in combined
+    assert "位置感" not in combined
+    assert any("轻描淡写的话" in item or "被听懂" in item for item in result.strategy_card.scene_anchor_requirements)
+    assert any("真正的关心" in item or "被理解" in item for item in result.strategy_card.quotable_line_seeds)
+
+
+def test_build_strategy_package_trust_boundary_uses_trust_contract_fields() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "trust-boundary-strategy-project",
+            "topic_title": "信任一旦裂开，最该补上的不是解释，而是坦诚",
+            "topic_angle": "从一句谎言、一次隐瞒让信任裂开那一下切入，写为什么信任不是不问不查，而是把心安交给了对方；也写一段关系想走得长久，最该靠坦诚、交代和说到做到把这份赤诚守住。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "信任很贵，请别辜负",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "",
+            "reference_article_structure_notes": "",
+            "reference_article_body_markdown": (
+                "信任很贵，请别辜负\n\n"
+                "从前，他晚归，你不会多想；他手机响，你不会多看一眼。\n\n"
+                "可是后来，一句谎言，一次隐瞒，那个叫信任的东西，就裂了一道缝。\n\n"
+                "他不查你手机，是因为相信你；他不追问行踪，是因为不想给你压力。\n\n"
+                "别把他的信任当成你任性的资本，更别辜负这份赤诚。"
+            ),
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-12T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "trust_boundary"
+    combined = "\n".join(
+        [
+            result.problem_brief.clarified_problem,
+            result.problem_brief.observed_phenomenon,
+            result.problem_brief.writing_goal,
+            result.problem_brief.problem_explanation,
+            result.strategy_card.reader_situation,
+            result.strategy_card.point_of_view,
+            result.strategy_card.conflict_frame,
+            result.strategy_card.emotional_path,
+            result.problem_brief.theme_axis,
+            result.strategy_card.positive_direction,
+            result.strategy_card.packaging_focus,
+            result.strategy_card.packaging_hook,
+            result.strategy_card.opening_move,
+            result.strategy_card.body_shift,
+            result.strategy_card.ending_move,
+        ]
+    )
+
+    for required in ("信任", "坦诚", "隐瞒", "说到做到"):
+        assert required in combined
+    for forbidden in ("点赞", "评论", "读懂", "回消息", "没时间", "执念", "先抓一个具体入口", "自我亏欠"):
+        assert forbidden not in combined
+    assert result.strategy_card.hook_trigger == "听见前后两个版本时，手里的筷子会先停一下。"
+    assert "真正卡住人的现实和情绪重心" not in result.problem_brief.theme_axis
+    assert any("谎言" in item or "隐瞒" in item for item in result.strategy_card.scene_anchor_requirements)
+    assert any("坦诚" in item or "说到做到" in item for item in result.strategy_card.quotable_line_seeds)
+
+
+def test_build_strategy_package_exposes_positive_payoff_and_packaging_targets() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "simple-happiness-positive-targets",
+            "topic_title": "人到中年才懂，真正重要的，往往不是大事",
+            "topic_angle": "从人为什么总被成就叙事推着走切入，写很多人是怎样在走了很远之后，才重新认出普通生活的分量。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "这些不起眼的小事，才是我们一生最重要的事",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章先写年轻时为什么总想做大事，中段让事业和身体的代价显出来，结尾回到人间烟火和家人陪伴。",
+            "reference_article_structure_notes": "开头先拆成就叙事的吸引力，中段写大事祛魅，结尾回到小事与陪伴的重量。",
+            "reference_article_body_markdown": (
+                "年轻时，我们总觉得人生要轰轰烈烈。可走过半生才发现，真正重要的，不过是活在人间烟火里，陪在爱的人身边。\n\n"
+                "世界很大，大到我们只是尘埃；世界也很小，小到一顿饭就能温暖两个人。"
+            ),
+            "reference_article_analysis_structure_mode": "everyday_warmth_return",
+            "reference_article_analysis_theme": "这篇文章真正想讨论的是：很多人前半生被成就叙事推着走，后来才重新认出普通生活和身边人的分量。",
+            "reference_article_analysis_core_conflict": "人一边相信大事才值得追，一边又在真正让自己热起来的小日常里后知后觉地回神。",
+            "reference_article_analysis_emotional_exit": "把人从宏大执念里轻轻放回当下生活，重新珍惜已经拥有的陪伴与温度。",
+            "reference_article_analysis_opening_pattern": "先从年轻时对大事和成就的想象切入。",
+            "reference_article_analysis_do_not_turn_into": "不要写成泛心灵鸡汤或空泛知足文。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-03T00:00:00Z",
+    )
+
+    assert "不只明白道理" in result.problem_brief.emotional_value_goal
+    assert "重新珍惜已经拥有的陪伴与温度" in result.strategy_card.positive_direction
+    assert "贴着日常长出来的短判断" in result.strategy_card.quotable_line_goal
+    assert "标题" in result.strategy_card.packaging_focus
+    assert "普通生活" in result.strategy_card.packaging_focus
+    assert "成就叙事" in result.problem_brief.theme_axis
+    assert "空泛知足文" in result.problem_brief.anti_drift_axis
+    assert any("家里日常接口" in item for item in result.strategy_card.scene_anchor_requirements)
+    assert "前六段至少保住 2 个现实接口" in result.strategy_card.realism_texture_goal
+    assert any("普通日常重新有分量" in item for item in result.strategy_card.quotable_line_seeds)
+    assert "更大目标" in result.strategy_card.packaging_hook or "饭桌" in result.strategy_card.packaging_hook
+
+
+def test_build_strategy_package_everyday_warmth_keeps_home_and_weather_sources_distinct() -> None:
+    home_result = build_strategy_package(
+        project={
+            "slug": "simple-happiness-home-fingerprint",
+            "topic_title": "人到中年才懂，真正重要的，往往不是大事",
+            "topic_angle": "从人为什么总被成就叙事推着走切入，写很多人是怎样在走了很远之后，才重新认出普通生活的分量。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "这些不起眼的小事，才是我们一生最重要的事",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章先写年轻时为什么总想做大事，中段让事业和身体的代价显出来，结尾回到人间烟火和家人陪伴。",
+            "reference_article_structure_notes": "开头先拆成就叙事的吸引力，中段写大事祛魅，结尾回到小事与陪伴的重量。",
+            "reference_article_body_markdown": (
+                "年轻时，我们总觉得人生要轰轰烈烈。可走过半生才发现，真正重要的，不过是活在人间烟火里，陪在爱的人身边。\n\n"
+                "加完班回家，门一推开，屋里要是还有灯、还有热气、还有一句‘回来了’，心就会慢慢松下来。"
+            ),
+            "reference_article_analysis_structure_mode": "everyday_warmth_return",
+            "reference_article_analysis_theme": "这篇文章真正想讨论的是：很多人前半生被成就叙事推着走，后来才重新认出普通生活和身边人的分量。",
+            "reference_article_analysis_core_conflict": "人一边相信大事才值得追，一边又在真正让自己热起来的小日常里后知后觉地回神。",
+            "reference_article_analysis_emotional_exit": "把人从宏大执念里轻轻放回当下生活，重新珍惜已经拥有的陪伴与温度。",
+            "reference_article_analysis_opening_pattern": "先从年轻时对大事和成就的想象切入。",
+            "reference_article_analysis_do_not_turn_into": "不要写成泛心灵鸡汤或空泛知足文。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-05T00:00:00Z",
+    )
+    weather_result = build_strategy_package(
+        project={
+            "slug": "grandpa-weather-fingerprint",
+            "topic_title": "真正能把人撑下去的，常常不是大道理，是那一点点被惦记",
+            "topic_angle": "从人在异乡疲惫时，突然被一句叮嘱、一个惦记重新托住切入，写普通温暖为什么比空泛安慰更有力量。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "生活很苦，但总有一点甜能把人重新托住",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章借爷爷每天看广州天气、提醒孙女暴雨天走路小心这件小事，写人在异乡承压时，为什么会被一句很普通的牵挂重新安慰到。",
+            "reference_article_structure_notes": "先给异乡承压和坏天气，再落到天气预报、来电叮嘱和被惦记，最后写人为什么会被这种小温暖重新托住。",
+            "reference_article_body_markdown": (
+                "前阵子的广州，三天两头地下着暴雨，她心情也跟着天气一起变得很丧。\n\n"
+                "这天，老家的爷爷打电话来叮嘱：这几天有暴雨，你出门走路千万当心点。我每天也看广州的天气预报呢。\n\n"
+                "即使是坏天气，但只要想到爷爷的爱，心也就变得晴朗起来。"
+            ),
+            "reference_article_analysis_structure_mode": "everyday_warmth_return",
+            "reference_article_analysis_theme": "这篇文章真正想讨论的是：人在很疲惫的时候，真正能把自己托住的，往往不是大而空的道理，而是那些很普通却很真切的牵挂和惦记。",
+            "reference_article_analysis_core_conflict": "生活很苦、现实很重，可人真正重新有力气走下去的时候，常常是因为某个很小的被爱瞬间突然照亮了自己。",
+            "reference_article_analysis_emotional_exit": "把读者从疲惫和发丧里带回一句普通叮嘱、一份被人惦记的踏实感，再慢慢走回生活里。",
+            "reference_article_analysis_opening_pattern": "先从坏天气和异乡承压的现实处境切入，再落到那通电话和一句叮嘱。",
+            "reference_article_analysis_do_not_turn_into": "不要改写成泛泛感恩文、家庭鸡汤或抽象正能量宣言。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-05T00:00:00Z",
+    )
+
+    assert any("回家" in item and "家里日常接口" in item for item in home_result.strategy_card.scene_anchor_requirements)
+    assert any("天气预报" in item and "被惦记接口" in item for item in weather_result.strategy_card.scene_anchor_requirements)
+    assert any("回到家那一刻" in item or "小安稳" in item for item in home_result.strategy_card.quotable_line_seeds)
+    assert any("惦记天气" in item or "坏天气里" in item for item in weather_result.strategy_card.quotable_line_seeds)
+    assert "回家" in home_result.strategy_card.packaging_focus or "饭桌" in home_result.strategy_card.packaging_hook
+    assert "天气预报" in weather_result.strategy_card.packaging_focus or "叮嘱" in weather_result.strategy_card.packaging_hook
+    assert home_result.strategy_card.scene_anchor_requirements != weather_result.strategy_card.scene_anchor_requirements
+
+
+def test_build_strategy_package_everyday_warmth_responsibility_shelter_variant() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "responsibility-shelter-strategy-project",
+            "topic_title": "中年人最深的安慰，不是有人替你扛，而是你扛住以后，家还在",
+            "topic_angle": "从成年人总把“我没事”说得很轻切入，重点写中年责任为什么会让人咽下委屈、撑住疲惫，也写那些辛苦最后为什么会变成一家人的安稳。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "万般辛苦，皆为序章，人间安稳，终会如愿",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章围绕成年人把辛苦咽下去、把父母孩子伴侣的安稳顶在前面展开，重点不在控诉生活难，而在那些熬过去的夜后来怎样变成一个家的底气。",
+            "reference_article_structure_notes": "先从一句“没事，有我”和账单电话这些现实重量切入，中段写责任怎样让人把自己往后收，结尾落回家里安稳、有人被护住和这些辛苦没有白熬。",
+            "reference_article_body_markdown": (
+                "电话的那头，是父母日渐佝偻的身影，是孩子越来越高的补习费用，是每个月如期而至的各种账单。电话的这头，你扛住压力，喉咙发紧，却只能故作轻松地说一句：没事，有我。\n\n"
+                "白天的时候，你是父母的拐杖，是孩子的雨伞，是伴侣的靠山。你熬过的每一个黑夜，都在为身边所爱之人撑起一片晴空。\n\n"
+                "人间安稳，从来不是没有风雨，而是风雨再大，你知道家在哪里，路再难走，你知道有人在爱你。"
+            ),
+            "reference_article_analysis_structure_mode": "everyday_warmth_return",
+            "reference_article_analysis_theme": "文章真正想讨论的是：很多成年人把辛苦和委屈先往后收，不是因为不累，而是因为身后站着父母、孩子、伴侣和一个家。",
+            "reference_article_analysis_core_conflict": "人明明已经很疲惫了，还是会把“我没事”顶在前面，把一家人的安稳先护住。",
+            "reference_article_analysis_emotional_exit": "把读者从硬撑和发紧里带回家里仍被护住的安稳，也让人知道这些辛苦没有白熬。",
+            "reference_article_analysis_opening_pattern": "先从一句轻描淡写的“没事，有我”和电话账单这些现实重量切入。",
+            "reference_article_analysis_hook_trigger": "一句“没事，有我”背后那点喉咙发紧、却还得继续撑住的当场。",
+            "reference_article_analysis_progression_drive": "责任怎样把人往前推，又怎样在父母、孩子、伴侣和家里的安稳里慢慢把辛苦说值。",
+            "reference_article_analysis_share_reason": "它写出了很多成年人不会明说的辛苦，也给了继续撑下去的安慰。",
+            "reference_article_analysis_do_not_turn_into": "不要改成放下执念、关系回应排序或泛中年励志稿。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-07T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "responsibility_shelter"
+    assert "辛苦" in result.problem_brief.theme_axis or "家里" in result.problem_brief.theme_axis
+    assert "疲惫先放到后面" not in result.problem_brief.theme_axis
+    assert "我没事" not in result.problem_brief.theme_axis
+    assert "安稳" in result.strategy_card.positive_direction
+    assert "没事，有我" not in result.strategy_card.hook_trigger
+    assert "理清" in result.strategy_card.hook_trigger or "家里临时有事" in result.strategy_card.hook_trigger
+    assert "责任" in result.strategy_card.progression_drive
+    assert "安慰" in result.strategy_card.share_reason
+    assert any("来电" in item or "日历" in item or "请假" in item for item in result.strategy_card.scene_anchor_requirements)
+    assert any("责任" in item or "家里" in item or "托稳" in item for item in result.strategy_card.quotable_line_seeds)
+    assert "没事，有我" not in result.strategy_card.packaging_focus
+    assert "没事，有我" not in result.strategy_card.packaging_hook
+    assert "家里安稳" in result.strategy_card.packaging_focus or "家里" in result.strategy_card.packaging_hook
+    assert "更大目标" not in result.strategy_card.packaging_focus
+
+    combined = json.dumps(result.model_dump(), ensure_ascii=False)
+    for forbidden in (
+        "长期扛压",
+        "不能倒",
+        "不能倒下",
+        "扛事",
+        "多能扛",
+        "白扛",
+        "暂时不能倒",
+        "为什么这么苦还要撑",
+        "苦情赞歌",
+        "辛苦没有白扛",
+        "没事，有我",
+        "硬撑",
+        "硬扛",
+    ):
+        assert forbidden not in combined
+    assert "更大目标" not in result.strategy_card.packaging_hook
+    assert all("幸福被误判" not in item for item in result.strategy_card.quotable_line_seeds)
+    assert "硬撑" not in result.strategy_card.quotable_line_goal
+    assert "安稳" in result.strategy_card.quotable_line_goal or "踏实" in result.strategy_card.quotable_line_goal
+    assert "放下执念" in result.problem_brief.anti_drift_axis
+    assert "责任托家回温推进" in result.strategy_card.strategy_markdown
+    assert "更大目标为什么会慢慢失重" not in result.strategy_card.strategy_markdown
+    assert "成年人为什么会先把家里的事理顺" in result.problem_brief.problem_statement_markdown
+
+
+def test_build_strategy_package_stage_restart_exposes_restart_specific_contract_and_structure() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "stage-restart-strategy-project",
+            "topic_title": "翻到年中清单时，别把几种遗憾算成同一种失败",
+            "topic_angle": "从阶段节点上的自我清算切入，写人怎样重新安放遗憾、看见支撑，继续往前。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "这半年没按你想的那样来，也不代表你白走了一程",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章借半年节点、事与愿违和身边仍在的牵挂，讨论人为什么总会在阶段回望里先否定自己。主线落在遗憾怎样被安放、眼前的人怎样把人托住，以及怎样重新接纳这个阶段的自己。",
+            "reference_article_structure_notes": "先写阶段节点上的自我盘点和遗憾，再转到珍惜眼前与接纳每个阶段的自己。",
+            "reference_article_body_markdown": (
+                "过去的这半年，你过得好吗？年初定下的目标又实现了多少呢？若事与愿违，一定另有安排。\n\n"
+                "下半年，多腾点时间和精力，去做好眼前之事，珍惜身边所爱之人。\n\n"
+                "人生的每个阶段，其实都有得有失，有好有坏。我们能做的，就是接受并努力爱每一个阶段的自己。"
+            ),
+            "reference_article_analysis_structure_mode": "inner_settlement",
+            "reference_article_analysis_theme": "文章真正讨论的是：人为什么一到阶段节点就容易先否定自己，后来又怎样把遗憾从自我定性里拆开，并被眼前生活和仍在身边的支撑慢慢托住。",
+            "reference_article_analysis_core_conflict": "很多人会把没完成、没拥有和没赶上一起算成失败。",
+            "reference_article_analysis_emotional_exit": "把遗憾安放好，把力气收回到眼前的人和接下来的生活里。",
+            "reference_article_analysis_opening_pattern": "从半年节点的自我盘点切入。",
+            "reference_article_analysis_do_not_turn_into": "不要改写成失恋复盘或泛心安稿。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-05T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "inner_settlement"
+    assert "把遗憾安放好" in result.problem_brief.emotional_value_goal
+    assert "阶段节点" in result.problem_brief.theme_axis
+    assert "失恋复盘" in result.problem_brief.anti_drift_axis
+    assert "继续" in result.strategy_card.positive_direction
+    assert "下一步" in result.strategy_card.positive_direction
+    assert "阶段节点上的自我误判" in result.strategy_card.packaging_focus
+    assert "阶段误判" in result.strategy_card.quotable_line_goal
+    assert any("阶段误判被认出来的那一下" in item for item in result.strategy_card.quotable_line_seeds)
+    assert "阶段回望再出发推进" in result.strategy_card.strategy_markdown
+    assert any("阶段节点" in item for item in result.strategy_card.writing_texture_notes)
+
+
+def test_build_strategy_package_inner_settlement_keeps_stage_restart_and_daily_return_distinct() -> None:
+    daily_return_result = build_strategy_package(
+        project={
+            "slug": "inner-settlement-daily-return-fingerprint",
+            "topic_title": "很多事迟迟过不去，往往不是事情本身，而是那颗一直没松下来的心",
+            "topic_angle": "从人为什么总想把过去想透、把未来想稳切入，写外界未必最糟时，那颗心为什么还是一直悬着。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "此心安处，才是一个人最好的归宿",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章把外界起伏和内心安顿放在一起比较，重点不是某段关系有没有结果，也不是身体有没有告警，而是心为什么一直安不下来，人怎样把自己慢慢安顿回当下。",
+            "reference_article_structure_notes": "先写心为什么一直悬着，再拆人为什么总想把一切想明白，中段回到一餐一饮和一呼一吸怎样让生活重新有轻重。",
+            "reference_article_body_markdown": (
+                "心若不安，到哪里都是流浪；心若不定，遇见谁都是过客。\n\n"
+                "有时候，看似过不去的坎儿，其实是心结难解。把心抚平了，脚下自有坦途。\n\n"
+                "真正的心安，是于一餐一饮中品味生活，于一呼一吸间安顿灵魂。"
+            ),
+            "reference_article_analysis_structure_mode": "inner_settlement",
+            "reference_article_analysis_theme": "这篇文章真正想讨论的是：很多时候拖住人的，不是外界已经彻底失控，而是那颗一直悬着、迟迟没落下来的心。",
+            "reference_article_analysis_core_conflict": "人总想把过去想透、把未来想稳，结果把今天的自己一直留在心里那块悬空处。",
+            "reference_article_analysis_emotional_exit": "不是逼自己瞬间看开，而是慢慢把那颗心放回今天正在过的生活里。",
+            "reference_article_analysis_opening_pattern": "先从心为什么一直悬着、一直没有真正松下来的状态切入，再慢慢提判断。",
+            "reference_article_analysis_do_not_turn_into": "不要改写成关系等待、身体告警或夜深小失序模板文。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-05T00:00:00Z",
+    )
+    stage_restart_result = build_strategy_package(
+        project={
+            "slug": "stage-restart-fingerprint",
+            "topic_title": "翻到年中清单时，别把几种遗憾算成同一种失败",
+            "topic_angle": "从阶段节点上的自我清算切入，写人怎样重新安放遗憾、看见支撑，继续往前。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "这半年没按你想的那样来，也不代表你白走了一程",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章借半年节点、事与愿违和身边仍在的牵挂，讨论人为什么总会在阶段回望里先否定自己。主线落在遗憾怎样被安放、眼前的人怎样把人托住，以及怎样重新接纳这个阶段的自己。",
+            "reference_article_structure_notes": "先写阶段节点上的自我盘点和遗憾，再转到珍惜眼前与接纳每个阶段的自己。",
+            "reference_article_body_markdown": (
+                "过去的这半年，你过得好吗？年初定下的目标又实现了多少呢？若事与愿违，一定另有安排。\n\n"
+                "下半年，多腾点时间和精力，去做好眼前之事，珍惜身边所爱之人。\n\n"
+                "人生的每个阶段，其实都有得有失，有好有坏。我们能做的，就是接受并努力爱每一个阶段的自己。"
+            ),
+            "reference_article_analysis_structure_mode": "inner_settlement",
+            "reference_article_analysis_theme": "文章真正讨论的是：人为什么一到阶段节点就容易先否定自己，后来又怎样把遗憾从自我定性里拆开，并被眼前生活和仍在身边的支撑慢慢托住。",
+            "reference_article_analysis_core_conflict": "很多人会把没完成、没拥有和没赶上一起算成失败。",
+            "reference_article_analysis_emotional_exit": "把遗憾安放好，把力气收回到眼前的人和接下来的生活里。",
+            "reference_article_analysis_opening_pattern": "从半年节点的自我盘点切入。",
+            "reference_article_analysis_do_not_turn_into": "不要改写成失恋复盘或泛心安稿。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-05T00:00:00Z",
+    )
+
+    assert any("一餐一饮" in item or "一呼一吸" in item for item in daily_return_result.strategy_card.scene_anchor_requirements)
+    assert any("阶段节点" in item and ("清单" in item or "目标进度" in item) for item in stage_restart_result.strategy_card.scene_anchor_requirements)
+    assert any("把心放回今天" in item or "今晚不必把所有事想明白" in item for item in daily_return_result.strategy_card.quotable_line_seeds)
+    assert any("这一程白走" in item or "把力气收回眼前" in item for item in stage_restart_result.strategy_card.quotable_line_seeds)
+    assert "一餐一饮" in daily_return_result.strategy_card.packaging_focus or "把心放回今天" in daily_return_result.strategy_card.packaging_hook
+    assert "阶段清单" in stage_restart_result.strategy_card.packaging_focus or "几项空着" in stage_restart_result.strategy_card.packaging_hook
+    assert daily_return_result.strategy_card.quotable_line_seeds != stage_restart_result.strategy_card.quotable_line_seeds
+
+
+def test_build_strategy_package_endings_acceptance_stays_on_goodbye_meaning() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "endings-acceptance-strategy-project",
+            "topic_title": "总想要一个交代的人，最后最难收回的是自己的生活",
+            "topic_angle": "很多人迟迟走不出来，并非失去本身太重，而是一直把每次离开当成失败处理；这篇稿子要拆开这种“必须有交代”的执念，帮读者把得到过的部分重新认领回来。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "感谢相遇，不谈亏欠",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章讨论关系结束后如何把失去从亏欠叙事里松开，重点不是劝人立刻忘记，而是接纳离开、保存相遇意义，并把留下来的温暖内化成继续往前的力量。",
+            "reference_article_structure_notes": "开头先借引语点出聚散有时，中段拆为什么人会替一段关系追讨完整定义，结尾回到感谢相遇、不谈亏欠和继续前行。",
+            "reference_article_body_markdown": (
+                "成年人的关系，原本就是一段一段的。接纳离开，才是对这段关系最好的祝福。\n\n"
+                "真正的成熟，不是变得麻木，而是允许一切发生，也允许一切结束。\n\n"
+                "感谢相遇，不谈亏欠。带着这份从容与爱意，整理行囊，去拥抱下一场未知的山海。"
+            ),
+            "reference_article_analysis_structure_mode": "emotional_engine_direct",
+            "reference_article_analysis_theme": "这篇文章真正想讨论的是：成年人如何把一段关系的结束，从失去和亏欠的叙事，转化为对相遇意义的接纳与内在消化。",
+            "reference_article_analysis_core_conflict": "真正让人反复受困的，不只是关系结束，而是对必须长久、必须有结果的执念，与关系本就会阶段性结束的现实之间的冲突。",
+            "reference_article_analysis_emotional_exit": "承认离别会疼，但不再把自己困在追问里，而是把关系中留下的温暖内化成继续前行的力量。",
+            "reference_article_analysis_opening_pattern": "以引语起笔，再从年轻时执着永远、后来才懂聚散有时切入主题。",
+            "reference_article_analysis_do_not_turn_into": "不要改写成劝人立刻放下的鸡汤安慰，也不要写成所有离开都值得感恩的强行升华。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-01T00:00:00Z",
+    )
+
+    assert result.strategy_card.structure_mode == "emotional_engine_direct"
+    assert any(token in result.problem_brief.writing_goal for token in ("交代", "完整说法", "白费", "相遇"))
+
+
+def test_build_strategy_package_enriches_same_structure_mode_with_analysis_specific_guidance() -> None:
+    acceptance_result = build_strategy_package(
+        project={
+            "slug": "endings-acceptance-analysis-contract",
+            "topic_title": "总想要一个交代的人，最后最难收回的是自己的生活",
+            "topic_angle": "很多人迟迟走不出来，并非失去本身太重，而是一直把每次离开当成失败处理；这篇稿子要拆开这种“必须有交代”的执念，帮读者把得到过的部分重新认领回来。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "感谢相遇，不谈亏欠",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章讨论关系结束后如何把失去从亏欠叙事里松开。",
+            "reference_article_structure_notes": "开头先借引语点出聚散有时，中段拆为什么人会替一段关系追讨完整定义，结尾回到感谢相遇、不谈亏欠和继续前行。",
+            "reference_article_body_markdown": (
+                "成年人的关系，原本就是一段一段的。接纳离开，才是对这段关系最好的祝福。\n\n"
+                "真正的成熟，不是变得麻木，而是允许一切发生，也允许一切结束。\n\n"
+                "感谢相遇，不谈亏欠。带着这份从容与爱意，整理行囊，去拥抱下一场未知的山海。"
+            ),
+            "reference_article_analysis_structure_mode": "emotional_engine_direct",
+            "reference_article_analysis_theme": "这篇文章真正想讨论的是：成年人如何把一段关系的结束，从失去和亏欠的叙事，转化为对相遇意义的接纳与内在消化。",
+            "reference_article_analysis_core_conflict": "真正让人反复受困的，不只是关系结束，而是对必须长久、必须有结果的执念，与关系本就会阶段性结束的现实之间的冲突。",
+            "reference_article_analysis_emotional_exit": "承认离别会疼，但不再把自己困在追问里，而是把关系中留下的温暖内化成继续前行的力量。",
+            "reference_article_analysis_opening_pattern": "以引语起笔，再从年轻时执着永远、后来才懂聚散有时切入主题。",
+            "reference_article_analysis_do_not_turn_into": "不要改写成劝人立刻放下的鸡汤安慰，也不要写成所有离开都值得感恩的强行升华。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-05T00:00:00Z",
+    )
+    regret_result = build_strategy_package(
+        project={
+            "slug": "regret-release-analysis-contract",
+            "topic_title": "有些遗憾，不是拿来一直回头的",
+            "topic_angle": "从人为什么总被‘如果当初’困住切入，写遗憾如何被安放，心力如何回到仍在继续的生活里。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "旧裙子收起来了，路还是要往前走",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章借一位老人反复看旧裙子的细节，讨论人为什么总被‘如果当初’困住。",
+            "reference_article_structure_notes": "开头从生活场景切入，用旧裙子的细节带出对过往遗憾的停留；中段扩展到普遍心理；结尾回到阿婆买新裙子的后续。",
+            "reference_article_body_markdown": (
+                "傍晚下楼扔垃圾，撞见邻居阿婆正蹲在垃圾桶旁，对着一袋旧衣物发呆。\n\n"
+                "原来我们都一样，总爱攥着过去的遗憾不放，盯着没走成的路反复设想。\n\n"
+                "你看，放下从来都不是遗忘，而是给心找一个更轻盈的去处。"
+            ),
+            "reference_article_analysis_structure_mode": "emotional_engine_direct",
+            "reference_article_analysis_theme": "这篇文章真正想谈的是：人该怎样和已经无法更改的遗憾相处，才能不再被过去持续消耗。",
+            "reference_article_analysis_core_conflict": "一边是人对错过的人、事、选择反复设想、迟迟不肯松手；另一边是现实已经无法回退，继续沉溺只会占用当下和未来的生活感受。",
+            "reference_article_analysis_emotional_exit": "不必否认曾经在意过，也不必逼自己立刻忘掉，而是允许过去被安放，再把心力转回新的日常、新的关系和新的期待里。",
+            "reference_article_analysis_opening_pattern": "从生活接口里的偶遇场景起笔，以邻居阿婆对旧衣物发呆的细节切入遗憾与回头心理。",
+            "reference_article_analysis_do_not_turn_into": "不要改写成单纯鼓吹立刻断舍离、彻底忘掉过去的励志口号文。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-05T00:00:00Z",
+    )
+
+    assert acceptance_result.strategy_card.structure_mode == "emotional_engine_direct"
+    assert regret_result.strategy_card.structure_mode == "emotional_engine_direct"
+    assert "以引语起笔" in acceptance_result.strategy_card.opening_move
+    assert "偶遇场景" in regret_result.strategy_card.opening_move
+    assert "阶段性结束的现实之间的冲突" in acceptance_result.strategy_card.body_shift
+    assert "现实已经无法回退" in regret_result.strategy_card.body_shift
+    assert "继续前行的力量" in acceptance_result.strategy_card.packaging_focus
+    assert "新的日常、新的关系和新的期待" in regret_result.strategy_card.packaging_focus
+    assert acceptance_result.strategy_card.opening_move != regret_result.strategy_card.opening_move
+    assert acceptance_result.strategy_card.body_shift != regret_result.strategy_card.body_shift
+    assert any(token in acceptance_result.strategy_card.conflict_frame for token in ("相遇", "意义", "阶段性结束"))
+    assert "身体告警" not in acceptance_result.strategy_card.opening_move
+    assert "把自己排回前面" not in acceptance_result.strategy_card.ending_move
+    assert "温暖" in acceptance_result.strategy_card.body_shift or "成长" in acceptance_result.strategy_card.body_shift

@@ -11,6 +11,10 @@ class ProblemBriefItem(BaseModel):
     clarified_problem: str
     observed_phenomenon: str = ""
     writing_goal: str = ""
+    problem_explanation: str = ""
+    emotional_value_goal: str = ""
+    theme_axis: str = ""
+    anti_drift_axis: str = ""
     target_reader_situation: str
     core_conflict: str
     unknowns: list[str] = Field(default_factory=list)
@@ -41,11 +45,22 @@ class StrategyCardItem(BaseModel):
     point_of_view: str
     conflict_frame: str
     emotional_path: str
+    hook_trigger: str = ""
+    progression_drive: str = ""
+    share_reason: str = ""
+    positive_direction: str = ""
+    quotable_line_goal: str = ""
+    packaging_focus: str = ""
+    packaging_hook: str = ""
+    realism_texture_goal: str = ""
     structure_mode: str = ""
     opening_move: str = ""
     body_shift: str = ""
     ending_move: str = ""
     recomposition_recipe: list[str] = Field(default_factory=list)
+    writing_texture_notes: list[str] = Field(default_factory=list)
+    scene_anchor_requirements: list[str] = Field(default_factory=list)
+    quotable_line_seeds: list[str] = Field(default_factory=list)
     expression_constraints: list[str] = Field(default_factory=list)
     divergence_axes: list[str] = Field(default_factory=list)
     execution_checklist: list[str] = Field(default_factory=list)
