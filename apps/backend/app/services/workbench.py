@@ -14249,8 +14249,8 @@ def _build_local_publish_package_fallback(
             )
         if mode == "response_priority":
             if _uses_local_response_priority_time_priority_variant(focus_payload):
-                publish_lead = "你当然知道大家都忙。可把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。"
-                abstract = "忙本身并不伤人，伤人的是你把在意递过去，后来像没落到实处。那句“忙完找你”最后真的补回来，心里悬着的那一下就会慢慢放下。"
+                publish_lead = "大家都忙，这件事你明白。可把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。"
+                abstract = "忙完还记得回来接一句，心里那点悬着就会慢慢落地。时间不一定要很多，但愿意补上的人，会让你知道自己一直被放在心上。"
             else:
                 if any(token in response_priority_scene_corpus for token in ("晚霞", "夕阳", "落日", "朋友圈", "照片")) and any(
                     token in response_priority_scene_corpus
@@ -14264,7 +14264,7 @@ def _build_local_publish_package_fallback(
         elif mode == "everyday_warmth_return":
             if _uses_local_everyday_warmth_small_things_variant(focus_payload):
                 publish_lead = "周末陪父母在小区慢慢走一圈，陪孩子把积木铺满地，再和爱人拎着菜回家。一天没有发生什么大事，可晚上躺下时，心里是满的。"
-                abstract = "真正属于你的生活，很少写在履历上。它藏在一次没有催促的散步、一个肯好好陪伴的下午里。把这些小事捡回来，日子就有了温度。"
+                abstract = "属于你的生活，很少写在履历上。它藏在一次没有催促的散步、一个肯好好陪伴的下午里。把这些小事捡回来，日子就有了温度。"
             elif _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
                 publish_lead = "回家时那盏灯还亮着，饭也还热着。忙了一整天以后，人想要的也许就是这份踏实。"
                 abstract = "家里人平安，知己还在，想说的话还有人听。能把这样的日子守住，已经很难得。"
@@ -14416,7 +14416,7 @@ def _build_local_publish_package_fallback(
             self_reliance_intro = _pick_local_seeded_text_variant(
                 focus_payload,
                 (
-                    "那句“我有点累”，可以先留给真正愿意听的人。",
+                    "那句“我有点累”，可以先留给愿意认真听的人。",
                     "求助不丢人，自救也不丢人。",
                     "先把今晚稳住，再把难处说清。",
                 ),

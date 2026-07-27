@@ -1460,8 +1460,8 @@ def test_local_response_priority_time_priority_publish_package_fallback_uses_tim
     )
 
     assert "忙完以后回来找你" in str(result["publish_lead"])
-    assert "你把在意递过去" in str(result["abstract"])
-    assert "忙完找你" in str(result["abstract"])
+    assert "忙完还记得回来接一句" in str(result["abstract"])
+    assert "一直被放在心上" in str(result["abstract"])
 
 
 def test_local_inner_settlement_publish_package_fallback_keeps_abstract_distinct() -> None:
