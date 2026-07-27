@@ -2506,7 +2506,14 @@ def _build_packaging_focus(
 
 
 def _normalize_strategy_contract_text(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip(" \n\t。；;，,")
+    normalized = re.sub(r"\s+", " ", value)
+    for source, replacement in (
+        ("这篇文章真正想讨论的是：", "核心主题："),
+        ("这篇文章真正想谈的是：", "核心主题："),
+        ("文章真正讨论的是：", "核心主题："),
+    ):
+        normalized = normalized.replace(source, replacement)
+    return normalized.strip(" \n\t。；;，,")
 
 
 _RESPONSIBILITY_SHELTER_CONTRACT_REPLACEMENTS = (
@@ -3712,9 +3719,9 @@ def _build_emotional_release_profile(*, variant: str) -> dict[str, str]:
         "observed_phenomenon": "很多人不是看不见自己已经被拖累，而是总把还没停下误认成还来得及，于是越消耗越不肯松手。",
         "normalized_topic_angle": "从人为什么总在得不到的东西上反复拉扯切入，重点写人怎样把继续投入误认成更接近圆满，又怎样慢慢把心力收回来。",
         "writing_goal": "把人为什么总会把不肯停下误认成认真讲清楚，也让读者看见，停下来不是认输，而是把心力慢慢收回自己手里。",
-        "clarified_problem": "真正需要被看见的，不是人人都懂却做不到的道理，而是为什么很多人明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。",
-        "feedback_entry": "如果这篇稿子成立，总在得不到的东西上反复拉扯的人会先认出“这说的就是我现在的卡点”，也会意识到自己不是离幸福太远，而是一直把不肯停下误认成更接近幸福。",
-        "problem_explanation": "这篇稿子要解释的，是为什么人明明已经被拖得很累了，还是会把继续投入误认成更接近圆满。",
+        "clarified_problem": "关键不在于人人都懂却做不到的道理，而在于很多人明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。",
+        "feedback_entry": "总在得不到的东西上反复拉扯的人会先认出自己的处境，也会意识到自己不是离幸福太远，而是一直把不肯停下误认成更接近幸福。",
+        "problem_explanation": "核心要拆开的，是为什么人明明已经被拖得很累了，还是会把继续投入误认成更接近圆满。",
         "point_of_view": "不急着讲知足、放下或清醒的大道理，先把人为什么明明已经很累，却还是觉得自己不能停讲清楚。",
         "conflict_frame": "真正把人困住的，不是没有答案，而是总把舍不得放手误认成还有希望。",
         "emotional_path": "先认出自己一直在和得不到的东西拉扯，再看为什么人总要等到透支之后才愿意停下。",
@@ -3732,9 +3739,9 @@ def _build_emotional_release_profile(*, variant: str) -> dict[str, str]:
                 "observed_phenomenon": "很多旧关系不是天天想起，却会在某个小瞬间突然回潮，让人又回到那句没说完的话和那个没被接住的位置上。",
                 "normalized_topic_angle": "从那些会把旧念头重新勾回来的现实接口切入，重点写人为什么总会在过去和如果当初里停一下，又怎样把遗憾慢慢安放回过去。",
                 "writing_goal": "把人为什么总会被旧事和当初拉回去讲清楚，也让读者看见，放下不是背叛过去，而是让今天和以后重新有位置。",
-                "clarified_problem": "真正需要被看见的，不是人该不该赶快忘掉，而是为什么很多旧关系明明已经结束，还是会在某个当下重新回潮，占住今天的心力。",
-                "feedback_entry": "如果这篇稿子成立，明明已经往前走了、心里却还会被旧事拉回去的人会先认出“这说的就是我现在的卡点”，也会知道放下不是逼自己忘掉，而是把过去放回过去，让今天继续往前。",
-                "problem_explanation": "这篇稿子要解释的，是为什么人明明知道很多旧事已经回不去，还是会在某个物件、某句话或某个瞬间里再次被拉回当时；也解释为什么把遗憾安放好，今天才会重新腾出位置。",
+                "clarified_problem": "关键不在于人该不该赶快忘掉，而在于很多旧关系明明已经结束，还是会在某个当下重新回潮，占住今天的心力。",
+                "feedback_entry": "明明已经往前走了、心里却还会被旧事拉回去的人会先认出自己的处境，也会知道放下不是逼自己忘掉，而是把过去放回过去，让今天继续往前。",
+                "problem_explanation": "核心要拆开的，是为什么人明明知道很多旧事已经回不去，还是会在某个物件、某句话或某个瞬间里再次被拉回当时；也要落到把遗憾安放好，今天才会重新腾出位置。",
                 "point_of_view": "不急着催人忘掉，先把为什么总会被过去拉回去讲清楚，再把读者带回今天还能继续发生的生活。",
                 "conflict_frame": "真正拖住人的，未必是过去本身还在发生，而是心里一直替那段回不去的东西留着位置。",
                 "emotional_path": "先认出旧事为什么总会在不经意时被勾回来，再看遗憾怎样从一直占心，慢慢变成可以被收好的过去。",
@@ -3751,9 +3758,9 @@ def _build_emotional_release_profile(*, variant: str) -> dict[str, str]:
                 "observed_phenomenon": "很多人并不是还想回头，而是舍不得把一段真心只算成失去，于是一直停在遗憾里，忘了相遇留下来的温暖和改变其实已经成为自己的一部分。",
                 "normalized_topic_angle": "从人为什么总把关系结束误认成全盘落空切入，重点写有些相遇本就有阶段，它留下来的温暖、眼界和成长怎样慢慢留在一个人身上，让人带着感谢继续往前。",
                 "writing_goal": "把人为什么会把结束误认成白费讲清楚，也让读者看见，真正的释怀不是否认疼痛，而是承认相遇真实、收好留下来的温暖，然后继续往前走。",
-                "clarified_problem": "真正需要被看见的，不是关系结束以后谁更亏、谁更错，而是为什么很多人一面对离开，就下意识把整段相遇都算成白费。",
-                "feedback_entry": "如果这篇稿子成立，经历过关系结束、心里还舍不得把那段相遇放回过去的人，会先认出“原来我难过的不只是失去”，也会慢慢松开那种非得等结果来证明自己没有爱错的执拗。",
-                "problem_explanation": "这篇稿子要解释的，是为什么人总把没走到最后理解成白费；也解释为什么当你看见那段相遇已经在你身上留下温暖和改变，离开就不再只剩亏欠感。",
+                "clarified_problem": "关键不在于关系结束以后谁更亏、谁更错，而在于很多人一面对离开，就下意识把整段相遇都算成白费。",
+                "feedback_entry": "经历过关系结束、心里还舍不得把那段相遇放回过去的人，会先认出“原来我难过的不只是失去”，也会慢慢松开那种非得等结果来证明自己没有爱错的执拗。",
+                "problem_explanation": "核心要拆开的，是为什么人总把没走到最后理解成白费；也要落到当你看见那段相遇已经在你身上留下温暖和改变，离开就不再只剩亏欠感。",
                 "point_of_view": "不急着催人忘掉，先把为什么我们总想用结果给一段相遇定价讲清楚，再把读者带回那段关系真正留下来的东西上。",
                 "conflict_frame": "真正让人迟迟放不下的，往往不是离开本身，而是你还没承认：有些关系的意义，本来就不靠走到最后来证明。",
                 "emotional_path": "先认出人为什么会把结束理解成白费，再看相遇里留下来的温暖、眼界和自我认识，怎样慢慢替代那个必须有结果的执念。",
@@ -3773,9 +3780,9 @@ def _build_self_worth_rebuild_profile() -> dict[str, str]:
         "observed_phenomenon": "很多人不是不知道自己委屈了，而是总把将就、示好和先退一步误认成感情会更顺，于是越想被珍惜，越先把自己放轻。",
         "normalized_topic_angle": "从人为什么总在关系里先把自己往后放切入，重点写边界一退再退、位置感越来越轻，怎样让一个人越来越容易被随便对待；也写她怎样把精力收回来，重新尊重自己，让日子慢慢变稳、变体面。",
         "writing_goal": "把人为什么总会把迁就误认成爱、把退让误认成关系会更顺讲清楚，也让读者看见，边界、标准和尊重可以一点点回到自己这边。",
-        "clarified_problem": "真正需要被看见的，是很多人明明已经在将就里受委屈了，还是会下意识把问题先归到自己不够好、不够懂事或不够值得。",
-        "feedback_entry": "如果这篇稿子成立，总在委屈里迁就、总把别人排在自己前面的人会先认出“这说的就是我现在的卡点”，也会慢慢看到，很多轻慢常常从自己一次次把边界、标准和体面让出去开始。",
-        "problem_explanation": "这篇稿子要解释的，是为什么人明明已经在将就、示好和降低标准里一点点受伤，还是会继续把自己往后放；也解释为什么当一个人开始尊重自己、守住边界，很多关系的轻慢才会真正停下来。",
+        "clarified_problem": "关键要写出来的是，很多人明明已经在将就里受委屈了，还是会下意识把问题先归到自己不够好、不够懂事或不够值得。",
+        "feedback_entry": "总在委屈里迁就、总把别人排在自己前面的人会先认出自己的处境，也会慢慢看到，很多轻慢常常从自己一次次把边界、标准和体面让出去开始。",
+        "problem_explanation": "核心要拆开的，是为什么人明明已经在将就、示好和降低标准里一点点受伤，还是会继续把自己往后放；也要落到当一个人开始尊重自己、守住边界，很多关系的轻慢才会真正停下来。",
         "point_of_view": "不急着把文章写成识人清单或狠话宣言，先把一个人为什么会一路迁就、一路退让讲清楚，再把尊重自己和重新立住边界这件事慢慢接回来。",
         "conflict_frame": "越怕失去、越急着证明自己值得被爱，越容易先把边界、标准和体面一点点让出去。",
         "emotional_path": "先认出那些总把自己往后放的时刻，再看边界怎样在一次次将就里慢慢变薄，最后把尊重和分量重新收回自己这边。",
@@ -3805,9 +3812,9 @@ def _build_scene_first_progression_profile(*, variant: str) -> dict[str, str]:
         "observed_phenomenon": "很多关系不是没有问题，而是每次走到那个该问清楚、该确认、该靠近的现场里，人都会先把更重要的话压回去，转身后再一个人反复回想。",
         "normalized_topic_angle": "从那个原本可以问清楚、确认或靠近的现场切入，重点写人为什么总把更重要的话留到转身以后，最后只剩自己补那段空白。",
         "writing_goal": "把人为什么总在该开口的现场里先把更重要的话压回去讲清楚，也让读者看见，一次次让位是怎样慢慢改写位置感和关系里的在场感。",
-        "clarified_problem": "真正需要被看见的，不是一个人会不会沟通，而是为什么很多人一回到那个该开口的现场里，就先把更重要的话压回去；也要让读者看见，一次次让位为什么会慢慢改写位置感和关系里的在场感。",
-        "feedback_entry": "如果这篇稿子成立，总在那个该开口的现场里，先把更重要的话压回去的人会先认出“这说的就是我现在的卡点”，也会认出，很多关系变远并不是突然没了答案，而是那个该开口的现场一次次被自己让过去了。",
-        "problem_explanation": "这篇稿子要解释的，是为什么人明明已经感觉到了变化，还是会在那个该开口的现场里先把更重要的话压回去；也解释为什么一次次让位以后，位置感和关系里的在场感会一起变淡。",
+        "clarified_problem": "关键不在于一个人会不会沟通，而在于很多人一回到那个该开口的现场里，就先把更重要的话压回去；也要让读者看见，一次次让位为什么会慢慢改写位置感和关系里的在场感。",
+        "feedback_entry": "总在那个该开口的现场里，先把更重要的话压回去的人会先认出自己的处境，也会认出，很多关系变远并不是突然没了答案，而是那个该开口的现场一次次被自己让过去了。",
+        "problem_explanation": "核心要拆开的，是为什么人明明已经感觉到了变化，还是会在那个该开口的现场里先把更重要的话压回去；也要落到一次次让位以后，位置感和关系里的在场感会一起变淡。",
         "point_of_view": "不急着给关系道理或沟通答案，先把那句为什么总在现场里被压回去讲清楚。",
         "conflict_frame": "真正把关系拉远的，常常不是某一次翻脸，而是每次走到那个该问清楚的现场里，人都先把更重要的话让过去。",
         "emotional_path": "先认出那句话为什么总在现场里被压回去，再看一次次让位是怎样把靠近的机会、位置感和关系里的在场感一起往后推。",
@@ -3830,9 +3837,9 @@ def _build_scene_first_progression_profile(*, variant: str) -> dict[str, str]:
                 "observed_phenomenon": "很多人不是没有判断，而是在会议室、排期和协作现场里，一次次先替气氛和秩序让路，等散会后才一个人补那句没说出口的话。",
                 "normalized_topic_angle": "从会议现场里那句想说又咽回去的话切入，重点写人为什么总在会上先替气氛和秩序让路，事后又把需求和补救一起揽回自己身上。",
                 "writing_goal": "把人为什么总在会上先把关键意见、边界和需求压回去讲清楚，也让读者看见，事后补救为什么会慢慢把位置感和协作里的分量一起让出去。",
-                "clarified_problem": "真正需要被看见的，不是一个人会不会发声，而是为什么很多人一回到会议室和协作现场里，就先把那句更重要的话压回去；也要让读者看见，事后补救为什么会慢慢把位置感和需求表达一起让出去。",
-                "feedback_entry": "如果这篇稿子成立，总在会议上先把关键意见、边界或需求压回去，散会后再一个人补救的人会先认出“这说的就是我现在的卡点”，也会认出，很多协作里的失衡不是从任务太多开始的，而是从那句该在会上说出口的话被你一次次留到散会后开始的。",
-                "problem_explanation": "这篇稿子要解释的，是为什么人明明已经看见了排期、协作和边界上的问题，还是会在会议室里先把更重要的话压回去；也解释为什么一次次散会后补救，会慢慢把位置感和需求表达一起让出去。",
+                "clarified_problem": "关键不在于一个人会不会发声，而在于很多人一回到会议室和协作现场里，就先把那句更重要的话压回去；也要让读者看见，事后补救为什么会慢慢把位置感和需求表达一起让出去。",
+                "feedback_entry": "总在会议上先把关键意见、边界或需求压回去，散会后再一个人补救的人会先认出自己的处境，也会认出，很多协作里的失衡不是从任务太多开始的，而是从那句该在会上说出口的话被你一次次留到散会后开始的。",
+                "problem_explanation": "核心要拆开的，是为什么人明明已经看见了排期、协作和边界上的问题，还是会在会议室里先把更重要的话压回去；也要落到一次次散会后补救，会慢慢把位置感和需求表达一起让出去。",
                 "point_of_view": "不急着讲职场沟通技巧，先把一句话为什么总在会议室里被咽回去讲清楚。",
                 "conflict_frame": "真正让人慢慢失去位置感的，常常不是不会做事，而是每次一到会议室和协作现场，就先把那句更重要的话留到散会后。",
                 "emotional_path": "先认出那句话为什么总在会议室里被压回去，再看散会后补邮件、补解释和自己兜底，怎样把位置感和需求表达一起往后挪。",
@@ -3855,9 +3862,9 @@ def _build_scene_first_progression_profile(*, variant: str) -> dict[str, str]:
                 "observed_phenomenon": "很多家里的卡住不是没人察觉，而是每次走到那个该说清楚的时刻，人都会先把更重要的话往后放，接着让日常把它顺过去。",
                 "normalized_topic_angle": "从家里那个原本该说清楚、却又被日常顺过去的时刻切入，重点写人为什么总把更重要的话留到后来，最后把沉默也过成了秩序。",
                 "writing_goal": "把人为什么总在家里那个该说清楚的时刻先把更重要的话往后放讲清楚，也让读者看见，日常顺过去以后，沉默是怎样慢慢改写亲近感和位置感的。",
-                "clarified_problem": "真正需要被看见的，不是家里有没有那件事，而是为什么很多人一回到那个熟悉现场里，就先把更重要的话往后放；也要让读者看见，日常把它顺过去以后，沉默会怎样慢慢改写亲近感和位置感。",
-                "feedback_entry": "如果这篇稿子成立，总在家里那个该说清楚的时刻，把更重要的话又往后放的人会先认出“这说的就是我现在的卡点”，也会认出，很多沉默不是没机会说，而是太熟悉先把日子过下去，再把自己往后放。",
-                "problem_explanation": "这篇稿子要解释的，是为什么人明明知道家里那件事该说清楚，还是会在那个熟悉现场里先把更重要的话往后放；也解释为什么日常顺过去以后，沉默会慢慢变成新的秩序。",
+                "clarified_problem": "关键不在于家里有没有那件事，而在于很多人一回到那个熟悉现场里，就先把更重要的话往后放；也要让读者看见，日常把它顺过去以后，沉默会怎样慢慢改写亲近感和位置感。",
+                "feedback_entry": "总在家里那个该说清楚的时刻，把更重要的话又往后放的人会先认出自己的处境，也会认出，很多沉默不是没机会说，而是太熟悉先把日子过下去，再把自己往后放。",
+                "problem_explanation": "核心要拆开的，是为什么人明明知道家里那件事该说清楚，还是会在那个熟悉现场里先把更重要的话往后放；也要落到日常顺过去以后，沉默会慢慢变成新的秩序。",
                 "point_of_view": "不急着讲家庭沟通道理，先把那句话为什么总在家里被顺过去讲清楚。",
                 "conflict_frame": "真正把亲近感拖薄的，常常不是一件大事，而是每次走到那个该说清楚的时刻，人都先把更重要的话让给了日常秩序。",
                 "emotional_path": "先认出那句话为什么总在家里被往后放，再看一次次顺过去是怎样把亲近感、位置感和表达欲一起磨薄。",
@@ -3882,9 +3889,9 @@ def _build_supportive_appreciation_profile() -> dict[str, str]:
         "observed_phenomenon": "很多人并不是不懂分寸，只是心里明白归明白，还是会先照顾别人感受、先把争辩和计较放下来；也正因为这样，这份柔软反而最容易被误解。",
         "normalized_topic_angle": "从人为什么总把心软误认成好说话切入，重点写那些明明拎得清、却还是愿意体谅和包容别人的人，为什么最值得被认真珍惜。",
         "writing_goal": "把心软为什么不是傻、包容为什么不是没底线讲清楚，也让读者看见，真正稀缺的从来不是会说漂亮话的人，而是明明拎得清还愿意温柔待人的人。",
-        "clarified_problem": "真正需要被看见的，不是心软的人吃了多少亏，而是为什么很多人会把这种明明拎得清、却仍愿意体谅和包容别人的柔软，误读成软弱和理所当然。",
-        "feedback_entry": "如果这篇稿子成立，总在体谅别人、包容别人，却常被误读成太好说话的人会先认出“原来我不是太傻，只是一直把感情放得很重”；而读到这篇的人，也会更知道该怎样认真回应、珍惜和善待这样的人。",
-        "problem_explanation": "这篇稿子要解释的，是为什么柔软常常会被误读成软弱，也解释为什么那些明明拎得清、却还是愿意体谅和包容别人的人，反而最值得被认真珍惜。",
+        "clarified_problem": "关键不在于心软的人吃了多少亏，而在于很多人会把这种明明拎得清、却仍愿意体谅和包容别人的柔软，误读成软弱和理所当然。",
+        "feedback_entry": "总在体谅别人、包容别人，却常被误读成太好说话的人会先认出“原来我不是太傻，只是一直把感情放得很重”；而读到这篇的人，也会更知道该怎样认真回应、珍惜和善待这样的人。",
+        "problem_explanation": "核心要拆开的，是为什么柔软常常会被误读成软弱，也要落到那些明明拎得清、却还是愿意体谅和包容别人的人，反而最值得被认真珍惜。",
         "point_of_view": "不急着劝人变硬一点，先把柔软为什么常被误读、又为什么其实最难得讲清楚。",
         "conflict_frame": "真正可惜的，不是心软的人吃了点亏，而是很多人把这份明明拎得清、却还是愿意体谅和包容的珍贵，当成了理所当然。",
         "emotional_path": "先认出心软不是傻，而是明明拎得清还愿意在乎；再看这份柔软为什么总被误读，最后落到这样的人为什么本来就值得被认真珍惜和回应。",
@@ -3938,9 +3945,9 @@ def _build_inner_settlement_profile(*, variant: str) -> dict[str, str]:
         "observed_phenomenon": "很多人日子照常过着，却很少真正把自己放回日子里：手上在往前推，心里却一直没有找到能安顿下来的位置。",
         "normalized_topic_angle": "从人为什么明明日子还在往前走，心却迟迟回不了位切入，重点写那颗心怎样慢慢放平，以及人怎样重新住回自己的日子里。",
         "writing_goal": "把人为什么总在心里悬着、迟迟回不了稳讲清楚，也让读者看见，真正的回稳不是把一切想通，而是先把自己慢慢安顿回当下。",
-        "clarified_problem": "真正需要被看见的，不是事情有没有一个足够标准的答案，而是为什么很多人明明还在正常过日子，心却总落不到实处，反而忘了先让自己坐回生活里；也要让读者看见，心慢慢安顿下来以后，很多事才会重新有轻重。",
-        "feedback_entry": "如果这篇稿子成立，明明外面未必最糟、却一直安不下来的读者会先认出“这说的就是我现在的卡点”，也会知道自己不是非得先把内心说服完，才配慢慢松下来。",
-        "problem_explanation": "这篇稿子要解释的，是为什么人明明还在正常过日子，却总让那颗心停在没收好的地方；也解释为什么把自己慢慢放回今天、放回日常，反而更容易让生活重新有序。",
+        "clarified_problem": "关键不在于事情有没有一个足够标准的答案，而在于很多人明明还在正常过日子，心却总落不到实处，反而忘了先让自己坐回生活里；也要让读者看见，心慢慢安顿下来以后，很多事才会重新有轻重。",
+        "feedback_entry": "明明外面未必最糟、却一直安不下来的读者会先认出自己的处境，也会知道自己不是非得先把内心说服完，才配慢慢松下来。",
+        "problem_explanation": "核心要拆开的，是为什么人明明还在正常过日子，却总让那颗心停在没收好的地方；也要落到把自己慢慢放回今天、放回日常，反而更容易让生活重新有序。",
         "point_of_view": "不急着给人生答案，先把那颗心为什么一直没有真正安顿好讲清楚，再把读者慢慢带回她已经在过的日子里。",
         "conflict_frame": "真正困住人的，常常不是外界已经坏到无路可走，而是那颗心一直停在半空里，不肯跟着人一起回到当下。",
         "emotional_path": "先认出心为什么一直悬着、一直在心里较劲，再看那股劲怎样慢慢松开，最后把人重新送回今天还能过、还能握住的生活里。",
@@ -3966,8 +3973,8 @@ def _build_inner_settlement_profile(*, variant: str) -> dict[str, str]:
             {
                 "normalized_topic_angle": "从那些会把旧念头重新勾回来的现实接口切入，重点写人为什么总会在过去和如果当初里停一下，又怎样把遗憾慢慢安放回过去。",
                 "writing_goal": "把人为什么总会被旧事和当初拉回去讲清楚，也让读者看见，放下不是背叛过去，而是让今天和以后重新有位置。",
-                "feedback_entry": "如果这篇稿子成立，明明已经往前走了，心里却还会被旧事拉回去的人会先认出“这说的就是我现在的卡点”，也会知道放下不是逼自己忘掉，而是把过去放回过去，让今天继续往前。",
-                "problem_explanation": "这篇稿子要解释的，是为什么人明明知道很多旧事已经回不去，还是会在某个物件、某句话或某个瞬间里再次被拉回当时；也解释为什么把遗憾安放好，今天才会重新腾出位置。",
+                "feedback_entry": "明明已经往前走了，心里却还会被旧事拉回去的人会先认出自己的处境，也会知道放下不是逼自己忘掉，而是把过去放回过去，让今天继续往前。",
+                "problem_explanation": "核心要拆开的，是为什么人明明知道很多旧事已经回不去，还是会在某个物件、某句话或某个瞬间里再次被拉回当时；也要落到把遗憾安放好，今天才会重新腾出位置。",
                 "point_of_view": "不急着催人忘掉，先把为什么总会被过去拉回去讲清楚，再把读者带回今天还能继续发生的生活。",
                 "conflict_frame": "真正拖住人的，未必是过去本身还在发生，而是心里一直替那段回不去的东西留着位置。",
                 "emotional_path": "先认出旧事为什么总会在不经意时被勾回来，再看遗憾怎样从一直占心，慢慢变成可以被收好的过去。",
@@ -3981,7 +3988,7 @@ def _build_inner_settlement_profile(*, variant: str) -> dict[str, str]:
             {
                 "normalized_topic_angle": "从那些把人慢慢接回自己的普通接口切入，重点写真正的心安为什么要从向内安顿开始，又怎样在真实日常里一点点生长出来。",
                 "writing_goal": "把心为什么迟迟安不下来讲清楚，也让读者看见，真正把人接回来的，往往不是顿悟，而是那些重新有轻重的普通日常。",
-                "feedback_entry": "如果这篇稿子成立，明明心里一直悬着，却慢慢被普通日常接回来的读者会先认出“这说的就是我现在的卡点”，也会知道不是非得等到彻底想通，生活才可以重新有轻重。",
+                "feedback_entry": "明明心里一直悬着，却慢慢被普通日常接回来的读者会先认出自己的处境，也会知道不是非得等到彻底想通，生活才可以重新有轻重。",
                 "point_of_view": "不急着把心安写成抽象道理，先把人为什么迟迟回不了稳讲清楚，再把那股回到当下的力量交还给真实日常。",
                 "opening_move": "开头先落一个日子正在把人往回接的小接口：终于坐下来吃一顿饭、一次慢下来的呼吸、一个原本被忽略的普通安排重新有了分量。不要先讲幸福定义，也不要照搬参考文那组家庭动作清单。",
                 "body_shift": "中段先拆那颗心为什么总想先把自己说服明白、把日子安排妥帖，结果反而越悬越紧；再写那些普通但真实的日常安排怎样一点点把人接回来，让今天重新有轻重。",
@@ -3996,9 +4003,9 @@ def _build_inner_settlement_profile(*, variant: str) -> dict[str, str]:
                 "observed_phenomenon": "到了半年、年中或某个阶段节点，很多人都会突然开始清点：目标做了多少，错过了什么，人有没有留住，自己是不是又慢了一点。看起来像复盘，其实常常先变成了一场对自己的追责。",
                 "normalized_topic_angle": "从人为什么总会在阶段节点把没完成、没拥有和没赶上一起算成失败切入，写遗憾怎样被安放、温暖怎样把人托住，以及人怎样重新接纳眼前这个阶段的自己，带着期待继续往前。",
                 "writing_goal": "把人为什么总会在阶段节点先否定自己讲清楚，也让读者看见，真正能把人送去下一个阶段的，不是更狠地追责自己，而是重新安放遗憾、看见仍在身边的爱与支撑，并把力气收回到眼前的人生里。",
-                "clarified_problem": "真正需要被看见的，不是一个人上半年做得够不够好，而是为什么很多人一到阶段节点，就会把没完成、没拥有和没赶上一起算成“自己不够好”；也要让读者看见，阶段性的失落并不等于这一段人生白过了，重新出发往往是从接纳此刻和珍惜眼前开始的。",
-                "feedback_entry": "如果这篇稿子成立，那些一到阶段节点就开始否定自己的人，会先认出“这说的就是我现在的卡点”，也会慢慢相信：事与愿违未必是失败，很多正在发生的爱、支撑和成长，本来就在把自己送往下一个更好的阶段。",
-                "problem_explanation": "这篇稿子要解释的，是为什么人一到阶段节点，总会拿结果倒扣自己，把遗憾、疲惫和比较一起压成失败感；也解释为什么把遗憾安放好、把眼前的关系和生活重新看见，人才有力气继续往前。",
+                "clarified_problem": "关键不在于一个人上半年做得够不够好，而在于很多人一到阶段节点，就会把没完成、没拥有和没赶上一起算成“自己不够好”；也要让读者看见，阶段性的失落并不等于这一段人生白过了，重新出发往往是从接纳此刻和珍惜眼前开始的。",
+                "feedback_entry": "那些一到阶段节点就开始否定自己的人，会先认出自己的处境，也会慢慢相信：事与愿违未必是失败，很多正在发生的爱、支撑和成长，本来就在把自己送往下一个更好的阶段。",
+                "problem_explanation": "核心要拆开的，是为什么人一到阶段节点，总会拿结果倒扣自己，把遗憾、疲惫和比较一起压成失败感；也要落到把遗憾安放好、把眼前的关系和生活重新看见，人才有力气继续往前。",
                 "point_of_view": "不急着催人翻篇和振作，先把阶段性回望里那股自责和失落讲清楚，再把读者慢慢带回眼前仍在托住她的人和生活里。",
                 "conflict_frame": "真正让人难受的，常常不是这一阶段没有圆满，而是总想用结果一次性证明自己有没有白走这段路。",
                 "emotional_path": "先认出阶段节点上的自责、遗憾和比较是怎样一起压上来的，再看温暖、陪伴和阶段自洽怎样一点点把人从否定自己里接回来，最后把力气还给接下来的生活。",
@@ -4061,9 +4068,9 @@ def _build_everyday_warmth_profile(*, variant: str) -> dict[str, str]:
             "observed_phenomenon": "事情一来，手上的安排会先停一下，脑子里已经开始看谁要陪、哪件要挪、哪一步要先做。",
             "normalized_topic_angle": "从参考文已经成立的现实入口切入，写这个人为什么总先把顺序理清，也写这些认真怎样慢慢变成一家人的踏实。",
             "writing_goal": "把一个临时状况怎样把家的顺序重新排开讲清楚，也让读者看见，很多认真不是白费，它们最后会落成父母安心、孩子底气和家里的稳当。",
-            "clarified_problem": "真正需要被看见的，不是中年有多辛苦，而是家里临时有事时，现实安排怎样一起推到眼前；也要让读者看见，这些安排最后怎样变成一个家的安稳。",
-            "feedback_entry": "如果这篇稿子成立，那些总是先把家里安排好的人，会先认出“这说的就是我”；读完也会更确定，自己一次次多想一步，真的正在托住这个家。",
-            "problem_explanation": "这篇稿子要解释的，不是中年为什么总在扛事，而是一个现实入口为什么会把陪护、接送、开销、请假或晚饭一起推到眼前；也解释为什么这些细小安排最后会变成一个家的安稳。",
+            "clarified_problem": "关键不在于中年有多辛苦，而在于家里临时有事时，现实安排怎样一起推到眼前；也要让读者看见，这些安排最后怎样变成一个家的安稳。",
+            "feedback_entry": "那些总是先把家里安排好的人，会先认出“这说的就是我”；读完也会更确定，自己一次次多想一步，真的正在托住这个家。",
+            "problem_explanation": "核心要拆开的，不是中年为什么总在扛事，而是一个现实入口为什么会把陪护、接送、开销、请假或晚饭一起推到眼前；也要落到这些细小安排最后会变成一个家的安稳。",
             "benchmark_borrow_focus": "现实入口出现后立刻开始排顺序的那一下 / 父母孩子伴侣怎样让辛苦变得值得 / 家里有人被护住时的回温动作",
             "benchmark_summary": "只借参考文里现实入口、家里临时有事和安稳回温这条主线，不借原文标题骨架、排比句势和结尾口号。",
             "point_of_view": "不急着把文章写成中年励志，先把参考文自己的现实动作和那句“我来安排”写实，再让责任和安稳慢慢浮出来。",
@@ -4084,9 +4091,9 @@ def _build_everyday_warmth_profile(*, variant: str) -> dict[str, str]:
         "observed_phenomenon": "很多人年轻时忙着追更大的房子、更多的钱、更热闹的圈子，到了后来才发现，真正让人安心的往往不是这些外在配置，而是有人可爱、有家可回、还有能说心里话的人。",
         "normalized_topic_angle": "人会一路追着更多拥有往前走，直到某个普通晚上被一顿热饭、一通惦记和一句到哪了轻轻接住，才重新看见家人平安、知己仍在的分量。",
         "writing_goal": "把人为什么总会把幸福误判成更多拥有讲清楚，也让读者看见，真正让日子稳下来的，往往是家人平安、知己仍在和那些看起来不耀眼却最能托底的日常。",
-        "clarified_problem": "真正需要被看见的，不是一个人该不该继续努力，而是为什么很多人会把幸福长期押在财富、体面和外在拥有上，直到走了一段路以后，才发现真正想守住的，不过是家人平安、知己仍在和日子简单。",
-        "feedback_entry": "如果这篇稿子成立，那些一直把好日子押在下一次达成、下一笔收入和下一层体面上的人，会先认出“这说的就是我现在的偏差”，也会慢慢看见：真正让自己踏实的，原来一直是家人平安、知己仍在和生活还热乎着。",
-        "problem_explanation": "这篇稿子要解释的，是为什么人总要走一段路、见过一些热闹、背过一些目标，才会重新明白什么才是最值得守住的幸福；也解释为什么家人平安、知己仍在和日子简单，反而最难被及时看见。",
+        "clarified_problem": "关键不在于一个人该不该继续努力，而在于很多人会把幸福长期押在财富、体面和外在拥有上，直到走了一段路以后，才发现真正想守住的，不过是家人平安、知己仍在和日子简单。",
+        "feedback_entry": "那些一直把好日子押在下一次达成、下一笔收入和下一层体面上的人，会先认出“原来我的幸福坐标偏远了”，也会慢慢看见：真正让自己踏实的，原来一直是家人平安、知己仍在和生活还热乎着。",
+        "problem_explanation": "核心要拆开的，是为什么人总要走一段路、见过一些热闹、背过一些目标，才会重新明白什么才是最值得守住的幸福；也要落到家人平安、知己仍在和日子简单，反而最难被及时看见。",
         "benchmark_borrow_focus": "幸福坐标的重估 / 财富排场与踏实感的落差 / 家人平安知己仍在怎样重新托住一个人",
         "benchmark_summary": "只借原文里幸福观重估、知己与家人回到主位这条主线，不借原文标题骨架、举例顺序和收束动作。",
         "point_of_view": "不急着把文章写成反努力宣言或空泛知足文，先把幸福的坐标为什么会慢慢偏掉，又怎样回到家人、朋友和真实日子里讲清楚。",
@@ -4445,36 +4452,36 @@ def _build_clarified_problem(
     if _uses_pressure_interface_mode(topic_angle=topic_angle, structure_mode=structure_mode):
         if primary_pressure_cue and secondary_pressure_cue:
             return (
-                f"真正需要被看见的，是 `{primary_pressure_cue}` 这样的信号为什么会一路拖到 `{secondary_pressure_cue}`，"
+                f"关键要写出来的是，`{primary_pressure_cue}` 这样的信号为什么会一路拖到 `{secondary_pressure_cue}`，"
                 f"中间那些已经开始失衡的生活接口又是怎么被一次次压过去的。"
             )
         if primary_pressure_cue:
             return (
-                f"真正需要被看见的，是 `{primary_pressure_cue}` 这样的信号已经冒出来了，"
+                f"关键要写出来的是，`{primary_pressure_cue}` 这样的信号已经冒出来了，"
                 f"人却还在把它往后顺延，最后让{observed_phenomenon}慢慢变成日常。"
             )
-        return f"真正需要被看见的，是{observed_phenomenon}背后那些被顺手往后挪开的接口，怎样一点点把压力和失衡堆了出来。"
+        return f"关键要写出来的是，{observed_phenomenon}背后那些被顺手往后挪开的接口，怎样一点点把压力和失衡堆了出来。"
     if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "真正需要被看见的，不是人该不该追求更大的目标，而是为什么很多人总要等到慢下来甚至差点错过的时候，才重新承认家人平安、朋友仍在和普通日常才是生活真正的底座。"
+        return "关键不在于人该不该追求更大的目标，而在于很多人总要等到慢下来甚至差点错过的时候，才重新承认家人平安、朋友仍在和普通日常才是生活真正的底座。"
     if _uses_inner_settlement_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "真正需要被看见的，不是事情到底有没有标准答案，而是为什么很多人总把心放在悬空处，忘了先让自己落地；也要让读者看见，当那颗心慢慢安顿下来，很多事会重新有了轻重。"
+        return "关键不在于事情到底有没有标准答案，而在于很多人总把心放在悬空处，忘了先让自己落地；也要让读者看见，当那颗心慢慢安顿下来，很多事会重新有了轻重。"
     if _uses_self_worth_rebuild_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "真正需要被看见的，是很多人明明已经在将就里受委屈了，还是会下意识把问题先归到自己不够好、不够值得；也要让读者看见，很多轻慢会停下来，往往是从你先尊重自己开始的。"
+        return "关键要写出来的是，很多人明明已经在将就里受委屈了，还是会下意识把问题先归到自己不够好、不够值得；也要让读者看见，很多轻慢会停下来，往往是从你先尊重自己开始的。"
     if _uses_trust_boundary_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "真正需要被看见的，是那份放心被隐瞒和谎言划出裂缝后，人为什么会开始不安；也要让读者看见，坦诚交代和日常里的说到做到，怎样把信任一点点托回来。"
+        return "关键要写出来的是，那份放心被隐瞒和谎言划出裂缝后，人为什么会开始不安；也要让读者看见，坦诚交代和日常里的说到做到，怎样把信任一点点托回来。"
     if _uses_response_priority_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         if response_priority_followup_variant:
-            return "真正需要被看见的，不是谁更会互动，而是为什么很多人明明收到的回应并不少，心里却还是悬着；也要让读者看见，真正让人安稳的，往往不是热闹，而是有人愿意停下来理解你。"
-        return "真正需要被看见的，不是替谁定罪，而是为什么很多人总把偶尔的回应当成例外、把长期的顺序当成误会；也要让读者看见，认清位置并不是失去爱，而是把自己放回该在的位置。"
+            return "关键不在于谁更会互动，而在于很多人明明收到的回应并不少，心里却还是悬着；也要让读者看见，真正让人安稳的，往往不是热闹，而是有人愿意停下来理解你。"
+        return "关键不在于替谁定罪，而在于很多人总把偶尔的回应当成例外、把长期的顺序当成误会；也要让读者看见，认清位置并不是失去爱，而是把自己放回该在的位置。"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "真正需要被看见的，是为什么一次次争执之后，总是只有一方在回收情绪、重建秩序，关系也就从这里开始慢慢失温。"
+        return "关键要写出来的是，为什么一次次争执之后，总是只有一方在回收情绪、重建秩序，关系也就从这里开始慢慢失温。"
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "真正需要被看见的，不是一个励志标签，而是为什么有些人明明被命运重击、长期疼痛和训练代价反复碾过，还是会在一次次重来里拒绝把残缺和低谷收成自我定义。"
+        return "关键不在于一个励志标签，而在于有些人明明被命运重击、长期疼痛和训练代价反复碾过，还是会在一次次重来里拒绝把残缺和低谷收成自我定义。"
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "真正需要被看见的，不是一个人会不会求助，而是为什么很多成年人一到承压时刻就容易乱了顺序；也要让读者看见，先接住眼前一步不是逞强，而是成年人的自我托底。"
+        return "关键不在于一个人会不会求助，而在于很多成年人一到承压时刻就容易乱了顺序；也要让读者看见，先接住眼前一步不是逞强，而是成年人的自我托底。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "真正需要被看见的，不是人人都懂却做不到的道理，而是人为什么明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。"
-    return f"{topic_title}真正需要被看见的，是{observed_phenomenon}里一点点累积出来的压力和失衡。"
+        return "关键不在于人人都懂却做不到的道理，而在于人为什么明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。"
+    return f"{topic_title}要写清楚的，是{observed_phenomenon}里一点点累积出来的压力和失衡。"
 
 
 def _build_feedback_entry(
@@ -4496,62 +4503,62 @@ def _build_feedback_entry(
             secondary_pressure_cue=secondary_pressure_cue,
         )
         return (
-            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            f"{reader_situation}会先认出自己的处境，"
             f"也会顺着{anchor}看到，自己为什么总把该先顾自己的事拖到更后面，"
             f"{consequence}。"
         )
     if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
-            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            f"{reader_situation}会先认出自己的处境，"
             "也会重新衡量家人平安、朋友仍在和普通日常的分量，认出它们不是附属品，而是这些年最该护住的生活底座。"
         )
     if _uses_inner_settlement_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
-            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            f"{reader_situation}会先认出自己的处境，"
             "也会松一口气，知道自己不是非得先把一切想透，才有资格慢慢松下来、把自己放回当下。"
         )
     if _uses_self_worth_rebuild_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
-            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            f"{reader_situation}会先认出自己的处境，"
             "也会慢慢看到，很多分量不是别人凭空给的，而是从你不再顺手退让、开始认真对待自己那一刻，才一点点回到你身上的。"
         )
     if _uses_trust_boundary_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
-            f"如果这篇稿子成立，{reader_situation}会先认出“原来我介意的不是小事”，"
+            f"{reader_situation}会先认出“原来我介意的不是小事”，"
             "也会看见信任真正需要的，是坦诚、交代和说到做到带来的心安。"
         )
     if _uses_response_priority_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         if response_priority_followup_variant:
             return (
-                f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+                f"{reader_situation}会先认出自己的处境，"
                 "也会更清楚地看见，真正让人踏实的关心，往往不用你反复猜，而会从一句追问、一次补问和一次认真停下来里自己长出来。"
             )
         return (
-            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            f"{reader_situation}会先认出自己的处境，"
             "也会更清楚地看见，真正值得留心的人，往往不会总让你靠猜去维持位置感。"
         )
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
-            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            f"{reader_situation}会先认出自己的处境，"
             "也会认出，关系发冷常常就是从每次架后都没人回来接住她开始的。"
         )
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
-            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            f"{reader_situation}会先认出自己的处境，"
             "也会认出，真正托住一个人的往往不是一句励志话，而是那些没人替她完成的重复训练和不肯被定义的那股劲。"
         )
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
-            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            f"{reader_situation}会先认出自己的处境，"
             "也会慢慢放下那种一下子必须全都撑住的慌张，知道先接住眼前这一小步，日子就会重新有下一步。"
         )
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
-            f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+            f"{reader_situation}会先认出自己的处境，"
             "也会意识到自己不是离幸福太远，而是一直把不肯停下误认成更接近幸福。"
         )
     return (
-        f"如果这篇稿子成立，{reader_situation}会先认出“这说的就是我现在的卡点”，"
+        f"{reader_situation}会先认出自己的处境，"
         f"并且能从 `{core_conflict}` 里看到自己为什么一直没能往前走。"
     )
 
@@ -4585,36 +4592,36 @@ def _build_problem_explanation(
     if _uses_pressure_interface_mode(topic_angle=topic_angle, structure_mode=structure_mode):
         if primary_pressure_cue and secondary_pressure_cue:
             return (
-                f"这篇稿子要解释的，是为什么 `{primary_pressure_cue}` 这类提醒已经冒头了，"
+                f"核心要拆开的，是为什么 `{primary_pressure_cue}` 这类提醒已经冒头了，"
                 f"人还是会继续往后拖，最后一路拖到 `{secondary_pressure_cue}` 这种更重后果。"
             )
         if primary_pressure_cue:
             return (
-                f"这篇稿子要解释的，是为什么 `{primary_pressure_cue}` 这类提醒已经出来了，"
+                f"核心要拆开的，是为什么 `{primary_pressure_cue}` 这类提醒已经出来了，"
                 "人还是会把该停下来的那一步继续往后推。"
             )
-        return f"这篇稿子要解释的，是为什么{observed_phenomenon}会一遍遍重演。"
+        return f"核心要拆开的，是为什么{observed_phenomenon}会一遍遍重演。"
     if _uses_everyday_warmth_return_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "这篇稿子要解释的，是为什么很多人明明已经拥有家人平安、朋友仍在和一份能过下去的日常，却总在一路往前赶、差点错过之后，才肯重新给它们应有的分量。"
+        return "核心要拆开的，是为什么很多人明明已经拥有家人平安、朋友仍在和一份能过下去的日常，却总在一路往前赶、差点错过之后，才肯重新给它们应有的分量。"
     if _uses_inner_settlement_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "这篇稿子要解释的，是为什么人明明没有被某件大事彻底压垮，心里却一直安不下来；也解释为什么把自己重新放回一餐一饮和一呼一吸，很多事反而更容易被放稳。"
+        return "核心要拆开的，是为什么人明明没有被某件大事彻底压垮，心里却一直安不下来；也要落到把自己重新放回一餐一饮和一呼一吸，很多事反而更容易被放稳。"
     if _uses_self_worth_rebuild_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "这篇稿子要解释的，是为什么人明明已经在将就、示好和降低标准里一点点受伤，还是会继续把自己往后放；也解释为什么当一个人开始尊重自己、守住边界，很多关系的轻慢才会真正停下来。"
+        return "核心要拆开的，是为什么人明明已经在将就、示好和降低标准里一点点受伤，还是会继续把自己往后放；也要落到当一个人开始尊重自己、守住边界，很多关系的轻慢才会真正停下来。"
     if _uses_trust_boundary_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "这篇稿子要解释的，是为什么一句谎言、一次隐瞒会让原本放心的关系开始松动；也解释坦诚、交代和日常里的说到做到，怎样把信任一点点补回来。"
+        return "核心要拆开的，是为什么一句谎言、一次隐瞒会让原本放心的关系开始松动；也要落到坦诚、交代和日常里的说到做到，怎样把信任一点点补回来。"
     if _uses_response_priority_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         if response_priority_followup_variant:
-            return "这篇稿子要解释的，是为什么人明明收到的回应并不少，心里却还是会空一下；也解释为什么一句追问、一次补问和一次真正被听懂，会比表面热闹更能把人轻轻安放下来。"
-        return "这篇稿子要解释的，是为什么人明明已经在回应动作里看见了答案，还是会继续替对方找补；也解释为什么一旦把顺序、追问和心力投向看清，人就更容易把期待和精力留给真正愿意回应的人。"
+            return "核心要拆开的，是为什么人明明收到的回应并不少，心里却还是会空一下；也要落到一句追问、一次补问和一次真正被听懂，会比表面热闹更能把人轻轻安放下来。"
+        return "核心要拆开的，是为什么人明明已经在回应动作里看见了答案，还是会继续替对方找补；也要落到一旦把顺序、追问和心力投向看清，人就更容易把期待和精力留给真正愿意回应的人。"
     if _uses_relationship_aftercare_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "这篇稿子要解释的，是为什么在有些关系里，架一吵完，总是同一个人先把话咽回去、把日常接回去，久了以后先退掉的往往是安全感和表达欲。"
+        return "核心要拆开的，是为什么在有些关系里，架一吵完，总是同一个人先把话咽回去、把日常接回去，久了以后先退掉的往往是安全感和表达欲。"
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "这篇稿子要解释的，是为什么人明明已经被命运和疼痛打得很重，还是会在重复训练和反复重来里，不肯把自己交给残缺、低谷和外界定义。"
+        return "核心要拆开的，是为什么人明明已经被命运和疼痛打得很重，还是会在重复训练和反复重来里，不肯把自己交给残缺、低谷和外界定义。"
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "这篇稿子要解释的，是为什么人一到承压时刻就容易乱了顺序；也解释为什么先做一个具体判断、完成一个小动作，反而更能把自己从慌里带回来。"
+        return "核心要拆开的，是为什么人一到承压时刻就容易乱了顺序；也要落到先做一个具体判断、完成一个小动作，反而更能把自己从慌里带回来。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "这篇稿子要解释的，是为什么人明明已经被拖得很累了，还是会把继续投入误认成更接近幸福。"
-    return f"这篇稿子要解释的，是为什么{observed_phenomenon}会一遍遍重演，读者真正卡住的那一步到底在哪。"
+        return "核心要拆开的，是为什么人明明已经被拖得很累了，还是会把继续投入误认成更接近幸福。"
+    return f"核心要拆开的，是为什么{observed_phenomenon}会一遍遍重演，读者真正卡住的那一步到底在哪。"
 
 
 def _build_unknowns(*, topic_angle: str, source_mode: str, tracked_article_scene: str) -> list[str]:
@@ -6221,7 +6228,7 @@ def _build_problem_statement_markdown(
         "## 核心冲突",
         f"- {core_conflict}",
         "",
-        "## 这篇稿子真正要解释什么",
+        "## 核心拆解",
         f"- {problem_explanation}",
         "",
         "## 约束",
@@ -6319,7 +6326,7 @@ def _build_strategy_markdown(
         "## 写给谁",
         f"- {reader_situation}",
         "",
-        "## 这篇稿子站在什么位置说话",
+        "## 叙述位置",
         f"- {point_of_view}",
         "",
         "## 冲突怎么立",
@@ -6341,7 +6348,7 @@ def _build_strategy_markdown(
     if emotional_value_goal:
         lines.extend(
             [
-                "## 这篇要给读者什么情绪回报",
+                "## 情绪回报",
                 f"- {emotional_value_goal}",
                 "",
             ]

@@ -1264,3 +1264,55 @@ def test_build_strategy_package_enriches_same_structure_mode_with_analysis_speci
     assert "身体告警" not in acceptance_result.strategy_card.opening_move
     assert "把自己排回前面" not in acceptance_result.strategy_card.ending_move
     assert "温暖" in acceptance_result.strategy_card.body_shift or "成长" in acceptance_result.strategy_card.body_shift
+
+
+def test_build_strategy_package_removes_author_meta_voice_from_strategy_surfaces() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "meta-voice-cleanup-project",
+            "topic_title": "当外求未必总能及时接住你时，真正能托住你的，往往是你自己",
+            "topic_angle": "从成年人想找人倾诉、想向外求助，却发现别人也各自承压切入，写一个人怎样慢慢把依靠收回自己身上，学会向内求冷静、沉淀和成长。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "即使没有帮助，也要学会自救自渡",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章从想找人倾诉却发现身边人也自顾不暇的场景切入，写成年人在低谷里对外求助常常得不到及时回应，于是逐渐学会收起委屈、转向自我消化和自我修复。核心落点不是拒绝他人，而是提醒人在不被接住的时候，也要有把自己托起来的能力。",
+            "reference_article_structure_notes": "先写想倾诉却发现别人也各自承压的现实处境，中段再拆为什么外求未必总能接住人，结尾回到向内稳住、自救自渡和慢慢把自己托起来。",
+            "reference_article_body_markdown": (
+                "相信你也有过这样的时刻：心情不好的时候想找朋友倾诉，却发现朋友也愁眉不展。\n\n"
+                "只有向内求，才能自我疗愈，生生不息。只有靠自己，你才能有所顿悟、有所收获、有所改变。\n\n"
+                "即使没有帮助，也不会孤立无援，而是能够自救自渡。"
+            ),
+            "reference_article_analysis_structure_mode": "emotional_engine_direct",
+            "reference_article_analysis_theme": "文章真正讨论的是：成年人在困境中如何从依赖外界安慰，转向建立内在的自我支撑与恢复能力。",
+            "reference_article_analysis_core_conflict": "想向外寻求安慰和帮助，但现实里身边的人也各自承压，外部支撑不稳定，只能重新把依靠收回到自己身上。",
+            "reference_article_analysis_emotional_exit": "把读者从无助和失望带到一种更稳的状态：接受帮助未必及时，但自己也有能力慢慢把日子撑过去。",
+            "reference_article_analysis_opening_pattern": "从生活接口和现实压力切入，先写想倾诉却无人可依的具体处境。",
+            "reference_article_analysis_do_not_turn_into": "不要写成鼓励一味硬扛、拒绝求助，或把自我成长说成空泛的鸡汤式宣言。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-07-27T00:00:00Z",
+    )
+
+    combined = json.dumps(
+        {
+            "problem_brief": result.problem_brief.model_dump(),
+            "strategy_card": result.strategy_card.model_dump(),
+        },
+        ensure_ascii=False,
+    )
+
+    for forbidden in (
+        "这篇稿子要解释",
+        "真正需要被看见",
+        "如果这篇稿子成立",
+        "这说的就是我现在的卡点",
+        "## 这篇稿子真正要解释什么",
+        "## 这篇稿子站在什么位置说话",
+        "## 这篇要给读者什么情绪回报",
+    ):
+        assert forbidden not in combined
+
+    assert "自救自渡不是硬扛" in combined
+    assert "具体行动" in combined or "具体判断" in combined or "现实承压" in combined

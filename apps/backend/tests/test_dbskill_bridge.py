@@ -428,14 +428,14 @@ def test_build_strategy_package_does_not_amplify_long_pressure_title_into_proble
         created_at="2026-06-09T00:00:00Z",
     )
 
-    assert result.problem_brief.clarified_problem.startswith("真正需要被看见的")
+    assert result.problem_brief.clarified_problem.startswith("关键要写出来的是")
     assert long_title not in result.problem_brief.clarified_problem
     assert "尿毒症" in result.problem_brief.clarified_problem
     assert "透析" in result.problem_brief.clarified_problem
     assert long_title not in result.problem_brief.feedback_entry
     assert "先顾自己" in result.problem_brief.feedback_entry
     assert "越觉得" not in result.problem_brief.feedback_entry
-    assert "这篇稿子要解释的，是为什么 `得了尿毒症` 这类提醒已经冒头了" in result.problem_brief.problem_statement_markdown
+    assert "核心要拆开的，是为什么 `得了尿毒症` 这类提醒已经冒头了" in result.problem_brief.problem_statement_markdown
 
 
 def test_build_strategy_package_keeps_pressure_problem_statement_off_title_echo_for_rerun_g_shape() -> None:
@@ -496,7 +496,7 @@ def test_build_strategy_package_keeps_medical_pressure_strategy_when_angle_drift
     assert result.problem_brief.target_reader_situation == "总把休息、体检、吃饭、回复和自己顺手往后挪的人"
     assert "越想稳住自己越累" not in result.problem_brief.writing_goal
     assert "认出自己已经在透支什么" in result.problem_brief.writing_goal
-    assert result.problem_brief.clarified_problem.startswith("真正需要被看见的，是 `得了尿毒症`")
+    assert result.problem_brief.clarified_problem.startswith("关键要写出来的是，`得了尿毒症`")
     assert "总把该先顾自己的事拖到更后面" in result.problem_brief.feedback_entry
     assert "并且能从 `" not in result.problem_brief.feedback_entry
     assert "复查、休息和自我判断是怎样被一再压后的" in result.problem_brief.problem_statement_markdown
@@ -553,7 +553,7 @@ def test_build_strategy_package_uses_relationship_aftercare_mode_for_quarrel_rep
     assert result.problem_brief.target_reader_situation == "每次吵完都要自己消化情绪、把日子接回去的人"
     assert "争吵" in result.problem_brief.writing_goal
     assert "修复" in result.problem_brief.writing_goal or "沟通" in result.problem_brief.writing_goal
-    assert "真正需要被看见的，是为什么一次次争执之后，总是只有一方在回收情绪、重建秩序" in result.problem_brief.clarified_problem
+    assert "关键要写出来的是，为什么一次次争执之后，总是只有一方在回收情绪、重建秩序" in result.problem_brief.clarified_problem
     assert "总是同一个人先把话咽回去" in result.problem_brief.problem_statement_markdown
     assert "把日常接回去" in result.problem_brief.problem_statement_markdown
     assert "有没有人回来沟通" in result.strategy_card.point_of_view
