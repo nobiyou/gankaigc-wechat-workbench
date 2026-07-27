@@ -1495,7 +1495,7 @@ def test_local_inner_settlement_publish_package_fallback_keeps_abstract_distinct
     )
 
     assert str(result["publish_lead"]) != str(result["abstract"])
-    assert "很多夜里" in str(result["publish_lead"])
+    assert "夜里屋里已经安静下来" in str(result["publish_lead"])
     assert "心先落回今天" in str(result["abstract"])
     assert "没那么吵了" in str(result["abstract"])
 

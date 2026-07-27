@@ -8313,7 +8313,7 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "心总往外悬着的时候，再热闹的地方也像借住。真正能让人落稳的，往往是先把自己安顿下来。",
+                    "心总往外悬着的时候，热闹也像临时借住。先把自己安顿下来，日子才会落稳。",
                     "外面的风景再热闹，心里若没有归处，人还是会觉得漂。",
                 ),
             )
@@ -8321,16 +8321,16 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "心一直悬着的时候，连很普通的一天，也像总差一点没真正落地。",
-                    "你以为是外面的事太吵，后来才发现，真正让人睡不踏实的，是心里那口气一直没放下来。",
+                    "心一直悬着的时候，普通一天也像差一点没落地。",
+                    "外面的事吵不吵先放一放，心里那口气没放下来，人就很难睡踏实。",
                 ),
             )
         if any(token in corpus for token in ("睡不着", "翻来覆去", "夜里", "放不下")):
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "夜里真正安静下来以后，那些白天顾不上想的事，反而会一件件浮上来。",
-                    "很多心事白天还能先压着，一到夜里，就又自己回到了眼前。",
+                    "夜里安静下来，白天顾不上想的事，会一件件回到眼前。",
+                    "白天能压住的心事，一到夜里，又在枕边坐下来。",
                 ),
             )
 
@@ -9303,12 +9303,11 @@ def _build_local_inner_settlement_paragraphs(
     if has_homecoming and not has_future_release:
         return [
             intro,
-            "很多时候，真正让人累的，不一定是事情有多难，而是心里一直没有一个能安顿下来的地方。事情过去了，人还在回想；话已经说完了，情绪却还挂在那里。",
-            "你越想从外面立刻找一个答案，心越容易跟着起伏。别人一句评价，一个没兑现的结果，甚至一阵临时的风声，都可能把那口气重新拽起来。",
-            "后来才会慢慢懂得，心安不是把世界按停，也不是让所有事情都照着你的期待发生。它更像是你终于不再把自己交给外面的起伏，而是把重心一点点收回自己身上。",
-            "饭照常吃，觉照常睡，日子照常过，不是敷衍生活。恰恰相反，是你开始知道，真正能托住一个人的，从来不是一直悬着，而是心里有个能落脚的地方。",
-            "所谓“此心安处”，未必是从此没有风浪，而是风浪还在，你已经不会被每一阵风都轻易带走。心里有了归处，脚下的路也会跟着慢慢稳下来。",
-            "把那颗总往外追的心轻轻带回来，和今天相处，和自己和解。等心慢慢安静下来，很多原本拧着的地方，也会顺着日子一点点松开。",
+            "回到家关上门，外面的声音还在，心里那口气也还没放下来。你给自己倒杯水，坐了好一会儿，才发现人悬着久了，连安静都需要慢慢适应。",
+            "以前你总想等一个结果，等一句认可，等事情完全顺起来，再允许自己安心。可日子不会每一步都提前给答案，越把心交给外面，越容易被一点动静牵着走。",
+            "把鞋摆好，把饭吃热，把该回的消息慢慢回完。心安先落在这些能亲手做的小事里，人也从这些小事里一点点回到自己身上。",
+            "苏轼说：“此心安处是吾乡。”这句话动人的地方，在于它把归处放回心里。外面的风还会吹，脚下的路却可以一天一天走稳。",
+            "所以今晚别急着把世界理顺。先把自己带回屋里这盏灯、这口热饭、这张能睡下来的床。心回来了，日子就有了安放。",
         ]
 
     if not has_future_release and not has_heart_knot:
@@ -9316,14 +9315,13 @@ def _build_local_inner_settlement_paragraphs(
             intro,
             "白天忙的时候还顾不上。一安静下来，那句没接住的话、那个没想明白的决定，就又自己浮上来了。",
             "人一悬着，就容易把很多小事都听重了。别人一句随口的话，你会反复想；手机亮一下，心里也先紧一下。",
-            "可很多时候，真正让人累的，是那股非要立刻有答案的劲。想今晚就想通，想一下就放下，想马上把自己劝好。人一这么逼自己，夜里那点悬着反而更难退下去。",
-            "后来你会发现，心安不是一口气把所有事想明白。它更像是把水烧开，把饭吃完，把明天要穿的衣服放好，然后允许今天先到这里。",
+            "别急着催自己马上想通。先把水烧开，把饭吃完，把明天要穿的衣服放在手边。一个人能照顾好眼前，心就有地方落下来。",
             "有些事不用今晚解决。有些人，也不用今晚想明白。先把日子过回眼前，心才会慢慢从那些反复里退出来。",
             "等你能好好睡一觉，能把早饭吃下去，很多结其实已经在松了。把心放回今天，明天才有力气继续往前。",
         ]
 
     paragraph_two = (
-        "很多坎回头看，未必真有当时想的那么高。难的往往不是事情本身，而是那口气一直绷着，非要马上给自己一个说法。"
+        "有些坎当时像堵在胸口，回头再看，卡住人的常常是那口气一直绷着，非要马上给自己一个说法。"
         if has_heart_knot
         else "白天忙的时候还顾不上。一安静下来，那句没接住的话、那个没想明白的决定，就又自己浮上来了。"
     )
@@ -9333,9 +9331,9 @@ def _build_local_inner_settlement_paragraphs(
         else "人一悬着，就容易把很多小事都听重了。别人一句随口的话，你会反复想；手机亮一下，心里也先紧一下。"
     )
     paragraph_four = (
-        "后来你会发现，心安不是一口气把所有事想明白。它更像是把水烧开，把饭吃完，把明天要穿的衣服放好，然后允许今天先到这里。"
+        "心安可以很小：水烧开，饭吃完，明天要穿的衣服放在手边，今天就先到这里。"
         if has_daily_ritual
-        else "可很多时候，真正让人累的，是那股非要立刻有答案的劲。想今晚就想通，想一下就放下，想马上把自己劝好。人一这么逼自己，夜里那点悬着反而更难退下去。"
+        else "别急着催自己马上有答案。今晚先把水喝完，把灯关好，把反复翻出来的事轻轻放回明天。"
     )
     paragraph_five = (
         "把今天先过稳，把这顿饭吃完，把灯关好。很多答案不会今晚就来，但心会先慢慢安静下来。"
@@ -9343,7 +9341,7 @@ def _build_local_inner_settlement_paragraphs(
         else "有些事不用今晚解决。有些人，也不用今晚想明白。先把日子过回眼前，心才会慢慢从那些反复里退出来。"
     )
     paragraph_six = (
-        "等你肯把脚下这点日常重新拾起来，很多郁结就不会再那样死死拽着你。心安不是把世界按停，是你终于肯让自己先喘一口气。"
+        "等你肯把脚下这点日常重新拾起来，郁结就不会再那样死死拽着你。心安不靠世界突然安静，先靠你肯让自己喘一口气。"
         if has_heart_knot or has_future_release
         else "等你能好好睡一觉，能把早饭吃下去，很多结其实已经在松了。把心放回今天，明天才有力气继续往前。"
     )
@@ -10206,7 +10204,7 @@ def _resolve_local_generic_outline_points(
 def _resolve_local_generic_mode_bridge(mode: str) -> str:
     mapping = {
         "everyday_warmth_return": "日子过得越久，越知道热闹不一定把人安顿好。能让心落下来的，常常是一口热饭、一通报平安的电话。",
-        "inner_settlement": "很多悬着，其实都卡在那股非要今晚想明白的劲上。",
+        "inner_settlement": "那股非要今晚想明白的劲一松，心才有地方落下来。",
         "self_worth_rebuild": "很多委屈都不是大事砸下来的。更多时候，是你一次次先说算了，先把自己往后挪半步。",
         "relationship_aftercare": "有些关系最磨人的，不是吵起来的那一刻。是吵完以后，屋里忽然冷下来的那几小时。",
         "resilience_reconstruction": "人真正重新站起来的时候，常常没有掌声。只是某一天又把该做的训练做完，把该走的路走下去。",
@@ -10220,7 +10218,7 @@ def _resolve_local_generic_mode_bridge(mode: str) -> str:
 def _resolve_local_generic_mode_reframe(mode: str) -> str:
     mapping = {
         "everyday_warmth_return": "能把平凡日子过热乎，本身就是一种本事。",
-        "inner_settlement": "后来你会发现，心安不是一口气把所有事想明白。",
+        "inner_settlement": "心安可以很小：把水烧开，把灯关好，把今天先过完。",
         "self_worth_rebuild": "把真实想法说出来，不是在计较，是把自己重新放回这段关系里。",
         "relationship_aftercare": "两个人都没再吵，可屋里比刚才更冷。",
         "resilience_reconstruction": "真正的韧性不是一直不痛，而是痛过以后还肯重新生长。",
@@ -10248,7 +10246,7 @@ def _resolve_local_generic_mode_consequence(mode: str) -> str:
 def _resolve_local_generic_mode_closing(mode: str) -> str:
     mapping = {
         "everyday_warmth_return": "今晚就把饭吃热一点，把话说慢一点。桌边的人还在，电话那头的人还肯惦记你，日子就有了踏实的回声。",
-        "inner_settlement": "先把今天过回今天，很多放不下的事，反而会慢慢自己松开。",
+        "inner_settlement": "先把今天过回今天，放不下的事，日子会慢慢替你松一松。",
         "self_worth_rebuild": "下次那句“都可以”到嘴边时，先停一下。别再让委屈替你懂事收尾。",
         "relationship_aftercare": "心里有这段关系的人，不会让你独自站在那阵冷气里。他会回来，把话说完，把情绪接住，也把那份失望一点点接回去。",
         "resilience_reconstruction": "被生活打磨过以后，人身上的光不是喊出来的。它藏在第二天还肯站回起点的那一步里。",
@@ -13661,7 +13659,7 @@ def _resolve_local_assets_social_teaser(
     scene_corpus = f"{first} {topic_angle} {_extract_local_reference_corpus(payload)}"
     tail_map = {
         "everyday_warmth_return": "有人惦记，话有人听，平淡日子也能把人稳稳托住。",
-        "inner_settlement": "先把今天过回今天，心才会慢慢有地方落下来。",
+        "inner_settlement": "先把今天过回今天，心就慢慢有地方落下来。",
         "self_reliance_inward_support": "先把自己扶稳，才有力气接住明天。",
         "self_worth_rebuild": "别让那句“都可以”，替你让掉自己的位置。",
         "response_priority": "那句顺着情绪接下去的话，往往比热闹互动更让人踏实。",
@@ -13738,11 +13736,11 @@ def _resolve_local_assets_social_teaser(
     if mode == "trust_boundary":
         return "你愿意相信一个人的时候，其实已经把很重要的心安交了出去。坦诚的分量，是把话说透，也把答应过的事做到。"
     if mode == "inner_settlement" and _uses_local_inner_settlement_homecoming_variant(payload):
-        lead = first if first_is_safe else "心总往外悬着的时候，走到哪里都像没落稳。真正要找的归宿，很多时候得先回到自己心里。"
-        return _compose_local_followup(lead, "心里有了归处，外面的风再大，也不至于把你轻易吹乱。")
+        lead = first if first_is_safe else "心总往外悬着的时候，走到哪里都像没落稳。先回到自己心里，脚下的日子才会稳起来。"
+        return _compose_local_followup(lead, "心里有了归处，外面的风再大，脚下也会有路。")
     if mode == "inner_settlement" and _uses_local_inner_settlement_bedtime_variant(payload):
-        lead = first if first_is_safe else "心一直悬着的时候，连很普通的一天，也像总差一点没真正落地。"
-        return _compose_local_followup(lead, "很多答案不会今晚就来，先把心放回今天。")
+        lead = first if first_is_safe else "心一直悬着的时候，普通一天也像差一点没落地。"
+        return _compose_local_followup(lead, "答案可以明天再来，今晚先把心放回今天。")
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_presence_variant(payload):
         lead = first if first_is_safe else "很多想念都不是大张旗鼓的，只是在某个很普通的时刻，你忽然冒出一句：要是他还在就好了。"
         return _compose_local_followup(lead, "有些人走远了，却还是会在你的日常缝隙里轻轻回来一下。")
@@ -14142,13 +14140,13 @@ def _build_local_publish_package_fallback(
                 abstract = "家里人平安，想说的话有人听，再普通的一天也会让人心里发暖。日子很多时候就是这样，一顿热饭、一句惦记，就够人踏实很久。"
         elif mode == "inner_settlement":
             if _uses_local_inner_settlement_homecoming_variant(focus_payload):
-                publish_lead = "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。人真正安稳下来的时候，眼前这个普通的日子，终于又能好好过下去。"
+                publish_lead = "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。眼前这个普通的日子稳下来，心也会慢慢跟着落地。"
                 abstract = "心安会落在很小的动作里：把一顿饭吃热，把一句话说慢，把今天过清楚。外面的风停不停由不得你，屋里的灯，却可以由你亲手打开。"
             elif any(token in draft_body_markdown for token in ("已经过去的事", "还没发生的事", "提前在心里演很多遍", "很多答案不会今晚就来")):
-                publish_lead = "很多事不用今晚想通，很多情绪也不必立刻处理干净。人真正慢慢松下来的时候，往往只是先把今天过完。"
+                publish_lead = "不用把所有事都在今晚想通，有些情绪也不必立刻处理干净。先把今天过完，人就会慢慢松下来。"
                 abstract = "已经过去的先放一放，还没发生的也先别追着跑。把饭吃好，把灯关好，心就会一点点回到眼前。"
             else:
-                publish_lead = "很多夜里，屋里已经安静下来了，心里那点事还在来回翻。后来你才懂，许多事可以先放到明天，今晚只要把自己安顿好。"
+                publish_lead = "夜里屋里已经安静下来，心里那点事还在来回翻。先把水杯放好，把灯关掉，明早再看，也许就没有这么重。"
                 abstract = "把水烧开，把灯关好，把明天要穿的衣服放在手边。等心先落回今天，那些想不通的事，往往也就没那么吵了。"
         elif mode == "self_reliance_inward_support":
             if _uses_local_self_reliance_shared_burden_variant(focus_payload):
@@ -14277,7 +14275,7 @@ def _build_local_publish_package_fallback(
                     [
                         publish_lead,
                         "先把今天过回今天，心才会慢慢有地方落下来。",
-                        "很多放不下的事，不必都在今晚想明白。",
+                        "放不下的事，不必都在今晚想明白。",
                         *intro_options,
                     ]
                 )

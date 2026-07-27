@@ -10679,21 +10679,15 @@ def test_build_local_tracked_article_draft_fallback_inner_settlement_uses_mode_v
     assert "先把心里最拧的那一处慢慢松开。" not in body_markdown
     assert body_markdown.startswith(
         (
-            "人到后来才明白，真正要找的归宿，不一定在远方，常常先在心里。",
+            "心总往外悬着的时候，热闹也像临时借住。",
             "外面的风景再热闹，心里若没有归处，人还是会觉得漂。",
-            "心总往外悬着的时候，再热闹的地方也像借住。",
         )
     )
-    assert "很多时候，真正让人累的，不一定是事情有多难，而是心里一直没有一个能安顿下来的地方。" in body_markdown
-    assert any(
-        fragment in body_markdown
-        for fragment in (
-            "你慢慢不再把自己交给外面的起伏，而是把重心一点点收回自己身上。",
-            "你终于不再把自己交给外面的起伏，而是把重心一点点收回自己身上。",
-        )
-    )
-    assert "所谓“此心安处”，未必是从此没有风浪，而是风浪还在，你已经不会被每一阵风都轻易带走。" in body_markdown
-    assert "把那颗总往外追的心轻轻带回来，和今天相处，和自己和解。" in body_markdown
+    assert "很多时候，真正让人累的" not in body_markdown
+    assert "后来才会慢慢懂得" not in body_markdown
+    assert "心安先落在这些能亲手做的小事里" in body_markdown
+    assert "苏轼说：“此心安处是吾乡。”" in body_markdown
+    assert "先把自己带回屋里这盏灯、这口热饭、这张能睡下来的床" in body_markdown
     assert "一呼一吸" not in body_markdown
     assert len([paragraph for paragraph in body_markdown.split("\n\n") if paragraph.strip()]) <= 7
 
@@ -10715,9 +10709,8 @@ def test_build_local_tracked_article_draft_fallback_inner_settlement_uses_refere
     assert title == "心安这件事，比什么都重要"
     assert body_markdown.startswith(
         (
-            "人到后来才明白，真正要找的归宿，不一定在远方，常常先在心里。",
+            "心总往外悬着的时候，热闹也像临时借住。",
             "外面的风景再热闹，心里若没有归处，人还是会觉得漂。",
-            "心总往外悬着的时候，再热闹的地方也像借住。",
         )
     )
     assert "屋里安静下来以后，你才听见，心里那点一直没落地的事，原来比外面更吵。" not in body_markdown.split("\n\n")[0]
@@ -10730,16 +10723,16 @@ def test_build_local_assets_fallback_inner_settlement_uses_homecoming_cover_copy
         topic_angle="从心为什么一直悬着，写一个人怎样把自己慢慢安顿回当下。",
         draft_title="心安这件事，比什么都重要",
         draft_body_markdown=(
-            "人到后来才明白，真正要找的归宿，不一定在远方，常常先在心里。\n\n"
-            "很多时候，真正让人累的，不一定是事情有多难，而是心里一直没有一个能安顿下来的地方。\n\n"
-            "所谓“此心安处”，未必是从此没有风浪，而是风浪还在，你已经不会被每一阵风都轻易带走。心里有了归处，脚下的路也会跟着慢慢稳下来。"
+            "外面的风景再热闹，心里若没有归处，人还是会觉得漂。\n\n"
+            "把鞋摆好，把饭吃热，把该回的消息慢慢回完。心安先落在这些能亲手做的小事里。\n\n"
+            "苏轼说：“此心安处是吾乡。”这句话动人的地方，在于它把归处放回心里。外面的风还会吹，脚下的路却可以一天一天走稳。"
         ),
     )
 
     assert assets["cover_copy"] == "心里有了归处，日子就不会一直飘着。"
     assert (
         assets["social_teaser"]
-        == "人到后来才明白，真正要找的归宿，不一定在远方，常常先在心里。心里有了归处，外面的风再大，也不至于把你轻易吹乱。"
+        == "外面的风景再热闹，心里若没有归处，人还是会觉得漂。心里有了归处，外面的风再大，脚下也会有路。"
     )
 
 
@@ -10757,7 +10750,7 @@ def test_build_local_assets_fallback_inner_settlement_title_beats_self_reliance_
     )
 
     assert assets["cover_copy"] == "心慢慢落回今天，日子就会重新有安稳感。"
-    assert assets["social_teaser"] == "屋里安静下来以后，你才听见，心里那点一直没落地的事，原来比外面更吵。先把今天过回今天，心才会慢慢有地方落下来。"
+    assert assets["social_teaser"] == "屋里安静下来以后，你才听见，心里那点一直没落地的事，原来比外面更吵。先把今天过回今天，心就慢慢有地方落下来。"
     assert "别让自己一直悬着" not in assets["social_teaser"]
 
 
@@ -10766,8 +10759,8 @@ def test_build_local_publish_package_fallback_inner_settlement_uses_mode_lead_an
         recommended_title="心安这件事，比什么都重要",
         title_options=["心安这件事，比什么都重要"],
         cover_copy="心慢慢落回今天，日子就会重新有安稳感。",
-        social_teaser="屋里安静下来以后，你才听见，心里那点一直没落地的事，原来比外面更吵。先把今天过回今天，心才会慢慢有地方落下来。",
-        social_teaser_options=["屋里安静下来以后，你才听见，心里那点一直没落地的事，原来比外面更吵。先把今天过回今天，心才会慢慢有地方落下来。"],
+        social_teaser="屋里安静下来以后，你才听见，心里那点一直没落地的事，原来比外面更吵。先把今天过回今天，心就慢慢有地方落下来。",
+        social_teaser_options=["屋里安静下来以后，你才听见，心里那点一直没落地的事，原来比外面更吵。先把今天过回今天，心就慢慢有地方落下来。"],
     )
 
     package = workbench._build_local_publish_package_fallback(
@@ -10793,21 +10786,21 @@ def test_build_local_publish_package_fallback_inner_settlement_uses_homecoming_v
         recommended_title="心安这件事，比什么都重要",
         title_options=["心安这件事，比什么都重要"],
         cover_copy="心里有了归处，日子就不会一直飘着。",
-        social_teaser="人到后来才明白，真正要找的归宿，不一定在远方，常常先在心里。心里有了归处，外面的风再大，也不至于把你轻易吹乱。",
-        social_teaser_options=["人到后来才明白，真正要找的归宿，不一定在远方，常常先在心里。心里有了归处，外面的风再大，也不至于把你轻易吹乱。"],
+        social_teaser="外面的风景再热闹，心里若没有归处，人还是会觉得漂。心里有了归处，外面的风再大，脚下也会有路。",
+        social_teaser_options=["外面的风景再热闹，心里若没有归处，人还是会觉得漂。心里有了归处，外面的风再大，脚下也会有路。"],
     )
 
     package = workbench._build_local_publish_package_fallback(
         draft_title="心安这件事，比什么都重要",
         draft_body_markdown=(
-            "人到后来才明白，真正要找的归宿，不一定在远方，常常先在心里。\n\n"
-            "后来才会慢慢懂得，心安不是把世界按停，也不是让所有事情都照着你的期待发生。它更像是你终于不再把自己交给外面的起伏，而是把重心一点点收回自己身上。\n\n"
-            "所谓“此心安处”，未必是从此没有风浪，而是风浪还在，你已经不会被每一阵风都轻易带走。心里有了归处，脚下的路也会跟着慢慢稳下来。"
+            "外面的风景再热闹，心里若没有归处，人还是会觉得漂。\n\n"
+            "把鞋摆好，把饭吃热，把该回的消息慢慢回完。心安先落在这些能亲手做的小事里。\n\n"
+            "苏轼说：“此心安处是吾乡。”这句话动人的地方，在于它把归处放回心里。外面的风还会吹，脚下的路却可以一天一天走稳。"
         ),
         assets=assets,
     )
 
-    assert package["publish_lead"] == "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。人真正安稳下来的时候，眼前这个普通的日子，终于又能好好过下去。"
+    assert package["publish_lead"] == "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。眼前这个普通的日子稳下来，心也会慢慢跟着落地。"
     assert package["abstract"] == "心安会落在很小的动作里：把一顿饭吃热，把一句话说慢，把今天过清楚。外面的风停不停由不得你，屋里的灯，却可以由你亲手打开。"
     assert "把鞋摆好，给自己倒杯水，普通的一天也能重新落稳。" in package["intro_options"]
 
@@ -10850,7 +10843,7 @@ def test_build_local_publish_package_fallback_inner_settlement_uses_future_relea
         assets=assets,
     )
 
-    assert package["publish_lead"].startswith("很多事不用今晚想通")
+    assert package["publish_lead"].startswith("不用把所有事都在今晚想通")
     assert "先把今天过完" in package["publish_lead"]
     assert any(fragment in package["abstract"] for fragment in ("已经过去", "还没发生", "把饭吃好", "把灯关好"))
 
@@ -10869,7 +10862,7 @@ def test_build_local_assets_fallback_inner_settlement_uses_bedtime_cover_copy() 
     )
 
     assert assets["cover_copy"] == "别急着把所有事想通，今晚先把心放平一点。"
-    assert assets["social_teaser"] == "心一直悬着的时候，连很普通的一天，也像总差一点没真正落地。很多答案不会今晚就来，先把心放回今天。"
+    assert assets["social_teaser"] == "心一直悬着的时候，连很普通的一天，也像总差一点没真正落地。答案可以明天再来，今晚先把心放回今天。"
 
 
 def test_build_local_tracked_article_topic_fallback_supportive_appreciation_rewrites_away_from_reference_title() -> None:
