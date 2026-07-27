@@ -8357,7 +8357,7 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "他其实什么都懂，只是每次轮到在乎的人，还是会先把那点难受往回收一收。",
+                    "他心里什么都懂，只是每次轮到在乎的人，还是会先把那点难受往回收一收。",
                     "很多事他不是没看出来，只是关系摆在面前时，他总习惯先把语气放软。",
                 ),
             )
@@ -8433,8 +8433,8 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "他说自己很忙那一刻，你不是不理解，只是忽然明白了，时间留给谁，心里其实早就有答案。",
-                    "红灯的三十秒都能做很多事，所以后来你也慢慢懂了，所谓没时间，多半不是一点空都挤不出来。",
+                    "他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。",
+                    "红灯的三十秒都能喝口水、切首歌、回一句“晚点找你”。有些在意，就藏在这些小空当里。",
                 ),
             )
         if has_followup and "我没事" in corpus:
@@ -9194,18 +9194,18 @@ def _build_local_supportive_appreciation_paragraphs(
             "余地被珍惜，温柔才会留得久。那份好，不该总靠她一个人扛着，也该有人认真地回过头来护住。",
         ]
     if _has_local_supportive_discernment_profile(payload):
-        opening = intro.strip() if intro and intro.strip() and not stale_intro else "他其实什么都懂，只是每次轮到在乎的人，还是会先把锋芒收回去。"
+        opening = intro.strip() if intro and intro.strip() and not stale_intro else "他心里什么都懂，只是每次轮到在乎的人，还是会先把锋芒收回去。"
         return [
             opening,
-            "心软的人，往往反应更快。谁是真心，谁在敷衍；哪句话只是无心，哪句话已经让自己不舒服，他心里其实都分得清。",
-            "只是很多时候，比起当场争个输赢，他更在意眼前这个人值不值得继续走下去，这段关系还有没有必要被放回温柔里。",
+            "心软的人，往往反应更快。谁是真心，谁在敷衍；哪句话只是无心，哪句话已经让自己不舒服，他心里都分得清。",
+            "比起当场争个输赢，他更在意眼前这个人值不值得继续走下去，这段关系还有没有必要被放回温柔里。",
             "所以别人看到的，常常只是他先退一步、先把话放轻。却没看见，他是在看得很清的前提下，还是把情分放在了前面。",
             "他不急着计较，是因为心里有判断；他愿意包容，也会记得什么事不能一直被带过去。",
             "他肯把那些锋利先收一收，多半是因为心里还有在乎，还有舍不得。",
-            "真正难得的地方也在这里。不是谁都能在看清以后，还愿意给体谅；不是谁都能在明白得失以后，还愿意把关系往暖处领一领。",
-            "所以别只记得他好说话。也要记得，这份温柔背后，其实是把很多本可以说重的话，轻轻收了回去。",
-            "能看懂这一层的人，自然会更珍惜。因为她知道，他递出来的，是一份有分寸的在乎，不是随手就会给谁的好脾气。",
-            "这样的人若在你身边，别辜负他把锋芒收回去的那一下。你认真回一次，他的温柔才会一直亮着。",
+            "难得的地方也在这里。看得清以后还愿意体谅，明白得失以后还愿意把关系往暖处领，这份心软很有分量。",
+            "所以别只记得他好说话。也要记得，这份温柔背后，藏着很多本可以说重、最后又轻轻收回去的话。",
+            "能看懂这一层的人，自然会更珍惜。因为她知道，他递出来的，是一份有分寸的在乎，不会随手给谁。",
+            "这样的人若在你身边，别辜负他把锋芒收回去的那一下。你认真回一次，他的温柔才会一直亮着，心也会更安稳。",
         ]
     if _has_local_supportive_apology_profile(payload):
         opening = intro.strip() if intro and intro.strip() and not stale_intro else "明明已经有点难受了，对方把歉意说出口时，她还是先把语气放轻了。"
@@ -10744,25 +10744,22 @@ def _build_local_self_worth_rebuild_paragraphs(
         return [
             intro,
             "点菜时你想吃辣，最后还是说“都可以”。别人临时改约，你明明失落，也只回一句：没事。",
-            "很多委屈都不是大事砸下来的。是你一次次先说算了，先说随便，先把自己往后挪半步。",
-            "你不是没想法，也不是不在意。你只是太习惯先顾全场面，怕一句“我想这样”说出来，会显得自己不够懂事。",
-            "可关系里最怕的，不是偶尔让一步。是你让着让着，连别人都开始默认：你真的什么都行。",
-            "后来你会明白，把真实想法说出来，不是在计较。想吃什么就说，改了约会失落也可以直说，不想答应的事别总替别人圆下去。",
-            "真正把你放在心上的人，不会因为你有偏好就嫌你麻烦。恰恰相反，他会因为你终于说真话，知道该怎样好好对你。",
-            "把自己放回前面，也不是突然变得强硬。只是别再让委屈替你懂事收尾，别再让沉默替你一次次点头。",
-            "下次那句“都可以”到嘴边时，先停一下。",
-            "先在心里过一遍：这次我是真的愿意，还是又想赶紧把场面圆过去。",
+            "委屈常常就是这样攒起来的。你一次次先说算了，先说随便，先把自己往后挪半步。你有想法，也在意，只是太习惯先顾全场面。",
+            "关系里最怕的，是你让着让着，连别人都开始默认：你真的什么都行。",
+            "把真实想法说出来，是把自己重新放回关系里。想吃什么就说，改了约会失落也可以直说。把你放在心上的人，会因为你终于说真话，知道该怎样好好对你。",
+            "把自己放回前面，并不会突然变得强硬。只是别再让委屈替你懂事收尾，别再让沉默替你一次次点头。",
+            "下次那句“都可以”到嘴边时，先停一下。先在心里过一遍：这次我是真的愿意，还是又想赶紧把场面圆过去。",
             "你把自己看重一点，日子里的轻重，关系里的分寸，才会慢慢回到该有的位置。",
         ]
 
     return [
         intro,
-        "很多人心里其实有底线，只是太习惯先把场面顾过去。别人临时改主意，你先说行；不合适的请求递过来，你也总想再扛一下。",
+        "很多人心里都有底线，只是太习惯先把场面顾过去。别人临时改主意，你先说行；不合适的请求递过来，你也总想再扛一下。",
         "时间久了，别人会以为你好商量，你自己也会差点忘了，那些不想答应、不想将就的感觉，本来就该算数。",
         "所谓把自己养贵一点，说到底，是开始知道什么关系值得花时间，什么要求不必硬着头皮接。",
         "门槛摆在那里，是给自己留一道提醒：别再为了显得懂事，把尊重和体面一并让掉。",
-        "你把标准慢慢收回来，不会失去真正珍惜你的人。恰恰相反，他会因为你终于认真对待自己，知道该怎样认真对待你。",
-        "关系里有要求并不可怕。真正可惜的是，你连自己都默认：随便一点也行。",
+        "你把标准慢慢收回来，不会失去愿意珍惜你的人。对方也会因为你终于认真对待自己，知道该怎样认真对待你。",
+        "关系里有要求并不可怕。可惜的是，你连自己都默认：随便一点也行。",
         "把自己放回前面以后，人会清醒很多。你先把自己看重，别人才能慢慢学会看重你。",
     ]
 
@@ -10777,18 +10774,18 @@ def _build_local_response_priority_time_priority_paragraphs(
         opening = _pick_local_seeded_text_variant(
             payload,
             (
-                "他说自己很忙那一刻，你不是不理解，只是忽然明白了，时间留给谁，心里其实早就有答案。",
-                "红灯的三十秒都能做很多事，所以后来你也慢慢懂了，所谓没时间，多半不是一点空都挤不出来。",
+                "他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。",
+                "红灯只有三十秒，也够喝口水、切首歌、回一句“晚点找你”。有些答案，就藏在这些小空当里。",
             ),
         )
 
     return [
         opening,
-        "真把你放在心上的人，不一定时时都在线。可他会先回你一句“晚点说”，也会在忙完以后，记得回来把那句落下的话接完。",
-        "红灯的三十秒、排队的几分钟、到家换鞋前那会儿，其实都够回一句。很多关系后来让人难过，不是忙本身，而是你总在等一个明知不会立刻来的回应。",
+        "把你放在心上的人，也会忙，也会顾不上。可他会先留一句交代，忙完以后，也会回来把那句落下的话接完。",
+        "红灯的三十秒、排队的几分钟、到家换鞋前那会儿，都够发一句“我看到了，晚点说”。你可以等一会儿，可一直等不到交代，心就会慢慢凉下来。",
         "你一次次替对方解释：他只是太忙了，今天事情太多了。解释得久了，连失落都像成了自己不懂事。",
         "一个人把时间给谁，答案常常藏在那些细小空当里。愿意把回应补回来的人，心里一直有你的位置。",
-        "真正的在意，从来不是二十四小时黏着你。是明明有很多事，也还是会记得别让你一直等，别让你总在那边替他找理由。",
+        "好的回应不需要二十四小时黏着。忙完记得回来，临时顾不上也愿意说明白，这就够让人安心。",
         "把真心留给愿意回应你的人。你不需要反复催，也不必在等待里，把自己的位置慢慢放轻。",
         "被这样放在顺序里，人会安心很多。关系也不必总靠猜，因为对方会用时间告诉你：你到底重不重要。",
     ]
@@ -10812,13 +10809,13 @@ def _build_local_response_priority_followup_paragraphs(
     opening = intro.strip()
     if not opening or any(token in opening for token in ("轻描淡写的话", "多问一句", "被听懂")):
         if has_photo_scene and has_comment_like:
-            opening = "一张晚霞照发出去，真正让人心里一松的，往往不是那排点赞。"
+            opening = "一张晚霞照发出去，点赞很快铺满屏幕；让人心里一松的，是那句认真追问。"
         else:
             opening = "很多回应都会路过你，难得的是有人真的停下来。"
 
     paragraphs = [
         opening,
-        "你明明只说了一句很轻的话，像是随手带过。可真正在意你的人，会顺着那点语气再往前走一步，听出你为什么忽然只发了这一句。",
+        "你明明只说了一句很轻的话，像是随手带过。可在意你的人会顺着那点语气再往前走一步，听出你为什么忽然只发了这一句。",
     ]
     if has_specific_comment_scene:
         paragraphs.extend(
@@ -10841,11 +10838,11 @@ def _build_local_response_priority_followup_paragraphs(
         [
             "这句追问看起来不大，落在心里却很重。你终于不用把那点情绪再往回收，也不用把“我没事”来回说给自己听。",
             (
-                "很多人也会陪你热闹，会点赞，会寒暄，会在经过时留下一点痕迹。可等热闹散掉，留在心里的，往往是那个肯停下来的人，是那句补问，也是那份被认真听见的感觉。"
+                "有人陪你热闹，有人顺手点赞，有人寒暄两句就走。等屏幕暗下来，留在心里的，还是那个肯停下来的人，是那句补问，也是那份被认真听见的感觉。"
                 if has_comment_like
-                else "很多人都会回应你，也会顺手留下一点痕迹。可真正把人安顿下来的，常常是一句追问，是有人愿意把你的话再听深一点。"
+                else "有人会顺手回应你，也有人愿意把你的话再听深一点。那句追问落下来，心里悬着的地方会先松一下。"
             ),
-            "真正的在意，更像一种注意力。它不会被一句“我没事”轻轻带过去，也不会把你的情绪当成顺手划过去的动态。它愿意听完你没说完的话，也愿意在忙完以后，再回来把那句轻描淡写接下去。",
+            "在意会变成很具体的注意力。它不会被一句“我没事”轻轻带过去，也不会把你的情绪当成顺手划过去的动态。它愿意听完你没说完的话，也愿意在忙完以后，再回来把那句轻描淡写接下去。",
         ]
     )
     if has_photo_scene:
@@ -10855,7 +10852,7 @@ def _build_local_response_priority_followup_paragraphs(
     if has_fly_tired:
         paragraphs.append("别人问你飞得高不高，他会先问一句：你今天是不是太累了。")
     paragraphs.append(
-        "被这样接住过一次，人就会知道什么样的关系值得珍惜。以后再看热闹不热闹、互动多不多，心里自然会分得清：谁只是路过，谁是真的把你放在心上。"
+        "被这样接住过一次，人就会知道什么样的关系值得珍惜。以后再看热闹不热闹、互动多不多，心里自然会分得清：谁只是路过，谁愿意为你停下来。"
     )
     return paragraphs
 def _build_local_mode_shaped_generic_paragraphs(
@@ -10879,7 +10876,7 @@ def _build_local_mode_shaped_generic_paragraphs(
             "可人走到后来，常常会被很小的事劝住：父母电话里一句“别太累”，朋友饭桌上一句“你先说完”，孩子回头喊你一声，心就落了地。",
             "有个朋友前阵子说，他最开心的一天，没有升职，也没有买什么贵东西，只是下班早了半小时，陪父母去菜市场买了一把青菜。",
             "回家时，孩子在楼下等他，手里攥着一根快化的冰棍，非要分他一口；饭桌上没什么大菜，母亲还是把鱼肚子那块夹到他碗里。",
-            "那一刻他才承认，自己这几年追得那么急，其实想要的不过是这样的晚上：人都在，饭还热，话可以慢慢说。",
+            "那一刻他才承认，自己这几年追得那么急，想要的不过是这样的晚上：人都在，饭还热，话可以慢慢说。",
             "朋友不用很多。能在你话说到一半时不急着评价，能在你沉默时问一句“是不是累了”，这份懂得已经很难得。",
             "家也不一定要多大。推门有人应，饭桌有你的位置，生病时有人递水，天冷时有人催你加衣，就是很多人想守住的福气。",
             "苏轼写过一句：“人间有味是清欢。”这句话好，是因为它把幸福从高处请回了日常，也把热闹之外的踏实留给了我们。",
@@ -11069,18 +11066,18 @@ def _build_local_mode_shaped_generic_paragraphs(
             ),
             _compose_local_followup(
                 "信任最贵的地方，是它把自由交给你，也把心安交给你。",
-                "真正懂得珍惜的人，不会拿别人的放心当成侥幸，更不会把一次次含糊当成小事。",
+                "懂得珍惜的人，会把别人的放心当成责任，也会把容易含糊的地方认真说清。",
             ),
             _compose_local_followup(
                 "最伤人的，往往是那个可以说清却被绕开的瞬间。",
                 "明明可以坦白，那个人却先想着怎么糊弄过去。",
             ),
             _compose_local_followup(
-                "信任的底气，其实很简单：你把话说透，我不用在沉默里替你补全另一个故事。",
+                "信任的底气很简单：你把话说透，我不用在沉默里替你补全另一个故事。",
                 "放到日常里，就是把容易误会的地方提前摊开，把答应过的事情尽量做到。",
             ),
             _compose_local_followup(
-                "坦诚其实很日常。",
+                "坦诚落在日常里。",
                 "它是临时变了安排，主动说一声；做不到的时候，也别让对方靠猜来理解你。",
             ),
             _compose_local_followup(
@@ -11092,7 +11089,7 @@ def _build_local_mode_shaped_generic_paragraphs(
                 "一次主动说明，一次准时兑现，一次把话摊开说完，都会让那道裂缝少疼一点。",
             ),
             _compose_local_followup(
-                "真正值得珍惜的人，会把你的放心当成责任。",
+                "值得珍惜的人，会把你的放心当成责任。",
                 "你给他自由，他给你踏实；你把心交给他，他舍得用日常的一件件小事托住。",
             ),
             _compose_local_followup(
@@ -13665,7 +13662,7 @@ def _resolve_local_assets_social_teaser(
         "response_priority": "那句顺着情绪接下去的话，往往比热闹互动更让人踏实。",
         "trust_boundary": "坦诚的分量，是把话说透，也把答应过的事做到。",
         "responsibility_shelter": "人可以担起责任，也要记得给自己留一盏灯。",
-        "supportive_appreciation": "真正难得的，是有人看见这份退让背后的在乎。",
+        "supportive_appreciation": "有人看见退让背后的在乎，温柔才不会被白白消耗。",
         "relationship_aftercare": "肯不肯回来把那阵冷气化开，最能看出对方有没有把这段关系放在心上。",
         "resilience_reconstruction": "熬过最难的那段路，你会重新长出自己的力量。",
         "emotional_engine_direct": "回头看过、想明白过，然后把今天重新过好。",
@@ -13702,18 +13699,18 @@ def _resolve_local_assets_social_teaser(
         corpus = _build_local_response_priority_followup_corpus(payload)
         if "点赞" in corpus and "评论" in corpus:
             if any(token in corpus for token in ("晚霞", "夕阳", "落日", "朋友圈", "照片")):
-                return "那张晚霞发出去以后，最暖的不是那排点赞，是那句看懂你疲惫的追问。"
+                return "那张晚霞发出去以后，最暖的是那句看懂你疲惫的追问。"
             return "一排点赞里，最暖的往往是那句认真追问。"
         return "被认真听懂一次，心里悬着的地方会先松一下。"
     if mode == "response_priority" and _uses_local_response_priority_time_priority_variant(payload):
-        lead = first if first_is_safe else "他说自己很忙那一刻，你不是不理解，只是忽然明白了，时间留给谁，心里其实早就有答案。"
-        return _compose_local_followup(lead, "真正让人安心的，是他忙完以后，还记得回来找你。")
+        lead = first if first_is_safe else "他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。"
+        return _compose_local_followup(lead, "忙完以后还记得回来找你，这份交代最让人安心。")
     if mode == "supportive_appreciation":
         if _has_local_supportive_misread_profile(payload):
             lead = first if first_is_safe else "太好说话久了，别人很容易忘了，她也会疼。"
             return _compose_local_followup(lead, "体谅不是天生该让，能被珍惜，温柔才会一直留得住。")
         if _has_local_supportive_discernment_profile(payload):
-            lead = first if first_is_safe else "他其实什么都懂，只是每次轮到在乎的人，还是会先把锋芒收回去。"
+            lead = first if first_is_safe else "他心里什么都懂，只是每次轮到在乎的人，还是会先把锋芒收回去。"
             subject = "他" if "他" in lead and "她" not in lead else "她"
             return _compose_local_followup(lead, f"{subject}看得清，也愿意把情分放在前面。")
         if _has_local_supportive_apology_profile(payload):
@@ -13721,9 +13718,9 @@ def _resolve_local_assets_social_teaser(
             return _compose_local_followup(lead, "愿意留余地的人，更需要被认真回应。")
         if _has_local_supportive_warmth_profile(payload):
             lead = first if first_is_safe else "别人递来一点暖意，他常常会想办法再多还回去一点。"
-            return _compose_local_followup(lead, "真正难得的，是他把收到的暖意又慢慢还了回来。")
+            return _compose_local_followup(lead, "难得的是，他把收到的暖意又慢慢还了回来。")
         lead = first if first_is_safe else "会先顾别人感受的人，也该有人反过来护住。"
-        return _compose_local_followup(lead, "真正难得的，是有人看见这份退让背后的在乎。")
+        return _compose_local_followup(lead, "有人看见退让背后的在乎，温柔才不会被白白消耗。")
     if mode == "self_worth_rebuild" and _has_local_self_worth_luxury_profile(payload):
         lead = first if first_is_safe else "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。"
         return _compose_local_followup(lead, "把自己看重一点，关系里的分寸才会慢慢回来。")
@@ -13734,7 +13731,7 @@ def _resolve_local_assets_social_teaser(
         lead = first if first_is_safe else "复查提醒弹出来的时候，先别急着划掉。"
         return _compose_local_followup(lead, "把该照顾自己的那一步放回今天，日子才会一点点回到顺序里。")
     if mode == "trust_boundary":
-        return "你愿意相信一个人的时候，其实已经把很重要的心安交了出去。坦诚的分量，是把话说透，也把答应过的事做到。"
+        return "你愿意相信一个人的时候，已经把很重要的心安交了出去。坦诚的分量，是把话说透，也把答应过的事做到。"
     if mode == "inner_settlement" and _uses_local_inner_settlement_homecoming_variant(payload):
         lead = first if first_is_safe else "心总往外悬着的时候，走到哪里都像没落稳。先回到自己心里，脚下的日子才会稳起来。"
         return _compose_local_followup(lead, "心里有了归处，外面的风再大，脚下也会有路。")
@@ -14096,7 +14093,7 @@ def _build_local_publish_package_fallback(
                 )
             return (
                 "听见前后两个版本时，手里的筷子会先停一下。那一下不一定会让人立刻发火，却会让你忽然明白：原来心里那份放心，已经没有刚开始那么稳了。",
-                "信任最怕的，从来不是一句话没说漂亮，而是明明可以坦诚，却还是拿含糊去碰别人的真心。真正留住心安的，从来都是坦诚和说到做到。",
+                "信任最怕含糊。明明可以坦诚，却拿绕开的说法去碰别人的真心，那份放心就会一点点变薄。能留住心安的，始终是把话说透，也把答应过的事做到。说到做到，比多少解释都有分量。",
             )
 
         if mode == "scene_first_progression":
@@ -14116,28 +14113,28 @@ def _build_local_publish_package_fallback(
             )
         if mode == "response_priority":
             if _uses_local_response_priority_time_priority_variant(focus_payload):
-                publish_lead = "你当然知道大家都忙。可真把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。"
-                abstract = "忙本身并不伤人，真正让人失落的，是你把在意递过去，后来像没落到实处。那句“忙完找你”最后真的补回来，心里悬着的那一下就会慢慢放下。"
+                publish_lead = "你当然知道大家都忙。可把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。"
+                abstract = "忙本身并不伤人，伤人的是你把在意递过去，后来像没落到实处。那句“忙完找你”最后真的补回来，心里悬着的那一下就会慢慢放下。"
             else:
                 if any(token in response_priority_scene_corpus for token in ("晚霞", "夕阳", "落日", "朋友圈", "照片")) and any(
                     token in response_priority_scene_corpus
                     for token in ("点赞", "评论", "追问", "补问", "项目又出岔子了", "打电话", "我没事", "我有点累")
                 ):
-                    publish_lead = "那条朋友圈发出去以后，别人看见了晚霞，真正在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。"
+                    publish_lead = "那条朋友圈发出去以后，别人看见了晚霞，在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。"
                     abstract = "一条朋友圈下面热闹不难，难的是有人看懂你那句轻描淡写，追着问一句“是不是又扛着没说”。被这样惦记一次，人心里那根绷着的弦会先松一点。"
                 else:
-                    publish_lead = "那天你把手机扣在桌上，顺手说了句“没事”。他没有急着追问，只是把手边的水推过来，等你愿意开口。真正的在意，不会催你马上说明白。"
-                    abstract = "点赞可以很快，认真听完却需要耐心。有人愿意记住你语气里的变化，等你把话说完整，那份在意就不只是互动，而是把你当成一个具体的人在珍惜。"
+                    publish_lead = "那天你把手机扣在桌上，顺手说了句“没事”。他没有急着追问，只是把手边的水推过来，等你愿意开口。这样的在意，不会催你马上说明白。"
+                    abstract = "点赞可以很快，认真听完却需要耐心。有人愿意记住你语气里的变化，等你把话说完整，那份在意就不止是互动，而是把你当成一个具体的人在珍惜。"
         elif mode == "everyday_warmth_return":
             if _uses_local_everyday_warmth_small_things_variant(focus_payload):
                 publish_lead = "周末陪父母在小区慢慢走一圈，陪孩子把积木铺满地，再和爱人拎着菜回家。一天没有发生什么大事，可晚上躺下时，心里是满的。"
                 abstract = "真正属于你的生活，很少写在履历上。它藏在一次没有催促的散步、一个肯好好陪伴的下午里。把这些小事捡回来，日子就有了温度。"
             elif _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
-                publish_lead = "回家时那盏灯还亮着，饭也还热着。忙了一整天以后，人想要的很多时候不过就是这份踏实。"
+                publish_lead = "回家时那盏灯还亮着，饭也还热着。忙了一整天以后，人想要的也许就是这份踏实。"
                 abstract = "家里人平安，知己还在，想说的话还有人听。能把这样的日子守住，已经很难得。"
             else:
-                publish_lead = "回家时那盏灯还亮着，饭也还热着。很多时候，人不是被多大的热闹安顿下来，而是被这些细碎又实在的小事轻轻接住。"
-                abstract = "家里人平安，想说的话有人听，再普通的一天也会让人心里发暖。日子很多时候就是这样，一顿热饭、一句惦记，就够人踏实很久。"
+                publish_lead = "回家时那盏灯还亮着，饭也还热着。忙了一天的人，常常就是被这些细碎又实在的小事轻轻接住。"
+                abstract = "家里人平安，想说的话有人听，再普通的一天也会让人心里发暖。一顿热饭、一句惦记，就够人踏实很久。"
         elif mode == "inner_settlement":
             if _uses_local_inner_settlement_homecoming_variant(focus_payload):
                 publish_lead = "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。眼前这个普通的日子稳下来，心也会慢慢跟着落地。"
@@ -14190,17 +14187,17 @@ def _build_local_publish_package_fallback(
             abstract = "生活的顺序，常常是从一个很小的动作开始回来的。体检照约、饭按时吃、该停的时候停一停，人先回稳，后面的责任和日子才会更有力量。"
         elif mode == "supportive_appreciation":
             if _has_local_supportive_misread_profile(focus_payload):
-                publish_lead = "太好说话的人，也会疼。她愿意翻篇，是因为把情分看得更重。真正该被珍惜的，是这份体谅没有再被当成理所当然。"
+                publish_lead = "太好说话的人，也会疼。她愿意翻篇，是因为把情分看得更重。这份体谅被认真珍惜，温柔才会留得久。"
                 abstract = "她愿意再把话接起来，已经是在给这段关系一次机会。下一次记得先听完她的话，也把答应过的改变做到。心软的人最看重的，是你真的没有让同一件事再发生。"
             elif _has_local_supportive_discernment_profile(focus_payload):
-                publish_lead = "他其实什么都懂，只是轮到在乎的人，还是会先把语气放软一点。看得清，却愿意把情分放在前面，这样的温柔最难得，也最该被认真珍惜。"
-                abstract = "心软不是迟钝，退让也不是没分寸。真正难得的，是一个人明明看得清，还愿意给关系留一点暖意。若你身边有这样的人，请记得好好接住他的温柔。"
+                publish_lead = "他心里什么都懂，只是轮到在乎的人，还是会先把语气放软一点。看得清，却愿意把情分放在前面，这样的温柔最该被认真珍惜。"
+                abstract = "心软有分寸，退让也有判断。一个人明明看得清，还愿意给关系留一点暖意，已经很难得。若你身边有这样的人，请记得好好接住他的温柔。"
             elif any(token in draft_body_markdown for token in ("歉意", "道歉", "原谅", "真心道了歉", "把歉意说出口")):
                 publish_lead = "那句“对不起”说完，她沉默了一会儿，还是把水杯往你这边推了推。刚才的话确实伤到了她，可这段关系在她心里，比当下那口气更重要，所以她愿意再把话接起来。"
                 abstract = "道歉最有分量的部分，往往发生在下一次：你记得她为什么难过，也真的把那件事做得不一样。温柔被认真接住，才会一直是温柔。"
             elif _has_local_supportive_warmth_profile(focus_payload):
                 publish_lead = "别人递来一点暖意，他常常会想办法再多还回去一点。这样的人，未必最会说，可你会在很多小事里看见他的认真：记得你的难处，也舍得把自己的好一遍遍落回来。被这样的人放在心上，日子会慢慢暖起来。"
-                abstract = "真正稀缺的，是把温柔一遍遍落进小事里的人。别等他把失望咽多了，才想起他的体谅有多珍贵。"
+                abstract = "把温柔一遍遍落进小事里的人，很稀缺。别等他把失望咽多了，才想起他的体谅有多珍贵。"
             else:
                 publish_lead = "饭桌上的气氛刚有点僵，她先夹了一筷子菜，问了句：“还吃吗？”她不是没脾气，只是舍不得让在乎的人一直隔着一口气。"
                 abstract = "肯先把话接回来的人，已经把关系放在了输赢前面。别让这份主动总是一个人的习惯；你也往前走一步，很多误会就能停在今晚。"
@@ -14209,9 +14206,9 @@ def _build_local_publish_package_fallback(
         elif mode == "self_worth_rebuild":
             if _has_local_self_worth_luxury_profile(focus_payload):
                 publish_lead = "你越轻易把自己放低，别人越容易把你的体面当成可商量。后来你才懂，把自己看重，是把委屈从关系里慢慢撤出来。"
-                abstract = "别总怕自己一开口就显得难相处。你把什么能答应、什么不能退说清以后，真正想珍惜你的人，不会嫌你麻烦，反而会更认真地对待你。"
+                abstract = "别总怕自己一开口就显得难相处。你把什么能答应、什么不能退说清以后，愿意珍惜你的人，不会嫌你麻烦，反而会更认真地对待你。"
             else:
-                publish_lead = "有一天你终于把那句“这次不行”说出口，关系没有天塌，生活也没有乱。你才发现，认真对待自己，并不会把真正爱你的人推远。"
+                publish_lead = "有一天你终于把那句“这次不行”说出口，关系没有天塌，生活也没有乱。你才发现，认真对待自己，并不会把爱你的人推远。"
                 abstract = "能长久留在身边的人，不只喜欢你的好说话，也会尊重你的不愿意。把想法讲清，把分寸守好，你会过得更舒展，别人也更知道该怎样珍惜你。"
         elif mode == "trust_boundary" or _has_local_trust_boundary_focus(focus_payload):
             publish_lead, abstract = _resolve_trust_boundary_publish_copy()

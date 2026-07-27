@@ -8161,7 +8161,7 @@ def test_initial_cleanup_keeps_response_priority_followup_variant_in_short_parag
     paragraphs = [part.strip() for part in result.body_markdown.split("\n\n") if part.strip()]
 
     assert max(len(part) for part in paragraphs) <= 150
-    assert any("真正的在意" in part for part in paragraphs)
+    assert any("在意会变成很具体的注意力" in part for part in paragraphs)
     assert any("被这样接住过一次" in part for part in paragraphs)
     assert "等电梯的半分钟，够不够回一句话？其实够的。" not in result.body_markdown
 
@@ -8199,8 +8199,8 @@ def test_response_priority_followup_variant_keeps_specific_comment_scene() -> No
 
     assert any("今天的夕阳真美，终于下班了" in part for part in paragraphs)
     assert any("是不是项目又出岔子了" in part for part in paragraphs)
-    assert any("很多人也会陪你热闹，会点赞，会寒暄" in part for part in paragraphs)
-    assert any("谁只是路过，谁是真的把你放在心上" in part for part in paragraphs)
+    assert any("有人陪你热闹，有人顺手点赞" in part for part in paragraphs)
+    assert any("谁只是路过，谁愿意为你停下来" in part for part in paragraphs)
 def test_build_local_tracked_article_outline_fallback_everyday_warmth_avoids_strategy_hook_leak() -> None:
     outline = workbench._build_local_tracked_article_outline_fallback(
         {
@@ -9483,7 +9483,7 @@ def test_build_local_tracked_article_draft_fallback_shapes_self_worth_mode_away_
     )
     assert "点菜时你想吃辣，最后还是说“都可以”。别人临时改约，你明明失落，也只回一句：没事。" in body_markdown
     assert "先把那个总被你放到最后的人找回来。" not in body_markdown
-    assert "很多委屈都不是大事砸下来的。" in body_markdown
+    assert "委屈常常就是这样攒起来的。" in body_markdown
     assert "别再让委屈替你懂事收尾" in body_markdown
     assert "先在心里过一遍：这次我是真的愿意，还是又想赶紧把场面圆过去。" in body_markdown
     assert "把那点不舒服重新当回事，关系里的位置才会慢慢清楚。" not in body_markdown
@@ -9492,8 +9492,8 @@ def test_build_local_tracked_article_draft_fallback_shapes_self_worth_mode_away_
     for forbidden in ("把自己养贵一点", "门槛抬高一点", "自己的感受", "不是变得难相处", "贱卖", "愿你往后", "当你开始", "日子才"):
         assert forbidden not in body_markdown
     paragraphs = [paragraph.strip() for paragraph in body_markdown.split("\n\n") if paragraph.strip()]
-    assert len(paragraphs) >= 11
-    assert max(len(paragraph) for paragraph in paragraphs) <= 80
+    assert 8 <= len(paragraphs) <= 10
+    assert max(len(paragraph) for paragraph in paragraphs) <= 120
 def test_build_local_tracked_article_outline_fallback_shapes_self_worth_mode_without_strategy_leak() -> None:
     outline = workbench._build_local_tracked_article_outline_fallback(
         {
@@ -9563,7 +9563,7 @@ def test_build_local_tracked_article_draft_fallback_uses_mode_shaped_outline_for
     )
     assert "点菜时你想吃辣，最后还是说“都可以”。别人临时改约，你明明失落，也只回一句：没事。" in body_markdown
     assert "先把那个总被你放到最后的人找回来。" not in body_markdown
-    assert "很多委屈都不是大事砸下来的。" in body_markdown
+    assert "委屈常常就是这样攒起来的。" in body_markdown
     assert "别再让委屈替你懂事收尾" in body_markdown
     assert "先在心里过一遍：这次我是真的愿意，还是又想赶紧把场面圆过去。" in body_markdown
     assert "把那点不舒服重新当回事，关系里的位置才会慢慢清楚。" not in body_markdown
@@ -10186,7 +10186,7 @@ def test_local_assets_and_tags_use_trust_boundary_packaging() -> None:
     )
 
     assert assets["cover_copy"] == "信任很贵，别让赤诚输给含糊。"
-    assert assets["social_teaser"] == "你愿意相信一个人的时候，其实已经把很重要的心安交了出去。坦诚的分量，是把话说透，也把答应过的事做到。"
+    assert assets["social_teaser"] == "你愿意相信一个人的时候，已经把很重要的心安交了出去。坦诚的分量，是把话说透，也把答应过的事做到。"
     assert "信任与坦诚" in tags
 
 
@@ -10339,7 +10339,7 @@ def test_local_assets_and_publish_package_drop_strategy_placeholder_for_trust_bo
     assert "信任" in combined
     assert "坦诚" in combined or "说到做到" in combined
     assert str(package["publish_lead"]) == "听见前后两个版本时，手里的筷子会先停一下。那一下不一定会让人立刻发火，却会让你忽然明白：原来心里那份放心，已经没有刚开始那么稳了。"
-    assert str(package["abstract"]) == "信任最怕的，从来不是一句话没说漂亮，而是明明可以坦诚，却还是拿含糊去碰别人的真心。真正留住心安的，从来都是坦诚和说到做到。"
+    assert str(package["abstract"]) == "信任最怕含糊。明明可以坦诚，却拿绕开的说法去碰别人的真心，那份放心就会一点点变薄。能留住心安的，始终是把话说透，也把答应过的事做到。说到做到，比多少解释都有分量。"
     assert str(package["abstract"]) != str(assets_payload["social_teaser"])
     assert "信任最怕的，不是争吵，是心里那一下忽然不敢再全信了。" in [str(item) for item in package["intro_options"]]
 
@@ -10392,8 +10392,9 @@ def test_local_publish_package_uses_distinct_trust_boundary_packaging() -> None:
     assert package["publish_title"] == "愿意信你的人，最需要被你好好守住"
     assert str(package["publish_lead"]).startswith("听见前后两个版本时，手里的筷子会先停一下。")
     assert "原来心里那份放心，已经没有刚开始那么稳了" in str(package["publish_lead"])
-    assert str(package["abstract"]).startswith("信任最怕的，从来不是一句话没说漂亮")
-    assert "坦诚和说到做到" in str(package["abstract"])
+    assert str(package["abstract"]).startswith("信任最怕含糊。")
+    assert "坦诚" in str(package["abstract"])
+    assert "说到做到" in str(package["abstract"])
     assert str(package["abstract"]) != str(package["publish_lead"])
     assert str(package["abstract"]) != str(assets.social_teaser)
 
@@ -10425,7 +10426,7 @@ def test_build_local_tracked_article_draft_fallback_response_priority_avoids_the
     assert "主线是" not in body_markdown
     assert body_markdown.startswith("很多回应都会路过你，难得的是有人真的停下来。")
     assert "他不会急着把话题带开，也不会只留一个表情就算回应。他只是多问一句：你是不是还有话没说完。" in body_markdown
-    assert "真正的在意，更像一种注意力。" in body_markdown
+    assert "在意会变成很具体的注意力。" in body_markdown
     assert "被这样接住过一次，人就会知道什么样的关系值得珍惜。" in body_markdown
     assert "等电梯的半分钟，够不够回一句话？其实够的。" not in body_markdown
     assert "时间给了谁，心就会慢慢偏向谁。" not in body_markdown
@@ -10504,7 +10505,7 @@ def test_build_local_assets_fallback_uses_followup_variant_copy_for_response_pri
 
     assert assets["recommended_title"] == "你轻轻带过的话，真正在意的人会再问一句"
     assert assets["cover_copy"] == "你轻轻带过的话，有人真的听进去了。"
-    assert assets["social_teaser"] == "那张晚霞发出去以后，最暖的不是那排点赞，是那句看懂你疲惫的追问。"
+    assert assets["social_teaser"] == "那张晚霞发出去以后，最暖的是那句看懂你疲惫的追问。"
     assert "晚霞余晖" in str(assets["cover_prompt"])
     assert "不要聊天界面" in str(assets["cover_prompt"])
 
@@ -10525,8 +10526,8 @@ def test_build_local_tracked_article_draft_fallback_response_priority_uses_time_
     assert title == "愿意把时间留给你的人，才是真的把你放在心上"
     assert body_markdown.startswith(
         (
-            "他说自己很忙那一刻，你不是不理解，只是忽然明白了，时间留给谁，心里其实早就有答案。",
-            "红灯的三十秒都能做很多事，所以后来你也慢慢懂了，所谓没时间，多半不是一点空都挤不出来。",
+            "他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。",
+            "红灯的三十秒都能喝口水、切首歌、回一句“晚点找你”。有些在意，就藏在这些小空当里。",
         )
     )
     assert "红灯的三十秒、排队的几分钟、到家换鞋前那会儿" in body_markdown
@@ -10554,7 +10555,7 @@ def test_build_local_tracked_article_draft_fallback_response_priority_time_prior
 
     assert title == "愿意把时间分给你的人，心里早就给你留了位置"
     assert not body_markdown.startswith("消息、评论或碎片时间被给出去的那一下，谁真正被排在了前面。")
-    assert body_markdown.startswith("他说自己很忙那一刻，你不是不理解，只是忽然明白了，时间留给谁，心里其实早就有答案。")
+    assert body_markdown.startswith("他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。")
 
 
 def test_build_local_assets_fallback_response_priority_uses_time_priority_copy() -> None:
@@ -10571,7 +10572,7 @@ def test_build_local_assets_fallback_response_priority_uses_time_priority_copy()
     )
 
     assert assets["cover_copy"] == "忙完以后还记得回来找你的人，心里一直给你留着位置。"
-    assert assets["social_teaser"] == "他说自己很忙那一刻，你其实能理解。真正让人安心的，是他忙完以后，还记得回来找你。"
+    assert assets["social_teaser"] == "他说自己很忙那一刻，你其实能理解。忙完以后还记得回来找你，这份交代最让人安心。"
 
 
 def test_build_local_publish_package_fallback_response_priority_uses_time_priority_variant() -> None:
@@ -10593,10 +10594,10 @@ def test_build_local_publish_package_fallback_response_priority_uses_time_priori
         assets=assets,
     )
 
-    assert package["publish_lead"] == "你当然知道大家都忙。可真把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。"
-    assert package["abstract"] == "忙本身并不伤人，真正让人失落的，是你把在意递过去，后来像没落到实处。那句“忙完找你”最后真的补回来，心里悬着的那一下就会慢慢放下。"
+    assert package["publish_lead"] == "你当然知道大家都忙。可把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。"
+    assert package["abstract"] == "忙本身并不伤人，伤人的是你把在意递过去，后来像没落到实处。那句“忙完找你”最后真的补回来，心里悬着的那一下就会慢慢放下。"
     assert package["intro_options"][:2] == [
-        "你当然知道大家都忙。可真把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。",
+        "你当然知道大家都忙。可把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。",
         assets.social_teaser,
     ]
 
@@ -10620,10 +10621,10 @@ def test_build_local_publish_package_fallback_response_priority_uses_followup_sc
         assets=assets,
     )
 
-    assert package["publish_lead"] == "那条朋友圈发出去以后，别人看见了晚霞，真正在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。"
+    assert package["publish_lead"] == "那条朋友圈发出去以后，别人看见了晚霞，在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。"
     assert package["abstract"] == "一条朋友圈下面热闹不难，难的是有人看懂你那句轻描淡写，追着问一句“是不是又扛着没说”。被这样惦记一次，人心里那根绷着的弦会先松一点。"
     assert package["intro_options"][:2] == [
-        "那条朋友圈发出去以后，别人看见了晚霞，真正在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。",
+        "那条朋友圈发出去以后，别人看见了晚霞，在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。",
         assets.social_teaser,
     ]
 
@@ -10898,7 +10899,7 @@ def test_build_local_assets_fallback_supportive_appreciation_uses_mode_copy() ->
     )
 
     assert assets["cover_copy"] == "会先顾别人感受的人，也该被认真接住。"
-    assert assets["social_teaser"] == "她顺手让了一步、先顾了别人感受，结果又被当成理所当然的那一下。真正难得的，是有人看见这份退让背后的在乎。"
+    assert assets["social_teaser"] == "她顺手让了一步、先顾了别人感受，结果又被当成理所当然的那一下。有人看见退让背后的在乎，温柔才不会被白白消耗。"
 
 
 def test_build_local_assets_and_publish_fallback_supportive_appreciation_do_not_drift_to_aftercare() -> None:
@@ -10929,7 +10930,7 @@ def test_build_local_assets_and_publish_fallback_supportive_appreciation_do_not_
     combined_assets = f"{assets_payload['cover_copy']}\n{assets_payload['social_teaser']}"
 
     assert assets_payload["cover_copy"] == "会先顾别人感受的人，也该被认真接住。"
-    assert "真正难得的，是有人看见这份退让背后的在乎" in assets_payload["social_teaser"]
+    assert "有人看见退让背后的在乎，温柔才不会被白白消耗" in assets_payload["social_teaser"]
     assert "吵完" not in combined_assets
     assert "冷气" not in combined_assets
 
@@ -10978,8 +10979,8 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_mode_
         assets=assets,
     )
 
-    assert package["publish_lead"] == "他其实什么都懂，只是轮到在乎的人，还是会先把语气放软一点。看得清，却愿意把情分放在前面，这样的温柔最难得，也最该被认真珍惜。"
-    assert package["abstract"] == "心软不是迟钝，退让也不是没分寸。真正难得的，是一个人明明看得清，还愿意给关系留一点暖意。若你身边有这样的人，请记得好好接住他的温柔。"
+    assert package["publish_lead"] == "他心里什么都懂，只是轮到在乎的人，还是会先把语气放软一点。看得清，却愿意把情分放在前面，这样的温柔最该被认真珍惜。"
+    assert package["abstract"] == "心软有分寸，退让也有判断。一个人明明看得清，还愿意给关系留一点暖意，已经很难得。若你身边有这样的人，请记得好好接住他的温柔。"
     assert package["intro_options"][0] == package["publish_lead"]
     assert "看得清，还愿意把语气放软的人，最该被认真珍惜。" in package["intro_options"]
     assert "心软不是迟钝，是明白以后还愿意留一点暖意。" in package["intro_options"]
@@ -11052,7 +11053,7 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_misre
     assert "好说话" in package["publish_lead"]
     assert "会疼" in package["publish_lead"]
     assert "情分" in package["publish_lead"]
-    assert "理所当然" in package["publish_lead"]
+    assert "认真珍惜" in package["publish_lead"]
     assert "同一件事再发生" in package["abstract"]
     assert "愿意翻篇，是在给关系一次机会，不是在允许同一件事重来。" in package["intro_options"]
     assert "道歉说完以后，真正重要的是把答应过的改变做到。" in package["intro_options"]
@@ -11105,7 +11106,7 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_warmt
     )
 
     assert package["publish_lead"] == "别人递来一点暖意，他常常会想办法再多还回去一点。这样的人，未必最会说，可你会在很多小事里看见他的认真：记得你的难处，也舍得把自己的好一遍遍落回来。被这样的人放在心上，日子会慢慢暖起来。"
-    assert package["abstract"] == "真正稀缺的，是把温柔一遍遍落进小事里的人。别等他把失望咽多了，才想起他的体谅有多珍贵。"
+    assert package["abstract"] == "把温柔一遍遍落进小事里的人，很稀缺。别等他把失望咽多了，才想起他的体谅有多珍贵。"
     assert package["abstract"] != assets.social_teaser
     assert "一句道歉不难" not in package["abstract"]
     assert "心软的人，一生难遇，也值得被人好好珍惜。" in package["intro_options"]
@@ -11126,7 +11127,7 @@ def test_build_local_assets_fallback_supportive_appreciation_uses_warmth_copy() 
     )
 
     assert assets["cover_copy"] == "心软的人，一生难遇，也值得被人好好珍惜。"
-    assert assets["social_teaser"] == "别人递来一点暖意，他常常会想办法再多还回去一点。真正难得的，是他把收到的暖意又慢慢还了回来。"
+    assert assets["social_teaser"] == "别人递来一点暖意，他常常会想办法再多还回去一点。难得的是，他把收到的暖意又慢慢还了回来。"
 
 
 def test_resolve_local_generic_fallback_mode_keeps_supportive_apology_body_out_of_aftercare_lane() -> None:
@@ -12630,11 +12631,11 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback({**payload, "outline": outline})
 
     assert title == "总把别人感受放在前面的人，其实最该被人好好珍惜"
-    assert body_markdown.startswith("他其实什么都懂，只是每次轮到在乎的人，还是会先把那点难受往回收一收。")
+    assert body_markdown.startswith("他心里什么都懂，只是每次轮到在乎的人，还是会先把那点难受往回收一收。")
     assert "心软的人，往往反应更快。" in body_markdown
     assert "谁是真心，谁在敷衍" in body_markdown
     assert "他不急着计较，是因为心里有判断" in body_markdown
-    assert "他递出来的，是一份有分寸的在乎，不是随手就会给谁的好脾气。" in body_markdown
+    assert "他递出来的，是一份有分寸的在乎，不会随手给谁。" in body_markdown
     assert "明明已经有点难受了，对方把歉意说出口时" not in body_markdown
     assert "一句道歉真正有分量的地方" not in body_markdown
     assert not re.search(r"不是[^。！？!?\n]{1,40}(?:而是|也不是)", body_markdown)
