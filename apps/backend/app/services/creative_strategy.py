@@ -2238,7 +2238,7 @@ def _build_positive_direction(
     if structure_mode == "self_worth_rebuild":
         return "结尾回到边界重新立住、标准慢慢收紧和人终于不再总把自己放轻，不要停在控诉、委屈或翻旧账上。"
     if structure_mode == "self_reliance_inward_support":
-        return "结尾回到理清顺序、完成一个具体动作和把今天过稳，不要把情绪停在失落和空转里。"
+        return "结尾回到求助不丢人、自救也不丢人，把判断和行动重新放回自己手里，不要把情绪停在失落和空转里。"
     if structure_mode == "trust_boundary":
         return "结尾回到坦诚、交代和日常里一次次说到做到，让读者看见这份心安值得被认真守住。"
     if structure_mode == "response_priority":
@@ -2284,7 +2284,7 @@ def _build_hook_trigger(
     if structure_mode == "self_worth_rebuild":
         return "你其实已经不舒服了，可那句“都可以”还是比真实想法先出了口。"
     if structure_mode == "self_reliance_inward_support":
-        return "把一件小事做稳时，人慢慢找回主心骨、也让日子重新有光的那一下。"
+        return "有些委屈，话到嘴边会先停一下。你开始懂得，每个人都有自己的难处，也都有撑不住的时候。"
     if structure_mode == "trust_boundary":
         return "听见前后两个版本时，手里的筷子会先停一下。"
     if structure_mode == "response_priority":
@@ -2819,7 +2819,7 @@ def _build_theme_axis(
     if structure_mode == "self_worth_rebuild":
         return "主线是人为什么总在关系里先把自己放轻、把边界和标准往后撤，后来又怎样重新尊重自己，让体面和分量慢慢回到自己身上。"
     if structure_mode == "self_reliance_inward_support":
-        return "主线是一个人在现实承压时，怎样把注意力从慌乱里收回来，用判断力、行动力或恢复力一点点把日子接住。"
+        return "主线是人在想求助却看见别人也各自有难处时，怎样先恢复判断和行动，也在合适的时候开口、分担，把生活慢慢接回来。"
     if structure_mode == "trust_boundary":
         return "主线是信任为什么珍贵又脆弱：一次谎言或隐瞒会让心安裂开，而真正走得远的关系，靠坦诚、交代和日常里的说到做到重新托住。"
     if structure_mode == "response_priority":
@@ -2934,8 +2934,8 @@ def _build_scene_anchor_requirements(
         return merge_unique_lines(fingerprint_specific + base, [])
     if structure_mode == "self_reliance_inward_support":
         base = [
-            "前六段至少放进 1 个参考文里的现实承压接口，让主题从具体处境里发生。",
-            "中段至少保住 1 个理清顺序、把今天接稳的现实动作、判断或选择，而不是只写感受。",
+            "前六段至少放进 1 个想求助却看见别人也各自承压的具体接口，让主题从真实处境里发生。",
+            "中段至少保住 1 个恢复判断、继续行动或主动分担的现实动作，而不是只写感受。",
         ]
         return merge_unique_lines(fingerprint_specific + base, [])
     if structure_mode == "trust_boundary":
@@ -3061,7 +3061,7 @@ def _build_quotable_line_seeds(
         base = ["原来一直在把自己放轻的那一下", "边界重新立住的那一下", "把分量收回自己身上的那一句"]
         return merge_unique_lines(specific_seeds + base, [])
     if structure_mode == "self_reliance_inward_support":
-        base = ["主心骨慢慢回来的那一下", "日子重新有光的那一下", "把力气收回自己手里的那一句"]
+        base = ["不是不想开口，是每个人都有自己的那场雨", "先把自己扶稳，才有力气接住明天", "自救和求助都不丢人的那一句"]
         return merge_unique_lines(specific_seeds + base, [])
     if structure_mode == "trust_boundary":
         base = ["信任裂开时心里一沉的那一下", "坦诚把心安重新放回来的那一句", "说到做到比解释更有分量的那一下"]
@@ -4236,7 +4236,7 @@ def _build_core_conflict(
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "真正难的，不只是命运下手太重，而是长期疼痛、重复训练和外界定义都在往下拽，人还是得决定不把残缺和低谷收成自己的结论。"
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "越想一口气把乱局撑住，越容易先把自己放到最后；真正让人慢慢站稳的，往往是先把顺序理回来，再把力气一点点收回自己身上。"
+        return "越把全部希望都压在外面的回应上，心越容易悬着；真正让人慢慢站稳的，是先恢复判断和行动，再学会清楚地求助、分担。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "越舍不得停下，越容易把继续消耗误认成认真，最后连眼前真正重要的东西也一起忽略掉。"
     if "边界" in topic_angle:
@@ -4346,7 +4346,7 @@ def _normalize_topic_angle(
     if structure_mode == "resilience_reconstruction":
         return "从命运重击、长期疼痛和重复训练切入，重点写一个人怎样在反复重来里把身体与意志重新托住，而不是被残缺、低谷和外界定义收走人生。"
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=normalized, structure_mode=structure_mode):
-        return "从参考文章里的现实承压接口切入，重点写一个人怎样把慌乱收回来，再用具体行动、判断或选择长出向内稳住和自救自渡的力气。"
+        return "从想求助却发现别人也各自承压的处境切入，重点写一个人怎样先稳住判断和行动，再在合适的时候求助、分担，长出自救自渡的力气。"
     if structure_mode == "emotional_engine_direct":
         return normalized
     if structure_mode == "pressure_interface_direct":
@@ -4407,7 +4407,7 @@ def _build_writing_goal(
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "把人为什么能在命运重击、长期疼痛和重复训练里，一点点把自己重新托住讲清楚，让读者看到韧性不是口号，而是拒绝被残缺和低谷定义。"
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "把成年人为什么会在承压时先乱了顺序讲清楚，也让读者看见，自救自渡不是硬扛，而是用一个具体判断、动作或选择，把日子稳稳接回来。"
+        return "把成年人为什么想求助时也会看见别人的难处讲清楚，也让读者看见，自救自渡不是硬扛，而是先恢复判断和行动，再在合适的时候求助、分担。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "把人为什么会把继续投入误认成更接近圆满讲清楚，让读者看见停下不是认输，而是把心力和目光收回到真正重要的东西上。"
     if "边界" in topic_angle:
@@ -4478,7 +4478,7 @@ def _build_clarified_problem(
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "关键不在于一个励志标签，而在于有些人明明被命运重击、长期疼痛和训练代价反复碾过，还是会在一次次重来里拒绝把残缺和低谷收成自我定义。"
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "关键不在于一个人会不会求助，而在于很多成年人一到承压时刻就容易乱了顺序；也要让读者看见，先接住眼前一步不是逞强，而是成年人的自我托底。"
+        return "关键不在于一个人会不会求助，而在于当回应一时赶不上时，人怎样先把能做的事放回手里；也要让读者看见，自救和求助本来可以同时成立。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "关键不在于人人都懂却做不到的道理，而在于人为什么明明已经很累了，还是会把不甘心、投入感和希望错当成继续消耗自己的理由。"
     return f"{topic_title}要写清楚的，是{observed_phenomenon}里一点点累积出来的压力和失衡。"
@@ -4550,7 +4550,7 @@ def _build_feedback_entry(
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
             f"{reader_situation}会先认出自己的处境，"
-            "也会慢慢放下那种一下子必须全都撑住的慌张，知道先接住眼前这一小步，日子就会重新有下一步。"
+            "也会慢慢放下那种一下子必须全都撑住的慌张，知道求助不丢人，自救也不丢人。"
         )
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return (
@@ -4618,7 +4618,7 @@ def _build_problem_explanation(
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "核心要拆开的，是为什么人明明已经被命运和疼痛打得很重，还是会在重复训练和反复重来里，不肯把自己交给残缺、低谷和外界定义。"
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "核心要拆开的，是为什么人一到承压时刻就容易乱了顺序；也要落到先做一个具体判断、完成一个小动作，反而更能把自己从慌里带回来。"
+        return "核心要拆开的，是为什么人想开口时会先看见别人的难处；也要落到恢复判断、继续行动和清楚求助，反而更能把自己从慌里带回来。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "核心要拆开的，是为什么人明明已经被拖得很累了，还是会把继续投入误认成更接近幸福。"
     return f"核心要拆开的，是为什么{observed_phenomenon}会一遍遍重演，读者真正卡住的那一步到底在哪。"
@@ -4662,7 +4662,7 @@ def _build_point_of_view(
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "不急着把人物写成励志样板或术后恢复案例，先把命运下手有多重、训练怎样一点点把身体与意志重新托住讲清楚。"
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "不急着劝人独立坚强，先把成年人为什么会在承压时乱了顺序讲清楚，再把人怎样用具体行动、判断或选择先把自己安顿住写出来。"
+        return "不急着劝人独立坚强，先把成年人想求助却不总能立刻被接住的现实讲清楚，再把人怎样恢复判断、继续行动、也学会清楚求助写出来。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "不急着讲知足、放下或清醒的大道理，先把人为什么明明已经很累，却还是觉得自己不能停讲清楚。"
     if "边界" in topic_angle:
@@ -4706,7 +4706,7 @@ def _build_conflict_frame(
     if _uses_resilience_reconstruction_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "真正难的，不只是命运下手太重，而是长期疼痛、训练消耗和外界定义都在往下拽，人还得决定自己不被它们收走。"
     if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-        return "最难的，从来不是承认自己也会慌，而是在事情一下压上来时，怎么先找回顺序，把能做的一步落到手上。"
+        return "最难的，从来不是承认自己也会慌，而是在回应还没到来之前，先把能处理的事放回手里，也把该求助的话说清楚。"
     if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
         return "真正把人困住的，不是没有答案，而是总把舍不得放手误认成还有希望。"
     if "边界" in topic_angle:
@@ -4749,7 +4749,7 @@ def _build_emotional_path(
     if structure_mode == "resilience_reconstruction":
         return "先认出命运怎样把人逼到极限，再看她怎样在训练、疼痛和反复重来里一点点把自己重新托住，最后落到不肯被定义上。"
     if _uses_self_reliance_inward_support_mode(topic_title="", topic_angle=topic_angle, structure_mode=structure_mode):
-        return "先认出处境一下压上来时的慌乱，再看人怎样把顺序理回来、把今天过稳，最后慢慢长出继续往前的力气。"
+        return "先认出想求助却迟迟没有回应的那一下失落，再看人怎样恢复判断、继续行动，也学会在合适的时候求助分担。"
     if structure_mode == "fragment_chain_observation":
         return "先让不同接口里的压力互相照见，再慢慢显出真正被牺牲掉的部分。"
     if _uses_broad_emotional_release_mode(topic_angle=topic_angle, structure_mode=structure_mode):
@@ -4797,10 +4797,10 @@ def _build_opening_move(
     if structure_mode == "resilience_reconstruction":
         return "开头先落一个命运重击后的硬事实：手术台、泳池里多划11下、肩伤背痛这类抓手，不要先讲励志大道理，也不要滑成术后恢复稿。"
     if structure_mode == "self_reliance_inward_support":
-        return "开头先落一个参考文里的现实承压接口，让读者先看见人怎样从慌乱里回神，并尽早让具体行动、判断或选择显形。"
+        return "开头先落一个想求助却发现别人也在各自稳住生活的真实接口，让读者先看见处境，再尽早让判断、行动或分担显形。"
     if structure_mode == "emotional_engine_direct":
         if _uses_self_reliance_inward_support_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
-            return "开头先落一个参考文里的现实承压处境，并让具体行动、判断或选择尽早显形；不要为这种结构模式另造一套固定前史。"
+            return "开头先落一个想求助却没有立刻被接住的真实处境，并让具体行动、判断或分担尽早显形；不要为这种结构模式另造一套固定前史。"
         if _uses_broad_emotional_release_mode(topic_title=topic_title, topic_angle=topic_angle, structure_mode=structure_mode):
             return "开头不要整段生活场景冷启动，先用一句会让人停一下的误认判断把读者拉进来；需要细节时，只留一个能挂住“继续投入”或“不肯松手”的小接口。"
         return "开头不要整段生活场景冷启动，先用终局问题、反常识判断、情绪命名或价值赦免把读者拉进来；需要细节时，只留能挂住判断的一个小接口。"
@@ -4855,10 +4855,10 @@ def _build_body_shift(
     if structure_mode == "resilience_reconstruction":
         return "中段先拆长期疼痛和训练代价怎样一遍遍逼人重来，再写她为什么没有把残缺、低谷或外界定义收成自我结论。"
     if structure_mode == "self_reliance_inward_support":
-        return "中段先拆为什么成年人一到承压时刻就容易乱了顺序；再写一个人怎样从先把今天过稳、先把顺序理回来，慢慢走到向内稳住。"
+        return "中段先拆为什么成年人想求助时常常也会看见别人的难处；再写一个人怎样先稳住判断和行动，慢慢走到向内求、自救自渡，也能在合适的时候求助分担。"
     if structure_mode == "emotional_engine_direct":
         if _uses_self_reliance_inward_support_mode(topic_title="", topic_angle=topic_angle, structure_mode=structure_mode):
-            return "中段先拆为什么承压时刻会让人先乱了顺序，再写成年人怎样从慌乱里回神，慢慢走到向内求冷静、把力气一点点收回来。"
+            return "中段先拆为什么想求助时也会看见别人的难处，再写成年人怎样恢复判断、继续行动，慢慢走到向内求冷静，也在合适的时候求助分担。"
         if _uses_broad_emotional_release_mode(topic_angle=topic_angle, structure_mode=structure_mode):
             return "中段先拆这种误认是怎样长出来的：人为什么总以为再坚持一点就会圆满，又为什么总要停下来以后，才看见已经拥有的部分。"
         return "中段先拆情绪发动机：人为什么总在失去后才懂得拥有，又为什么会把照顾自己放到最后。"
@@ -5101,8 +5101,8 @@ def _build_reference_specific_scene_requirements(reference_fingerprint: Referenc
         elif group == "self_support":
             lines.extend(
                 [
-                    "前六段优先放进 1 个参考文里的现实承压或选择接口，让正向动作尽早出现。",
-                    "中段保住 1 个理清顺序、把今天接稳或做出选择的动作。",
+                    "前六段优先放进 1 个想求助却看见别人也各自有难处的接口，让正向动作尽早出现。",
+                    "中段保住 1 个恢复判断、继续行动或主动求助分担的动作。",
                 ]
             )
         elif group == "supportive_softness":
@@ -5192,7 +5192,7 @@ def _build_reference_specific_texture_notes(reference_fingerprint: ReferenceArti
         elif group == "resilience_body":
             notes.append("真人抓手：优先保留手术、训练、疼痛和重复适应的身体细节，不要把人直接写成励志标签。")
         elif group == "self_support":
-            notes.append("真人抓手：优先保留参考文里的现实承压接口，再写人怎样通过具体行动、判断或选择慢慢自稳。")
+            notes.append("真人抓手：优先保留想求助却看见别人也有难处的接口，再写人怎样通过具体行动、判断或求助分担慢慢自稳。")
         elif group == "supportive_softness":
             notes.append("真人抓手：优先保留一句道歉、一次原谅、一次顺手让步这类柔软接口，不要直接下性格结论。")
         elif group == "endings_acceptance":
@@ -5237,7 +5237,7 @@ def _build_reference_specific_realism_hint(reference_fingerprint: ReferenceArtic
         elif group == "resilience_body":
             detail_fragments.append("1 个身体代价、1 个重复训练动作和 1 处不肯松掉的念头")
         elif group == "self_support":
-            detail_fragments.append("1 个现实承压接口、1 个从慌里回神的动作和 1 个正向选择后的余波")
+            detail_fragments.append("1 个想求助却看见别人也有难处的接口、1 个恢复判断的动作和 1 个求助或分担后的余波")
         elif group == "supportive_softness":
             detail_fragments.append("1 次顺手让步、1 句道歉后的原谅和 1 个被珍惜或被轻放的差别")
         elif group == "endings_acceptance":
@@ -5656,7 +5656,7 @@ def _describe_structure_mode(
     if structure_mode == "self_reliance_inward_support":
         return (
             "向内求自救推进",
-            "先守住参考文里的现实承压接口，再沿着慌乱、回稳动作和自我托底的过程推进，不写成表达退缩、求助技巧或泛独立宣言。",
+            "先守住参考文里想求助却看见别人也各自承压的接口，再沿着恢复判断、继续行动和求助分担的过程推进，不写成表达退缩、求助技巧或泛独立宣言。",
         )
     if structure_mode == "trust_boundary":
         return (
@@ -5900,10 +5900,10 @@ def _build_divergence_axes(
         axes.append("不要把尊重自己写成高姿态宣言或筛人狠话，必须写出分寸回到自己手里、分量回收和位置感回来的过程")
         axes.append("不要复用消息框、删了重写、说不出口这组旧壳子，必须另建顺手退让、把自己放轻或降低标准的现实接口")
     if structure_mode == "self_reliance_inward_support":
-        axes.append("主线必须留在参考文分析出的现实承压、自我支撑方式和正向出口，不能被固定关系外壳取代")
-        axes.append("自救自渡要写出回稳、自我修复和自我支撑的真实过程，不能写成硬扛、拒绝求助或泛独立宣言")
-        axes.append("第一屏要更早落到参考文真正的触发点、正向动作、判断或选择上")
-        axes.append("回稳动作必须更早出现，而且要具体落在参考文对应的行动、选择、判断或现实结果上")
+        axes.append("主线必须留在参考文分析出的求助处境、自我支撑方式和正向出口，不能被固定关系外壳取代")
+        axes.append("自救自渡要写出恢复判断、自我修复和求助分担的真实过程，不能写成硬扛、拒绝求助或泛独立宣言")
+        axes.append("第一屏要更早落到参考文真正的触发点、正向动作、判断、行动或分担上")
+        axes.append("回稳动作必须更早出现，而且要具体落在参考文对应的行动、选择、判断、求助或现实结果上")
     if structure_mode == "trust_boundary":
         axes.append("主线必须留在信任、隐瞒、坦诚和说到做到上，不要改写成回复速度、点赞评论、被读懂或放下过去的关系稿")
         axes.append("不要把信任写成查岗、审问或控制欲，必须写清放心被辜负以后，怎样靠透明交代和日常兑现重新托住心安")

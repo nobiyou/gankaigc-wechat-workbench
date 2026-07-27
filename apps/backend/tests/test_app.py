@@ -2178,12 +2178,13 @@ def test_generate_topic_from_tracked_article_rewrites_self_reliance_article_out_
     assert "顺手帮一下" not in payload["angle"]
     assert "边界不清" not in payload["angle"]
     assert "需求不明" not in payload["angle"]
-    assert any(anchor in payload["title"] for anchor in ("力气", "主心骨", "眼前这一步", "自己的光"))
+    assert any(anchor in payload["title"] for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
+    assert all(stale not in payload["title"] for stale in ("主心骨", "自己的光", "日子", "下一步"))
     assert "参考文章" not in payload["angle"]
     assert "现实触发点" not in payload["angle"]
     assert any(anchor in payload["angle"] for anchor in ("想找人说说话", "身边人也在各自稳住", "回应一时赶不上"))
-    assert any(anchor in payload["angle"] for anchor in ("先接住自己", "主心骨", "下一步", "回稳"))
-    assert "回稳" in payload["angle"]
+    assert any(anchor in payload["angle"] for anchor in ("求助", "分担", "判断", "行动", "自救"))
+    assert all(stale not in payload["angle"] for stale in ("主心骨", "生活怎样重新有了下一步", "日子怎样一点点变亮"))
 
 
 def test_generate_topic_from_tracked_article_rewrites_resilience_article_out_of_self_help_sink(monkeypatch) -> None:
@@ -3847,9 +3848,11 @@ def test_generate_strategy_package_for_self_reliance_tracked_article_uses_self_r
     payload = strategy_response.json()
 
     assert payload["strategy_card"]["structure_mode"] == "self_reliance_inward_support"
-    assert "承压时先乱了顺序" in payload["problem_brief"]["writing_goal"]
-    assert "具体判断、动作或选择" in payload["problem_brief"]["writing_goal"]
-    assert "把今天过稳" in payload["strategy_card"]["emotional_path"]
+    assert "想求助" in payload["problem_brief"]["writing_goal"]
+    assert "恢复判断和行动" in payload["problem_brief"]["writing_goal"]
+    assert "求助、分担" in payload["problem_brief"]["writing_goal"]
+    assert "恢复判断" in payload["strategy_card"]["emotional_path"]
+    assert "求助分担" in payload["strategy_card"]["emotional_path"]
     assert "越想解释越说不出口" not in payload["strategy_card"]["body_shift"]
 
 
@@ -9400,12 +9403,12 @@ def test_build_local_tracked_article_draft_fallback_shapes_self_reliance_mode_wi
 
     assert title == "扛事久了的人，最后都要学会把自己慢慢接回来"
     assert not body_markdown.startswith("事情一多的时候，先把眼前能确定的一件事抓住。")
-    assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
+    assert body_markdown.startswith(("有些委屈", "你把聊天框", "人到后来会懂"))
     assert "事情一下撞到眼前、四周都腾不出空的时候，最先冒出来的往往是慌。" not in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
     assert "先把眼前能确定的一件事抓住" not in body_markdown
-    assert "能把日子往前带的人" in body_markdown
-    assert "把选择重新拿回来" in body_markdown
+    assert "先喝一口水" in body_markdown or "今晚必须处理的事" in body_markdown
+    assert "不再把全部希望压在某一个人的回应上" in body_markdown
     assert "并不是认输" not in body_markdown
     assert "不等于只能硬撑" not in body_markdown
     assert "并不是一个人把所有难处硬熬过去" not in body_markdown
@@ -9435,11 +9438,13 @@ def test_build_local_tracked_article_draft_fallback_self_reliance_shared_burden_
         }
     )
 
-    assert any(anchor in title for anchor in ("力气", "主心骨", "自己的光"))
-    assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
+    assert any(anchor in title for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
+    assert all(stale not in title for stale in ("主心骨", "自己的光", "日子", "下一步"))
+    assert body_markdown.startswith(("有些委屈", "你把聊天框", "人到后来会懂"))
     assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
-    assert "判断回来了、行动还在" in body_markdown
+    assert "照顾自己" in body_markdown
+    assert "请别人一起分担" in body_markdown
     assert "把力气重新回到自己手里" not in body_markdown
     assert "把桌面清出一块地方，把明天最先要用的东西放到手边" not in body_markdown
     assert "电话要不要回，事情先做哪件" not in body_markdown
@@ -9829,7 +9834,7 @@ def test_resolve_local_generic_opening_skips_stale_self_reliance_hook_trigger() 
         core_conflict="",
     )
 
-    assert opening == "把一件小事做稳的时候，人会慢慢找回自己的主心骨。"
+    assert opening == "有些委屈，话到嘴边会先停一下。你开始懂得，每个人都有自己的难处，也都有撑不住的时候。"
 
     default_opening = workbench._resolve_local_generic_opening(
         payload={},
@@ -9839,7 +9844,7 @@ def test_resolve_local_generic_opening_skips_stale_self_reliance_hook_trigger() 
         core_conflict="",
     )
 
-    assert default_opening == "把一件小事做稳的时候，人会慢慢找回自己的主心骨。"
+    assert default_opening == "有些委屈，话到嘴边会先停一下。你开始懂得，每个人都有自己的难处，也都有撑不住的时候。"
 
 
 def test_resolve_local_generic_opening_uses_concrete_resilience_scene() -> None:
@@ -9963,20 +9968,23 @@ def test_build_local_tracked_article_draft_fallback_uses_mode_shaped_outline_for
         }
     )
 
-    assert any(anchor in title for anchor in ("力气", "主心骨", "自己的光"))
-    assert body_markdown.startswith(("有些难处不是不想说", "真正长大以后你会发现", "人最清醒的一刻"))
+    assert any(anchor in title for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
+    assert all(stale not in title for stale in ("主心骨", "自己的光", "日子", "下一步"))
+    assert body_markdown.startswith(("有些委屈", "你把聊天框", "人到后来会懂"))
     assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
     assert "也写一个人怎样" not in body_markdown
     assert "分清轻重缓急" not in body_markdown
     assert "能有人同行当然很好。" not in body_markdown
-    assert "判断回来了、行动还在" in body_markdown
+    assert "照顾自己" in body_markdown
+    assert "请别人一起分担" in body_markdown
+    assert "求助不丢人，自救也不丢人" in body_markdown
     assert "并不是认输" not in body_markdown
     assert "不等于只能硬撑" not in body_markdown
     assert "并不是一个人把所有难处硬熬过去" not in body_markdown
     assert "愿你以后" not in body_markdown
     assert len([paragraph for paragraph in body_markdown.split("\n\n") if paragraph.strip()]) >= 8
     assert "不要只写" not in body_markdown
-    for forbidden in ("磨钝", "睡眠", "胃口", "忍住不哭", "束手无策", "每个人都在", "孤立无援", "靠自己，", "。这不是", "很多时候，先把自己扶稳", "愿你以后", "无人可依"):
+    for forbidden in ("磨钝", "睡眠", "胃口", "忍住不哭", "束手无策", "每个人都在", "孤立无援", "靠自己，", "。这不是", "很多时候，先把自己扶稳", "愿你以后", "无人可依", "主心骨", "人心里有了光", "日子也会一点点亮起来"):
         assert forbidden not in body_markdown
 
 
@@ -9993,9 +10001,12 @@ def test_build_local_assets_fallback_uses_mode_shaped_social_teaser_for_self_rel
         ),
     )
 
-    assert any(anchor in assets["cover_copy"] for anchor in ("力气", "主心骨", "一件小事", "下一步", "落点"))
-    assert assets["social_teaser"] == "先把眼前最要紧的一件事放稳，心里就有了顺序。主心骨回来以后，很多事就有了下一步。"
+    assert any(anchor in assets["cover_copy"] for anchor in ("扶稳", "求助", "自救", "眼前事", "难处"))
+    assert "主心骨" not in assets["cover_copy"]
+    assert "下一步" not in assets["cover_copy"]
+    assert assets["social_teaser"] == "先把眼前最要紧的一件事放稳，心里就有了顺序。先把自己扶稳，再去求助和分担，心里会踏实很多。"
     assert "消息框开了又关" not in assets["social_teaser"]
+    assert "主心骨" not in assets["social_teaser"]
 
 
 def test_build_local_publish_package_fallback_uses_shared_burden_self_reliance_variant() -> None:
@@ -10017,9 +10028,12 @@ def test_build_local_publish_package_fallback_uses_shared_burden_self_reliance_v
         assets=assets,
     )
 
-    assert any(anchor in package["publish_lead"] for anchor in ("开口", "主心骨", "一小步", "一件小事", "判断"))
-    assert any(anchor in package["abstract"] for anchor in ("力气", "主心骨", "往前走", "分担", "求助", "亮", "站稳"))
-    assert any(any(anchor in item for anchor in ("力气", "主心骨", "一件小事", "方向")) for item in package["intro_options"])
+    assert any(anchor in package["publish_lead"] for anchor in ("开口", "扶稳", "分担", "处理", "判断"))
+    assert any(anchor in package["abstract"] for anchor in ("求助", "自救", "分担", "判断", "行动", "扶稳"))
+    assert any(any(anchor in item for anchor in ("求助", "自救", "扶稳", "判断", "分担")) for item in package["intro_options"])
+    combined_package = "\n".join([package["publish_lead"], package["abstract"], *package["intro_options"]])
+    for stale in ("主心骨", "人心里有了光", "有了光", "重新有下一步", "路就会慢慢亮"):
+        assert stale not in combined_package
 
 
 def test_build_local_publish_package_fallback_self_reliance_generic_mode_uses_distinct_packaging() -> None:
@@ -10042,14 +10056,14 @@ def test_build_local_publish_package_fallback_self_reliance_generic_mode_uses_di
         assets=assets,
     )
 
-    assert any(anchor in package["publish_lead"] for anchor in ("力气", "主心骨", "一件小事", "今天这一点光"))
-    assert any(anchor in package["abstract"] for anchor in ("下一步", "有了光", "方向", "路就会慢慢亮"))
-    for stale in ("硬撑", "硬熬", "慌张"):
+    assert any(anchor in package["publish_lead"] for anchor in ("扶稳", "处理", "眼前", "呼吸"))
+    assert any(anchor in package["abstract"] for anchor in ("判断", "行动", "求助", "处理", "救场"))
+    for stale in ("硬撑", "硬熬", "慌张", "主心骨", "有了光", "下一步", "路就会慢慢亮"):
         assert stale not in package["publish_lead"]
         assert stale not in package["abstract"]
     assert package["publish_lead"] != assets.social_teaser
     assert package["abstract"] != assets.social_teaser
-    assert any("把力气慢慢收回来" in item or "力气" in item for item in package["intro_options"])
+    assert any("扶稳" in item or "求助" in item or "自救" in item for item in package["intro_options"])
 
 
 def test_build_local_tracked_article_topic_fallback_uses_distinct_self_reliance_title() -> None:
@@ -10066,12 +10080,14 @@ def test_build_local_tracked_article_topic_fallback_uses_distinct_self_reliance_
         }
     )
 
-    assert any(anchor in topic["title"] for anchor in ("力气", "主心骨", "自己的光"))
+    assert any(anchor in topic["title"] for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
+    assert all(stale not in topic["title"] for stale in ("主心骨", "自己的光", "日子", "下一步"))
     assert topic["title"] != "即使没有帮助，也要学会自救自渡"
     assert "参考文章" not in topic["angle"]
     assert "现实触发点" not in topic["angle"]
     assert any(anchor in topic["angle"] for anchor in ("想找人说说话", "身边人也在各自稳住", "回应一时赶不上"))
-    assert any(anchor in topic["angle"] for anchor in ("先接住自己", "主心骨", "下一步", "回稳"))
+    assert any(anchor in topic["angle"] for anchor in ("求助", "分担", "判断", "行动", "自救"))
+    assert all(stale not in topic["angle"] for stale in ("主心骨", "生活怎样重新有了下一步", "日子怎样一点点变亮"))
 
 
 def test_trust_boundary_structure_mode_and_local_topic_keep_trust_theme() -> None:

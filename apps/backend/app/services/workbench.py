@@ -3477,15 +3477,19 @@ _SELF_RELIANCE_RELATIONSHIP_SINK_TOKENS = (
 )
 _SELF_RELIANCE_THEME_ANCHOR_TOKENS = (
     "向内求",
-    "向内稳住",
     "自我支撑",
     "自我修复",
     "自我托住",
     "自救自渡",
     "把自己托起来",
     "把自己托过去",
-    "外求未必",
-    "外部支撑",
+    "把自己稳住",
+    "先把自己稳住",
+    "判断",
+    "行动",
+    "恢复力",
+    "求助",
+    "分担",
     "别人也各自承压",
 )
 _ABSTRACT_RELATIONSHIP_AFTERCARE_WITHDRAWN_TOKENS = (
@@ -4342,20 +4346,20 @@ def _rewrite_self_reliance_topic(payload: Mapping[str, object], ai_result: Mappi
     if any(token in corpus for token in ("倾诉", "朋友也", "愁眉不展", "焦头烂额", "自顾不暇")):
         new_angle = (
             "从想找人说说话，却发现身边人也在各自稳住自己的处境切入，"
-            "写成年人怎样把求而不得的委屈慢慢收回来；"
-            "也写一个人先接住自己、理出眼前下一步，日子才会一点点回稳。"
+            "写成年人怎样把求而不得的委屈放回可处理的位置；"
+            "也写一个人先稳住判断和行动，在合适的时候求助、分担，慢慢把生活接回来。"
         )
     elif any(token in corpus for token in ("外求", "求而不得", "靠不到", "靠不住")):
         new_angle = (
             "从外面的回应一时赶不上、事情却还要继续往前走切入，"
-            "写一个人怎样停止把全部希望放在别人手里；"
-            "也写把主心骨找回来以后，生活怎样重新有了下一步。"
+            "写一个人怎样不把全部希望压在别人身上；"
+            "也写先稳住自己以后，求助、选择和行动怎样重新变得清楚。"
         )
     else:
         new_angle = (
             "从一个人把散掉的力气慢慢收回自己手里切入，"
-            "写低谷里的清醒不是逞强，而是先做稳眼前这一小步；"
-            "也写主心骨回来以后，日子怎样一点点变亮。"
+            "写低谷里的清醒不是逞强，而是先恢复判断和行动；"
+            "也写人怎样一边自救，一边在合适的时候接住外面的善意。"
         )
     return {"title": new_title, "angle": new_angle}
 
@@ -8281,19 +8285,19 @@ def _pick_local_seeded_pair_variant(payload: Mapping[str, object], options: tupl
 def _pick_local_self_reliance_title(payload: Mapping[str, object], lane: str = "external") -> str:
     options_by_lane: dict[str, tuple[str, ...]] = {
         "inward": (
-            "把力气往回收，是一个人慢慢变稳的开始",
-            "人慢慢变稳，是从把力气收回自己手里开始",
-            "把主心骨找回来，日子才会一点点变亮",
+            "最难的时候，先把自己稳住",
+            "向内求的人，也能慢慢走出风雨",
+            "把自己稳住，选择就有了转身的余地",
         ),
         "external": (
-            "把力气收回自己手里，日子会慢慢变亮",
-            "人有了主心骨，日子就会慢慢亮起来",
-            "把自己的光找回来，生活就会重新有路",
+            "没人替你扛时，先把自己扶稳",
+            "求助不丢人，自救也不丢人",
+            "能把自己扶稳的人，路会越走越宽",
         ),
         "generic": (
-            "事情一下压过来时，先把顺序找回来",
-            "越是乱的时候，越要找回自己的主心骨",
-            "把手边这一件事做稳，日子就会有下一步",
+            "越是乱的时候，越要先稳住自己",
+            "把眼前事理清，人就不会一直被难处推着走",
+            "先把自己扶稳，才有力气接住明天",
         ),
     }
     return _pick_local_seeded_text_variant(payload, options_by_lane.get(lane, options_by_lane["external"]))
@@ -8373,9 +8377,9 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "有些难处不是不想说，只是话到嘴边，才发现对方也正被自己的生活推着走。",
-                    "真正长大以后你会发现，很多关口不是等谁来替你扛，而是先把脚下这一步走稳。",
-                    "人最清醒的一刻，常常不是突然不难了，而是终于愿意把力气一点点收回自己手里。",
+                    "有些委屈，话到嘴边会先停一下。你开始懂得，每个人都有自己的难处，也都有撑不住的时候。",
+                    "你把聊天框打开又关上。忽然想到，对方最近也过得不轻松。",
+                    "人到后来会懂，求助不丢人；在回应到来之前，先把自己稳住也很重要。",
                 ),
             )
 
@@ -9981,7 +9985,7 @@ def _resolve_local_generic_opening(
     mode_openings = {
         "everyday_warmth_return": "有些晚上，推开家门闻到饭香，人才忽然不想再和谁比较了。",
         "inner_settlement": "忙完一天回到家，把鞋摆好，给自己倒杯水；没有答案也没关系，心先有地方安静下来。",
-        "self_reliance_inward_support": "把一件小事做稳的时候，人会慢慢找回自己的主心骨。",
+        "self_reliance_inward_support": "有些委屈，话到嘴边会先停一下。你开始懂得，每个人都有自己的难处，也都有撑不住的时候。",
         "self_worth_rebuild": "你其实已经不舒服了，可那句“都可以”还是比真实想法先出了口。",
         "supportive_appreciation": "饭桌上她先问一句“还吃吗？”，像什么都没发生；可她把那口气咽下去的样子，只有熟悉她的人看得见。",
         "relationship_aftercare": "门关上以后，屋里安静了几分钟；他去厨房倒了杯水，回来时没有继续争输赢，只问你刚才是不是难受。",
@@ -10082,10 +10086,10 @@ _LOCAL_MODE_OUTLINE_DEFAULTS: dict[str, tuple[str, str, str, str]] = {
         "先把今天过回今天，把眼前的小事照顾好，心才会慢慢安稳下来",
     ),
     "self_reliance_inward_support": (
-        "把手边的小事做稳时，人会慢慢找回自己的主心骨",
-        "把饭吃热、把灯打开、把最要紧的一件事先落稳，生活就重新有了落点",
-        "真正托住人的，不是硬撑，而是判断回来了、行动还在，也知道什么时候请别人一起分担",
-        "等力气重新回到自己手里，日子也会一点点亮起来",
+        "那一刻你忽然明白，谁的生活都不只是一句“我在”那么轻松",
+        "向内求这件事，说到底是先把慌乱放低，把眼前能做的事处理好",
+        "真正托住人的，是你还愿意照顾自己、处理手边事，也知道什么时候请别人一起分担",
+        "你可以求助，也可以先自救；两件事都不丢人",
     ),
     "self_worth_rebuild": (
         "很多人一开始并不是没脾气，只是太怕冲突，也太怕把关系弄僵，所以总习惯先说“都可以”",
@@ -11006,6 +11010,10 @@ def _build_local_mode_shaped_generic_paragraphs(
             "把慌乱收回一个动作",
             "能让人重新站稳的",
             "当眼前这一小步被接住",
+            "主心骨",
+            "重新有光",
+            "一点点亮",
+            "下一步",
         )
 
         def _self_reliance_point(value: str, default: str) -> str:
@@ -11020,20 +11028,23 @@ def _build_local_mode_shaped_generic_paragraphs(
             return cleaned
 
         if "不是不想开口" in point_one:
-            point_one = "想开口的那一秒，先给自己留一点把话说清楚的空间"
-        point_one = _self_reliance_point(point_one, "把饭吃热、把灯打开、把最要紧的一件事先落稳，生活就重新有了落点")
-        point_two = _self_reliance_point(point_two, "等力气重新回到自己手里，再去想该向谁开口、该把哪件事交出去")
-        point_three = _self_reliance_point(point_three, "真正托住人的，是判断回来了、行动还在，也知道什么时候请别人一起分担")
-        point_four = _self_reliance_point(point_four, "把今天这一点光守住，后面的路就会一点点亮起来")
+            point_one = "那一刻你忽然明白，谁的生活都不只是一句“我在”那么轻松"
+        point_one = _self_reliance_point(point_one, "那一刻你忽然明白，谁的生活都不只是一句“我在”那么轻松")
+        point_two = _self_reliance_point(point_two, "向内求不是硬撑，是先把情绪放低，把眼前最要紧的一件事处理好")
+        point_three = _self_reliance_point(point_three, "真正托住人的，是你还愿意照顾自己、处理手边事，也知道什么时候请别人一起分担")
+        point_four = _self_reliance_point(point_four, "你可以求助，也可以先自救；两件事都不丢人")
+        if "你可以求助" in point_four or ("自救" in point_four and "求助" in point_four):
+            point_four = "求助不丢人，自救也不丢人"
         return [
             intro,
             _ensure_sentence_end(point_one),
-            "能把日子往前带的人，往往不是从来不慌，而是慌过以后，还能把注意力慢慢放回自己手里。",
+            "很多时候，人只是想找个人说说。可电话拨出去之前，又想起朋友最近在为工作焦头烂额，家人也有自己的烦心事。",
+            "于是那句“我有点累”，在喉咙口绕了一圈，又被你慢慢咽了回去。",
             _ensure_sentence_end(point_two),
-            "人心里有了光，才看得清哪些事该马上做，哪些话该慢慢说，哪些重量可以交出去。",
-            _compose_local_followup(point_three, "这份力量会让人把选择重新拿回来，也让帮助在该出现的时候进得来。"),
-            "所以别急着把一段难走的日子，判成自己一个人的失败。你能重新出发，就已经是在给明天留路。",
-            _compose_local_followup(point_four, "明早把那件最要紧的小事放到桌面上，灯一亮，路就有了头一个落点。"),
+            "先喝一口水，先把今晚必须处理的事写下来，先给自己留十分钟安静。人一稳，很多事就不会继续往心里压。",
+            _compose_local_followup(point_three, "你不再把全部希望压在某一个人的回应上，也不会因为暂时没人接住，就否定自己的感受。"),
+            "有人说，成年人最好的底气，是需要的时候敢开口，没人立刻回应时也能先照顾好自己。",
+            _compose_local_followup(point_four, "等你把自己稳住，再去找那个真正愿意分担的人，很多话会说得更清楚，很多事也会处理得更稳。"),
         ]
     if mode == "pressure_interface_direct":
         return [
@@ -13480,6 +13491,10 @@ def _normalize_self_reliance_local_title(payload: Mapping[str, object], title: s
         "相信你也有过这样的时刻",
         "想找人倾诉",
         "每个人都在各自扛事",
+        "主心骨",
+        "日子会慢慢变亮",
+        "日子才会一点点变亮",
+        "自己的光",
     )
     if any(marker in cleaned for marker in stale_markers) or _looks_like_explanatory_packaging_title(cleaned):
         return _pick_local_self_reliance_title(payload, "external")
@@ -13523,9 +13538,9 @@ def _resolve_local_assets_cover_copy(
         "self_reliance_inward_support": _pick_local_seeded_text_variant(
             payload,
             (
-                "把力气收回自己手里，日子就会重新有光。",
-                "主心骨慢慢回来，眼前的路就会亮一点。",
-                "先把一件小事做稳，生活就会重新有落点。",
+                "先把自己扶稳，才有力气接住明天。",
+                "求助不丢人，自救也不丢人。",
+                "把眼前事理清，人就不会一直被难处推着走。",
             ),
         ),
         "self_worth_rebuild": "别让那句“都可以”，替你让掉自己的位置。",
@@ -13572,9 +13587,9 @@ def _resolve_local_assets_cover_copy(
         return _pick_local_seeded_text_variant(
             payload,
             (
-                "把力气收回自己手里，很多事就会重新有下一步。",
-                "主心骨慢慢回来，眼前的路就会亮一点。",
-                "先把一件小事做稳，生活就会重新有落点。",
+                "先把自己扶稳，才有力气接住明天。",
+                "求助不丢人，自救也不丢人。",
+                "把眼前事理清，人就不会一直被难处推着走。",
             ),
         )
     if mode == "inner_settlement" and _uses_local_inner_settlement_homecoming_variant(payload):
@@ -13647,7 +13662,7 @@ def _resolve_local_assets_social_teaser(
     tail_map = {
         "everyday_warmth_return": "有人惦记，话有人听，平淡日子也能把人稳稳托住。",
         "inner_settlement": "先把今天过回今天，心才会慢慢有地方落下来。",
-        "self_reliance_inward_support": "先把眼前这一步走稳，明天的事再一件件处理。",
+        "self_reliance_inward_support": "先把自己扶稳，才有力气接住明天。",
         "self_worth_rebuild": "别让那句“都可以”，替你让掉自己的位置。",
         "response_priority": "那句顺着情绪接下去的话，往往比热闹互动更让人踏实。",
         "trust_boundary": "坦诚的分量，是把话说透，也把答应过的事做到。",
@@ -13715,8 +13730,8 @@ def _resolve_local_assets_social_teaser(
         lead = first if first_is_safe else "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。"
         return _compose_local_followup(lead, "把自己看重一点，关系里的分寸才会慢慢回来。")
     if mode == "self_reliance_inward_support" and _uses_local_self_reliance_shared_burden_variant(payload):
-        lead = first if first_is_safe else "先把眼前最要紧的一件事放稳，心里就有了顺序。"
-        return _compose_local_followup(lead, "主心骨回来以后，很多事就有了下一步。")
+        lead = first if first_is_safe else "不是不想开口，是终于明白，每个人都有自己的那场雨。"
+        return _compose_local_followup(lead, "先把自己扶稳，再去求助和分担，心里会踏实很多。")
     if mode == "pressure_interface_direct":
         lead = first if first_is_safe else "复查提醒弹出来的时候，先别急着划掉。"
         return _compose_local_followup(lead, "把该照顾自己的那一步放回今天，日子才会一点点回到顺序里。")
@@ -14141,16 +14156,16 @@ def _build_local_publish_package_fallback(
                     focus_payload,
                     (
                         (
-                            "想开口的时候，别急着把心收回去。先把手边最要紧的一件事落稳，判断回来以后，心里就会重新长出下一步。",
-                            "成熟的力量，是能把力气收回自己手里。人有了主心骨，就能自己往前走，也能在合适的时候请人分担。",
+                            "想开口的时候，别急着把心收回去。先让自己缓一口气，把眼前能处理的事摆清楚，再去找那个真正能分担的人。",
+                            "成熟不是不需要别人，而是不把全部希望都压在别人身上。你可以求助，也可以先自救；稳住自己以后，很多事会更清楚。",
                         ),
                         (
-                            "人最需要支撑的时候，也可以先把眼前这一小步走稳。主心骨回来以后，很多话才知道该怎么说，很多事也有了下一步。",
-                            "真正的自我支撑，不是把门关上一个人扛完，而是先让自己亮起来。你能往前走，也能在合适的时候请人一起分担。",
+                            "人最需要支撑的时候，也可以先把自己扶稳。不是不想被人接住，而是在回应到来之前，你还愿意替自己留住一点力气。",
+                            "真正的自我支撑，不是把门关上一个人扛完，而是先恢复判断和行动。你能自己往前走，也能在合适的时候请人一起分担。",
                         ),
                         (
-                            "有些时刻，先把一件小事做稳，心里的光就会回来一点。等那点光亮起来，人就不再只剩慌张。",
-                            "把力气收回自己手里，是为了更清楚地生活，也更坦然地求助。人有了主心骨，风再大，也能慢慢站稳。",
+                            "有些时刻，先把慌乱放低一点，人就不再只剩难过。饭可以慢慢吃，话可以慢慢说，事也可以一件件处理。",
+                            "把力气收回自己手里，是为了更清楚地生活，也更坦然地求助。先把自己扶稳，风再大，也能慢慢走过去。",
                         ),
                     ),
                 )
@@ -14159,16 +14174,16 @@ def _build_local_publish_package_fallback(
                     focus_payload,
                     (
                         (
-                            "事情一挤上来，人最怕的是心里一下失了方向。把最要紧的一件事落稳，力气就会慢慢回到自己手里。",
-                            "真正能托住人的，是乱的时候仍然能看见下一步。心里有了光，明天就会多出一个新的开口。",
+                            "事情一挤上来，人最怕的是心里一下失了方向。先把眼前最要紧的事摆清楚，慌乱就会少一点。",
+                            "真正能托住人的，是乱的时候仍然能保住判断。你把手里的事理顺了，也就给自己留住了继续往前的力气。",
                         ),
                         (
-                            "越是乱的时候，越要把手边那件能做的小事先做好。这个动作会把主心骨一点点找回来。",
-                            "把生活重新握住，常常从一个很小的动作开始。先有落点，再有方向；先有方向，路就会慢慢亮起来。",
+                            "越是乱的时候，越要先把自己扶稳。不是所有答案都要立刻出现，但你可以先把能做的那一部分做好。",
+                            "把生活重新握住，常常从一个真实动作开始：能处理的先处理，该求助的去求助，该休息的也别再硬拖。",
                         ),
                         (
-                            "有些日子不需要立刻想通全部答案。先把今天这一点光守住，人就能重新稳住脚步。",
-                            "日子真正往前的时候，往往不是忽然变轻，而是你重新看见了下一步。看见下一步，心里就有了光。",
+                            "有些日子不需要立刻想通全部答案。你先把呼吸放慢，把眼前事理清，人就会稳很多。",
+                            "日子真正往前的时候，往往不是忽然变轻，而是你不再只等外面来救场。你开始行动，也开始更清楚地开口。",
                         ),
                     ),
                 )
@@ -14270,17 +14285,17 @@ def _build_local_publish_package_fallback(
             self_reliance_intro = _pick_local_seeded_text_variant(
                 focus_payload,
                 (
-                    "把力气收回自己手里，很多事就会重新有下一步。",
-                    "主心骨慢慢回来，日子也会重新有光。",
-                    "先把一件小事做稳，生活就会重新有落点。",
+                    "不是不想开口，是终于明白，每个人都有自己的那场雨。",
+                    "求助不丢人，自救也不丢人。",
+                    "先把自己扶稳，才有力气接住明天。",
                 ),
             )
             self_reliance_second_intro = _pick_local_seeded_text_variant(
                 {**focus_payload, "topic_title": str(focus_payload.get("topic_title") or "") + "#second"},
                 (
-                    "把今天这一点光守住，明天要做的事就能慢慢想清。",
-                    "能重新看见下一步，人就不只是被难处推着走。",
-                    "等心里有了方向，再开口、再分担，都会更从容。",
+                    "向内求不是硬扛，是先把慌乱放低，把眼前事处理好。",
+                    "稳住自己以后，再开口、再分担，都会更从容。",
+                    "真正成熟的人，懂得自救和求助都不丢人。",
                 ),
             )
             intro_options = _dedupe_nonempty_text_options(
@@ -14295,15 +14310,15 @@ def _build_local_publish_package_fallback(
             self_reliance_intro = _pick_local_seeded_text_variant(
                 focus_payload,
                 (
-                    "把力气慢慢收回来，很多事才会重新有下一步。",
-                    "主心骨慢慢回来，日子也会重新有光。",
-                    "先把一件小事做稳，生活就会重新有落点。",
+                    "先把自己扶稳，才有力气接住明天。",
+                    "求助不丢人，自救也不丢人。",
+                    "把眼前事理清，人就不会一直被难处推着走。",
                 ),
             )
             intro_options = _dedupe_nonempty_text_options(
                 [
                     publish_lead,
-                    "先别急着要求自己一下子把所有事都扛好。",
+                    "别急着要求自己一下子把所有事都扛好。",
                     self_reliance_intro,
                     *intro_options,
                 ]

@@ -688,9 +688,10 @@ def test_build_strategy_package_keeps_self_reliance_theme_out_of_relationship_ex
 
     assert result.strategy_card.structure_mode == "self_reliance_inward_support"
     assert "等外面的安慰" not in result.problem_brief.writing_goal
-    assert "承压时先乱了顺序" in result.problem_brief.writing_goal
-    assert "具体判断、动作或选择" in result.problem_brief.writing_goal
-    assert "把日子稳稳接回来" in result.problem_brief.writing_goal
+    assert "想求助" in result.problem_brief.writing_goal
+    assert "别人的难处" in result.problem_brief.writing_goal
+    assert "恢复判断和行动" in result.problem_brief.writing_goal
+    assert "求助、分担" in result.problem_brief.writing_goal
     assert "自救自渡不是硬扛" in result.problem_brief.problem_statement_markdown
     assert "低谷里" in result.strategy_card.reader_situation
     assert "安顿住" in result.strategy_card.reader_situation
@@ -698,15 +699,17 @@ def test_build_strategy_package_keeps_self_reliance_theme_out_of_relationship_ex
     assert "越想解释越说不出口" not in result.problem_brief.writing_goal
     assert "真正把关系拖住的" not in result.strategy_card.conflict_frame
     assert "刚好有空的位置" not in result.strategy_card.body_shift
-    assert "承压时刻" in result.strategy_card.body_shift
-    assert "顺序理回来" in result.strategy_card.body_shift
-    assert "把今天过稳" in result.strategy_card.emotional_path
-    assert "现实承压接口" in result.strategy_card.opening_move
+    assert "想求助" in result.strategy_card.body_shift
+    assert "别人的难处" in result.strategy_card.body_shift
+    assert "恢复判断" in result.strategy_card.emotional_path
+    assert "求助分担" in result.strategy_card.emotional_path
+    assert "想求助" in result.strategy_card.opening_move
+    assert "真实接口" in result.strategy_card.opening_move
     assert "帮助未必赶得上" not in result.strategy_card.opening_move
     assert any("参考文章真正给出的现实触发点" in item for item in result.strategy_card.recomposition_recipe)
     assert any("主镜头更早落到当事人的判断、行动或回稳细节" in item for item in result.strategy_card.recomposition_recipe)
     assert any("正向动作、选择或判断" in item for item in result.strategy_card.recomposition_recipe)
-    assert any("现实承压" in axis for axis in result.strategy_card.divergence_axes)
+    assert any("求助处境" in axis for axis in result.strategy_card.divergence_axes)
     assert all("无人帮忙" not in item for item in result.strategy_card.recomposition_recipe)
     assert all("求助落空" not in item for item in result.strategy_card.recomposition_recipe)
     assert all("关系误解" not in item for item in result.strategy_card.recomposition_recipe)
@@ -1315,4 +1318,4 @@ def test_build_strategy_package_removes_author_meta_voice_from_strategy_surfaces
         assert forbidden not in combined
 
     assert "自救自渡不是硬扛" in combined
-    assert "具体行动" in combined or "具体判断" in combined or "现实承压" in combined
+    assert "具体行动" in combined or "具体判断" in combined or "求助处境" in combined

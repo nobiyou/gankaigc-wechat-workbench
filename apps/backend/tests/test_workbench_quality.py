@@ -112,6 +112,9 @@ def test_local_self_reliance_draft_avoids_cliche_and_slogan_finish() -> None:
     summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
 
     assert "愿你" not in body_markdown
+    assert any(anchor in body_markdown for anchor in ("向内求", "自救", "求助", "分担", "判断回来了"))
+    for stale in ("主心骨", "人心里有了光", "日子才会一点点变亮", "很多事就有了下一步"):
+        assert stale not in body_markdown
     assert all("万能成长套话" not in hit for hit in summary.hits)
     assert all("结尾口号感" not in hit for hit in summary.hits)
     assert summary.score == 0
@@ -1662,11 +1665,11 @@ def test_local_self_reliance_publish_package_fallback_shortens_long_explanatory_
         assets=assets,
     )
 
-    assert any(anchor in str(result["publish_title"]) for anchor in ("力气", "主心骨", "自己的光"))
-    assert any(anchor in str(result["publish_lead"]) for anchor in ("判断", "主心骨", "一小步", "一件小事"))
-    assert any(anchor in str(result["abstract"]) for anchor in ("力气", "主心骨", "往前走", "分担", "求助", "亮", "站稳"))
+    assert any(anchor in str(result["publish_title"]) for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
+    assert any(anchor in str(result["publish_lead"]) for anchor in ("求助", "分担", "扶稳", "处理", "判断"))
+    assert any(anchor in str(result["abstract"]) for anchor in ("求助", "自救", "分担", "判断", "行动", "扶稳"))
     assert "分担" in str(result["abstract"])
-    for stale in ("先倒杯热水", "热水倒上", "桌面清出", "明天要用的东西"):
+    for stale in ("先倒杯热水", "热水倒上", "桌面清出", "明天要用的东西", "主心骨", "重新有光", "下一步", "人心里有了光"):
         assert stale not in str(result["publish_lead"])
         assert stale not in str(result["abstract"])
 
@@ -1686,9 +1689,11 @@ def test_local_self_reliance_draft_removes_external_absence_template() -> None:
     )
 
     combined = f"{title}\n{body}"
-    assert "把力气收回自己手里" in title
-    assert "把饭吃热、把灯打开、把最要紧的一件事先落稳" in combined
-    assert "把选择重新拿回来" in combined
+    assert any(anchor in title for anchor in ("稳住", "求助", "自救", "扶稳"))
+    assert "话到嘴边会先停一下" in combined or "聊天框打开又关上" in combined
+    assert "照顾自己" in combined
+    assert "请别人一起分担" in combined
+    assert "求助不丢人，自救也不丢人" in combined
     for stale in (
         "别人赶来之前",
         "先把自己从慌里带出来",
@@ -1698,6 +1703,9 @@ def test_local_self_reliance_draft_removes_external_absence_template() -> None:
         "每个人都在各自扛事",
         "想找人倾诉",
         "孤立无援",
+        "主心骨",
+        "人心里有了光",
+        "日子也会一点点亮起来",
     ):
         assert stale not in combined
 
