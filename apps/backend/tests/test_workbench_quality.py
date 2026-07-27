@@ -2061,9 +2061,9 @@ def test_local_emotional_reflux_publish_package_fallback_rewrites_template_summa
         title_options=["你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉"],
         recommended_title="你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉",
         cover_prompt="16:9横版封面",
-        cover_copy="想起不是回头，是心里那段旧关系还需要被轻轻安放。",
+        cover_copy="那个突然想起的瞬间，是心里那段旧关系在轻轻回潮。",
         social_teaser="你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。",
-        social_teaser_options=["真正反复回来的，不只是那个人，更是那段没说完的话和没被接住的自己。"],
+        social_teaser_options=["反复回来的，常常是那段没说完的话和没被接住的自己。"],
         cover_image_path="",
         cover_image_url="",
         cover_image_status="ready",
@@ -2079,7 +2079,7 @@ def test_local_emotional_reflux_publish_package_fallback_rewrites_template_summa
 
     result = _build_local_publish_package_fallback(
         draft_title="你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉",
-        draft_body_markdown="你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。\n\n真正反复回来的，不只是那个人，更是那段没说完的话和没被接住的自己。",
+        draft_body_markdown="你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。\n\n反复回来的，常常是那段没说完的话和没被接住的自己。",
         assets=assets,
     )
 

@@ -10272,6 +10272,84 @@ def test_build_local_publish_tags_prefers_scene_specific_labels_for_scene_first_
     assert "家庭沟通" in household_tags
 
 
+def test_scene_first_assets_and_publish_package_do_not_drift_to_self_reliance_when_topic_carries_unsaid_words() -> None:
+    draft_body = (
+        "周一的会还没开始，她握着翻页笔站在侧边，又把昨晚那版先压到了后面。\n\n"
+        "当下看着只是算了，后面却常常不是这么轻。那句没说出口的话，会在你心里来回停很久，也会把原本不该长出来的距离一点点带出来。\n\n"
+        "很多变化都不是从大事开始的。更多时候，是一个人先替场面让路，先替对方想好了“算了吧”，于是最重要的话总在关键那一秒被压后。\n\n"
+        "表面上人还在往前走，心里其实已经退了半步。等沉默攒多了，误会、别扭和疏远也就跟着有了位置。\n\n"
+        "后来真正该做的，不是反复替那一刻找理由，而是认出自己是怎么把真话一次次往后拖的。你肯把话说出来，很多悬着的地方才有机会重新落回地面。"
+    )
+    topic_title = "别把重要的话，总留到后来"
+    topic_angle = "从会议开始前那句没说出口的话切入，写关系里的距离如何从沉默开始。"
+    focus_payload = {
+        "source_type": "tracked_article",
+        "topic_title": topic_title,
+        "topic_angle": topic_angle,
+        "body_markdown": draft_body,
+    }
+
+    assert workbench._resolve_local_fallback_mode(focus_payload) == "scene_first_progression"
+
+    assets_payload = workbench._build_local_assets_fallback(
+        project_title=topic_title,
+        topic_title=topic_title,
+        topic_angle=topic_angle,
+        draft_title=topic_title,
+        draft_body_markdown=draft_body,
+    )
+    package = workbench._build_local_publish_package_fallback(
+        draft_title=topic_title,
+        draft_body_markdown=draft_body,
+        assets=SimpleNamespace(**assets_payload),
+    )
+    combined = "\n".join(
+        [
+            str(assets_payload["cover_copy"]),
+            str(assets_payload["social_teaser"]),
+            str(package["publish_lead"]),
+            str(package["abstract"]),
+        ]
+    )
+
+    assert "没说出口" in combined or "说出来" in combined
+    assert "关系" in combined
+    assert "距离" in combined or "沉默" in combined
+    assert package["tags"][:2] == ["职场表达", "关系沟通"]
+    for drift in ("先把自己扶稳", "接住明天", "一时没人接住", "事情一挤上来", "托住人的"):
+        assert drift not in combined
+
+
+def test_scene_first_publish_package_keeps_asset_stage_scene_cues_when_draft_body_is_sparse() -> None:
+    assets = SimpleNamespace(
+        recommended_title="别把重要的话，总留到后来",
+        title_options=["别把重要的话，总留到后来"],
+        cover_copy="那句话停在嘴边的时候，关系其实已经轻轻往后退了一步。",
+        social_teaser="周一的会还没开始，她握着翻页笔站在侧边，又把昨晚那版先压到了后面。很多距离，就是从这一句没说出来开始的。",
+        social_teaser_options=[
+            "周一的会还没开始，她握着翻页笔站在侧边，又把昨晚那版先压到了后面。很多距离，就是从这一句没说出来开始的。"
+        ],
+    )
+
+    package = workbench._build_local_publish_package_fallback(
+        draft_title="别把重要的话，总留到后来",
+        draft_body_markdown=(
+            "当下看着只是算了，后面却常常不是这么轻。\n\n"
+            "那句没说出口的话，会在你心里来回停很久，也会把原本不该长出来的距离一点点带出来。\n\n"
+            "你肯把话说出来，很多悬着的地方才有机会重新落回地面。"
+        ),
+        assets=assets,
+    )
+    combined = "\n".join([str(package["publish_lead"]), str(package["abstract"]), *[str(item) for item in package["intro_options"]]])
+
+    assert "没说" in combined or "说出来" in combined
+    assert "关系" in combined
+    assert "沉默" in combined or "距离" in combined
+    assert "重新出发" not in package["tags"]
+    for drift in ("事情一挤上来", "托住人的", "先把眼前", "扶稳"):
+        assert drift not in combined
+
+
 def test_build_local_publish_tags_prefers_responsibility_labels_for_responsibility_shelter_case() -> None:
     tags = workbench._build_local_publish_tags(
         title="肩上有责任的人，心里也要留一盏灯",
@@ -11281,18 +11359,18 @@ def test_build_local_publish_package_fallback_emotional_release_uses_mode_lead_a
         assets=assets,
     )
 
-    assert package["publish_lead"] == "人最难放下的，往往不是离开本身，而是总想替一段认真过的关系讨一个圆满结局。可关系不是考试，不是每一次用力都要换来“走到最后”这四个字。它留下的眼界、分寸和成长，早就在悄悄成全后来的你。"
-    assert package["abstract"] == "别再拿今天去补昨天的结局了。不是每段相遇都要圆满收场，才算来得值得。把舍不得交给时间，把成长收回自己身上，你会更轻一点，也会更坚定一点。"
-    assert "不是每段相遇都要走到最后，才算来得值得。" in package["intro_options"]
+    assert package["publish_lead"] == "最难放下的，常常是那段认真过的关系忽然停在半路。你总想替它讨一个圆满说法，可日子会慢慢告诉你：有些相遇来过，就已经把眼界、分寸和成长留在了你身上。"
+    assert package["abstract"] == "别再拿今天去补昨天的结局了。那段相遇走到这里，就把它好好收进心里。把舍不得交给时间，把成长收回自己身上，你会更轻一点，也会更坚定一点。"
+    assert "有些相遇走到半路，也已经把后来的你照亮了一点。" in package["intro_options"]
 
 
 def test_build_local_publish_package_fallback_emotional_release_uses_memory_reflux_variant() -> None:
     assets = SimpleNamespace(
         recommended_title="那段旧关系没收好，往事就会在某个普通时刻回潮",
         title_options=["那段旧关系没收好，往事就会在某个普通时刻回潮"],
-        cover_copy="想起不是回头，是心里那段旧关系还需要被轻轻安放。",
-        social_teaser="你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。真正反复回来的，不只是那个人，更是那段没说完的话和没被接住的自己。",
-        social_teaser_options=["你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。真正反复回来的，不只是那个人，更是那段没说完的话和没被接住的自己。"],
+        cover_copy="那个突然想起的瞬间，是心里那段旧关系在轻轻回潮。",
+        social_teaser="你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。反复回来的，常常是那段没说完的话和没被接住的自己。",
+        social_teaser_options=["你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。反复回来的，常常是那段没说完的话和没被接住的自己。"],
     )
 
     package = workbench._build_local_publish_package_fallback(
@@ -11305,10 +11383,10 @@ def test_build_local_publish_package_fallback_emotional_release_uses_memory_refl
         assets=assets,
     )
 
-    assert package["publish_lead"] == "你以为自己早就放下了，直到街头一个像他的背影、深夜一页旧聊天记录，还是会让心里轻轻一沉。真正反复回来的，不只是那个人，更是那段没说完的话、没被接住的自己。"
+    assert package["publish_lead"] == "你以为自己早就放下了，直到街头一个像他的背影、深夜一页旧聊天记录，还是会让心里轻轻一沉。反复回来的，常常是那段没说完的话、没被接住的自己。"
     assert any(token in package["abstract"] for token in ("想起", "挂在心上", "舍不得", "旧关系"))
     assert any(token in package["abstract"] for token in ("安放", "不再拿今天去补昨天", "承认那段路确实走完", "新的日子"))
-    assert "有些往事不是忘不掉" in package["intro_options"][1]
+    assert "有些往事会反复回来" in package["intro_options"][1]
 
 
 def test_build_local_assets_fallback_shapes_emotional_release_memory_presence_packaging() -> None:
@@ -11561,7 +11639,7 @@ def test_build_local_assets_fallback_shapes_emotional_release_packaging_without_
     assert assets["cover_copy"] == "有些关系停在半路，也会成全后来的你。"
     assert (
         assets["social_teaser"]
-        == "人最难放下的，往往不是离开，而是总想替一段认真过的关系要一个圆满结局。可有些相遇就算停在半路，也已经把成长和勇气留在了你身上。"
+        == "最难放下的，常常是那段认真过的关系忽然停在半路。可有些相遇就算没有走完，也已经把成长和勇气留在了你身上。"
     )
     combined = "\n".join([assets["cover_copy"], assets["social_teaser"]])
     assert "感谢相遇，不谈亏欠" not in combined
@@ -11639,8 +11717,8 @@ def test_build_local_assets_fallback_shapes_emotional_release_memory_reflux_pack
         ),
     )
 
-    assert assets["cover_copy"] == "想起不是回头，是心里那段旧关系还需要被轻轻安放。"
-    assert assets["social_teaser"] == "你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。真正反复回来的，不只是那个人，更是那段没说完的话和没被接住的自己。"
+    assert assets["cover_copy"] == "那个突然想起的瞬间，是心里那段旧关系在轻轻回潮。"
+    assert assets["social_teaser"] == "你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。反复回来的，常常是那段没说完的话和没被接住的自己。"
     assert assets["recommended_title"] == "那段旧关系没收好，往事就会在某个普通时刻回潮"
 
 

@@ -4375,6 +4375,83 @@ def _should_rewrite_resilience_reconstruction_topic(payload: Mapping[str, object
     return any(token in combined for token in _ABSTRACT_RESILIENCE_SELF_HELP_TOKENS)
 
 
+def _payload_has_scene_first_relation_progression_cues(payload: Mapping[str, object]) -> bool:
+    extra_fields: list[str] = [
+        str(payload.get("cover_copy") or "").strip(),
+        str(payload.get("social_teaser") or "").strip(),
+        str(payload.get("recommended_title") or "").strip(),
+    ]
+    for key in ("social_teaser_options", "title_options"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            extra_fields.extend(str(item).strip() for item in value if str(item).strip())
+    corpus = re.sub(r"\s+", "", " ".join([_extract_local_fallback_corpus(payload), *extra_fields]))
+    if not corpus:
+        return False
+    scene_hits = sum(
+        1
+        for token in (
+            "会议",
+            "早会",
+            "开会",
+            "散会",
+            "方案",
+            "翻页笔",
+            "投影",
+            "工位",
+            "出站口",
+            "摆渡车",
+            "地铁",
+            "站牌",
+            "上车",
+            "车门",
+            "餐桌",
+            "药盒",
+            "检查单",
+            "水壶",
+            "孩子睡了",
+            "夜里进门",
+            "家里的心事",
+        )
+        if token in corpus
+    )
+    speech_hits = sum(
+        1
+        for token in (
+            "没说出口",
+            "没问出口",
+            "没说清",
+            "话停在嘴边",
+            "重要的话",
+            "该说的话",
+            "该问的话",
+            "真话",
+            "肯开口",
+            "说出来",
+        )
+        if token in corpus
+    )
+    relation_hits = sum(
+        1
+        for token in (
+            "关系",
+            "距离",
+            "沉默",
+            "误会",
+            "疏远",
+            "拖远",
+            "往后退",
+            "退了半步",
+            "说开",
+        )
+        if token in corpus
+    )
+    trust_detour_hits = sum(1 for token in ("信任", "谎言", "隐瞒", "坦诚", "赤诚", "辜负") if token in corpus)
+    if trust_detour_hits >= 2 and scene_hits < 2:
+        return False
+    return (scene_hits >= 1 and speech_hits >= 1 and relation_hits >= 1) or (speech_hits >= 2 and relation_hits >= 2)
+
+
 def _payload_looks_like_scene_first_progression(payload: Mapping[str, object]) -> bool:
     corpus = " ".join(
         part
@@ -4391,6 +4468,7 @@ def _payload_looks_like_scene_first_progression(payload: Mapping[str, object]) -
             _has_local_scene_first_office_markers(corpus),
             _has_local_scene_first_transit_markers(corpus),
             _has_local_scene_first_household_markers(corpus),
+            _payload_has_scene_first_relation_progression_cues(payload),
         )
     )
 
@@ -8388,7 +8466,7 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "人最难放下的，往往不是离开本身，而是总想替一段认真过的关系讨一个圆满结局。",
+                    "一段认真过的关系停在半路时，人总想替它讨一个圆满结局。",
                     "有些相遇没走到最后，但它留下的眼界、分寸和勇气，早就在悄悄成全过你。",
                 ),
             )
@@ -13370,6 +13448,23 @@ def _build_local_publish_tags(
                     tags.append(label)
                 if len(tags) >= 3:
                     return tags
+    if _payload_has_scene_first_relation_progression_cues(
+        {
+            "source_type": "tracked_article",
+            "topic_title": title,
+            "body_markdown": corpus,
+        }
+    ):
+        scene_first_tags = ["关系沟通", "开口时机", "没说出口"]
+        if any(token in corpus for token in ("会议", "早会", "方案", "翻页笔", "工位")):
+            scene_first_tags.insert(0, "职场表达")
+        elif any(token in corpus for token in ("餐桌", "药盒", "检查单", "水壶", "家里的心事")):
+            scene_first_tags.insert(0, "家庭沟通")
+        for label in scene_first_tags:
+            if label not in tags:
+                tags.append(label)
+            if len(tags) >= 3:
+                return tags
     for keywords, label in tag_rules:
         if any(keyword in corpus for keyword in keywords) and label not in tags:
             tags.append(label)
@@ -13625,7 +13720,7 @@ def _resolve_local_assets_cover_copy(
         if _uses_local_emotional_memory_presence_variant(payload):
             return "有些人明明走远了，还是会在一个背影里轻轻回来。"
         if _uses_local_emotional_memory_reflux_variant(payload):
-            return "想起不是回头，是心里那段旧关系还需要被轻轻安放。"
+            return "那个突然想起的瞬间，是心里那段旧关系在轻轻回潮。"
         if _uses_local_emotional_endings_acceptance_variant(payload):
             return "有些关系停在半路，也会成全后来的你。"
         mode_copy = short_map.get(mode, "").strip()
@@ -13743,9 +13838,9 @@ def _resolve_local_assets_social_teaser(
         return _compose_local_followup(lead, "有些人走远了，却还是会在你的日常缝隙里轻轻回来一下。")
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_reflux_variant(payload):
         lead = first if first_is_safe else "你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。"
-        return _compose_local_followup(lead, "真正反复回来的，不只是那个人，更是那段没说完的话和没被接住的自己。")
+        return _compose_local_followup(lead, "反复回来的，常常是那段没说完的话和没被接住的自己。")
     if mode == "emotional_engine_direct" and _uses_local_emotional_endings_acceptance_variant(payload):
-        return "人最难放下的，往往不是离开，而是总想替一段认真过的关系要一个圆满结局。可有些相遇就算停在半路，也已经把成长和勇气留在了你身上。"
+        return "最难放下的，常常是那段认真过的关系忽然停在半路。可有些相遇就算没有走完，也已经把成长和勇气留在了你身上。"
     if first_is_safe:
         if tail:
             combined = _compose_local_followup(first, tail)
@@ -14216,18 +14311,18 @@ def _build_local_publish_package_fallback(
             publish_lead = "门关上以后，谁都没再说话。过了一会儿，他把热水放到你手边，低声问：“刚才是不是让你难受了？”"
             abstract = "争吵不会因为一句话马上消失，关系却可以从这句追问重新开始。把该道的歉道清楚，把下次要改的地方记在心里，两个人都肯往前一步，伤口就不会只剩下伤口。"
         elif mode == "resilience_reconstruction":
-            publish_lead = "昨天没做成的那件事，今天你又把鞋带系紧，站回了起点。真正的韧性很少轰轰烈烈，更多时候，只是摔过以后还愿意再试一次。"
+            publish_lead = "昨天没做成的那件事，今天你又把鞋带系紧，站回了起点。韧性有时很安静，摔过以后还愿意再试一次，疼过以后还肯把身体一点点练回来。"
             abstract = "生活给过你缺口，你没有把余生交给那个缺口。一次训练、一次复盘、一次重新出发，这些看起来不起眼的坚持，会慢慢长成你自己的力量。"
         elif mode == "emotional_engine_direct":
             if _uses_local_emotional_memory_presence_variant(focus_payload):
                 publish_lead = "灯火阑珊的街头，你只是多看了那个背影一眼，心里就忽然空了一下。原来有些人走远以后，也还是会在这样的时刻轻轻回来。"
                 abstract = "你会反复想起，不一定是想回头，只是那段认真来过的相遇，还在日常里留了个位置。不必催自己马上释怀，想起时就想一会儿，随后照常去赴约、去上班、去吃晚饭。人会在这些普通日子里，慢慢走出那段旧路。"
             elif _uses_local_emotional_memory_reflux_variant(focus_payload):
-                publish_lead = "你以为自己早就放下了，直到街头一个像他的背影、深夜一页旧聊天记录，还是会让心里轻轻一沉。真正反复回来的，不只是那个人，更是那段没说完的话、没被接住的自己。"
-                abstract = "你挂在心上的，很多时候不是那个人后来去了哪里，而是那几次本来能好好说完、最后却停在半路的话。等你肯承认那段路确实走完了，再想起时，心里那一下就不会总那么重。"
+                publish_lead = "你以为自己早就放下了，直到街头一个像他的背影、深夜一页旧聊天记录，还是会让心里轻轻一沉。反复回来的，常常是那段没说完的话、没被接住的自己。"
+                abstract = "你挂在心上的，常常是那几次本来能好好说完、最后却停在半路的话。等你肯承认那段路确实走完了，再想起时，心里那一下就不会总那么重。"
             elif _uses_local_emotional_endings_acceptance_variant(focus_payload):
-                publish_lead = "人最难放下的，往往不是离开本身，而是总想替一段认真过的关系讨一个圆满结局。可关系不是考试，不是每一次用力都要换来“走到最后”这四个字。它留下的眼界、分寸和成长，早就在悄悄成全后来的你。"
-                abstract = "别再拿今天去补昨天的结局了。不是每段相遇都要圆满收场，才算来得值得。把舍不得交给时间，把成长收回自己身上，你会更轻一点，也会更坚定一点。"
+                publish_lead = "最难放下的，常常是那段认真过的关系忽然停在半路。你总想替它讨一个圆满说法，可日子会慢慢告诉你：有些相遇来过，就已经把眼界、分寸和成长留在了你身上。"
+                abstract = "别再拿今天去补昨天的结局了。那段相遇走到这里，就把它好好收进心里。把舍不得交给时间，把成长收回自己身上，你会更轻一点，也会更坚定一点。"
             else:
                 publish_lead = "有些人离开很久了，你还是会在某个普通时刻想起。真正难过的，不只是失去，而是舍不得承认，那段认真过的相遇已经走完。"
                 abstract = "后来你会慢慢承认，有些人没能陪你走到最后，可那段相遇也不是白来。你从里面带走的认真、勇气和被照亮过的那一下，会继续留在你身上，陪你去过后面的日子。"
@@ -14371,7 +14466,7 @@ def _build_local_publish_package_fallback(
             intro_options = _dedupe_nonempty_text_options(
                 [
                     publish_lead,
-                    "不是每段相遇都要走到最后，才算来得值得。",
+                    "有些相遇走到半路，也已经把后来的你照亮了一点。",
                     "有些关系停在半路，却把后来的你悄悄托亮了。",
                     *intro_options,
                 ]
@@ -14410,7 +14505,7 @@ def _build_local_publish_package_fallback(
                     [
                         publish_lead,
                         "有些人明明走远了，还是会在你的日常缝隙里轻轻出现。",
-                        "想起不是退回去，而是承认那段认真来过的相遇还留着余温。",
+                        "想起时不用急着否定自己，那段认真来过的相遇还留着余温。",
                         *intro_options,
                     ]
                 )
@@ -14418,7 +14513,7 @@ def _build_local_publish_package_fallback(
                 intro_options = _dedupe_nonempty_text_options(
                     [
                         publish_lead,
-                        "有些往事不是忘不掉，只是一直没有被好好安放。",
+                        "有些往事会反复回来，只是因为一直没有被好好安放。",
                         "那个总会突然想起的人，背后多半有一段没收好的旧关系。",
                         *intro_options,
                     ]
