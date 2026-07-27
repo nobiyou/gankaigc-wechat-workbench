@@ -4358,7 +4358,7 @@ def _rewrite_self_reliance_topic(payload: Mapping[str, object], ai_result: Mappi
     else:
         new_angle = (
             "从一个人把散掉的力气慢慢收回自己手里切入，"
-            "写低谷里的清醒不是逞强，而是先恢复判断和行动；"
+            "写低谷里的清醒怎样从恢复判断和行动开始；"
             "也写人怎样一边自救，一边在合适的时候接住外面的善意。"
         )
     return {"title": new_title, "angle": new_angle}
@@ -13538,9 +13538,9 @@ def _resolve_local_assets_cover_copy(
         "self_reliance_inward_support": _pick_local_seeded_text_variant(
             payload,
             (
-                "先把自己扶稳，才有力气接住明天。",
+                "先稳住自己，再把难处说清。",
                 "求助不丢人，自救也不丢人。",
-                "把眼前事理清，人就不会一直被难处推着走。",
+                "一时没人接住，也别放弃自己。",
             ),
         ),
         "self_worth_rebuild": "别让那句“都可以”，替你让掉自己的位置。",
@@ -13587,9 +13587,9 @@ def _resolve_local_assets_cover_copy(
         return _pick_local_seeded_text_variant(
             payload,
             (
-                "先把自己扶稳，才有力气接住明天。",
+                "先稳住自己，再把难处说清。",
                 "求助不丢人，自救也不丢人。",
-                "把眼前事理清，人就不会一直被难处推着走。",
+                "一时没人接住，也别放弃自己。",
             ),
         )
     if mode == "inner_settlement" and _uses_local_inner_settlement_homecoming_variant(payload):
@@ -13730,8 +13730,8 @@ def _resolve_local_assets_social_teaser(
         lead = first if first_is_safe else "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。"
         return _compose_local_followup(lead, "把自己看重一点，关系里的分寸才会慢慢回来。")
     if mode == "self_reliance_inward_support" and _uses_local_self_reliance_shared_burden_variant(payload):
-        lead = first if first_is_safe else "不是不想开口，是终于明白，每个人都有自己的那场雨。"
-        return _compose_local_followup(lead, "先把自己扶稳，再去求助和分担，心里会踏实很多。")
+        lead = first if first_is_safe else "那句“我有点累”，在喉咙口绕了一圈，又被你慢慢咽了回去。"
+        return _compose_local_followup(lead, "先把今晚稳住，再把难处说给愿意分担的人听。")
     if mode == "pressure_interface_direct":
         lead = first if first_is_safe else "复查提醒弹出来的时候，先别急着划掉。"
         return _compose_local_followup(lead, "把该照顾自己的那一步放回今天，日子才会一点点回到顺序里。")
@@ -14156,16 +14156,16 @@ def _build_local_publish_package_fallback(
                     focus_payload,
                     (
                         (
-                            "想开口的时候，别急着把心收回去。先让自己缓一口气，把眼前能处理的事摆清楚，再去找那个真正能分担的人。",
-                            "成熟不是不需要别人，而是不把全部希望都压在别人身上。你可以求助，也可以先自救；稳住自己以后，很多事会更清楚。",
+                            "那句“我有点累”停在嘴边时，先别急着怪自己沉默。把今晚稳住，明天再把话说给愿意分担的人听。",
+                            "成年人真正的清醒，是需要时敢开口，没人立刻回应时也不放弃自己。求助不丢人，自救也不丢人。",
                         ),
                         (
-                            "人最需要支撑的时候，也可以先把自己扶稳。不是不想被人接住，而是在回应到来之前，你还愿意替自己留住一点力气。",
-                            "真正的自我支撑，不是把门关上一个人扛完，而是先恢复判断和行动。你能自己往前走，也能在合适的时候请人一起分担。",
+                            "聊天框打开又关上那一刻，别把自己判成矫情。你只是累了，也只是还没找到那个愿意听你说话、也愿意分担的人。",
+                            "先照顾好自己，再去找能分担的人。真正托住人的底气，是手里还有行动，心里也还相信自己值得被接住。",
                         ),
                         (
-                            "有些时刻，先把慌乱放低一点，人就不再只剩难过。饭可以慢慢吃，话可以慢慢说，事也可以一件件处理。",
-                            "把力气收回自己手里，是为了更清楚地生活，也更坦然地求助。先把自己扶稳，风再大，也能慢慢走过去。",
+                            "心里乱成一团的时候，别急着把人生想明白。洗把脸，喝口水，把眼前那件事先处理掉。",
+                            "很多难关不会忽然变轻。你开始行动以后，心才慢慢不被难处拖着走。能处理的先处理，该求助的就求助。",
                         ),
                     ),
                 )
@@ -14174,16 +14174,16 @@ def _build_local_publish_package_fallback(
                     focus_payload,
                     (
                         (
-                            "事情一挤上来，人最怕的是心里一下失了方向。先把眼前最要紧的事摆清楚，慌乱就会少一点。",
-                            "真正能托住人的，是乱的时候仍然能保住判断。你把手里的事理顺了，也就给自己留住了继续往前的力气。",
+                            "事情一挤上来，心里最先乱掉。你不知道该先抓住哪一头，就先把眼前最要紧的事摆清楚。",
+                            "真正能托住人的，是乱的时候还肯行动。把手里的事理顺一点，心就不再只被难处推着走。",
                         ),
                         (
-                            "越是乱的时候，越要先把自己扶稳。不是所有答案都要立刻出现，但你可以先把能做的那一部分做好。",
+                            "越是乱的时候，越要先把自己扶稳。答案可以晚一点来，今天能做的那一部分，先替自己做好。",
                             "把生活重新握住，常常从一个真实动作开始：能处理的先处理，该求助的去求助，该休息的也别再硬拖。",
                         ),
                         (
-                            "有些日子不需要立刻想通全部答案。你先把呼吸放慢，把眼前事理清，人就会稳很多。",
-                            "日子真正往前的时候，往往不是忽然变轻，而是你不再只等外面来救场。你开始行动，也开始更清楚地开口。",
+                            "有些日子不用立刻想通全部答案。先把呼吸放慢，把眼前事理清，人就会稳很多。",
+                            "日子真正往前时，难处未必马上变少。你开始行动，也开始更清楚地开口，这已经是在往外走。",
                         ),
                     ),
                 )
@@ -14285,16 +14285,16 @@ def _build_local_publish_package_fallback(
             self_reliance_intro = _pick_local_seeded_text_variant(
                 focus_payload,
                 (
-                    "不是不想开口，是终于明白，每个人都有自己的那场雨。",
+                    "那句“我有点累”，可以先留给真正愿意听的人。",
                     "求助不丢人，自救也不丢人。",
-                    "先把自己扶稳，才有力气接住明天。",
+                    "先把今晚稳住，再把难处说清。",
                 ),
             )
             self_reliance_second_intro = _pick_local_seeded_text_variant(
                 {**focus_payload, "topic_title": str(focus_payload.get("topic_title") or "") + "#second"},
                 (
-                    "向内求不是硬扛，是先把慌乱放低，把眼前事处理好。",
-                    "稳住自己以后，再开口、再分担，都会更从容。",
+                    "向内求，是先把慌乱放低，把眼前事处理好。",
+                    "稳住自己以后，再开口、再分担，都会更清楚。",
                     "真正成熟的人，懂得自救和求助都不丢人。",
                 ),
             )
@@ -14310,15 +14310,15 @@ def _build_local_publish_package_fallback(
             self_reliance_intro = _pick_local_seeded_text_variant(
                 focus_payload,
                 (
-                    "先把自己扶稳，才有力气接住明天。",
+                    "先把今晚稳住，再把难处说清。",
                     "求助不丢人，自救也不丢人。",
-                    "把眼前事理清，人就不会一直被难处推着走。",
+                    "先照顾好自己，再去找能分担的人。",
                 ),
             )
             intro_options = _dedupe_nonempty_text_options(
                 [
                     publish_lead,
-                    "别急着要求自己一下子把所有事都扛好。",
+                    "别急着要求自己一下子把所有事都扛好，先把眼前这一件处理掉。",
                     self_reliance_intro,
                     *intro_options,
                 ]

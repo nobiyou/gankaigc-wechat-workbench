@@ -10004,7 +10004,7 @@ def test_build_local_assets_fallback_uses_mode_shaped_social_teaser_for_self_rel
     assert any(anchor in assets["cover_copy"] for anchor in ("扶稳", "求助", "自救", "眼前事", "难处"))
     assert "主心骨" not in assets["cover_copy"]
     assert "下一步" not in assets["cover_copy"]
-    assert assets["social_teaser"] == "先把眼前最要紧的一件事放稳，心里就有了顺序。先把自己扶稳，再去求助和分担，心里会踏实很多。"
+    assert assets["social_teaser"] == "先把眼前最要紧的一件事放稳，心里就有了顺序。先把今晚稳住，再把难处说给愿意分担的人听。"
     assert "消息框开了又关" not in assets["social_teaser"]
     assert "主心骨" not in assets["social_teaser"]
 
@@ -10063,7 +10063,7 @@ def test_build_local_publish_package_fallback_self_reliance_generic_mode_uses_di
         assert stale not in package["abstract"]
     assert package["publish_lead"] != assets.social_teaser
     assert package["abstract"] != assets.social_teaser
-    assert any("扶稳" in item or "求助" in item or "自救" in item for item in package["intro_options"])
+    assert any("今晚" in item or "求助" in item or "自救" in item or "分担" in item for item in package["intro_options"])
 
 
 def test_build_local_tracked_article_topic_fallback_uses_distinct_self_reliance_title() -> None:
