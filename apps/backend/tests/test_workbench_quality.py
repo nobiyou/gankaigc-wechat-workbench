@@ -1664,6 +1664,82 @@ def test_local_stage_restart_chain_keeps_halfyear_theme_out_of_generic_heart_set
         assert stale not in combined
 
 
+def test_local_regret_forward_chain_keeps_old_skirt_theme_out_of_generic_relationship_shell() -> None:
+    source_body = (
+        "傍晚下楼扔垃圾，撞见邻居阿婆正蹲在垃圾桶旁，对着一袋旧衣物发呆。"
+        "那是件洗得发白的碎花裙，阿婆小声念叨：“当年要是穿它去了游园会，会不会不一样？”\n\n"
+        "原来我们都一样，总爱攥着过去的遗憾不放，盯着没走成的路反复设想，"
+        "却忘了脚下的路，从来都是朝前延伸的。\n\n"
+        "后来再见到阿婆，她手里拎着件崭新的浅紫色连衣裙，是孙女陪她买的。"
+        "你看，放下从来都不是遗忘，而是给心找一个更轻盈的去处。"
+        "往前走吧，去吹没吹过的晚风，去看没看过的晚霞。"
+    )
+    base_payload = {
+        "source_type": "tracked_article",
+        "article_title": "旧裙子收起来了，路还是要往前走",
+        "body_markdown": source_body,
+        "reference_article_body_markdown": source_body,
+    }
+
+    topic = _build_local_tracked_article_topic_fallback(base_payload)
+    payload = {**base_payload, "topic_title": topic["title"], "topic_angle": topic["angle"]}
+    mode = _resolve_local_fallback_mode(payload)
+    outline = _build_local_tracked_article_outline_fallback({**payload, "strategy_card": {"structure_mode": mode}})
+    title, body_markdown = _build_local_tracked_article_draft_fallback(
+        {**payload, "outline": outline, "strategy_card": {"structure_mode": mode}}
+    )
+    assets_payload = _build_local_assets_fallback(
+        project_title=title,
+        topic_title=title,
+        topic_angle=str(topic["angle"]),
+        draft_title=title,
+        draft_body_markdown=body_markdown,
+    )
+    package = _build_local_publish_package_fallback(
+        draft_title=title,
+        draft_body_markdown=body_markdown,
+        assets=SimpleNamespace(**assets_payload),
+    )
+
+    combined = "\n".join(
+        [
+            str(topic["title"]),
+            str(topic["angle"]),
+            title,
+            body_markdown,
+            str(assets_payload["cover_copy"]),
+            str(assets_payload["social_teaser"]),
+            str(assets_payload["cover_prompt"]),
+            str(package["publish_title"]),
+            str(package["publish_lead"]),
+            str(package["abstract"]),
+            "\n".join(str(item) for item in package["intro_options"]),
+            "\n".join(str(item) for item in package["tags"]),
+        ]
+    )
+
+    assert mode == "emotional_engine_direct"
+    assert topic["title"] == "旧事可以收起来，脚下的路还要往前走"
+    assert "旧裙" in combined
+    assert "阿婆" in combined
+    assert "遗憾" in combined
+    assert "往前" in combined
+    assert "浅紫色新裙子" in str(assets_payload["cover_prompt"])
+    assert "遗憾安放" in package["tags"]
+    assert "继续往前" in package["tags"]
+    for stale in (
+        "很多答案，都是把日子过到眼前以后，才慢慢看清的",
+        "围绕《",
+        "更贴近真人表达",
+        "旧相册",
+        "聊天记录",
+        "街头一个像他的背影",
+        "有些人离开很久了",
+        "旧关系没收好",
+    ):
+        assert stale not in combined
+
+
 def test_local_everyday_publish_package_fallback_shortens_long_explanatory_title_and_separates_summary() -> None:
     assets = AssetItem(
         project_slug="everyday-title-project",

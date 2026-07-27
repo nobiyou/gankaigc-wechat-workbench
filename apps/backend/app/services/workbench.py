@@ -3710,7 +3710,10 @@ def _should_rewrite_emotional_release_topic(payload: Mapping[str, object], ai_re
         return False
     memory_variant = _uses_local_emotional_memory_presence_variant(payload) or _uses_local_emotional_memory_reflux_variant(payload)
     endings_acceptance_variant = _uses_local_emotional_endings_acceptance_variant(payload)
-    if not _has_broad_emotional_release_focus(payload) and not (memory_variant or endings_acceptance_variant):
+    regret_forward_variant = _uses_local_emotional_regret_forward_variant(payload)
+    if not _has_broad_emotional_release_focus(payload) and not (
+        memory_variant or endings_acceptance_variant or regret_forward_variant
+    ):
         return False
     title = str(ai_result.get("title") or "").strip()
     angle = str(ai_result.get("angle") or "").strip()
@@ -3734,6 +3737,8 @@ def _should_rewrite_emotional_release_topic(payload: Mapping[str, object], ai_re
         )
         if has_generic_acceptance or not has_memory_focus:
             return True
+    if regret_forward_variant:
+        return True
     return any(token in combined for token in _ABSTRACT_EMOTIONAL_RELEASE_RELATIONSHIP_TOKENS) or any(
         token in combined for token in _ABSTRACT_EMOTIONAL_RELEASE_MEMORY_TOKENS
     )
@@ -3760,6 +3765,7 @@ def _rewrite_emotional_release_topic(payload: Mapping[str, object], ai_result: M
         cues = []
 
     joined_cues = " ".join(cues)
+    regret_forward = _uses_local_emotional_regret_forward_variant(payload)
     endings_acceptance = _uses_local_emotional_endings_acceptance_variant(payload)
     reflux_anchor = any(
         token in corpus or token in joined_cues
@@ -3777,9 +3783,12 @@ def _rewrite_emotional_release_topic(payload: Mapping[str, object], ai_result: M
     memory_reflux = reflux_anchor or (
         not _uses_local_emotional_memory_presence_variant(payload)
         and _uses_local_emotional_memory_reflux_variant(payload)
+        and not regret_forward
     )
-    memory_presence = (not memory_reflux) and _uses_local_emotional_memory_presence_variant(payload)
-    if endings_acceptance:
+    memory_presence = (not memory_reflux) and (not regret_forward) and _uses_local_emotional_memory_presence_variant(payload)
+    if regret_forward:
+        new_title = "旧事可以收起来，脚下的路还要往前走"
+    elif endings_acceptance:
         new_title = "有些相遇没能走到最后，却会悄悄成全后来的你"
     elif memory_presence:
         new_title = "有些人走远了，还是会在你的日常里轻轻回来"
@@ -3792,7 +3801,14 @@ def _rewrite_emotional_release_topic(payload: Mapping[str, object], ai_result: M
     else:
         new_title = title
 
-    if endings_acceptance:
+    if regret_forward:
+        new_angle = (
+            "从旧裙子、旧物和那句“如果当初”切入，"
+            "写人为什么会反复替过去改写结局；"
+            "重点不是劝人忘记遗憾，而是把回不去的旧事体面收好，"
+            "让心重新轻一点，也让脚下的日子继续往前走。"
+        )
+    elif endings_acceptance:
         new_angle = (
             "从人为什么总把一段关系的结束理解成白费切入，"
             "写真正让人难过的，常常不是离开本身，"
@@ -8489,6 +8505,15 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             )
 
     if mode == "emotional_engine_direct":
+        if _uses_local_emotional_regret_forward_variant(payload):
+            return _pick_local_seeded_text_variant(
+                payload,
+                (
+                    "傍晚看见那件旧裙子时，阿婆的手在裙边停了很久。",
+                    "有些旧东西一翻出来，人就忍不住替过去重新想一遍。",
+                    "阿婆把那条洗得发白的裙子拿在手里时，嘴上没说遗憾，眼神已经先回去了。",
+                ),
+            )
         if _uses_local_emotional_endings_acceptance_variant(payload):
             return _pick_local_seeded_text_variant(
                 payload,
@@ -9795,6 +9820,7 @@ def _resolve_local_fallback_mode(payload: Mapping[str, object]) -> str:
         _uses_local_emotional_memory_presence_variant(payload)
         or _uses_local_emotional_memory_reflux_variant(payload)
         or _uses_local_emotional_endings_acceptance_variant(payload)
+        or _uses_local_emotional_regret_forward_variant(payload)
     ):
         return "emotional_engine_direct"
     if _has_local_pressure_interface_direct_focus(payload):
@@ -10844,6 +10870,72 @@ def _uses_local_emotional_endings_acceptance_variant(payload: Mapping[str, objec
     return anchor_hits >= 2
 
 
+def _uses_local_emotional_regret_forward_variant(payload: Mapping[str, object]) -> bool:
+    corpus = " ".join(
+        part
+        for part in (
+            _extract_local_reference_corpus(payload),
+            _extract_local_fallback_corpus(payload),
+        )
+        if part
+    )
+    if not corpus:
+        return False
+    old_object_hits = sum(
+        1
+        for token in (
+            "旧裙",
+            "碎花裙",
+            "旧衣物",
+            "旧物",
+            "旧东西",
+            "游园会",
+            "旧相片",
+            "旧车票",
+            "旧信",
+        )
+        if token in corpus
+    )
+    regret_hits = sum(
+        1
+        for token in (
+            "如果当初",
+            "当年要是",
+            "会不会不一样",
+            "没走成的路",
+            "反复设想",
+            "遗憾",
+            "过往",
+            "不念过往",
+            "旧事",
+            "回不去",
+            "改一个结局",
+            "回头",
+            "错过",
+        )
+        if token in corpus
+    )
+    forward_hits = sum(
+        1
+        for token in (
+            "往前走",
+            "朝前延伸",
+            "不回头",
+            "放下从来都不是遗忘",
+            "更轻盈的去处",
+            "新裙子",
+            "浅紫色连衣裙",
+            "广场舞",
+            "没吹过的晚风",
+            "没看过的晚霞",
+            "前路漫漫",
+            "继续生活",
+        )
+        if token in corpus
+    )
+    return old_object_hits >= 1 and regret_hits >= 2 and forward_hits >= 1
+
+
 def _has_local_emotional_memory_reflux_result_focus(text: str) -> bool:
     normalized = str(text or "").strip()
     if not normalized:
@@ -11082,6 +11174,17 @@ def _build_local_mode_shaped_generic_paragraphs(
             "后来真正该做的，不是反复替那一刻找理由，而是认出自己是怎么把真话一次次往后拖的。你肯把话说出来，很多悬着的地方才有机会重新落回地面。",
         ]
     if mode == "emotional_engine_direct":
+        if payload and _uses_local_emotional_regret_forward_variant(payload):
+            return [
+                intro,
+                "那一刻最扎人的，其实不是一条裙子旧了，而是人会突然想起：如果当年换一种选择，后来会不会真的不一样。",
+                "很多遗憾都是这样留在心里的。它不吵，也不天天出现，只是在你经过某个地方、翻到某样旧物时，轻轻把人拉回去一下。",
+                "可后来你会慢慢懂，过去最让人放不下的，不一定是那件事本身，而是我们总想替它改一个结局。",
+                "一条裙子没有去成游园会，一段话没来得及说出口，一次机会没能抓住。它们都是真的遗憾，但也真的已经停在了那一年。",
+                "放下不是把它从生命里删掉。放下是承认它来过，也承认今天的风还在吹，眼前的路还在往前铺。",
+                "后来阿婆把旧裙子收了起来，换上孙女陪她买的新裙子去公园。你会发现，人心真正松开的瞬间，不是忽然忘了过去，而是终于愿意把日子过回现在。",
+                "旧事可以好好收着，别再拿它困住自己。人这一生，总要把一些来不及还给昨天，也把更多的可能留给明天。",
+            ]
         if payload and _uses_local_emotional_memory_reflux_variant(payload):
             return [
                 intro,
@@ -13499,6 +13602,8 @@ def _build_local_publish_tags(
     }
     if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(stage_payload):
         return ["阶段回望", "重新出发", "珍惜当下"]
+    if mode == "emotional_engine_direct" and _uses_local_emotional_regret_forward_variant(stage_payload):
+        return ["遗憾安放", "继续往前", "放下过去"]
     mode_tag_map: dict[str, list[str]] = {
         "response_priority": ["时间与在意", "认真回应", "关系回应"],
         "trust_boundary": ["信任与坦诚", "关系信任", "说到做到"],
@@ -13640,6 +13745,8 @@ def _resolve_mode_shaped_local_packaging_title(
         return "把自己看重一点，关系里的分寸才会回来"
     if mode == "supportive_appreciation" and _has_local_supportive_warmth_profile(payload):
         return "总会先顾别人感受的人，也该被认真护住"
+    if mode == "emotional_engine_direct" and _uses_local_emotional_regret_forward_variant(payload):
+        return "旧事可以收起来，脚下的路还要往前走"
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_presence_variant(payload):
         return "有些人走远了，还是会在一个背影里轻轻回来"
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_reflux_variant(payload):
@@ -13808,6 +13915,8 @@ def _resolve_local_assets_cover_copy(
         if mode_copy:
             return mode_copy
     if mode == "emotional_engine_direct":
+        if _uses_local_emotional_regret_forward_variant(payload):
+            return "把旧事轻轻收好，前面的风也会慢慢吹来。"
         if _uses_local_emotional_memory_presence_variant(payload):
             return "有些人明明走远了，还是会在一个背影里轻轻回来。"
         if _uses_local_emotional_memory_reflux_variant(payload):
@@ -13930,6 +14039,9 @@ def _resolve_local_assets_social_teaser(
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_presence_variant(payload):
         lead = first if first_is_safe else "很多想念都不是大张旗鼓的，只是在某个很普通的时刻，你忽然冒出一句：要是他还在就好了。"
         return _compose_local_followup(lead, "有些人走远了，却还是会在你的日常缝隙里轻轻回来一下。")
+    if mode == "emotional_engine_direct" and _uses_local_emotional_regret_forward_variant(payload):
+        lead = first if first_is_safe else "有些旧东西一翻出来，人就忍不住替过去重新想一遍。"
+        return _compose_local_followup(lead, "放下不是遗忘，是把旧事收好以后，仍然愿意去过新的日子。")
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_reflux_variant(payload):
         lead = first if first_is_safe else "你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。"
         return _compose_local_followup(lead, "反复回来的，常常是那段没说完的话和没被接住的自己。")
@@ -14112,6 +14224,12 @@ def _build_local_assets_fallback(
                 f"16:9横版公众号封面，真实摄影感，年中傍晚的书桌或窗边，摊开的计划清单、日历页、笔和一杯水，"
                 f"人物把没完成的几项轻轻划过又重新写下一行新计划，画面温暖明亮，保留左下标题安全区，"
                 f"主题是《{recommended_title}》，副文案是“{cover_copy}”。不要聊天界面，不要可读手机屏幕，不要纯文字海报。"
+            )
+        elif mode == "emotional_engine_direct" and _uses_local_emotional_regret_forward_variant(focus_payload):
+            cover_prompt = (
+                f"16:9横版公众号封面，真实摄影感，傍晚小区或家中衣柜旁，一件洗得发白的碎花旧裙被轻轻叠好，"
+                f"旁边放着一条浅紫色新裙子，远处窗外有公园小路和柔和晚霞，画面温暖明亮，保留左下标题安全区，"
+                f"主题是《{recommended_title}》，副文案是“{cover_copy}”。不要手机，不要聊天界面，不要消息气泡，不要可读屏幕，不要纯文字海报。"
             )
         elif mode == "everyday_warmth_return":
             cover_prompt = (
@@ -14417,7 +14535,10 @@ def _build_local_publish_package_fallback(
             publish_lead = "昨天没做成的那件事，今天你又把鞋带系紧，站回了起点。韧性有时很安静，摔过以后还愿意再试一次，疼过以后还肯把身体一点点练回来。"
             abstract = "生活给过你缺口，你没有把余生交给那个缺口。一次训练、一次复盘、一次重新出发，这些看起来不起眼的坚持，会慢慢长成你自己的力量。"
         elif mode == "emotional_engine_direct":
-            if _uses_local_emotional_memory_presence_variant(focus_payload):
+            if _uses_local_emotional_regret_forward_variant(focus_payload):
+                publish_lead = "阿婆把那条旧裙子叠起来时，像是把当年那句“如果去了会不会不一样”也轻轻收好。人真正往前走，不是忘了遗憾，而是不再让遗憾替今天做主。"
+                abstract = "旧事可以记得，遗憾也可以承认。只是路还在往前，风也还会吹来。把回不去的部分安放好，你才能腾出心，去穿新的裙子，去看新的晚霞，去过新的日子。"
+            elif _uses_local_emotional_memory_presence_variant(focus_payload):
                 publish_lead = "灯火阑珊的街头，你只是多看了那个背影一眼，心里就忽然空了一下。原来有些人走远以后，也还是会在这样的时刻轻轻回来。"
                 abstract = "你会反复想起，不一定是想回头，只是那段认真来过的相遇，还在日常里留了个位置。不必催自己马上释怀，想起时就想一会儿，随后照常去赴约、去上班、去吃晚饭。人会在这些普通日子里，慢慢走出那段旧路。"
             elif _uses_local_emotional_memory_reflux_variant(focus_payload):
@@ -14574,15 +14695,43 @@ def _build_local_publish_package_fallback(
                 ]
             )
             intro_options = _dedupe_nonempty_text_options([publish_lead, *self_worth_intro_options, *intro_options])
-        elif mode == "emotional_engine_direct" and _uses_local_emotional_endings_acceptance_variant(focus_payload):
-            intro_options = _dedupe_nonempty_text_options(
-                [
-                    publish_lead,
-                    "有些相遇走到半路，也已经把后来的你照亮了一点。",
-                    "有些关系停在半路，却把后来的你悄悄托亮了。",
-                    *intro_options,
-                ]
-            )
+        elif mode == "emotional_engine_direct":
+            if _uses_local_emotional_regret_forward_variant(focus_payload):
+                intro_options = _dedupe_nonempty_text_options(
+                    [
+                        publish_lead,
+                        "放下不是遗忘，是把旧事收好以后，仍然愿意去过新的日子。",
+                        "别再用一个回不去的当年，困住正在往前的自己。",
+                        *intro_options,
+                    ]
+                )
+            elif _uses_local_emotional_endings_acceptance_variant(focus_payload):
+                intro_options = _dedupe_nonempty_text_options(
+                    [
+                        publish_lead,
+                        "有些相遇走到半路，也已经把后来的你照亮了一点。",
+                        "有些关系停在半路，却把后来的你悄悄托亮了。",
+                        *intro_options,
+                    ]
+                )
+            elif _uses_local_emotional_memory_presence_variant(focus_payload):
+                intro_options = _dedupe_nonempty_text_options(
+                    [
+                        publish_lead,
+                        "有些人明明走远了，还是会在你的日常缝隙里轻轻出现。",
+                        "想起时不用急着否定自己，那段认真来过的相遇还留着余温。",
+                        *intro_options,
+                    ]
+                )
+            elif _uses_local_emotional_memory_reflux_variant(focus_payload):
+                intro_options = _dedupe_nonempty_text_options(
+                    [
+                        publish_lead,
+                        "有些往事会反复回来，只是因为一直没有被好好安放。",
+                        "那个总会突然想起的人，背后多半有一段没收好的旧关系。",
+                        *intro_options,
+                    ]
+                )
         elif mode == "trust_boundary":
             intro_options = _dedupe_nonempty_text_options(
                 [
@@ -14611,25 +14760,6 @@ def _build_local_publish_package_fallback(
                     *intro_options,
                 ]
             )
-        elif mode == "emotional_engine_direct":
-            if _uses_local_emotional_memory_presence_variant(focus_payload):
-                intro_options = _dedupe_nonempty_text_options(
-                    [
-                        publish_lead,
-                        "有些人明明走远了，还是会在你的日常缝隙里轻轻出现。",
-                        "想起时不用急着否定自己，那段认真来过的相遇还留着余温。",
-                        *intro_options,
-                    ]
-                )
-            elif _uses_local_emotional_memory_reflux_variant(focus_payload):
-                intro_options = _dedupe_nonempty_text_options(
-                    [
-                        publish_lead,
-                        "有些往事会反复回来，只是因为一直没有被好好安放。",
-                        "那个总会突然想起的人，背后多半有一段没收好的旧关系。",
-                        *intro_options,
-                    ]
-                )
         if publish_lead and publish_lead not in intro_options:
             intro_options = [publish_lead, *intro_options]
         if not intro_options and publish_lead:
@@ -14666,6 +14796,8 @@ def _build_local_publish_package_fallback(
             editor_note = "这版的力道就在那些日常小动作里，发布时别再往大道理上拔，让心慢慢落地的过程自己发生。"
         elif mode == "supportive_appreciation":
             editor_note = "这版重点是看见温柔背后的分寸，发布时少一点训诫，多保留那份被珍惜的暖意。"
+        elif mode == "emotional_engine_direct" and _uses_local_emotional_regret_forward_variant(focus_payload):
+            editor_note = "这版主线落在旧物触发遗憾、再把日子过回现在，发布时保留阿婆旧裙子的生活入口。"
         else:
             editor_note = "这版主线已经清楚了，发布时别再补太多解释，顺一下首段节奏就够。"
 
