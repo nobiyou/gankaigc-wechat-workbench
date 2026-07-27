@@ -3956,7 +3956,7 @@ def _build_inner_settlement_profile(*, variant: str) -> dict[str, str]:
         "ending_move": "结尾回到一个心重新住回日子的轻动作、现实余波或继续生活的安排，不写空泛看开，也不写祝福口号。",
         "benchmark_borrow_focus": "原文里那颗心为什么迟迟落不下来的牵挂 / 情绪怎样慢慢回稳 / 结尾怎样把人送回仍在继续的生活",
         "benchmark_summary": "只借原文里心一直悬着与慢慢回稳的主线，不借原文标题骨架、固定安抚句、开头物件组和结尾抚慰口吻。",
-        "expression_constraint": "不要把心安归位稿统一写成夜深灯光、饭凉水杯那一组小失序模板，也不要滑成关系等待、身体告警、自我耗空诊断、症状清单或空泛幸福定义。",
+        "expression_constraint": "不要把心安归位稿统一写成夜深灯光、饭凉水杯那一组小失序模板，也不要滑成关系等待、身体告警、症状清单或空泛幸福定义。",
     }
     if variant == "rumination":
         profile.update(

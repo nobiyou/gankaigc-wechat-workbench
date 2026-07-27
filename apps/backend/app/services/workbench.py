@@ -3939,7 +3939,7 @@ def _rewrite_everyday_warmth_return_topic(payload: Mapping[str, object], ai_resu
 
     if _has_everyday_warmth_responsibility_shelter_focus(payload):
         if _uses_local_responsibility_endurance_variant(payload):
-            new_title = _resolve_local_responsibility_packaging_title(payload)
+            new_title = _resolve_local_responsibility_endurance_topic_title(payload)
             if _uses_local_responsibility_midlife_variant(payload):
                 new_angle = (
                     "从电话那头是父母、孩子和账单切入，"
@@ -4526,7 +4526,11 @@ def _sanitize_responsibility_shelter_topic_result(
     if responsibility_hits < 3:
         return rewritten
 
-    local_title = _resolve_local_responsibility_packaging_title(payload)
+    local_title = (
+        _resolve_local_responsibility_endurance_topic_title(payload)
+        if _uses_local_responsibility_endurance_variant(payload)
+        else _resolve_local_responsibility_scene_title(payload)
+    )
     title = _strip_responsibility_title_label(rewritten["title"])
     if (
         not title
@@ -8724,7 +8728,14 @@ def _should_use_local_responsibility_shelter_fallback(payload: Mapping[str, obje
 
 
 def _uses_local_responsibility_endurance_variant(payload: Mapping[str, object]) -> bool:
-    corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
+    corpus = " ".join(
+        part
+        for part in (
+            _extract_local_reference_corpus(payload),
+            _extract_local_fallback_corpus(payload),
+        )
+        if part
+    )
     hard_endurance_hits = sum(
         1
         for token in (
@@ -8753,6 +8764,34 @@ def _uses_local_responsibility_endurance_variant(payload: Mapping[str, object]) 
         if token in corpus
     )
     return hard_endurance_hits >= 1 or (has_i_am_ok and support_hits >= 2 and "我没事" in corpus)
+
+
+def _has_local_responsibility_endurance_concrete_duty(payload: Mapping[str, object]) -> bool:
+    corpus = " ".join(
+        part
+        for part in (
+            _extract_local_reference_corpus(payload),
+            _extract_local_fallback_corpus(payload),
+        )
+        if part
+    )
+    concrete_hits = sum(
+        1
+        for token in (
+            "父母",
+            "爸妈",
+            "孩子",
+            "账单",
+            "补习",
+            "请假",
+            "绩效",
+            "医院",
+            "缴费",
+            "伴侣",
+        )
+        if token in corpus
+    )
+    return concrete_hits >= 2
 
 
 def _uses_local_responsibility_midlife_variant(payload: Mapping[str, object]) -> bool:
@@ -8785,6 +8824,10 @@ def _resolve_local_responsibility_scene_kind(payload: Mapping[str, object]) -> s
     corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
     if not corpus:
         return "family"
+    if _uses_local_responsibility_endurance_variant(payload) and any(
+        token in corpus for token in ("没事", "值不值得", "万般辛苦", "人间安稳", "电话", "家里")
+    ):
+        return "call"
     if any(token in corpus for token in ("缴费窗口", "医院", "复诊", "复查", "病房", "走廊")):
         return "medical"
     scene_tokens: dict[str, tuple[str, ...]] = {
@@ -8819,6 +8862,27 @@ def _resolve_local_responsibility_scene_title(payload: Mapping[str, object]) -> 
         "family": "把家放在心上的人，也要被好好心疼",
     }
     return title_by_scene.get(scene_kind, title_by_scene["family"])
+
+
+def _resolve_local_responsibility_endurance_topic_title(payload: Mapping[str, object]) -> str:
+    return _pick_local_responsibility_text_variant(
+        payload,
+        (
+            "家里一有事，你总会先把家稳住",
+            "家里一有事，总是你先把顺序理出来",
+        ),
+    )
+
+
+def _resolve_local_responsibility_endurance_packaging_title(payload: Mapping[str, object]) -> str:
+    return _pick_local_responsibility_text_variant(
+        payload,
+        (
+            "电话一响，你先翻日历",
+            "电话一响，你先把顺序往前排",
+            "手机一亮，你先算今天怎么排",
+        ),
+    )
 
 
 def _pick_local_responsibility_text_variant(payload: Mapping[str, object], options: tuple[str, ...]) -> str:
@@ -8918,7 +8982,7 @@ def _resolve_local_responsibility_packaging_title(payload: Mapping[str, object])
     corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
     scene_title = _resolve_local_responsibility_scene_title(payload)
     if _uses_local_responsibility_endurance_variant(payload) or _uses_local_responsibility_midlife_variant(payload):
-        return scene_title
+        return _resolve_local_responsibility_endurance_packaging_title(payload)
     if any(token in corpus for token in ("请假", "账单", "补习", "缴费", "复查", "医院", "电话", "来电", "放学", "接送", "校门口", "接孩子", "门口等", "画纸", "扑过来")):
         return scene_title
     return "把家里日子托稳的人，也该被好好心疼"
@@ -9501,7 +9565,7 @@ def _resolve_local_responsibility_teaser(payload: Mapping[str, object]) -> str:
         "schedule": "请假前，你先把工作、父母和孩子的事排了一遍。心里装着家的人，总会先让日子稳一点。",
         "bills": "账单摊开时，你先想的是日子怎么继续往前。那些被你一点点排稳的琐事，后来都会变成家的底气。",
         "pickup": "站在校门口等孩子出来时，一天的辛苦会忽然松一点。有人朝你奔来，日子就有了很具体的光。",
-        "call": "那通电话后，你先把声音放稳，把家里的事一件件理清。你多想的那一步，后来都会落成安心。",
+        "call": "电话一响，你先想父母那边谁陪、孩子这边谁接。这些事你都得先想在前面，家里的安稳才能被你慢慢托住。",
         "family": "你把很多事安排妥了，家里的灯才会这样稳稳亮着。",
     }
     if scene_kind in teaser_by_scene:
@@ -9533,8 +9597,8 @@ def _resolve_local_responsibility_publish_lead(payload: Mapping[str, object]) ->
             "有人朝你跑来，日子就突然有了很具体的亮光。"
         ),
         "call": (
-            "电话挂断后，屋里安静了一会儿。"
-            "你先把声音放稳，把父母、孩子和家里的安排一件件理清。"
+            "电话一响，你先想的不是自己累不累。"
+            "父母那边谁陪、孩子这边谁接，家里的安排都要一件件往前排。"
         ),
         "family": (
             "家里临时有事时，你先把手里的事停一下。"
@@ -9551,7 +9615,7 @@ def _resolve_local_responsibility_publish_abstract(payload: Mapping[str, object]
         "schedule": "请假前先把工作、父母和孩子的安排过一遍，是很多成年人很真实的一刻。你不是只会硬撑，而是心里一直装着要照顾的人。把眼前的顺序理清，日子就会多一点安稳。",
         "bills": "账单和开销摆到眼前时，人会先想着怎样让日子照常往前。你把能调的地方一点点排稳，那份细小的认真，会慢慢变成一家人的底气。",
         "pickup": "校门口那一下很小，却能把一天的辛苦轻轻接住。有人朝你奔来，有人等你回家，生活就不只是忙和累，也有值得继续往前的光。",
-        "call": "一通电话把父母、孩子和家里的安排一起带到眼前。你先把声音放稳，把能安排的事一件件理清。真正让人有力量的，是这份认真最后会落成家里的踏实，也会有人回头心疼你。",
+        "call": "嘴上那句“没事”后面的辛苦，常常藏在一通电话里。父母那边谁陪、孩子这边谁接、家里那口悬着的气，都要有人先稳住。等到家里的灯又稳稳亮着，你会知道这些年真没白忙。",
         "family": "家里临时有事时，你总会先把人安顿好，再想自己。那些不张扬的认真，会在父母安心、孩子踏实和屋里那盏灯里慢慢显出意义。",
     }
     return abstract_by_scene.get(scene_kind, abstract_by_scene["family"])
@@ -11063,8 +11127,15 @@ def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> 
     title = raw_title or "肩上有责任的人，心里也要留一盏灯"
     if any(token in title for token in ("没事，有我", "这个月的绩效", "缴费窗口")):
         title = "肩上有责任的人，心里也要留一盏灯"
-    if _uses_local_responsibility_endurance_variant(payload) and title == "肩上有责任的人，心里也要留一盏灯":
-        title = _resolve_local_responsibility_packaging_title(payload)
+    if (
+        _uses_local_responsibility_endurance_variant(payload)
+        and title == "肩上有责任的人，心里也要留一盏灯"
+    ):
+        title = (
+            _resolve_local_responsibility_packaging_title(payload)
+            if _has_local_responsibility_endurance_concrete_duty(payload)
+            else _resolve_local_responsibility_endurance_topic_title(payload)
+        )
     intro = _resolve_local_responsibility_opening(payload)
     quote = _resolve_local_responsibility_quote(payload)
     second_point = _resolve_local_fallback_point(
@@ -12349,6 +12420,20 @@ def _has_strategy_packaging_hook(
     return any(keyword in combined for keyword in keywords)
 
 
+def _has_responsibility_shelter_packaging_floor(values: list[str]) -> bool:
+    combined = "\n".join(value for value in values if value)
+    if not combined:
+        return False
+    title_hits = sum(
+        1
+        for token in ("责任", "电话", "日历", "顺序", "家里", "托稳", "安稳", "灯")
+        if token in combined
+    )
+    family_hits = sum(1 for token in ("父母", "爸妈", "孩子", "家里", "一家人", "家人") if token in combined)
+    payoff_hits = sum(1 for token in ("安稳", "踏实", "托稳", "安心", "底气", "留一盏灯") if token in combined)
+    return title_hits >= 2 and family_hits >= 1 and payoff_hits >= 1
+
+
 def _has_strategy_positive_landing(
     *,
     structure_mode: str,
@@ -13058,6 +13143,7 @@ def _should_retry_assets_for_packaging(
     generic_packaging = _has_generic_packaging_openers(values)
     instruction_leakage = _has_packaging_instruction_leakage(values)
     meta_packaging = _has_packaging_meta_text(values)
+    responsibility_floor = _has_responsibility_shelter_packaging_floor(values)
     missing_title_focus = not _has_strategy_title_focus(
         structure_mode=structure_mode,
         title_options=title_options,
@@ -13065,6 +13151,17 @@ def _should_retry_assets_for_packaging(
     )
     missing_focus = not _packaging_hits_strategy_focus(structure_mode=structure_mode, values=values)
     missing_hook = bool(packaging_hook) and not _has_strategy_packaging_hook(values, packaging_hook)
+    if (
+        responsibility_floor
+        and not any((instruction_leakage, meta_packaging, generic_packaging, missing_title_focus, missing_focus))
+    ):
+        missing_hook = False
+    if (
+        structure_mode != "responsibility_shelter"
+        and responsibility_floor
+        and not any((instruction_leakage, meta_packaging, generic_packaging))
+    ):
+        return False
     return instruction_leakage or meta_packaging or generic_packaging or missing_title_focus or missing_focus or missing_hook
 
 
@@ -13310,7 +13407,7 @@ def _resolve_mode_shaped_local_packaging_title(
     }
     if mode == "responsibility_shelter":
         if _uses_local_responsibility_endurance_variant(payload):
-            return _resolve_local_responsibility_packaging_title(payload)
+            return _resolve_local_responsibility_endurance_packaging_title(payload)
         cleaned_responsibility_title = str(fallback_title or "").strip()
         if cleaned_responsibility_title and _looks_like_explanatory_responsibility_shelter_title(cleaned_responsibility_title):
             return _resolve_local_responsibility_packaging_title(payload)
@@ -13705,7 +13802,7 @@ def _build_local_assets_fallback(
         endurance_variant = _uses_local_responsibility_endurance_variant(focus_payload)
         midlife_variant = _uses_local_responsibility_midlife_variant(focus_payload)
         if endurance_variant:
-            specific_title = _resolve_local_responsibility_packaging_title(focus_payload)
+            specific_title = _resolve_local_responsibility_endurance_packaging_title(focus_payload)
         title_seed_options = [
             specific_title,
             safe_draft_title,
@@ -17367,7 +17464,7 @@ def _sanitize_responsibility_shelter_result_fields(
                 "定盘星",
             )
         ) or _looks_like_explanatory_responsibility_shelter_title(candidate):
-            return _resolve_local_responsibility_packaging_title(probe)
+            return _resolve_local_responsibility_scene_title(probe)
         return candidate
 
     for field in text_fields:
