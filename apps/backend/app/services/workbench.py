@@ -8405,6 +8405,15 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
         return ""
 
     if mode == "inner_settlement":
+        if _uses_local_inner_settlement_stage_restart_variant(payload):
+            return _pick_local_seeded_text_variant(
+                payload,
+                (
+                    "翻回年初那页计划时，别急着给这半年判输。",
+                    "到了半年这个节点，人很容易先盯着没完成的那几项。",
+                    "这半年或许没完全照着计划走，但它也不是白白过去的。",
+                ),
+            )
         if _uses_local_inner_settlement_homecoming_variant(payload):
             return _pick_local_seeded_text_variant(
                 payload,
@@ -9383,6 +9392,7 @@ def _build_local_inner_settlement_paragraphs(
     intro: str,
 ) -> list[str]:
     corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
+    has_stage_restart = _uses_local_inner_settlement_stage_restart_variant(payload)
     has_homecoming = _uses_local_inner_settlement_homecoming_variant(payload)
     has_daily_ritual = any(
         token in corpus
@@ -9395,6 +9405,17 @@ def _build_local_inner_settlement_paragraphs(
         token in corpus
         for token in ("与时间同行", "静待花开", "已经过去的事", "还没发生的事", "不念过往", "不畏将来")
     )
+
+    if has_stage_restart:
+        return [
+            intro,
+            "年初写下的目标，到了这个时候再看，难免会有几项还空着。有人没等来想要的结果，有人没留住想留的人，也有人只是忙着把日子过下去，回头才发现，自己已经走了很远。",
+            "可没完成，不等于没意义。计划没有全部兑现，不代表这半年只有遗憾。那些认真熬过的日子、及时伸手扶过你的人、你在低处也没有放弃的那点力气，都算数。",
+            "人很容易在阶段节点上清算自己：为什么还没变好，为什么还是差一点，为什么别人好像都往前走了。可生活从来不是一张只看结果的成绩单，它也会把你怎么扛住、怎么调整、怎么重新开始，一笔一笔记下来。",
+            "如果事与愿违，就先别急着把它判成坏事。有些路绕了一点，反而让你看清谁真的在身边；有些愿望晚了一点，也是在等你长出更合适的心力去接住它。",
+            "下半年，不必一下子把人生追平。先把眼前事做好，把身边人珍惜好，把该休息的时候认真休息，把还能努力的地方继续往前推一点。",
+            "愿你回头看这半年时，不只看见没完成的清单，也看见那个一路没有停下来的自己。前面还有新的日子，你带着这些经验和温暖继续走，就不算白走。",
+        ]
 
     if has_homecoming and not has_future_release:
         return [
@@ -10619,6 +10640,22 @@ def _uses_local_inner_settlement_bedtime_variant(payload: Mapping[str, object]) 
         if token in corpus
     )
     return anchor_hits >= 2
+
+
+def _uses_local_inner_settlement_stage_restart_variant(payload: Mapping[str, object]) -> bool:
+    corpus = " ".join(
+        part
+        for part in (
+            _extract_local_reference_corpus(payload),
+            _extract_local_fallback_corpus(payload),
+        )
+        if part
+    )
+    if not corpus:
+        return False
+    anchor_hits = sum(1 for token in _INNER_SETTLEMENT_STAGE_RESTART_TOKENS if token in corpus)
+    stage_hits = sum(1 for token in ("阶段", "节点", "清单", "目标", "计划", "年初", "半年", "下半年") if token in corpus)
+    return anchor_hits >= 2 or (anchor_hits >= 1 and stage_hits >= 2)
 
 
 def _uses_local_inner_settlement_homecoming_variant(payload: Mapping[str, object]) -> bool:
@@ -13453,6 +13490,15 @@ def _build_local_publish_tags(
             "social_teaser": publish_lead,
         }
     )
+    stage_payload = {
+        "source_type": "tracked_article",
+        "topic_title": title,
+        "body_markdown": body_markdown,
+        "cover_copy": cover_copy,
+        "social_teaser": publish_lead,
+    }
+    if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(stage_payload):
+        return ["阶段回望", "重新出发", "珍惜当下"]
     mode_tag_map: dict[str, list[str]] = {
         "response_priority": ["时间与在意", "认真回应", "关系回应"],
         "trust_boundary": ["信任与坦诚", "关系信任", "说到做到"],
@@ -13547,6 +13593,8 @@ def _resolve_mode_shaped_local_packaging_title(
         "scene_first_progression": "那句没说出口的话，后来都成了距离",
         "pressure_interface_direct": "把被挪走的生活顺序，一点点调回来",
     }
+    if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(payload):
+        return "这半年没按你想的那样来，也不代表你白走了一程"
     if mode == "responsibility_shelter":
         if _uses_local_responsibility_endurance_variant(payload):
             return _resolve_local_responsibility_endurance_packaging_title(payload)
@@ -13723,6 +13771,8 @@ def _resolve_local_assets_cover_copy(
                 "一时没人接住，也别放弃自己。",
             ),
         )
+    if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(payload):
+        return "这半年没有白走，后面的日子还可以重新开始。"
     if mode == "inner_settlement" and _uses_local_inner_settlement_homecoming_variant(payload):
         return "心里有了归处，日子就不会一直飘着。"
     if mode == "inner_settlement" and _uses_local_inner_settlement_bedtime_variant(payload):
@@ -13868,6 +13918,9 @@ def _resolve_local_assets_social_teaser(
         return _compose_local_followup(lead, "把该照顾自己的那一步放回今天，日子才会一点点回到顺序里。")
     if mode == "trust_boundary":
         return "你愿意相信一个人的时候，已经把很重要的心安交了出去。坦诚的分量，是把话说透，也把答应过的事做到。"
+    if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(payload):
+        lead = first if first_is_safe else "翻回年初那页计划时，先别急着给这半年判输。"
+        return _compose_local_followup(lead, "没完成的清单之外，你也已经认真走过一程。")
     if mode == "inner_settlement" and _uses_local_inner_settlement_homecoming_variant(payload):
         lead = first if first_is_safe else "心总往外悬着的时候，走到哪里都像没落稳。先回到自己心里，脚下的日子才会稳起来。"
         return _compose_local_followup(lead, "心里有了归处，外面的风再大，脚下也会有路。")
@@ -14054,7 +14107,13 @@ def _build_local_assets_fallback(
             draft_body_markdown,
             cover_copy,
         )
-        if mode == "everyday_warmth_return":
+        if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(focus_payload):
+            cover_prompt = (
+                f"16:9横版公众号封面，真实摄影感，年中傍晚的书桌或窗边，摊开的计划清单、日历页、笔和一杯水，"
+                f"人物把没完成的几项轻轻划过又重新写下一行新计划，画面温暖明亮，保留左下标题安全区，"
+                f"主题是《{recommended_title}》，副文案是“{cover_copy}”。不要聊天界面，不要可读手机屏幕，不要纯文字海报。"
+            )
+        elif mode == "everyday_warmth_return":
             cover_prompt = (
                 f"16:9横版公众号封面，真实摄影感，傍晚家中餐桌或客厅一角，暖灯、一碗热饭、家人围坐或留灯等生活细节，"
                 f"画面温暖明亮，保留左下标题安全区，主题是《{recommended_title}》，副文案是“{cover_copy}”。"
@@ -14228,7 +14287,7 @@ def _build_local_publish_package_fallback(
                     "过日子最踏实的时刻，是你说一句“今晚加班”，对方不用猜，也不用查。有人肯这样相信你，是把心里最柔软的地方交给了你。这份放心，比多少情话都难得，值得用同样的坦荡认真守住。",
                 )
             return (
-                "听见前后两个版本时，手里的筷子会先停一下。那一下不一定会让人立刻发火，却会让你忽然明白：原来心里那份放心，已经没有刚开始那么稳了。",
+                "听见前后两个版本时，手里的筷子会先停一下。你不一定立刻发火，可心里那份放心，已经没有刚开始那么稳了。",
                 "信任最怕含糊。明明可以坦诚，却拿绕开的说法去碰别人的真心，那份放心就会一点点变薄。能留住心安的，始终是把话说透，也把答应过的事做到。说到做到，比多少解释都有分量。",
             )
 
@@ -14272,7 +14331,10 @@ def _build_local_publish_package_fallback(
                 publish_lead = "回家时那盏灯还亮着，饭也还热着。忙了一天的人，常常就是被这些细碎又实在的小事轻轻接住。"
                 abstract = "家里人平安，想说的话有人听，再普通的一天也会让人心里发暖。一顿热饭、一句惦记，就够人踏实很久。"
         elif mode == "inner_settlement":
-            if _uses_local_inner_settlement_homecoming_variant(focus_payload):
+            if _uses_local_inner_settlement_stage_restart_variant(focus_payload):
+                publish_lead = "翻到年初那页计划时，先别急着给这半年判输。有些目标还空着，但你认真扛过的日子、遇见的温暖和重新调整的勇气，都不该被轻轻抹掉。"
+                abstract = "这半年没有完全照着计划走，也不代表你白走了一程。没完成的清单可以慢慢补，错过的人和事可以慢慢安放。把眼前事做好，把身边人珍惜好，后面的日子还会有新的答案。"
+            elif _uses_local_inner_settlement_homecoming_variant(focus_payload):
                 publish_lead = "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。眼前这个普通的日子稳下来，心也会慢慢跟着落地。"
                 abstract = "心安会落在很小的动作里：把一顿饭吃热，把一句话说慢，把今天过清楚。外面的风停不停由不得你，屋里的灯，却可以由你亲手打开。"
             elif any(token in draft_body_markdown for token in ("已经过去的事", "还没发生的事", "提前在心里演很多遍", "很多答案不会今晚就来")):
@@ -14394,7 +14456,16 @@ def _build_local_publish_package_fallback(
                     ]
                 )
         elif mode == "inner_settlement":
-            if _uses_local_inner_settlement_homecoming_variant(focus_payload):
+            if _uses_local_inner_settlement_stage_restart_variant(focus_payload):
+                intro_options = _dedupe_nonempty_text_options(
+                    [
+                        publish_lead,
+                        "没完成的清单之外，你也已经认真走过一程。",
+                        "下半年，不必追平所有遗憾，先把眼前事和身边人好好珍惜。",
+                        *intro_options,
+                    ]
+                )
+            elif _uses_local_inner_settlement_homecoming_variant(focus_payload):
                 intro_options = _dedupe_nonempty_text_options(
                     [
                         publish_lead,

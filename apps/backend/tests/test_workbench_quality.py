@@ -4,10 +4,15 @@ from app.services.ai_flavor import evaluate_ai_flavor_risk, extract_short_judgme
 from app.services.workbench import (
     AssetItem,
     _apply_tracked_article_topic_rewrites,
+    _build_local_assets_fallback,
     _build_local_generic_tracked_article_draft,
+    _build_local_tracked_article_draft_fallback,
+    _build_local_tracked_article_outline_fallback,
+    _build_local_tracked_article_topic_fallback,
     _build_local_publish_package_fallback,
     _build_local_responsibility_shelter_draft,
     _resolve_local_generic_mode_closing,
+    _resolve_local_fallback_mode,
     _has_author_meta_commentary,
     _has_obvious_repeated_character,
     _looks_like_explanatory_responsibility_shelter_title,
@@ -1598,6 +1603,67 @@ def test_local_inner_settlement_publish_package_fallback_shortens_long_explanato
     assert "忙完一天回到家" in str(result["publish_lead"])
 
 
+def test_local_stage_restart_chain_keeps_halfyear_theme_out_of_generic_heart_settlement() -> None:
+    source_body = (
+        "过去的这半年，你过得好吗？年初定下的目标又实现了多少呢？\n\n"
+        "若事与愿违，一定另有安排。下半年，多腾点时间和精力，去做好眼前之事，珍惜身边所爱之人。\n\n"
+        "人生的每个阶段，其实都有得有失，有好有坏。我们能做的，就是接受并努力爱每一个阶段的自己。"
+    )
+    base_payload = {
+        "source_type": "tracked_article",
+        "article_title": "下半年，愿你所有的努力不被辜负",
+        "body_markdown": source_body,
+        "reference_article_body_markdown": source_body,
+    }
+
+    topic = _build_local_tracked_article_topic_fallback(base_payload)
+    payload = {**base_payload, "topic_title": topic["title"], "topic_angle": topic["angle"]}
+    mode = _resolve_local_fallback_mode(payload)
+    outline = _build_local_tracked_article_outline_fallback({**payload, "strategy_card": {"structure_mode": mode}})
+    title, body_markdown = _build_local_tracked_article_draft_fallback(
+        {**payload, "outline": outline, "strategy_card": {"structure_mode": mode}}
+    )
+    assets_payload = _build_local_assets_fallback(
+        project_title=title,
+        topic_title=title,
+        topic_angle=str(topic["angle"]),
+        draft_title=title,
+        draft_body_markdown=body_markdown,
+    )
+    package = _build_local_publish_package_fallback(
+        draft_title=title,
+        draft_body_markdown=body_markdown,
+        assets=SimpleNamespace(**assets_payload),
+    )
+
+    combined = "\n".join(
+        [
+            title,
+            body_markdown,
+            str(assets_payload["cover_copy"]),
+            str(assets_payload["social_teaser"]),
+            str(package["publish_title"]),
+            str(package["publish_lead"]),
+            str(package["abstract"]),
+            "\n".join(str(item) for item in package["intro_options"]),
+            "\n".join(str(item) for item in package["tags"]),
+        ]
+    )
+
+    assert mode == "inner_settlement"
+    assert title == "这半年没按你想的那样来，也不代表你白走了一程"
+    assert "年初" in combined
+    assert "这半年" in combined
+    assert "下半年" in combined
+    assert "没完成的清单" in combined
+    assert "身边人" in combined
+    assert "阶段回望" in package["tags"]
+    assert "重新出发" in package["tags"]
+    assert "年中傍晚的书桌" in str(assets_payload["cover_prompt"])
+    for stale in ("忙完一天回到家", "把鞋摆好", "给自己倒杯水", "把水烧开", "把灯关好", "心先落回今天"):
+        assert stale not in combined
+
+
 def test_local_everyday_publish_package_fallback_shortens_long_explanatory_title_and_separates_summary() -> None:
     assets = AssetItem(
         project_slug="everyday-title-project",
@@ -2014,8 +2080,8 @@ def test_local_publish_package_fallback_avoids_title_only_lead_and_abstract() ->
     assert str(result["publish_lead"]) != "那段相遇还在"
     assert str(result["abstract"]) != "那段相遇还在"
     assert str(result["publish_lead"]) != str(result["abstract"])
-    assert "被照亮过的那一下" in str(result["abstract"])
-    assert "陪你去过后面的日子" in str(result["abstract"])
+    assert "那段相遇走到这里" in str(result["abstract"])
+    assert "成长收回自己身上" in str(result["abstract"])
 
 
 def test_local_emotional_presence_publish_package_fallback_uses_presence_title_and_abstract() -> None:

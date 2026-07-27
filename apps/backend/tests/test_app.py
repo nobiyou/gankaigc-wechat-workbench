@@ -10416,7 +10416,7 @@ def test_local_assets_and_publish_package_drop_strategy_placeholder_for_trust_bo
     assert all("不是解释" not in str(title) and "而是坦诚" not in str(title) for title in assets_payload["title_options"])
     assert "信任" in combined
     assert "坦诚" in combined or "说到做到" in combined
-    assert str(package["publish_lead"]) == "听见前后两个版本时，手里的筷子会先停一下。那一下不一定会让人立刻发火，却会让你忽然明白：原来心里那份放心，已经没有刚开始那么稳了。"
+    assert str(package["publish_lead"]) == "听见前后两个版本时，手里的筷子会先停一下。你不一定立刻发火，可心里那份放心，已经没有刚开始那么稳了。"
     assert str(package["abstract"]) == "信任最怕含糊。明明可以坦诚，却拿绕开的说法去碰别人的真心，那份放心就会一点点变薄。能留住心安的，始终是把话说透，也把答应过的事做到。说到做到，比多少解释都有分量。"
     assert str(package["abstract"]) != str(assets_payload["social_teaser"])
     assert "信任最怕的，不是争吵，是心里那一下忽然不敢再全信了。" in [str(item) for item in package["intro_options"]]
@@ -10469,7 +10469,7 @@ def test_local_publish_package_uses_distinct_trust_boundary_packaging() -> None:
 
     assert package["publish_title"] == "愿意信你的人，最需要被你好好守住"
     assert str(package["publish_lead"]).startswith("听见前后两个版本时，手里的筷子会先停一下。")
-    assert "原来心里那份放心，已经没有刚开始那么稳了" in str(package["publish_lead"])
+    assert "心里那份放心，已经没有刚开始那么稳了" in str(package["publish_lead"])
     assert str(package["abstract"]).startswith("信任最怕含糊。")
     assert "坦诚" in str(package["abstract"])
     assert "说到做到" in str(package["abstract"])
