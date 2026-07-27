@@ -4447,7 +4447,25 @@ def _payload_has_scene_first_relation_progression_cues(payload: Mapping[str, obj
         if token in corpus
     )
     trust_detour_hits = sum(1 for token in ("信任", "谎言", "隐瞒", "坦诚", "赤诚", "辜负") if token in corpus)
+    self_worth_detour_hits = sum(
+        1
+        for token in (
+            "把自己看重",
+            "把自己养贵",
+            "都可以",
+            "边界",
+            "身价",
+            "分寸",
+            "标准",
+            "将就",
+            "立规矩",
+            "树边界",
+        )
+        if token in corpus
+    )
     if trust_detour_hits >= 2 and scene_hits < 2:
+        return False
+    if self_worth_detour_hits >= 2 and scene_hits < 2:
         return False
     return (scene_hits >= 1 and speech_hits >= 1 and relation_hits >= 1) or (speech_hits >= 2 and relation_hits >= 2)
 
@@ -13426,6 +13444,29 @@ def _build_local_publish_tags(
     )
     if everyday_hits >= 2:
         return ["生活温度", "家人相伴", "平凡幸福"]
+    mode = _resolve_local_generic_fallback_mode(
+        {
+            "source_type": "tracked_article",
+            "topic_title": title,
+            "body_markdown": body_markdown,
+            "cover_copy": cover_copy,
+            "social_teaser": publish_lead,
+        }
+    )
+    mode_tag_map: dict[str, list[str]] = {
+        "response_priority": ["时间与在意", "认真回应", "关系回应"],
+        "trust_boundary": ["信任与坦诚", "关系信任", "说到做到"],
+        "self_worth_rebuild": ["自我价值", "关系边界", "好好爱自己"],
+        "supportive_appreciation": ["心软的人", "被珍惜", "关系温柔"],
+        "relationship_aftercare": ["关系修复", "争吵之后", "好好沟通"],
+        "inner_settlement": ["内心安顿", "心安日常", "生活节奏"],
+        "self_reliance_inward_support": ["自我安顿", "求助与自救", "成年人成长"],
+        "resilience_reconstruction": ["韧性成长", "重新出发", "不被定义"],
+        "emotional_engine_direct": ["旧关系安放", "情感成长", "重新生活"],
+        "pressure_interface_direct": ["自我照料", "生活顺序", "身体提醒"],
+    }
+    if mode in mode_tag_map:
+        return mode_tag_map[mode]
     scene_specific_rules: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (("会议室", "投影幕布", "散会", "老方案", "工位", "水杯"), ("职场表达", "开口时机")),
         (("地铁口", "摆渡车", "接驳车", "围巾", "白气", "出站口"), ("关系沟通", "没说出口")),
@@ -14247,11 +14288,11 @@ def _build_local_publish_package_fallback(
                     (
                         (
                             "那句“我有点累”停在嘴边时，先别急着怪自己沉默。把今晚稳住，明天再把话说给愿意分担的人听。",
-                            "成年人真正的清醒，是需要时敢开口，没人立刻回应时也不放弃自己。求助不丢人，自救也不丢人。",
+                            "人会慢慢走稳，是因为需要时敢开口，没人立刻回应时也不放弃自己。求助不丢人，自救也不丢人。",
                         ),
                         (
                             "聊天框打开又关上那一刻，别把自己判成矫情。你只是累了，也只是还没找到那个愿意听你说话、也愿意分担的人。",
-                            "先照顾好自己，再去找能分担的人。真正托住人的底气，是手里还有行动，心里也还相信自己值得被接住。",
+                            "先照顾好自己，再去找能分担的人。手里还有行动，心里也还相信自己值得被接住，人就会慢慢有底气。",
                         ),
                         (
                             "心里乱成一团的时候，别急着把人生想明白。洗把脸，喝口水，把眼前那件事先处理掉。",
@@ -14265,7 +14306,7 @@ def _build_local_publish_package_fallback(
                     (
                         (
                             "事情一挤上来，心里最先乱掉。你不知道该先抓住哪一头，就先把眼前最要紧的事摆清楚。",
-                            "真正能托住人的，是乱的时候还肯行动。把手里的事理顺一点，心就不再只被难处推着走。",
+                            "乱的时候还肯行动，人就不会一直被难处推着走。把手里的事理顺一点，心也会跟着稳一点。",
                         ),
                         (
                             "越是乱的时候，越要先把自己扶稳。答案可以晚一点来，今天能做的那一部分，先替自己做好。",
@@ -14385,7 +14426,7 @@ def _build_local_publish_package_fallback(
                 (
                     "向内求，是先把慌乱放低，把眼前事处理好。",
                     "稳住自己以后，再开口、再分担，都会更清楚。",
-                    "真正成熟的人，懂得自救和求助都不丢人。",
+                    "人慢慢成熟以后，会懂得自救和求助都不丢人。",
                 ),
             )
             intro_options = _dedupe_nonempty_text_options(
