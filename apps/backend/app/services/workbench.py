@@ -14240,7 +14240,7 @@ def _build_local_publish_package_fallback(
             elif scene_variant == "household":
                 _, _, abstract = _resolve_local_scene_first_packaging_copy("household")
             else:
-                abstract = "写那些话总被拖到转身以后时，关系是怎样在沉默里一点点变远的。"
+                abstract = "有些话总被拖到转身以后，关系也会在沉默里一点点变远。把该说的留在当场，很多距离就不会越走越长。"
         else:
             abstract = _build_local_publish_abstract(
                 body_markdown=draft_body_markdown,
@@ -14257,7 +14257,7 @@ def _build_local_publish_package_fallback(
                     for token in ("点赞", "评论", "追问", "补问", "项目又出岔子了", "打电话", "我没事", "我有点累")
                 ):
                     publish_lead = "那条朋友圈发出去以后，别人看见了晚霞，在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。"
-                    abstract = "一条朋友圈下面热闹不难，难的是有人看懂你那句轻描淡写，追着问一句“是不是又扛着没说”。被这样惦记一次，人心里那根绷着的弦会先松一点。"
+                    abstract = "一条朋友圈下面热闹不难，难的是有人看懂你那句轻描淡写，追着问一句“是不是又把累藏起来了”。被这样惦记一次，人心里那根绷着的弦会先松一点。"
                 else:
                     publish_lead = "那天你把手机扣在桌上，顺手说了句“没事”。他没有急着追问，只是把手边的水推过来，等你愿意开口。这样的在意，不会催你马上说明白。"
                     abstract = "点赞可以很快，认真听完却需要耐心。有人愿意记住你语气里的变化，等你把话说完整，那份在意就不止是互动，而是把你当成一个具体的人在珍惜。"
@@ -14335,7 +14335,7 @@ def _build_local_publish_package_fallback(
                 publish_lead = "别人递来一点暖意，他常常会想办法再多还回去一点。这样的人，未必最会说，可你会在很多小事里看见他的认真：记得你的难处，也舍得把自己的好一遍遍落回来。被这样的人放在心上，日子会慢慢暖起来。"
                 abstract = "把温柔一遍遍落进小事里的人，很稀缺。别等他把失望咽多了，才想起他的体谅有多珍贵。"
             else:
-                publish_lead = "饭桌上的气氛刚有点僵，她先夹了一筷子菜，问了句：“还吃吗？”她不是没脾气，只是舍不得让在乎的人一直隔着一口气。"
+                publish_lead = "饭桌上的气氛刚有点僵，她先夹了一筷子菜，问了句：“还吃吗？”她也会难受，只是舍不得让在乎的人一直隔着一口气。"
                 abstract = "肯先把话接回来的人，已经把关系放在了输赢前面。别让这份主动总是一个人的习惯；你也往前走一步，很多误会就能停在今晚。"
         elif mode == "trust_boundary":
             publish_lead, abstract = _resolve_trust_boundary_publish_copy()
@@ -14527,7 +14527,7 @@ def _build_local_publish_package_fallback(
                 [
                     publish_lead,
                     "热水放到手边的那一刻，关系已经开始往回走。",
-                    "肯把刚才哪句话伤人说清楚，争吵才不会变成隔夜的冷。",
+                    "肯把刚才哪句话让人难受说清楚，争吵才不会变成隔夜的冷。",
                     *intro_options,
                 ]
             )

@@ -10346,7 +10346,7 @@ def test_scene_first_publish_package_keeps_asset_stage_scene_cues_when_draft_bod
     assert "关系" in combined
     assert "沉默" in combined or "距离" in combined
     assert "重新出发" not in package["tags"]
-    for drift in ("事情一挤上来", "托住人的", "先把眼前", "扶稳"):
+    for drift in ("事情一挤上来", "托住人的", "先把眼前", "扶稳", "写那些", "写一个人"):
         assert drift not in combined
 
 
@@ -10700,7 +10700,7 @@ def test_build_local_publish_package_fallback_response_priority_uses_followup_sc
     )
 
     assert package["publish_lead"] == "那条朋友圈发出去以后，别人看见了晚霞，在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。"
-    assert package["abstract"] == "一条朋友圈下面热闹不难，难的是有人看懂你那句轻描淡写，追着问一句“是不是又扛着没说”。被这样惦记一次，人心里那根绷着的弦会先松一点。"
+    assert package["abstract"] == "一条朋友圈下面热闹不难，难的是有人看懂你那句轻描淡写，追着问一句“是不是又把累藏起来了”。被这样惦记一次，人心里那根绷着的弦会先松一点。"
     assert package["intro_options"][:2] == [
         "那条朋友圈发出去以后，别人看见了晚霞，在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。",
         assets.social_teaser,
