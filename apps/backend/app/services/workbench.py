@@ -4391,6 +4391,30 @@ def _should_rewrite_resilience_reconstruction_topic(payload: Mapping[str, object
     return any(token in combined for token in _ABSTRACT_RESILIENCE_SELF_HELP_TOKENS)
 
 
+def _has_local_resilience_pool_profile(
+    payload: Mapping[str, object] | None,
+    *,
+    extra_text: str = "",
+) -> bool:
+    candidate = payload or {}
+    corpus = " ".join(
+        part
+        for part in (
+            _extract_local_reference_corpus(candidate),
+            _extract_local_fallback_corpus(candidate),
+            extra_text,
+        )
+        if part
+    )
+    pool_hits = sum(1 for token in ("泳池", "划水", "泳道", "50米", "多划11下", "11下") if token in corpus)
+    rebuild_hits = sum(
+        1
+        for token in ("训练", "复健", "手术台", "右臂", "右腿", "肩伤", "背痛", "残奥", "领奖台")
+        if token in corpus
+    )
+    return pool_hits >= 1 and rebuild_hits >= 1
+
+
 def _payload_has_scene_first_relation_progression_cues(payload: Mapping[str, object]) -> bool:
     extra_fields: list[str] = [
         str(payload.get("cover_copy") or "").strip(),
@@ -4583,7 +4607,7 @@ def _rewrite_resilience_reconstruction_topic(payload: Mapping[str, object], ai_r
     summary = str(payload.get("summary") or "")
     corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
 
-    if any(token in corpus for token in ("多划11下", "11下", "泳池", "划水")):
+    if _has_local_resilience_pool_profile(payload, extra_text=corpus):
         new_title = "那些总要多划11下的人，最后是怎样把自己从命运里撑出来的"
     elif any(token in corpus for token in ("不被定义", "残缺", "破碎中重建")):
         new_title = "命运想用残缺定义你时，真正托住人的往往是那股不肯松掉的韧性"
@@ -11115,7 +11139,10 @@ def _build_local_mode_shaped_generic_paragraphs(
     if mode == "response_priority" and payload and _uses_local_response_priority_time_priority_variant(payload):
         return _build_local_response_priority_time_priority_paragraphs(payload=payload, intro=intro)
     if mode == "resilience_reconstruction":
-        has_pool_training = any(token in f"{intro} {point_one} {point_two} {point_three}" for token in ("泳池", "划水", "11下", "手术台", "复健"))
+        has_pool_training = _has_local_resilience_pool_profile(
+            payload,
+            extra_text=f"{intro} {point_one} {point_two} {point_three}",
+        )
         if has_pool_training:
             return [
                 intro,
@@ -13693,7 +13720,11 @@ def _resolve_mode_shaped_local_packaging_title(
         "responsibility_shelter": "肩上有责任的人，心里也要留一盏灯",
         "supportive_appreciation": "心软的人，值得被认真珍惜",
         "relationship_aftercare": "吵完还愿意回来，才是关系里的温柔",
-        "resilience_reconstruction": "熬过那段路，你会重新长出力量",
+        "resilience_reconstruction": (
+            "每50米多划11下，她把命运划成了自己的赛道"
+            if _has_local_resilience_pool_profile(payload)
+            else "熬过那段路，你会重新长出力量"
+        ),
         "emotional_engine_direct": "把那段路安放好，今天才能重新朝前走",
         "scene_first_progression": "那句没说出口的话，后来都成了距离",
         "pressure_interface_direct": "把被挪走的生活顺序，一点点调回来",
@@ -13818,24 +13849,29 @@ def _resolve_local_assets_cover_copy(
     cleaned_first = first_sentence.strip()
     mode = _resolve_local_fallback_mode(payload)
     scene_corpus = f"{cleaned_first} {topic_angle} {_extract_local_reference_corpus(payload)}"
+    self_reliance_cover_copy = _pick_local_seeded_text_variant(
+        payload,
+        (
+            "先把今晚过稳，再把难处说给愿意分担的人听。",
+            "能自己站稳，也敢开口求助，才是真正的底气。",
+            "一时没人接住，也别忘了先把自己扶稳。",
+        ),
+    )
     short_map = {
         "everyday_warmth_return": "家里人平安，知己还在，平淡日子也很值得。",
         "inner_settlement": "心慢慢落回今天，日子就会重新有安稳感。",
-        "self_reliance_inward_support": _pick_local_seeded_text_variant(
-            payload,
-            (
-                "先稳住自己，再把难处说清。",
-                "求助不丢人，自救也不丢人。",
-                "一时没人接住，也别放弃自己。",
-            ),
-        ),
-        "self_worth_rebuild": "别让那句“都可以”，替你让掉自己的位置。",
+        "self_reliance_inward_support": self_reliance_cover_copy,
+        "self_worth_rebuild": "你的感受，也该在关系里占一个位置。",
         "response_priority": "一句补问落下来，心里悬着的地方会先松一下。",
         "trust_boundary": "信任很贵，别让赤诚输给含糊。",
         "responsibility_shelter": "肩上有责任，心里也要留一盏灯。",
         "supportive_appreciation": "会先顾别人感受的人，也该被认真接住。",
-        "relationship_aftercare": "吵完以后还肯回来把话说完，关系才有重新变暖的可能。",
-        "resilience_reconstruction": "熬过最难的那段路，你会重新长出自己的力量。",
+        "relationship_aftercare": "愿意回来把话说完的人，才是真的想和你走下去。",
+        "resilience_reconstruction": (
+            "命运少给的，她用一次次划水练了回来。"
+            if _has_local_resilience_pool_profile(payload)
+            else "熬过最难的那段路，你会重新长出自己的力量。"
+        ),
         "emotional_engine_direct": "把那段路安放好，今天的日子才会重新朝前走。",
         "scene_first_progression": "很多距离，都是从一句话没说出口开始的。",
         "pressure_interface_direct": "把该照顾自己的那一步，放回今天。",
@@ -13867,17 +13903,10 @@ def _resolve_local_assets_cover_copy(
         if _has_local_supportive_apology_profile(payload):
             return "那个受了委屈还把语气放轻的人，更该被珍惜。"
         if _has_local_supportive_warmth_profile(payload):
-            return "心软的人，一生难遇，也值得被人好好珍惜。"
+            return "你给出去的温柔，也值得有人认真还回来。"
         return "会先顾别人感受的人，也该被认真接住。"
     if mode == "self_reliance_inward_support" and _uses_local_self_reliance_shared_burden_variant(payload):
-        return _pick_local_seeded_text_variant(
-            payload,
-            (
-                "先稳住自己，再把难处说清。",
-                "求助不丢人，自救也不丢人。",
-                "一时没人接住，也别放弃自己。",
-            ),
-        )
+        return self_reliance_cover_copy
     if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(payload):
         return "这半年没有白走，后面的日子还可以重新开始。"
     if mode == "inner_settlement" and _uses_local_inner_settlement_homecoming_variant(payload):
@@ -13890,27 +13919,19 @@ def _resolve_local_assets_cover_copy(
         mode_copy = short_map.get(mode, "").strip()
         if mode_copy:
             return mode_copy
-    if mode == "inner_settlement":
-        mode_copy = short_map.get(mode, "").strip()
-        if mode_copy:
-            return mode_copy
-    if mode == "everyday_warmth_return":
-        mode_copy = short_map.get(mode, "").strip()
-        if mode_copy:
-            return mode_copy
-    if mode == "self_reliance_inward_support":
-        mode_copy = short_map.get(mode, "").strip()
-        if mode_copy:
-            return mode_copy
-    if mode == "pressure_interface_direct":
-        mode_copy = short_map.get(mode, "").strip()
-        if mode_copy:
-            return mode_copy
     if mode == "self_worth_rebuild":
-        mode_copy = "把自己看重一点，关系里的分寸才会回来。" if _has_local_self_worth_luxury_profile(payload) else short_map.get(mode, "").strip()
+        mode_copy = "把门槛留给敷衍，把真心留给值得的人。" if _has_local_self_worth_luxury_profile(payload) else short_map.get(mode, "").strip()
         if mode_copy:
             return mode_copy
-    if mode == "trust_boundary":
+    if mode in {
+        "inner_settlement",
+        "everyday_warmth_return",
+        "self_reliance_inward_support",
+        "pressure_interface_direct",
+        "trust_boundary",
+        "relationship_aftercare",
+        "resilience_reconstruction",
+    }:
         mode_copy = short_map.get(mode, "").strip()
         if mode_copy:
             return mode_copy
@@ -13990,6 +14011,21 @@ def _resolve_local_assets_social_teaser(
         and not _starts_with_generic_packaging_openers(first)
         and not _looks_like_packaging_instruction_leakage(first)
     )
+    mode_specific_teasers = {
+        "relationship_aftercare": (
+            "门关上后，他没有把沉默留到第二天，而是端了杯水回来，先问了一句：“刚才是不是让你难受了？”"
+            "好的关系不是从不争吵，是争吵以后仍有人愿意修复。"
+        ),
+        "resilience_reconstruction": (
+            "没有右臂维持平衡，没有右腿蹬水发力，她每50米要比别人多划11下。"
+            "后来，泳池里那些无人看见的重复，成了她站上领奖台时最有力的回答。"
+            if _has_local_resilience_pool_profile(payload)
+            else ""
+        ),
+    }
+    mode_specific_teaser = str(mode_specific_teasers.get(mode) or "").strip()
+    if mode_specific_teaser:
+        return mode_specific_teaser
     if mode == "response_priority" and _uses_local_response_priority_followup_variant(payload):
         corpus = _build_local_response_priority_followup_corpus(payload)
         if "点赞" in corpus and "评论" in corpus:
@@ -14078,6 +14114,46 @@ def _resolve_local_assets_social_teaser(
     if len(fallback) <= 86:
         return fallback
     return fallback[:84].rstrip("，,；; ") + "。"
+
+
+def _resolve_local_mode_cover_prompt(
+    *,
+    payload: Mapping[str, object],
+    mode: str,
+    recommended_title: str,
+    cover_copy: str,
+) -> str:
+    resilience_scene = (
+        "清晨室内泳池，一位年轻的残奥游泳运动员正在泳道中完成有力划水，水花、泳道线和池边计时牌形成真实训练现场"
+        if _has_local_resilience_pool_profile(payload)
+        else "清晨训练馆或康复场地，一个人完成当天最后一组重复训练，动作疲惫但稳定，现场有真实器械和汗水细节"
+    )
+    scene_map = {
+        "self_reliance_inward_support": (
+            "清晨餐桌或书桌，一个人喝过温水后把当天最要紧的三件事重新排好，窗外天色正在变亮，神情从慌乱回到笃定"
+        ),
+        "self_worth_rebuild": (
+            "明亮的餐桌或工作台，一位女性平静地把不属于自己的额外任务推回桌面中央，另一只手按住自己的日程本，姿态从容有边界"
+        ),
+        "trust_boundary": (
+            "傍晚家中餐桌或客厅，两个人面对面坐下认真解释和倾听，桌边有钥匙与一部普通单屏手机，手机屏幕背向镜头，气氛从紧张慢慢回到坦诚"
+        ),
+        "supportive_appreciation": (
+            "明亮的厨房或门厅，一个人替刚回家的人递上温水、接过外套，对方也自然回身扶住她的肩，温柔得到回应，生活抓拍感"
+        ),
+        "relationship_aftercare": (
+            "争吵后的家中厨房或客厅，一个人端着温水重新走回来，两个人隔着半张桌子坐下，身体姿态逐渐放松，暖灯把关系重新照亮"
+        ),
+        "resilience_reconstruction": resilience_scene,
+    }
+    scene = str(scene_map.get(mode) or "").strip()
+    if not scene:
+        return ""
+    return (
+        f"16:9横版公众号封面，真实摄影感，{scene}，画面明亮克制，有具体动作和生活细节，"
+        f"保留左下标题安全区，主题是《{recommended_title}》，副文案是“{cover_copy}”。"
+        "不要聊天界面，不要消息气泡，不要可读手机屏幕，不要把整张图做成纯文字海报。"
+    )
 
 
 def _build_local_assets_fallback(
@@ -14213,13 +14289,21 @@ def _build_local_assets_fallback(
                 "social_teaser": social_teaser,
                 "social_teaser_options": social_teaser_options[:3],
             }
+        mode_cover_prompt = _resolve_local_mode_cover_prompt(
+            payload=focus_payload,
+            mode=mode,
+            recommended_title=recommended_title,
+            cover_copy=cover_copy,
+        )
         scene_variant = _resolve_local_cover_scene_variant(
             topic_title,
             topic_angle,
             draft_body_markdown,
             cover_copy,
         )
-        if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(focus_payload):
+        if mode_cover_prompt:
+            cover_prompt = mode_cover_prompt
+        elif mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(focus_payload):
             cover_prompt = (
                 f"16:9横版公众号封面，真实摄影感，年中傍晚的书桌或窗边，摊开的计划清单、日历页、笔和一杯水，"
                 f"人物把没完成的几项轻轻划过又重新写下一行新计划，画面温暖明亮，保留左下标题安全区，"

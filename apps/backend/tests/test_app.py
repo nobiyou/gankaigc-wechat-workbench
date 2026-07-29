@@ -9684,11 +9684,13 @@ def test_build_local_assets_fallback_uses_mode_shaped_cover_copy_for_self_worth_
         ),
     )
 
-    assert assets["cover_copy"] == "别让那句“都可以”，替你让掉自己的位置。"
+    assert assets["cover_copy"] == "你的感受，也该在关系里占一个位置。"
     assert (
         assets["social_teaser"]
         == "你其实已经不舒服了，可那句“都可以”还是比真实想法先出了口。别让那句“都可以”，替你让掉自己的位置。"
     )
+    assert "明亮的餐桌或工作台" in str(assets["cover_prompt"])
+    assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
 
 
 def test_build_local_assets_fallback_self_worth_uses_luxury_profile_copy() -> None:
@@ -9704,8 +9706,9 @@ def test_build_local_assets_fallback_self_worth_uses_luxury_profile_copy() -> No
         ),
     )
 
-    assert assets["cover_copy"] == "把自己看重一点，关系里的分寸才会回来。"
+    assert assets["cover_copy"] == "把门槛留给敷衍，把真心留给值得的人。"
     assert "把自己看重一点，关系里的分寸才会慢慢回来。" in assets["social_teaser"]
+    assert assets["cover_copy"].rstrip("。") != assets["recommended_title"].rstrip("。")
 
 
 def test_build_local_publish_package_fallback_self_worth_uses_luxury_profile_variant() -> None:
@@ -10004,9 +10007,12 @@ def test_build_local_assets_fallback_uses_mode_shaped_social_teaser_for_self_rel
     assert any(anchor in assets["cover_copy"] for anchor in ("扶稳", "求助", "自救", "眼前事", "难处"))
     assert "主心骨" not in assets["cover_copy"]
     assert "下一步" not in assets["cover_copy"]
+    assert assets["cover_copy"].rstrip("。") != assets["recommended_title"].rstrip("。")
     assert assets["social_teaser"] == "先把眼前最要紧的一件事放稳，心里就有了顺序。先把今晚稳住，再把难处说给愿意分担的人听。"
     assert "消息框开了又关" not in assets["social_teaser"]
     assert "主心骨" not in assets["social_teaser"]
+    assert "清晨餐桌或书桌" in str(assets["cover_prompt"])
+    assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
 
 
 def test_build_local_publish_package_fallback_uses_shared_burden_self_reliance_variant() -> None:
@@ -10187,6 +10193,9 @@ def test_local_assets_and_tags_use_trust_boundary_packaging() -> None:
 
     assert assets["cover_copy"] == "信任很贵，别让赤诚输给含糊。"
     assert assets["social_teaser"] == "你愿意相信一个人的时候，已经把很重要的心安交了出去。坦诚的分量，是把话说透，也把答应过的事做到。"
+    assert "傍晚家中餐桌或客厅" in str(assets["cover_prompt"])
+    assert "手机屏幕背向镜头" in str(assets["cover_prompt"])
+    assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
     assert "信任与坦诚" in tags
 
 
@@ -11204,8 +11213,11 @@ def test_build_local_assets_fallback_supportive_appreciation_uses_warmth_copy() 
         ),
     )
 
-    assert assets["cover_copy"] == "心软的人，一生难遇，也值得被人好好珍惜。"
+    assert assets["cover_copy"] == "你给出去的温柔，也值得有人认真还回来。"
     assert assets["social_teaser"] == "别人递来一点暖意，他常常会想办法再多还回去一点。难得的是，他把收到的暖意又慢慢还了回来。"
+    assert assets["cover_copy"].rstrip("。") != assets["recommended_title"].rstrip("。")
+    assert "明亮的厨房或门厅" in str(assets["cover_prompt"])
+    assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
 
 
 def test_resolve_local_generic_fallback_mode_keeps_supportive_apology_body_out_of_aftercare_lane() -> None:
@@ -11457,6 +11469,51 @@ def test_build_local_tracked_article_draft_fallback_resilience_reconstruction_ke
     assert "没有右臂帮她稳住平衡，没有右腿替她把水蹬开" in body_markdown
     assert "愿你被生活打磨过以后" not in body_markdown
     assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
+
+
+def test_build_local_assets_fallback_resilience_pool_profile_keeps_specific_story_packaging() -> None:
+    assets = workbench._build_local_assets_fallback(
+        project_title="手术台下来以后，一个人是怎么靠重复训练把自己重新托住的",
+        topic_title="手术台下来以后，一个人是怎么靠重复训练把自己重新托住的",
+        topic_angle="从伤痛、复健到泳池里多划出的每一下，拆开一个人在身体受限之后怎样靠持续行动重建意志。",
+        draft_title="手术台下来以后，一个人是怎么靠重复训练把自己重新托住的",
+        draft_body_markdown=(
+            "训练没做完的那天，她坐在泳池边缓了一会儿；第二天，还是重新下了水。\n\n"
+            "没有右臂帮她稳住平衡，没有右腿替她把水蹬开，每50米都要比别人多划11下。\n\n"
+            "别人后来看到的是成绩，是名字被念出来的那一刻。"
+        ),
+    )
+
+    assert assets["recommended_title"] == "每50米多划11下，她把命运划成了自己的赛道"
+    assert assets["cover_copy"] == "命运少给的，她用一次次划水练了回来。"
+    assert "每50米要比别人多划11下" in assets["social_teaser"]
+    assert "站上领奖台" in assets["social_teaser"]
+    assert "清晨室内泳池" in str(assets["cover_prompt"])
+    assert "残奥游泳运动员" in str(assets["cover_prompt"])
+    assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
+
+
+def test_build_local_assets_fallback_aftercare_uses_complete_repair_packaging() -> None:
+    assets = workbench._build_local_assets_fallback(
+        project_title="吵完还愿意回来，才是关系里的温柔",
+        topic_title="吵完还愿意回来，才是关系里的温柔",
+        topic_angle="从吵架后的态度切入，写愿意回来沟通和修复的人怎样把关系重新接住。",
+        draft_title="吵完还愿意回来，才是关系里的温柔",
+        draft_body_markdown=(
+            "门关上以后，屋里安静了几分钟；他去厨房倒了杯水，回来时没有继续争输赢，只问你刚才是不是难受。\n\n"
+            "两个人都没再吵，可屋里比刚才更冷。\n\n"
+            "好的关系，不是永远不吵架，而是争吵以后还想继续走下去。"
+        ),
+    )
+
+    assert assets["cover_copy"] == "愿意回来把话说完的人，才是真的想和你走下去。"
+    assert assets["social_teaser"] == (
+        "门关上后，他没有把沉默留到第二天，而是端了杯水回来，先问了一句：“刚才是不是让你难受了？”"
+        "好的关系不是从不争吵，是争吵以后仍有人愿意修复。"
+    )
+    assert not assets["cover_copy"].endswith(("；", ";", "，", ",", "：", ":"))
+    assert "争吵后的家中厨房或客厅" in str(assets["cover_prompt"])
+    assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
 
 
 def test_build_local_tracked_article_draft_fallback_legacy_pressure_uses_pressure_interface_direct() -> None:
