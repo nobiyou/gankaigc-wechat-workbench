@@ -2161,8 +2161,8 @@ def test_local_publish_package_fallback_avoids_title_only_lead_and_abstract() ->
     assert str(result["publish_lead"]) != "那段相遇还在"
     assert str(result["abstract"]) != "那段相遇还在"
     assert str(result["publish_lead"]) != str(result["abstract"])
-    assert "那段相遇走到这里" in str(result["abstract"])
-    assert "成长收回自己身上" in str(result["abstract"])
+    assert "相遇" in str(result["abstract"])
+    assert any(token in str(result["abstract"]) for token in ("遗憾", "温暖", "照亮"))
 
 
 def test_local_emotional_presence_publish_package_fallback_uses_presence_title_and_abstract() -> None:

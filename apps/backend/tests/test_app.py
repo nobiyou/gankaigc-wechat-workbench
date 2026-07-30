@@ -11364,12 +11364,12 @@ def test_build_local_tracked_article_draft_fallback_emotional_release_avoids_str
     )
 
     assert title == "有些相遇没能走到最后，却会悄悄成全后来的你"
-    assert any(token in body_markdown[:180] for token in ("圆满结局", "告别", "认真过的相遇", "停一下"))
+    assert any(token in body_markdown[:180] for token in ("熟悉的地方", "慢一点", "眼光", "分寸"))
     assert any(token in body_markdown for token in ("没走到最后", "白忙一场", "白走", "走散"))
-    assert any(token in body_markdown for token in ("成全", "眼界", "分寸", "成长", "重新生活"))
-    assert any(token in body_markdown for token in ("感谢", "关系放回过去", "今天认真过完", "新的日子"))
+    assert any(token in body_markdown for token in ("眼界", "分寸", "眼光", "认真爱人"))
+    assert any(token in body_markdown for token in ("饭吃热", "灯关好", "觉睡稳", "自己生活"))
     assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
-    for forbidden in ("围绕《", "重建新的具体入口", "更贴近真人表达", "感谢相遇，不谈亏欠"):
+    for forbidden in ("围绕《", "重建新的具体入口", "更贴近真人表达", "感谢相遇，不谈亏欠", "讨一个圆满", "新的日子才会慢慢朝你走来"):
         assert forbidden not in body_markdown
 
 
@@ -11438,7 +11438,7 @@ def test_build_local_tracked_article_outline_fallback_emotional_acceptance_does_
     outline = workbench._build_local_tracked_article_outline_fallback(payload)
 
     assert outline["hook"] != "有些相遇没能走到最后，却会悄悄成全后来的你。"
-    assert "圆满结局" in outline["hook"] or "成全过你" in outline["hook"]
+    assert "常去的那家店" in outline["hook"] or "慢一点" in outline["hook"] or "分寸" in outline["hook"]
 
 
 def test_build_local_publish_package_fallback_emotional_release_uses_mode_lead_and_abstract() -> None:
@@ -11460,9 +11460,12 @@ def test_build_local_publish_package_fallback_emotional_release_uses_mode_lead_a
         assets=assets,
     )
 
-    assert package["publish_lead"] == "最难放下的，常常是那段认真过的关系忽然停在半路。你总想替它讨一个圆满说法，可日子会慢慢告诉你：有些相遇来过，就已经把眼界、分寸和成长留在了你身上。"
-    assert package["abstract"] == "别再拿今天去补昨天的结局了。那段相遇走到这里，就把它好好收进心里。把舍不得交给时间，把成长收回自己身上，你会更轻一点，也会更坚定一点。"
-    assert "有些相遇走到半路，也已经把后来的你照亮了一点。" in package["intro_options"]
+    assert package["publish_lead"] == "路过以前常去的那家店时，你还是会下意识慢一点。那段关系没走到最后，却把眼界、分寸和勇气留在了你身上。"
+    assert package["abstract"] == "一段相遇停在这里，并不代表它只剩遗憾。你从里面带走的温暖、判断和被照亮过的那一下，会继续留在后来的生活里。"
+    assert "有些关系停在半路，也会留下后来用得上的分寸。" in package["intro_options"]
+    combined = "\n".join([package["publish_lead"], package["abstract"], *package["intro_options"]])
+    for stale in ("最难放下", "讨一个圆满", "别再拿今天去补昨天", "新的日子才会慢慢朝你走来"):
+        assert stale not in combined
 
 
 def test_build_local_publish_package_fallback_emotional_release_uses_memory_reflux_variant() -> None:
@@ -11904,7 +11907,7 @@ def test_build_local_assets_fallback_shapes_emotional_release_packaging_without_
     assert assets["cover_copy"] == "有些关系停在半路，也会成全后来的你。"
     assert (
         assets["social_teaser"]
-        == "最难放下的，常常是那段认真过的关系忽然停在半路。可有些相遇就算没有走完，也已经把成长和勇气留在了你身上。"
+        == "路过熟悉的地方，你还是会慢一下。那段关系没走完，却把眼界、分寸和勇气留在了你身上。"
     )
     combined = "\n".join([assets["cover_copy"], assets["social_teaser"]])
     assert "感谢相遇，不谈亏欠" not in combined
@@ -11966,6 +11969,61 @@ def test_emotional_release_packaging_does_not_drift_to_self_worth_when_body_ment
     )
     assert any(token in combined_packaging for token in ("相遇", "离开", "走到最后", "安放", "过去"))
     for self_worth_leak in ("都可以", "边界", "分寸守好", "这次不行", "把自己看重"):
+        assert self_worth_leak not in combined_packaging
+
+
+def test_emotional_endings_acceptance_packaging_keeps_body_theme_with_concrete_markers() -> None:
+    payload = {
+        "topic_title": "有些相遇，来过就很好",
+        "topic_angle": "从关系阶段性结束切入，写接受离开不是否认，而是把留下的温暖带回自己身上。",
+        "reference_article_body_markdown": (
+            "成年人的关系，原本就是一段一段的。接纳离开，才是对这段关系最好的祝福。"
+            "允许一切发生，也允许一切结束。感谢相遇，不谈亏欠。"
+        ),
+        "outline": {
+            "hook": "",
+            "outline_body": "从关系阶段性结束切入，写接受离开不是否认，而是把留下的温暖带回自己身上。",
+        },
+        "strategy_card": {"structure_mode": "emotional_engine_direct"},
+        "problem_brief": {
+            "theme_axis": "关系有阶段，结束也可以留下成长。",
+            "core_conflict": "人总想证明那段相遇没有白费。",
+        },
+    }
+    title, body_markdown = workbench._build_local_tracked_article_draft_fallback(payload)
+    assets_payload = workbench._build_local_assets_fallback(
+        project_title=title,
+        topic_title=payload["topic_title"],
+        topic_angle=payload["topic_angle"],
+        draft_title=title,
+        draft_body_markdown=body_markdown,
+    )
+    assets = SimpleNamespace(
+        recommended_title=assets_payload["recommended_title"],
+        title_options=list(assets_payload["title_options"]),
+        cover_copy=assets_payload["cover_copy"],
+        social_teaser=assets_payload["social_teaser"],
+        social_teaser_options=list(assets_payload["social_teaser_options"]),
+    )
+    package = workbench._build_local_publish_package_fallback(
+        draft_title=title,
+        draft_body_markdown=body_markdown,
+        assets=assets,
+    )
+
+    assert workbench._resolve_local_generic_fallback_mode(
+        {"source_type": "tracked_article", "topic_title": title, "body_markdown": body_markdown}
+    ) == "emotional_engine_direct"
+    combined_packaging = "\n".join(
+        [
+            str(package["publish_lead"]),
+            str(package["abstract"]),
+            *[str(option) for option in package["intro_options"]],
+        ]
+    )
+    assert "路过以前常去的那家店" in package["publish_lead"]
+    assert any(token in combined_packaging for token in ("相遇", "没走到最后", "温暖", "分寸"))
+    for self_worth_leak in ("这次不行", "边界守好", "尊重你的不愿意", "自我价值", "把自己放回前面"):
         assert self_worth_leak not in combined_packaging
 
 
