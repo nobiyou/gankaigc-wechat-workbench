@@ -9772,6 +9772,7 @@ def test_build_local_publish_package_fallback_filters_generic_asset_packaging_fi
 
     assert package["publish_title"] == "别让那句“都可以”，替你让掉自己的位置"
     assert any(fragment in package["publish_lead"] for fragment in ("这次不行", "认真对待自己", "尊重自己", "边界"))
+    assert "边界" in package["abstract"]
     assert any(fragment in package["publish_lead"] for fragment in ("不会把真正爱你的人推远", "关系没有天塌", "生活也没有乱"))
     assert all(not workbench._starts_with_generic_packaging_openers(item) for item in package["intro_options"])
     assert "那句都可以出口前，先把自己的感受放回桌面。" in package["intro_options"]
@@ -11728,6 +11729,8 @@ def test_build_local_tracked_article_draft_fallback_legacy_pressure_uses_pressur
     assert "把复查约回日历" in body_markdown
     assert "把饭吃热" in body_markdown
     assert "预约确认好" in body_markdown
+    assert "回消息" not in body_markdown
+    assert "该吃饭的时候先回消息" not in body_markdown
     assert all(
         token not in body_markdown
         for token in (
