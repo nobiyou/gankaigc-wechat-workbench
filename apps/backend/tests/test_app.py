@@ -9292,6 +9292,8 @@ def test_build_local_tracked_article_draft_fallback_shapes_everyday_warmth_simpl
     assert any(token in body_markdown for token in ("家人", "父母", "家里"))
     assert any(token in body_markdown for token in ("知己", "朋友", "老友"))
     assert any(token in body_markdown for token in ("平安", "福气", "日子已经很值得"))
+    assert "所谓幸福，就是心里有着落。" in body_markdown
+    assert body_markdown.count("很多") <= 1
     for stale_template in ("有个朋友前阵子说", "他最开心的一天", "那一刻他才承认"):
         assert stale_template not in body_markdown
     for responsibility_leak in ("账单", "检查单", "药盒", "肩上有责任", "没事，有我", "缴费"):
