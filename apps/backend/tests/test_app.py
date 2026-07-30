@@ -9226,7 +9226,8 @@ def test_local_everyday_warmth_publish_package_uses_small_things_variant() -> No
         "年轻时总觉得幸福要有很大的样子：账户数字再漂亮一点，房子再大一点，朋友圈再热闹一点。\n\n"
         "可人走到后来，会被很小的事劝住。\n\n"
         "父母电话里一句“别太累”，朋友饭桌上一句“你先说完”，孩子回头喊你一声，心就落了地。\n\n"
-        "见面、拥抱、吃饭、散步、晒太阳，这些微小的事堆叠起来，才是我们的一生。"
+        "见面、拥抱、吃饭、散步、晒太阳，这些微小的事堆叠起来，才是我们的一生。\n\n"
+        "今晚不必急着和世界比输赢。把饭吃热，把话说慢，家里人平安，知己还在，日子就有了很实在的回声。"
     )
     assets = workbench._build_local_assets_fallback(
         project_title="很多“大事”最后都会祛魅，留下你的反而是这些小事",
@@ -9249,8 +9250,11 @@ def test_local_everyday_warmth_publish_package_uses_small_things_variant() -> No
         assets=asset_item,
     )
 
+    assert assets["cover_copy"] == "那些不起眼的小事，才最能把日子照亮。"
     assert package["publish_lead"] == "周末陪父母在小区慢慢走一圈，陪孩子把积木铺满地，再和爱人拎着菜回家。一天没有发生什么大事，可晚上躺下时，心里是满的。"
     assert package["abstract"] == "属于你的生活，很少写在履历上。它藏在一次没有催促的散步、一个肯好好陪伴的下午里。把这些小事捡回来，日子就有了温度。"
+    assert "知己二三" not in package["abstract"]
+    assert "家里人平安，知己还在" not in package["publish_lead"]
     assert package["abstract"] != assets["social_teaser"]
     assert any("陪父母走慢一点" in item or "履历写不下的陪伴" in item for item in package["intro_options"])
 
@@ -11462,6 +11466,49 @@ def test_build_local_publish_package_fallback_emotional_release_uses_memory_refl
     assert any(token in package["abstract"] for token in ("想起", "挂在心上", "舍不得", "旧关系"))
     assert any(token in package["abstract"] for token in ("安放", "不再拿今天去补昨天", "承认那段路确实走完", "新的日子"))
     assert "有些往事会反复回来" in package["intro_options"][1]
+
+
+def test_local_emotional_release_uses_forgiveness_variant_instead_of_old_relationship_default() -> None:
+    title, body_markdown = workbench._build_local_tracked_article_draft_fallback(
+        {
+            "topic_title": "放过别人，也是放过自己",
+            "topic_angle": "从计较和怨恨让人越陷越深切入，写原谅不是便宜别人，而是让自己的心重新有地方安放。",
+            "reference_article_body_markdown": (
+                "毛姆在《面纱》中说，人世间的一切都是如此短暂易逝。"
+                "一个人不能永远在胸中养着一条毒蛇，不能夜夜起身，在灵魂的园子里栽种荆棘。"
+                "哪怕只是为了自己，你也应该学会原谅和宽恕。"
+                "当你看透了无常，世事尽可原谅。原谅别人的同时，也是宽宥自己。"
+            ),
+            "strategy_card": {"structure_mode": "emotional_engine_direct"},
+        }
+    )
+    assets = workbench._build_local_assets_fallback(
+        project_title=title,
+        topic_title="放过别人，也是放过自己",
+        topic_angle="从计较和怨恨让人越陷越深切入，写原谅不是便宜别人，而是让自己的心重新有地方安放。",
+        draft_title=title,
+        draft_body_markdown=body_markdown,
+    )
+    asset_item = workbench.AssetItem(
+        project_slug="local-forgiveness-release",
+        draft_version=1,
+        version=1,
+        cover_image_path="",
+        cover_image_url="",
+        **assets,
+    )
+    package = workbench._build_local_publish_package_fallback(
+        draft_title=title,
+        draft_body_markdown=body_markdown,
+        assets=asset_item,
+    )
+    combined = "\n".join([title, body_markdown, assets["cover_copy"], package["publish_lead"], package["abstract"]])
+
+    assert title == "放过别人，也是放过自己"
+    assert any(token in combined for token in ("原谅", "宽恕", "放过自己", "旧怨"))
+    assert any(token in package["abstract"] for token in ("心房", "阳光", "花", "怨气"))
+    for stale in ("旧关系", "背影", "相遇来过", "停在半路", "没被接住"):
+        assert stale not in combined
 
 
 def test_build_local_assets_fallback_shapes_emotional_release_memory_presence_packaging() -> None:

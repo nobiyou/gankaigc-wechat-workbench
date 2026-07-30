@@ -8555,6 +8555,14 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
                     "有些相遇没走到最后，但它留下的眼界、分寸和勇气，早就在悄悄成全过你。",
                 ),
             )
+        if _uses_local_emotional_forgiveness_release_variant(payload):
+            return _pick_local_seeded_text_variant(
+                payload,
+                (
+                    "有些人和事一直放在心里，最先被困住的往往不是别人，是你自己。",
+                    "你以为一直计较是在替自己讨公道，后来才发现，心也被那口气拽住了很久。",
+                ),
+            )
         if "要是他还在就好了" in corpus:
             return "很多想念都不是大张旗鼓的，只是在某个很普通的时刻，你忽然冒出一句：要是他还在就好了。"
         if any(token in corpus for token in ("背影", "擦肩", "街头", "像他")):
@@ -9812,6 +9820,7 @@ def _resolve_local_fallback_mode(payload: Mapping[str, object]) -> str:
         or _uses_local_emotional_memory_reflux_variant(payload)
         or _uses_local_emotional_endings_acceptance_variant(payload)
         or _uses_local_emotional_regret_forward_variant(payload)
+        or _uses_local_emotional_forgiveness_release_variant(payload)
     ):
         return "emotional_engine_direct"
     if _has_local_pressure_interface_direct_focus(payload):
@@ -10552,6 +10561,22 @@ def _uses_local_everyday_warmth_small_things_variant(payload: Mapping[str, objec
     return anchor_hits >= 2
 
 
+def _uses_local_everyday_warmth_small_things_priority(payload: Mapping[str, object]) -> bool:
+    topic_parts = [
+        str(payload.get(key) or "").strip()
+        for key in ("topic_title", "topic_angle", "title", "draft_title", "recommended_title", "project_title")
+    ]
+    topic_corpus = " ".join(part for part in topic_parts if part)
+    if not topic_corpus:
+        return False
+    priority_hits = sum(
+        1
+        for token in ("做大事", "大事", "不起眼的小事", "这些小事", "小事", "祛魅", "成就叙事", "宏大叙事")
+        if token in topic_corpus
+    )
+    return priority_hits >= 1 and _uses_local_everyday_warmth_small_things_variant(payload)
+
+
 def _uses_local_everyday_warmth_simple_happiness_variant(payload: Mapping[str, object]) -> bool:
     corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
     if not corpus:
@@ -10937,6 +10962,51 @@ def _uses_local_emotional_regret_forward_variant(payload: Mapping[str, object]) 
     return old_object_hits >= 1 and regret_hits >= 2 and forward_hits >= 1
 
 
+def _uses_local_emotional_forgiveness_release_variant(payload: Mapping[str, object]) -> bool:
+    corpus = " ".join(
+        part
+        for part in (
+            _extract_local_reference_corpus(payload),
+            _extract_local_fallback_corpus(payload),
+        )
+        if part
+    )
+    if not corpus:
+        return False
+    strong_hits = sum(
+        1
+        for token in (
+            "原谅",
+            "宽恕",
+            "放过自己",
+            "宽宥自己",
+            "世事尽可原谅",
+            "看透了无常",
+            "胸中养着一条毒蛇",
+            "灵魂的园子里栽种荆棘",
+        )
+        if token in corpus
+    )
+    support_hits = sum(
+        1
+        for token in (
+            "计较",
+            "埋怨",
+            "憎恨",
+            "恩怨",
+            "纠葛",
+            "伤痛",
+            "矛盾",
+            "隔阂",
+            "打扫自己的心房",
+            "腾出地方",
+            "多晒晒太阳",
+        )
+        if token in corpus
+    )
+    return strong_hits >= 2 or (strong_hits >= 1 and support_hits >= 2)
+
+
 def _has_local_emotional_memory_reflux_result_focus(text: str) -> bool:
     normalized = str(text or "").strip()
     if not normalized:
@@ -11188,6 +11258,16 @@ def _build_local_mode_shaped_generic_paragraphs(
                 "放下不是把它从生命里删掉。放下是承认它来过，也承认今天的风还在吹，眼前的路还在往前铺。",
                 "后来阿婆把旧裙子收了起来，换上孙女陪她买的新裙子去公园。你会发现，人心真正松开的瞬间，不是忽然忘了过去，而是终于愿意把日子过回现在。",
                 "旧事可以好好收着，别再拿它困住自己。人这一生，总要把一些来不及还给昨天，也把更多的可能留给明天。",
+            ]
+        if payload and _uses_local_emotional_forgiveness_release_variant(payload):
+            return [
+                intro,
+                "那些让你不痛快的人和事，未必每天都在眼前，却会在你心里占着地方。你越反复想，越像替它们留了一间屋子，自己反而没地方好好休息。",
+                "原谅不是说那件事没发生，也不是替谁开脱。原谅是你终于不再让一段旧怨，继续决定今天的心情。",
+                "一直计较下去，未必能让对方付出什么代价，却会让你一次次回到那口气里。夜里想起，心还是紧；白天碰到相似的人，情绪又被牵走。",
+                "所以放过别人，有时候更像是在放过自己。把那些无足轻重的争执、误会和旧伤慢慢清出去，心里才有地方晒太阳，也有地方重新种花。",
+                "真正的宽恕，不是委屈自己继续忍，而是看清事情已经过去，自己不必再跟着它一起受困。你可以记得教训，也可以把生活重新交还给今天。",
+                "往后的日子，少一点纠缠，多一点舒展。不是所有事都值得反复争赢，能让自己睡个安稳觉，已经是很大的胜利。",
             ]
         if payload and _uses_local_emotional_memory_reflux_variant(payload):
             return [
@@ -13781,6 +13861,8 @@ def _resolve_mode_shaped_local_packaging_title(
         return "总会先顾别人感受的人，也该被认真护住"
     if mode == "emotional_engine_direct" and _uses_local_emotional_regret_forward_variant(payload):
         return "旧事可以收起来，脚下的路还要往前走"
+    if mode == "emotional_engine_direct" and _uses_local_emotional_forgiveness_release_variant(payload):
+        return "放过别人，也是把自己从旧事里放出来"
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_presence_variant(payload):
         return "有些人走远了，还是会在一个背影里轻轻回来"
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_reflux_variant(payload):
@@ -13941,6 +14023,10 @@ def _resolve_local_assets_cover_copy(
         return "有人肯再问一句，心里会先松一下。"
     if mode == "response_priority" and _uses_local_response_priority_time_priority_variant(payload):
         return "忙完以后还记得回来找你的人，心里一直给你留着位置。"
+    if mode == "everyday_warmth_return" and _uses_local_everyday_warmth_small_things_priority(payload):
+        return "那些不起眼的小事，才最能把日子照亮。"
+    if mode == "everyday_warmth_return" and _uses_local_everyday_warmth_simple_happiness_variant(payload):
+        return "家里人平安，知己还在，平淡日子也很值得。"
     if mode == "supportive_appreciation":
         if _has_local_supportive_misread_profile(payload):
             return "别把他的体谅，当成你可以反复透支的东西。"
@@ -13984,6 +14070,8 @@ def _resolve_local_assets_cover_copy(
     if mode == "emotional_engine_direct":
         if _uses_local_emotional_regret_forward_variant(payload):
             return "把旧事轻轻收好，前面的风也会慢慢吹来。"
+        if _uses_local_emotional_forgiveness_release_variant(payload):
+            return "把心里的旧刺拔掉，日子才有地方重新照进光。"
         if _uses_local_emotional_memory_presence_variant(payload):
             return "有些人明明走远了，还是会在一个背影里轻轻回来。"
         if _uses_local_emotional_memory_reflux_variant(payload):
@@ -14124,6 +14212,9 @@ def _resolve_local_assets_social_teaser(
     if mode == "emotional_engine_direct" and _uses_local_emotional_regret_forward_variant(payload):
         lead = first if first_is_safe else "有些旧东西一翻出来，人就忍不住替过去重新想一遍。"
         return _compose_local_followup(lead, "放下不是遗忘，是把旧事收好以后，仍然愿意去过新的日子。")
+    if mode == "emotional_engine_direct" and _uses_local_emotional_forgiveness_release_variant(payload):
+        lead = first if first_is_safe else "有些人和事一直放在心里，最先被困住的往往不是别人，是你自己。"
+        return _compose_local_followup(lead, "原谅不是替谁开脱，是把自己的心从旧怨里慢慢放出来。")
     if mode == "emotional_engine_direct" and _uses_local_emotional_memory_reflux_variant(payload):
         lead = first if first_is_safe else "你以为自己早就放下了，直到街头一个像他的背影，还是会让心里轻轻一沉。"
         return _compose_local_followup(lead, "反复回来的，常常是那段没说完的话和没被接住的自己。")
@@ -14575,12 +14666,12 @@ def _build_local_publish_package_fallback(
                     publish_lead = "那天你把手机扣在桌上，顺手说了句“没事”。他没有急着追问，只是把手边的水推过来，等你愿意开口。这样的在意，不会催你马上说明白。"
                     abstract = "点赞可以很快，认真听完却需要耐心。有人愿意记住你语气里的变化，等你把话说完整，那份在意就不止是互动，而是把你当成一个具体的人在珍惜。"
         elif mode == "everyday_warmth_return":
-            if _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
-                publish_lead = "人到后来才懂，幸福不一定要很大的样子。家里人平安，知己还在，一日三餐有人惦记，就已经是很踏实的好日子。"
-                abstract = "大富大贵未必能让心安下来，家人安康、知己二三、四季平安，反而最能托住一个人的后半程。能把这样的日子守住，就是很具体的福气。"
-            elif _uses_local_everyday_warmth_small_things_variant(focus_payload):
+            if _uses_local_everyday_warmth_small_things_priority(focus_payload):
                 publish_lead = "周末陪父母在小区慢慢走一圈，陪孩子把积木铺满地，再和爱人拎着菜回家。一天没有发生什么大事，可晚上躺下时，心里是满的。"
                 abstract = "属于你的生活，很少写在履历上。它藏在一次没有催促的散步、一个肯好好陪伴的下午里。把这些小事捡回来，日子就有了温度。"
+            elif _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
+                publish_lead = "人到后来才懂，幸福不一定要很大的样子。家里人平安，知己还在，一日三餐有人惦记，就已经是很踏实的好日子。"
+                abstract = "大富大贵未必能让心安下来，家人安康、知己二三、四季平安，反而最能托住一个人的后半程。能把这样的日子守住，就是很具体的福气。"
             else:
                 publish_lead = "回家时那盏灯还亮着，饭也还热着。忙了一天的人，常常就是被这些细碎又实在的小事轻轻接住。"
                 abstract = "家里人平安，想说的话有人听，再普通的一天也会让人心里发暖。一顿热饭、一句惦记，就够人踏实很久。"
@@ -14678,6 +14769,9 @@ def _build_local_publish_package_fallback(
             if _uses_local_emotional_regret_forward_variant(focus_payload):
                 publish_lead = "阿婆把那条旧裙子叠起来时，像是把当年那句“如果去了会不会不一样”也轻轻收好。人真正往前走，不是忘了遗憾，而是不再让遗憾替今天做主。"
                 abstract = "旧事可以记得，遗憾也可以承认。只是路还在往前，风也还会吹来。把回不去的部分安放好，你才能腾出心，去穿新的裙子，去看新的晚霞，去过新的日子。"
+            elif _uses_local_emotional_forgiveness_release_variant(focus_payload):
+                publish_lead = "有些事反复计较到最后，最累的往往是自己。原谅不是替谁开脱，而是终于肯把心从旧怨里慢慢放出来。"
+                abstract = "一直把怨气留在心里，日子也会跟着变窄。看清无常以后，能放下的就轻轻放下，把心房打扫干净，留给阳光、花和后面真正值得的人。"
             elif _uses_local_emotional_memory_presence_variant(focus_payload):
                 publish_lead = "灯火阑珊的街头，你只是多看了那个背影一眼，心里就忽然空了一下。原来有些人走远以后，也还是会在这样的时刻轻轻回来。"
                 abstract = "你会反复想起，不一定是想回头，只是那段认真来过的相遇，还在日常里留了个位置。不必催自己马上释怀，想起时就想一会儿，随后照常去赴约、去上班、去吃晚饭。人会在这些普通日子里，慢慢走出那段旧路。"
@@ -14698,21 +14792,21 @@ def _build_local_publish_package_fallback(
             and not _looks_like_packaging_instruction_leakage(item)
         ]
         if mode == "everyday_warmth_return":
-            if _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
-                intro_options = _dedupe_nonempty_text_options(
-                    [
-                        publish_lead,
-                        "能守住一日三餐和几句真心话，就是很具体的幸福。",
-                        "家里人平安，老朋友还在，平凡日子也会发光。",
-                        *intro_options,
-                    ]
-                )
-            elif _uses_local_everyday_warmth_small_things_variant(focus_payload):
+            if _uses_local_everyday_warmth_small_things_priority(focus_payload):
                 intro_options = _dedupe_nonempty_text_options(
                     [
                         publish_lead,
                         "陪父母走慢一点，陪孩子玩久一点，日子会把这些时间还成温暖。",
                         "履历写不下的陪伴，往往才是后来最舍不得丢的生活。",
+                        *intro_options,
+                    ]
+                )
+            elif _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
+                intro_options = _dedupe_nonempty_text_options(
+                    [
+                        publish_lead,
+                        "能守住一日三餐和几句真心话，就是很具体的幸福。",
+                        "家里人平安，老朋友还在，平凡日子也会发光。",
                         *intro_options,
                     ]
                 )
@@ -14842,6 +14936,15 @@ def _build_local_publish_package_fallback(
                         publish_lead,
                         "放下不是遗忘，是把旧事收好以后，仍然愿意去过新的日子。",
                         "别再用一个回不去的当年，困住正在往前的自己。",
+                        *intro_options,
+                    ]
+                )
+            elif _uses_local_emotional_forgiveness_release_variant(focus_payload):
+                intro_options = _dedupe_nonempty_text_options(
+                    [
+                        publish_lead,
+                        "原谅不是替谁开脱，是把自己的心从旧怨里慢慢放出来。",
+                        "心里少养一点怨气，日子才会多照进一点光。",
                         *intro_options,
                     ]
                 )
@@ -18738,6 +18841,8 @@ def _resolve_tracked_article_expected_selection_mode(selection_context: Mapping[
         return "resilience_reconstruction"
     if _has_everyday_warmth_return_focus(selection_context):
         return "everyday_warmth_return"
+    if _uses_local_emotional_forgiveness_release_variant(selection_context):
+        return "emotional_engine_direct"
     strong_supportive_title = any(
         token in selection_title for token in ("心软的人", "别人感受放在前面", "最该被人好好珍惜", "值得被认真珍惜")
     )
