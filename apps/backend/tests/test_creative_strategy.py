@@ -1,6 +1,9 @@
 import json
 
 from app.services.creative_strategy import (
+    _build_emotional_value_goal,
+    _build_packaging_focus,
+    _build_packaging_hook,
     _resolve_inner_settlement_variant,
     build_strategy_package,
     resolve_tracked_article_structure_mode,
@@ -46,6 +49,31 @@ def test_build_strategy_package_marks_vague_upstream_input_as_unknown() -> None:
     assert "切口仍偏泛，大纲阶段要主动收窄到一个更具体的处境。" in result.problem_brief.unknowns
     assert "女性成长" in result.problem_brief.raw_goal
     assert result.strategy_card.status == "ready"
+
+
+def test_strategy_generic_fallbacks_do_not_reintroduce_diagnostic_packaging_shell() -> None:
+    values = [
+        _build_emotional_value_goal(
+            structure_mode="unknown_new_theme",
+            reference_analysis_emotional_exit="",
+        ),
+        _build_packaging_focus(
+            structure_mode="unknown_new_theme",
+            reference_analysis_opening_pattern="",
+        ),
+        _build_packaging_hook(
+            structure_mode="unknown_new_theme",
+            topic_title="",
+            topic_angle="",
+            reference_analysis_opening_pattern="",
+            reference_body_markdown="",
+        ),
+    ]
+
+    combined = "\n".join(values)
+    assert "参考文自己的" in combined or "这篇文章自己的" in combined
+    for stale in ("先抓一个具体入口", "被点破的误判", "更暖一点的落点", "被分析", "被接住、被点醒"):
+        assert stale not in combined
 
 
 def test_build_strategy_package_records_benchmark_borrow_and_avoid_boundaries() -> None:

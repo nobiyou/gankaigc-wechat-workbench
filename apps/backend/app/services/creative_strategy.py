@@ -2208,7 +2208,7 @@ def _build_emotional_value_goal(
         return "让读者先进入参考文自己的现场，再顺着现场里的变化慢慢看懂这段情绪。"
     if structure_mode == "pressure_interface_direct":
         return "让读者读完后不再只会硬扛，而是会重新看见生活排序和自我照料的必要。"
-    return "让读者不只觉得被分析，而是真的被接住、被点醒，也能带着一点力气回到生活里。"
+    return "让读者先认出参考文自己的处境，再从这篇文章的关系、选择或日常里得到一点继续往前的力气。"
 
 
 def _build_positive_direction(
@@ -2501,7 +2501,7 @@ def _build_packaging_focus(
     if normalized_opening:
         base = f"包装优先沿着上游最有抓力的起笔方式走：{normalized_opening}；不要只概括主题。"
         return f"{specific_focus} {base}".strip() if specific_focus else base
-    base = "标题、导语和封面优先抓一个具体入口、一个被点破的误判，再给一个更暖一点的落点。"
+    base = "标题、导语和封面优先抓参考文自己的触发点、人物关系或核心物件，再落到这篇文章自己的正向出口。"
     return f"{specific_focus} {base}".strip() if specific_focus else base
 
 
@@ -3167,7 +3167,7 @@ def _build_packaging_hook(
     if structure_mode == "fragment_chain_observation":
         base = "先抓一个最能让人停住的现实碎片，再把几个接口串成同一种误判。"
         return f"{specific_hook} {base}".strip() if specific_hook else base
-    base = "先抓一个具体入口，再把被点破的误判和回正落点收回来。"
+    base = "先抓参考文自己的触发点、人物关系或核心物件，再顺着这篇文章自己的主线往下推。"
     return f"{specific_hook} {base}".strip() if specific_hook else base
 
 
