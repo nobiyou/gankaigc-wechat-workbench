@@ -12265,7 +12265,9 @@ def test_build_local_publish_package_fallback_scene_first_transit_uses_distinct_
         assets=assets,
     )
 
-    assert package["publish_lead"] == "她那句“最近有点忙”刚落下去，你就知道她不止这一句话。可摆渡车一到，今晚最该问的那一句，还是跟着风一起被你按了回去。"
+    assert package["publish_lead"].startswith("有些话不是不能问")
+    assert "该问的时候多停半分钟" in package["publish_lead"]
+    assert package["publish_lead"] != assets.social_teaser
     assert any(fragment in package["abstract"] for fragment in ("很多走远", "不是一下子发生", "那句该在当场说的话"))
     assert any(fragment in package["abstract"] for fragment in ("往后放", "退了半步", "真话"))
     assert package["editor_note"] == "这版重点就在那句没问出口的话，发布时别补太多解释，留一点空白更有劲。"
@@ -12303,9 +12305,10 @@ def test_build_local_publish_package_fallback_scene_first_office_uses_positive_r
         assets=assets,
     )
 
-    assert package["publish_lead"].startswith("会已经散了，那页改过的方案还亮在屏幕上。")
+    assert package["publish_lead"].startswith("下一次再进会议室")
     assert package["abstract"] == "你有判断，只是总把场面放在前面。关键时刻肯开口，会把自己放回该在的位置。"
-    assert "那句你明明该在当场说的话" in package["publish_lead"]
+    assert "关键那句" in package["publish_lead"]
+    assert package["publish_lead"] != assets.social_teaser
     assert all("现场切入" not in item and "写一个人怎样" not in item for item in package["intro_options"])
     assert package["editor_note"] == "这版现场感已经够了，发布时别把导语写太满，留一点会后回味就行。"
     assert package["abstract"] != package["publish_lead"]
@@ -12342,8 +12345,9 @@ def test_build_local_publish_package_fallback_scene_first_household_uses_positiv
         assets=assets,
     )
 
-    assert package["publish_lead"].startswith("药盒和检查单就在桌上，谁都看见了，谁都先没提。")
-    assert "大家都怕一开口，这个晚上会更沉" in package["publish_lead"]
+    assert package["publish_lead"].startswith("药盒和检查单都在桌上时")
+    assert "把话摊开一点" in package["publish_lead"]
+    assert package["publish_lead"] != assets.social_teaser
     assert package["abstract"] == "家里最怕的，不是遇到事，是大家都想体谅，结果谁都不肯先说。把心事说开，日子才真的稳得住。"
     assert package["editor_note"] == "这版已经有夜里的那口气了，发布时别往大道理上拔，让这个家的沉默自己说话。"
     assert package["abstract"] != package["publish_lead"]

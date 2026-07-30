@@ -8705,6 +8705,15 @@ def _resolve_local_scene_first_packaging_copy(scene_variant: str) -> tuple[str, 
     return mapping.get(scene_variant, ("", "", ""))
 
 
+def _resolve_local_scene_first_publish_lead(scene_variant: str) -> str:
+    mapping = {
+        "office": "下一次再进会议室，别急着把关键那句留到散会后。你有判断，也该让它在当场有位置。",
+        "transit": "有些话不是不能问，是总被车门、时间和那句“算了”顺手按回去。该问的时候多停半分钟，关系就少一点后来才懂的距离。",
+        "household": "药盒和检查单都在桌上时，真正要紧的不是谁先装作没事。把话摊开一点，家里的那口气才会慢慢松下来。",
+    }
+    return mapping.get(scene_variant, "有些话别总留到转身以后。该在当场说清的那一句，早一点出口，关系就少一点绕远。")
+
+
 def _has_local_pressure_interface_direct_focus(payload: Mapping[str, object]) -> bool:
     strategy_card = payload.get("strategy_card")
     mode_candidates: list[str] = []
@@ -14722,6 +14731,7 @@ def _build_local_publish_package_fallback(
             )
 
         if mode == "scene_first_progression":
+            publish_lead = _resolve_local_scene_first_publish_lead(scene_variant)
             if scene_variant == "transit":
                 _, _, abstract = _resolve_local_scene_first_packaging_copy("transit")
             elif scene_variant == "office":
