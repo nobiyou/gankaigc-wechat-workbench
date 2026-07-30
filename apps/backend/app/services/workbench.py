@@ -14554,6 +14554,12 @@ def _build_local_assets_fallback(
                 f"人物把没完成的几项轻轻划过又重新写下一行新计划，画面温暖明亮，保留左下标题安全区，"
                 f"主题是《{recommended_title}》，副文案是“{cover_copy}”。不要聊天界面，不要可读手机屏幕，不要纯文字海报。"
             )
+        elif mode == "emotional_engine_direct" and _uses_local_emotional_endings_acceptance_variant(focus_payload):
+            cover_prompt = (
+                f"16:9横版公众号封面，真实摄影感，傍晚旧街口或曾经常去的小店门前，一个人从门口经过时脚步微微放慢，"
+                f"橱窗暖光、街边树影和手里折好的旧票据或纸袋形成“相遇曾经来过”的生活现场，画面明亮克制，保留左下标题安全区，"
+                f"主题是《{recommended_title}》，副文案是“{cover_copy}”。不要手机，不要聊天界面，不要消息气泡，不要可读屏幕，不要纯文字海报。"
+            )
         elif mode == "emotional_engine_direct" and _uses_local_emotional_regret_forward_variant(focus_payload):
             cover_prompt = (
                 f"16:9横版公众号封面，真实摄影感，傍晚小区或家中衣柜旁，一件洗得发白的碎花旧裙被轻轻叠好，"
@@ -14585,9 +14591,16 @@ def _build_local_assets_fallback(
                 "不要纯文字海报，不要整块深色卡片盖住画面。"
             )
         else:
+            anchor = _extract_first_sentence_fragment(first_sentence or topic_angle or recommended_title, max_length=34)
+            scene_detail = (
+                f"以“{anchor}”对应的真实生活瞬间为核心"
+                if anchor
+                else "以一处真实的日常生活现场为核心"
+            )
             cover_prompt = (
-                f"16:9 横版公众号封面，克制现实感，中文标题清晰可读，避免纯色底大字卡，主题是《{recommended_title}》，"
-                f"副文案是“{cover_copy}”。"
+                f"16:9横版公众号封面，真实摄影感，{scene_detail}，安排人物动作、桌面物件、窗光或街边环境来承接主题，"
+                f"画面明亮克制，保留左下标题安全区，主题是《{recommended_title}》，副文案是“{cover_copy}”。"
+                "不要聊天界面，不要消息气泡，不要可读手机屏幕，不要把整张图做成纯文字海报。"
             )
     return {
         "title_options": title_options,

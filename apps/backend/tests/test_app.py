@@ -11952,6 +11952,11 @@ def test_build_local_assets_fallback_shapes_emotional_release_packaging_without_
         assets["social_teaser"]
         == "路过熟悉的地方，你还是会慢一下。那段关系没走完，却把眼界、分寸和勇气留在了你身上。"
     )
+    assert "16:9横版公众号封面" in str(assets["cover_prompt"])
+    assert any(token in str(assets["cover_prompt"]) for token in ("旧街口", "小店门前", "橱窗暖光"))
+    assert "保留左下标题安全区" in str(assets["cover_prompt"])
+    assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
+    assert "不要纯文字海报" in str(assets["cover_prompt"])
     combined = "\n".join([assets["cover_copy"], assets["social_teaser"]])
     assert "感谢相遇，不谈亏欠" not in combined
 
@@ -12065,6 +12070,8 @@ def test_emotional_endings_acceptance_packaging_keeps_body_theme_with_concrete_m
         ]
     )
     assert "路过以前常去的那家店" in package["publish_lead"]
+    assert any(token in str(assets_payload["cover_prompt"]) for token in ("旧街口", "小店门前", "橱窗暖光"))
+    assert "克制现实感，中文标题清晰可读" not in str(assets_payload["cover_prompt"])
     assert any(token in combined_packaging for token in ("相遇", "没走到最后", "温暖", "分寸"))
     for self_worth_leak in ("这次不行", "边界守好", "尊重你的不愿意", "自我价值", "把自己放回前面"):
         assert self_worth_leak not in combined_packaging

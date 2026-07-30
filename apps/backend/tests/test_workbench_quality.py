@@ -159,6 +159,7 @@ def test_local_tracked_article_chain_keeps_theme_specific_packaging_across_commo
                 str(topic["angle"]),
                 title,
                 draft_body,
+                str(assets_payload["cover_prompt"]),
                 str(assets.cover_copy),
                 str(assets.social_teaser),
                 str(package["publish_lead"]),
@@ -173,6 +174,23 @@ def test_local_tracked_article_chain_keeps_theme_specific_packaging_across_commo
             token in paragraph for paragraph in paragraphs for token in ("写过一句", "说过一句", "有句话")
         )
         assert has_shareable_line, sample_name
+        cover_prompt = str(assets_payload["cover_prompt"])
+        assert "16:9" in cover_prompt, sample_name
+        assert "横版" in cover_prompt, sample_name
+        assert not any(token in cover_prompt for token in ("正方形", "方图", "1:1")), sample_name
+        assert "克制现实感，中文标题清晰可读" not in cover_prompt, sample_name
+        if any(token in cover_prompt for token in ("聊天界面", "消息气泡", "可读手机屏幕", "可读屏幕")):
+            assert any(
+                guard in cover_prompt
+                for guard in (
+                    "不要聊天界面",
+                    "不要手机聊天界面",
+                    "不出现聊天界面",
+                    "不要消息气泡",
+                    "不要可读手机屏幕",
+                    "不要可读屏幕",
+                )
+            ), sample_name
         assert assets.social_teaser != package["publish_lead"], sample_name
         assert package["publish_lead"] != package["abstract"], sample_name
         assert not any(token in combined for token in generic_leaks), sample_name
