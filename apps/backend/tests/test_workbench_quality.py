@@ -352,7 +352,7 @@ def test_local_response_priority_time_draft_avoids_not_ab_skeleton() -> None:
     title, body_markdown = _build_local_generic_tracked_article_draft(
         {
             "source_type": "tracked_article",
-            "topic_title": "愿意把时间留给你的人，才是真的把你放在心上",
+            "topic_title": "肯把时间补给你的人，才是真的在乎",
             "reference_article_body_markdown": (
                 "红灯30秒，我喝了一口水，拍了张照片，回了条消息。"
                 "忙不是借口，没时间也不是理由。人对在乎的人，永远都有时间。"
@@ -363,7 +363,7 @@ def test_local_response_priority_time_draft_avoids_not_ab_skeleton() -> None:
 
     summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
 
-    assert title == "愿意把时间留给你的人，才是真的把你放在心上"
+    assert title == "肯把时间补给你的人，才是真的在乎"
     assert all("不是A，是B" not in hit for hit in summary.hits)
     assert "不是嘴上说出来的" not in body_markdown
     assert "不是催谁" not in body_markdown
@@ -1592,8 +1592,8 @@ def test_local_response_priority_time_priority_publish_package_fallback_uses_tim
         project_slug="response-time-project",
         draft_version=1,
         version=1,
-        title_options=["愿意把时间留给你的人，才是真的把你放在心上"],
-        recommended_title="愿意把时间留给你的人，才是真的把你放在心上",
+        title_options=["肯把时间补给你的人，才是真的在乎"],
+        recommended_title="肯把时间补给你的人，才是真的在乎",
         cover_prompt="16:9横版封面",
         cover_copy="愿意把时间留给你的人，心里早给你留了位置。",
         social_teaser="红灯30秒，他已经够回你一句话。",
@@ -1612,14 +1612,15 @@ def test_local_response_priority_time_priority_publish_package_fallback_uses_tim
     )
 
     result = _build_local_publish_package_fallback(
-        draft_title="愿意把时间留给你的人，才是真的把你放在心上",
+        draft_title="肯把时间补给你的人，才是真的在乎",
         draft_body_markdown="红灯30秒，我喝了一口水，拍了张照片，回了条消息。忙不是借口，没时间也不是理由。\n\n不是非要每条消息秒回，只是那句忙完找你，最好真的能补回来。",
         assets=assets,
     )
 
-    assert "忙完以后回来找你" in str(result["publish_lead"])
+    assert "忙完以后也会回来找你" in str(result["publish_lead"])
     assert "忙完还记得回来接一句" in str(result["abstract"])
-    assert "一直被放在心上" in str(result["abstract"])
+    assert "交代补回来" in str(result["abstract"])
+    assert "\n".join([str(result["publish_lead"]), str(result["abstract"])]).count("心里") <= 1
 
 
 def test_local_inner_settlement_publish_package_fallback_keeps_abstract_distinct() -> None:

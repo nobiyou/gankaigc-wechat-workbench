@@ -10690,7 +10690,7 @@ def test_build_local_assets_fallback_uses_followup_variant_copy_for_response_pri
 def test_build_local_tracked_article_draft_fallback_response_priority_uses_time_priority_variation() -> None:
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(
         {
-            "topic_title": "愿意把时间留给你的人，才是真的把你放在心上",
+            "topic_title": "肯把时间补给你的人，才是真的在乎",
             "reference_article_body_markdown": "红灯30秒，我喝了一口水，拍了张照片，回了条消息。忙不是借口，没时间也不是理由。一个人的时间在哪儿，他的心就在哪儿。",
             "outline": {
                 "hook": "一句轻描淡写的话，到底有没有被听懂、有没有人肯继续多问一句。",
@@ -10700,10 +10700,10 @@ def test_build_local_tracked_article_draft_fallback_response_priority_uses_time_
         }
     )
 
-    assert title == "愿意把时间留给你的人，才是真的把你放在心上"
+    assert title == "肯把时间补给你的人，才是真的在乎"
     assert body_markdown.startswith(
         (
-            "他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。",
+            "他说自己很忙那一刻，你把手机放下，原本等着的那句话也慢慢安静了。",
             "红灯的三十秒都能喝口水、切首歌、回一句“晚点找你”。有些在意，就藏在这些小空当里。",
         )
     )
@@ -10715,7 +10715,7 @@ def test_build_local_tracked_article_draft_fallback_response_priority_uses_time_
 def test_build_local_tracked_article_draft_fallback_response_priority_time_priority_skips_summary_like_opening() -> None:
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(
         {
-            "topic_title": "愿意把时间分给你的人，心里早就给你留了位置",
+            "topic_title": "肯把时间补给你的人，才是真的在乎",
             "topic_angle": "从“没时间”这句话为什么常常说的不是日程，而是顺序切入。",
             "reference_article_body_markdown": "红灯30秒，我喝了一口水，拍了张照片，回了条消息。一个人的时间在哪儿，他的心就在哪儿。",
             "outline": {
@@ -10730,9 +10730,14 @@ def test_build_local_tracked_article_draft_fallback_response_priority_time_prior
         }
     )
 
-    assert title == "愿意把时间分给你的人，心里早就给你留了位置"
+    assert title == "肯把时间补给你的人，才是真的在乎"
     assert not body_markdown.startswith("消息、评论或碎片时间被给出去的那一下，谁真正被排在了前面。")
-    assert body_markdown.startswith("他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。")
+    assert body_markdown.startswith(
+        (
+            "他说自己很忙那一刻，你把手机放下，原本等着的那句话也慢慢安静了。",
+            "红灯的三十秒都能喝口水、切首歌、回一句“晚点找你”。有些在意，就藏在这些小空当里。",
+        )
+    )
 
 
 def test_resolve_local_fallback_mode_detects_response_priority_without_literal_no_time() -> None:
@@ -10756,10 +10761,10 @@ def test_resolve_local_fallback_mode_detects_response_priority_without_literal_n
 
 def test_build_local_assets_fallback_response_priority_uses_time_priority_copy() -> None:
     assets = workbench._build_local_assets_fallback(
-        project_title="愿意把时间留给你的人，才是真的把你放在心上",
-        topic_title="愿意把时间留给你的人，才是真的把你放在心上",
+        project_title="肯把时间补给你的人，才是真的在乎",
+        topic_title="肯把时间补给你的人，才是真的在乎",
         topic_angle="从忙不是结尾、时间给了谁切入。",
-        draft_title="愿意把时间留给你的人，才是真的把你放在心上",
+        draft_title="肯把时间补给你的人，才是真的在乎",
         draft_body_markdown=(
             "他说自己很忙那一刻，你其实能理解。只是那句“回头再说”一直没落下来，心里还是会轻轻沉一下。\n\n"
             "红灯的三十秒、排队的几分钟、到家换鞋前那会儿，其实都够回一句。\n\n"
@@ -10767,8 +10772,9 @@ def test_build_local_assets_fallback_response_priority_uses_time_priority_copy()
         ),
     )
 
-    assert assets["cover_copy"] == "忙完以后还记得回来找你的人，心里一直给你留着位置。"
+    assert assets["cover_copy"] == "真正让人心安的，不是秒回，是忙完还记得补一句。"
     assert assets["social_teaser"] == "他说自己很忙那一刻，你其实能理解。忙完以后还记得回来找你，这份交代最让人安心。"
+    assert "\n".join([assets["cover_copy"], assets["social_teaser"]]).count("心里") <= 1
     assert "红灯" in str(assets["cover_prompt"])
     assert "水杯" in str(assets["cover_prompt"])
     assert "手机屏幕朝下" in str(assets["cover_prompt"])
@@ -10778,15 +10784,15 @@ def test_build_local_assets_fallback_response_priority_uses_time_priority_copy()
 
 def test_build_local_publish_package_fallback_response_priority_uses_time_priority_variant() -> None:
     assets = SimpleNamespace(
-        recommended_title="愿意把时间留给你的人，才是真的把你放在心上",
-        title_options=["愿意把时间留给你的人，才是真的把你放在心上"],
+        recommended_title="肯把时间补给你的人，才是真的在乎",
+        title_options=["肯把时间补给你的人，才是真的在乎"],
         cover_copy="真正让人心安的，不是快，是后来没有被忘掉。",
         social_teaser="他说自己很忙那一刻，你其实能理解。忙不是问题，忙完还记得回来接话，人才会觉得自己一直被放在心上。",
         social_teaser_options=["他说自己很忙那一刻，你其实能理解。忙不是问题，忙完还记得回来接话，人才会觉得自己一直被放在心上。"],
     )
 
     package = workbench._build_local_publish_package_fallback(
-        draft_title="愿意把时间留给你的人，才是真的把你放在心上",
+        draft_title="肯把时间补给你的人，才是真的在乎",
         draft_body_markdown=(
             "他说自己很忙那一刻，你其实能理解。只是那句“回头再说”一直没落下来，心里还是会轻轻沉一下。\n\n"
             "红灯的三十秒、排队的几分钟、到家换鞋前那会儿，其实都够回一句。\n\n"
@@ -10795,10 +10801,11 @@ def test_build_local_publish_package_fallback_response_priority_uses_time_priori
         assets=assets,
     )
 
-    assert package["publish_lead"] == "大家都忙，这件事你明白。可把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。"
-    assert package["abstract"] == "忙完还记得回来接一句，心里那点悬着就会慢慢落地。时间不一定要很多，但愿意补上的人，会让你知道自己一直被放在心上。"
+    assert package["publish_lead"] == "大家都忙，这件事你明白。可真正在意你的人，不会让一句话一直悬着。哪怕当下顾不上，忙完以后也会回来找你，把回应补上。"
+    assert package["abstract"] == "忙完还记得回来接一句，等待才不会变成自我怀疑。时间不一定要很多，关键是那个人有没有把交代补回来。"
+    assert "\n".join([package["publish_lead"], package["abstract"], *package["intro_options"][:2]]).count("心里") <= 1
     assert package["intro_options"][:2] == [
-        "大家都忙，这件事你明白。可把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。",
+        "大家都忙，这件事你明白。可真正在意你的人，不会让一句话一直悬着。哪怕当下顾不上，忙完以后也会回来找你，把回应补上。",
         assets.social_teaser,
     ]
 
@@ -10843,7 +10850,7 @@ def test_build_local_assets_fallback_response_priority_title_beats_self_reliance
         ),
     )
 
-    assert assets["cover_copy"] == "忙完以后还记得回来找你的人，心里一直给你留着位置。"
+    assert assets["cover_copy"] == "真正让人心安的，不是秒回，是忙完还记得补一句。"
     assert "回来找你" in assets["social_teaser"]
     assert any(token in assets["social_teaser"] for token in ("放在心上", "安心", "排在了前面"))
     assert all(token not in assets["social_teaser"] for token in ("自救", "自渡", "向内求"))

@@ -4138,7 +4138,7 @@ def _rewrite_response_priority_topic(payload: Mapping[str, object], ai_result: M
             "写为什么轻互动很多，人却还是会悬着；也写真正的关心，往往藏在一句追问、一次补问和被认真听懂的那一下。"
         )
     elif any(token in corpus for token in ("红灯30秒", "红灯", "蓝牙")):
-        new_title = "愿意把时间分给你的人，心里早就给你留了位置"
+        new_title = "肯把时间补给你的人，才是真的在乎"
         new_angle = (
             "从“没时间”这句话为什么常常说的不是日程，而是顺序切入，"
             "写时间分配、回应动作和投入意愿怎样一点点显出一个人的真实在乎程度；"
@@ -8641,7 +8641,7 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。",
+                    "他说自己很忙那一刻，你把手机放下，原本等着的那句话也慢慢安静了。",
                     "红灯的三十秒都能喝口水、切首歌、回一句“晚点找你”。有些在意，就藏在这些小空当里。",
                 ),
             )
@@ -11171,17 +11171,18 @@ def _build_local_response_priority_time_priority_paragraphs(
         opening = _pick_local_seeded_text_variant(
             payload,
             (
-                "他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。",
+                "他说自己很忙那一刻，你把手机放下，原本等着的那句话也慢慢安静了。",
                 "红灯只有三十秒，也够喝口水、切首歌、回一句“晚点找你”。有些答案，就藏在这些小空当里。",
             ),
         )
 
     return [
         opening,
-        "把你放在心上的人，也会忙，也会顾不上。可他会先留一句交代，忙完以后，也会回来把那句落下的话接完。",
-        "红灯的三十秒、排队的几分钟、到家换鞋前那会儿，都够发一句“我看到了，晚点说”。你可以等一会儿，可一直等不到交代，心就会慢慢凉下来。",
+        "在意你的人，也会忙，也会顾不上。可他会先留一句交代，忙完以后，也会回来把那句落下的话接完。",
+        "红灯的三十秒、排队的几分钟、到家换鞋前那会儿，都够发一句“我看到了，晚点说”。你可以等一会儿，可一直等不到交代，期待就会慢慢凉下来。",
         "你一次次替对方解释：他只是太忙了，今天事情太多了。解释得久了，连失落都像成了自己不懂事。",
-        "一个人把时间给谁，答案常常藏在那些细小空当里。愿意把回应补回来的人，心里一直有你的位置。",
+        "一个人把时间给谁，答案常常藏在那些细小空当里。愿意把回应补回来的人，早就把你排进了自己的顺序里。",
+        "记得回来，就是答案。",
         "好的回应不需要二十四小时黏着。忙完记得回来，临时顾不上也愿意说明白，这就够让人安心。",
         "把真心留给愿意回应你的人。你不需要反复催，也不必在等待里，把自己的位置慢慢放轻。",
         "被这样放在顺序里，人会安心很多。关系也不必总靠猜，因为对方会用时间告诉你：你到底重不重要。",
@@ -13979,7 +13980,7 @@ def _resolve_mode_shaped_local_packaging_title(
     if mode == "response_priority" and _uses_local_response_priority_followup_variant(payload):
         return "你轻轻带过的话，值得有人认真接下去"
     if mode == "response_priority" and _uses_local_response_priority_time_priority_variant(payload):
-        return "愿意把时间留给你的人，才是真的把你放在心上"
+        return "肯把时间补给你的人，才是真的在乎"
     if mode == "self_worth_rebuild" and _has_local_self_worth_luxury_profile(payload):
         return "把自己看重一点，关系里的分寸才会回来"
     if mode == "supportive_appreciation" and _has_local_supportive_warmth_profile(payload):
@@ -14147,7 +14148,7 @@ def _resolve_local_assets_cover_copy(
             return "你轻轻带过的话，有人真的听进去了。"
         return "有人肯再问一句，心里会先松一下。"
     if mode == "response_priority" and _uses_local_response_priority_time_priority_variant(payload):
-        return "忙完以后还记得回来找你的人，心里一直给你留着位置。"
+        return "真正让人心安的，不是秒回，是忙完还记得补一句。"
     if mode == "everyday_warmth_return" and _uses_local_everyday_warmth_small_things_priority(payload):
         return "那些不起眼的小事，才最能把日子照亮。"
     if mode == "everyday_warmth_return" and _uses_local_everyday_warmth_simple_happiness_variant(payload):
@@ -14293,7 +14294,7 @@ def _resolve_local_assets_social_teaser(
             return "一排点赞里，最暖的往往是那句认真追问。"
         return "被认真听懂一次，心里悬着的地方会先松一下。"
     if mode == "response_priority" and _uses_local_response_priority_time_priority_variant(payload):
-        lead = first if first_is_safe else "他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。"
+        lead = first if first_is_safe else "他说自己很忙那一刻，你把手机放下，原本等着的那句话也慢慢安静了。"
         return _compose_local_followup(lead, "忙完以后还记得回来找你，这份交代最让人安心。")
     if mode == "supportive_appreciation":
         if _has_local_supportive_misread_profile(payload):
@@ -14792,8 +14793,8 @@ def _build_local_publish_package_fallback(
             )
         if mode == "response_priority":
             if _uses_local_response_priority_time_priority_variant(focus_payload):
-                publish_lead = "大家都忙，这件事你明白。可把你放在心上的人，不会让一句话一直悬着。哪怕当下顾不上，他也会在忙完以后回来找你，把回应补上。"
-                abstract = "忙完还记得回来接一句，心里那点悬着就会慢慢落地。时间不一定要很多，但愿意补上的人，会让你知道自己一直被放在心上。"
+                publish_lead = "大家都忙，这件事你明白。可真正在意你的人，不会让一句话一直悬着。哪怕当下顾不上，忙完以后也会回来找你，把回应补上。"
+                abstract = "忙完还记得回来接一句，等待才不会变成自我怀疑。时间不一定要很多，关键是那个人有没有把交代补回来。"
             else:
                 if any(token in response_priority_scene_corpus for token in ("晚霞", "夕阳", "落日", "朋友圈", "照片")) and any(
                     token in response_priority_scene_corpus
