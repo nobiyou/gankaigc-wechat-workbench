@@ -10143,7 +10143,7 @@ def _resolve_local_generic_opening(
     mode_openings = {
         "everyday_warmth_return": "有些晚上，推开家门闻到饭香，人才忽然不想再和谁比较了。",
         "inner_settlement": "忙完一天回到家，把鞋摆好，给自己倒杯水；没有答案也没关系，心先有地方安静下来。",
-        "self_reliance_inward_support": "有些委屈，话到嘴边会先停一下。你开始懂得，每个人都有自己的难处，也都有撑不住的时候。",
+        "self_reliance_inward_support": "把桌上的几件事重新排一遍，你先挑最能做的那件落下去；人稳住了，日子就有了下一步。",
         "self_worth_rebuild": "你其实已经不舒服了，可那句“都可以”还是比真实想法先出了口。",
         "supportive_appreciation": "饭桌上她先问一句“还吃吗？”，像什么都没发生；可她把那口气咽下去的样子，只有熟悉她的人看得见。",
         "relationship_aftercare": "门关上以后，屋里安静了几分钟；他去厨房倒了杯水，回来时没有继续争输赢，只问你刚才是不是难受。",

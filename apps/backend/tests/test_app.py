@@ -9824,7 +9824,8 @@ def test_resolve_local_generic_opening_skips_stale_self_reliance_hook_trigger() 
         core_conflict="",
     )
 
-    assert opening == "有些委屈，话到嘴边会先停一下。你开始懂得，每个人都有自己的难处，也都有撑不住的时候。"
+    assert opening == "把桌上的几件事重新排一遍，你先挑最能做的那件落下去；人稳住了，日子就有了下一步。"
+    assert "有些委屈" not in opening
 
     default_opening = workbench._resolve_local_generic_opening(
         payload={},
@@ -9834,7 +9835,8 @@ def test_resolve_local_generic_opening_skips_stale_self_reliance_hook_trigger() 
         core_conflict="",
     )
 
-    assert default_opening == "有些委屈，话到嘴边会先停一下。你开始懂得，每个人都有自己的难处，也都有撑不住的时候。"
+    assert default_opening == "把桌上的几件事重新排一遍，你先挑最能做的那件落下去；人稳住了，日子就有了下一步。"
+    assert "有些委屈" not in default_opening
 
 
 def test_resolve_local_generic_opening_uses_concrete_resilience_scene() -> None:

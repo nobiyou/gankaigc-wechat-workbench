@@ -2284,7 +2284,7 @@ def _build_hook_trigger(
     if structure_mode == "self_worth_rebuild":
         return "你其实已经不舒服了，可那句“都可以”还是比真实想法先出了口。"
     if structure_mode == "self_reliance_inward_support":
-        return "有些委屈，话到嘴边会先停一下。你开始懂得，每个人都有自己的难处，也都有撑不住的时候。"
+        return "把眼前几件事重新排清楚，先接住自己能做的那一步。"
     if structure_mode == "trust_boundary":
         return "听见前后两个版本时，手里的筷子会先停一下。"
     if structure_mode == "response_priority":
