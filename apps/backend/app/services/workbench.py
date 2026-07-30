@@ -8468,19 +8468,19 @@ def _pick_local_seeded_pair_variant(payload: Mapping[str, object], options: tupl
 def _pick_local_self_reliance_title(payload: Mapping[str, object], lane: str = "external") -> str:
     options_by_lane: dict[str, tuple[str, ...]] = {
         "inward": (
-            "最难的时候，先把自己稳住",
-            "向内求的人，也能慢慢走出风雨",
-            "把自己稳住，选择就有了转身的余地",
+            "越难的时候，越要把日子过出顺序",
+            "向内有力量，向外才有选择",
+            "真正的底气，是能自救，也敢求助",
         ),
         "external": (
-            "没人替你扛时，先把自己扶稳",
+            "人生最稳的靠山，是那个不放弃行动的自己",
             "求助不丢人，自救也不丢人",
-            "能把自己扶稳的人，路会越走越宽",
+            "能把眼前事做好的人，路会越走越宽",
         ),
         "generic": (
             "越是乱的时候，越要先稳住自己",
             "把眼前事理清，人就不会一直被难处推着走",
-            "先把自己扶稳，才有力气接住明天",
+            "手边事一件件落下去，明天就不会一直悬着",
         ),
     }
     return _pick_local_seeded_text_variant(payload, options_by_lane.get(lane, options_by_lane["external"]))
@@ -10042,7 +10042,7 @@ def _resolve_local_fallback_mode(payload: Mapping[str, object]) -> str:
             "散掉的力气",
             "四周都腾不出空",
             "先让自己缓下来",
-            "先把今晚过稳",
+            "今晚能落下一件事",
             "先给自己点一盏灯",
         )
     ):
@@ -11468,7 +11468,7 @@ def _build_local_mode_shaped_generic_paragraphs(
         if "不是不想开口" in point_one:
             point_one = "你想找人商量，也知道别人手里可能正压着自己的事"
         point_one = _self_reliance_point(point_one, "你想找人商量，也知道别人手里可能正压着自己的事")
-        point_two = _self_reliance_point(point_two, "向内求不是硬撑，是先把情绪放低，把眼前最要紧的一件事处理好")
+        point_two = _self_reliance_point(point_two, "向内求不是硬撑，是让情绪先落地，把眼前最要紧的一件事处理好")
         point_three = _self_reliance_point(point_three, "真正托住人的，是你还愿意照顾自己、处理手边事，也知道什么时候请别人一起分担")
         point_four = _self_reliance_point(point_four, "你可以求助，也可以先自救；两件事都不丢人")
         if "你可以求助" in point_four or ("自救" in point_four and "求助" in point_four):
@@ -11480,7 +11480,7 @@ def _build_local_mode_shaped_generic_paragraphs(
             _compose_local_followup(point_two, "有人马上帮你当然很好；一时等不到，也不代表你只能停在那里。"),
             "顺序理出来，心里的慌就会退一点；手边能做的事落下去，外面的帮助来了，也更容易接得住。",
             _compose_local_followup(point_three, "你不再把全部希望压在某一个人的回应上，也不会因为暂时没人搭手，就把眼前事彻底放下。"),
-            "成年人很重要的一份底气，是需要的时候敢开口，没人立刻回应时，也能先把自己照顾住。",
+            "成年人很重要的一份底气，是需要的时候敢开口，没人立刻回应时，也不停止照顾自己。",
             _compose_local_followup(point_four, "等你把自己稳住，再去找那个真正愿意分担的人，很多话会说得更清楚，很多事也会处理得更稳。"),
         ]
     if mode == "pressure_interface_direct":
@@ -14105,9 +14105,9 @@ def _resolve_local_assets_cover_copy(
     self_reliance_cover_copy = _pick_local_seeded_text_variant(
         payload,
         (
-            "先把今晚过稳，再把难处说给愿意分担的人听。",
+            "今晚能落下一件事，明天就会多一点主动权。",
             "能自己站稳，也敢开口求助，才是真正的底气。",
-            "一时没人接住，也别忘了先把自己扶稳。",
+            "最难的时候，也别把行动交给等待。",
         ),
     )
     short_map = {
@@ -14232,7 +14232,7 @@ def _resolve_local_assets_social_teaser(
     tail_map = {
         "everyday_warmth_return": "有人惦记，话有人听，平淡日子也能把人稳稳托住。",
         "inner_settlement": "先把今天过回今天，心就慢慢有地方落下来。",
-        "self_reliance_inward_support": "先把自己扶稳，才有力气接住明天。",
+        "self_reliance_inward_support": "手边能做的事落下去，心里的慌就会退一点。",
         "self_worth_rebuild": "别让那句“都可以”，替你让掉自己的位置。",
         "response_priority": "那句顺着情绪接下去的话，往往比热闹互动更让人踏实。",
         "trust_boundary": "坦诚的分量，是把话说透，也把答应过的事做到。",
@@ -14316,7 +14316,7 @@ def _resolve_local_assets_social_teaser(
         return _compose_local_followup(lead, "把自己看重一点，关系里的分寸才会慢慢回来。")
     if mode == "self_reliance_inward_support" and _uses_local_self_reliance_shared_burden_variant(payload):
         lead = first if first_is_safe else "那句“我有点累”，在喉咙口绕了一圈，又被你慢慢咽了回去。"
-        return _compose_local_followup(lead, "先把今晚稳住，再把难处说给愿意分担的人听。")
+        return _compose_local_followup(lead, "手边能做的事先落下去，愿意分担的人也会更容易接住你。")
     if mode == "pressure_interface_direct":
         lead = first if first_is_safe else "复查提醒弹出来的时候，先别急着划掉。"
         return _compose_local_followup(lead, "把该照顾自己的那一步放回今天，日子才会一点点回到顺序里。")
@@ -14855,7 +14855,7 @@ def _build_local_publish_package_fallback(
                             "乱的时候还肯行动，人就不会一直被难处推着走。把手里的事理顺一点，心也会跟着稳一点。",
                         ),
                         (
-                            "越是乱的时候，越要先把自己扶稳。答案可以晚一点来，今天能做的那一部分，先替自己做好。",
+                            "越是乱的时候，越别把行动交给等待。答案可以晚一点来，今天能做的那一部分，先替自己做好。",
                             "把生活重新握住，常常从一个真实动作开始：能处理的先处理，该求助的去求助，该休息的也别再硬拖。",
                         ),
                         (
@@ -14983,7 +14983,7 @@ def _build_local_publish_package_fallback(
                 (
                     "那句“我有点累”，可以先留给愿意认真听的人。",
                     "求助不丢人，自救也不丢人。",
-                    "先把今晚稳住，再把难处说清。",
+                    "今晚能落下一件事，明天就会多一点主动权。",
                 ),
             )
             self_reliance_second_intro = _pick_local_seeded_text_variant(
@@ -15006,7 +15006,7 @@ def _build_local_publish_package_fallback(
             self_reliance_intro = _pick_local_seeded_text_variant(
                 focus_payload,
                 (
-                    "先把今晚稳住，再把难处说清。",
+                    "今晚能落下一件事，明天就会多一点主动权。",
                     "求助不丢人，自救也不丢人。",
                     "先照顾好自己，再去找能分担的人。",
                 ),

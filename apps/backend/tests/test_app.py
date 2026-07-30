@@ -9427,8 +9427,8 @@ def test_build_local_tracked_article_draft_fallback_self_reliance_shared_burden_
         }
     )
 
-    assert any(anchor in title for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
-    assert all(stale not in title for stale in ("主心骨", "自己的光", "日子", "下一步"))
+    assert any(anchor in title for anchor in ("求助", "自救", "眼前事", "主动权", "靠山", "行动"))
+    assert all(stale not in title for stale in ("主心骨", "自己的光", "下一步", "先把自己扶稳", "接住明天"))
     assert body_markdown.startswith(("电话拨出去之前", "电话拿起来又放下", "事情一多的时候"))
     assert "有些委屈" not in body_markdown
     assert "你把聊天框" not in body_markdown
@@ -9988,8 +9988,8 @@ def test_build_local_tracked_article_draft_fallback_uses_mode_shaped_outline_for
         }
     )
 
-    assert any(anchor in title for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
-    assert all(stale not in title for stale in ("主心骨", "自己的光", "日子", "下一步"))
+    assert any(anchor in title for anchor in ("求助", "自救", "眼前事", "主动权", "靠山", "行动", "选择"))
+    assert all(stale not in title for stale in ("主心骨", "自己的光", "下一步", "先把自己扶稳", "接住明天"))
     assert any(
         body_markdown.startswith(prefix)
         for prefix in ("电话拨出去之前", "电话拿起来又放下", "事情一多的时候")
@@ -10027,11 +10027,11 @@ def test_build_local_assets_fallback_uses_mode_shaped_social_teaser_for_self_rel
         ),
     )
 
-    assert any(anchor in assets["cover_copy"] for anchor in ("扶稳", "求助", "自救", "眼前事", "难处"))
+    assert any(anchor in assets["cover_copy"] for anchor in ("求助", "自救", "眼前事", "难处", "主动权", "行动"))
     assert "主心骨" not in assets["cover_copy"]
     assert "下一步" not in assets["cover_copy"]
     assert assets["cover_copy"].rstrip("。") != assets["recommended_title"].rstrip("。")
-    assert assets["social_teaser"] == "先把眼前最要紧的一件事放稳，心里就有了顺序。先把今晚稳住，再把难处说给愿意分担的人听。"
+    assert assets["social_teaser"] == "先把眼前最要紧的一件事放稳，心里就有了顺序。手边能做的事先落下去，愿意分担的人也会更容易接住你。"
     assert "消息框开了又关" not in assets["social_teaser"]
     assert "主心骨" not in assets["social_teaser"]
     assert "清晨餐桌或书桌" in str(assets["cover_prompt"])
@@ -10057,9 +10057,9 @@ def test_build_local_publish_package_fallback_uses_shared_burden_self_reliance_v
         assets=assets,
     )
 
-    assert any(anchor in package["publish_lead"] for anchor in ("开口", "扶稳", "分担", "处理", "判断"))
-    assert any(anchor in package["abstract"] for anchor in ("求助", "自救", "分担", "判断", "行动", "扶稳"))
-    assert any(any(anchor in item for anchor in ("求助", "自救", "扶稳", "判断", "分担")) for item in package["intro_options"])
+    assert any(anchor in package["publish_lead"] for anchor in ("开口", "行动", "分担", "处理", "判断", "接住"))
+    assert any(anchor in package["abstract"] for anchor in ("求助", "自救", "分担", "判断", "行动", "主动权"))
+    assert any(any(anchor in item for anchor in ("求助", "自救", "行动", "判断", "分担", "主动权")) for item in package["intro_options"])
     combined_package = "\n".join([package["publish_lead"], package["abstract"], *package["intro_options"]])
     for stale in ("主心骨", "人心里有了光", "有了光", "重新有下一步", "路就会慢慢亮", "我有点累", "聊天框打开又关上", "矫情"):
         assert stale not in combined_package
@@ -10085,7 +10085,7 @@ def test_build_local_publish_package_fallback_self_reliance_generic_mode_uses_di
         assets=assets,
     )
 
-    assert any(anchor in package["publish_lead"] for anchor in ("扶稳", "处理", "眼前", "呼吸"))
+    assert any(anchor in package["publish_lead"] for anchor in ("行动", "处理", "眼前", "呼吸"))
     assert any(anchor in package["abstract"] for anchor in ("判断", "行动", "求助", "处理", "救场"))
     for stale in ("硬撑", "硬熬", "慌张", "主心骨", "有了光", "下一步", "路就会慢慢亮"):
         assert stale not in package["publish_lead"]
@@ -10109,8 +10109,8 @@ def test_build_local_tracked_article_topic_fallback_uses_distinct_self_reliance_
         }
     )
 
-    assert any(anchor in topic["title"] for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
-    assert all(stale not in topic["title"] for stale in ("主心骨", "自己的光", "日子", "下一步"))
+    assert any(anchor in topic["title"] for anchor in ("求助", "自救", "眼前事", "主动权", "靠山", "行动"))
+    assert all(stale not in topic["title"] for stale in ("主心骨", "自己的光", "下一步", "先把自己扶稳", "接住明天"))
     assert topic["title"] != "即使没有帮助，也要学会自救自渡"
     assert "参考文章" not in topic["angle"]
     assert "现实触发点" not in topic["angle"]
