@@ -168,6 +168,11 @@ def test_local_tracked_article_chain_keeps_theme_specific_packaging_across_commo
 
         assert mode == expected_mode, sample_name
         assert evaluate_ai_flavor_risk(title=title, body_markdown=draft_body).score == 0, sample_name
+        paragraphs = [paragraph.strip() for paragraph in draft_body.split("\n\n") if paragraph.strip()]
+        has_shareable_line = any(8 <= len(paragraph) <= 36 for paragraph in paragraphs) or any(
+            token in paragraph for paragraph in paragraphs for token in ("写过一句", "说过一句", "有句话")
+        )
+        assert has_shareable_line, sample_name
         assert assets.social_teaser != package["publish_lead"], sample_name
         assert package["publish_lead"] != package["abstract"], sample_name
         assert not any(token in combined for token in generic_leaks), sample_name
