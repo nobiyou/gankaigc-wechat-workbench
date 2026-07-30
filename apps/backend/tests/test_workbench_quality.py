@@ -2444,9 +2444,10 @@ def test_local_supportive_discernment_publish_package_fallback_avoids_template_s
     )
 
     assert "看得清" in str(result["publish_lead"])
-    assert "语气放软" in str(result["publish_lead"])
-    assert "认真珍惜" in str(result["publish_lead"])
+    assert "场面接住" in str(result["publish_lead"])
+    assert "更该被珍惜" in str(result["publish_lead"])
     assert "给关系留一点暖意" in str(result["abstract"])
+    assert "语气放软" not in str(result["publish_lead"])
     assert "听出你话里的敷衍" not in str(result["publish_lead"])
     assert "顺口应付" not in str(result["abstract"])
 

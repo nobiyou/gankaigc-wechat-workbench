@@ -11138,19 +11138,20 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_mode_
     package = workbench._build_local_publish_package_fallback(
         draft_title="总把别人感受放在前面的人，其实最该被人好好珍惜",
         draft_body_markdown=(
-            "谁是真心，谁在敷衍，他其实都分得清。很多事他不是没看出来，只是关系摆在面前时，他总习惯先把语气放软。\n\n"
+            "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。\n\n"
             "他愿意把那点难受先放一放，也想给关系留一次回来的机会。\n\n"
             "温柔拿出来了，就该被好好接住。"
         ),
         assets=assets,
     )
 
-    assert package["publish_lead"] == "他心里什么都懂，只是轮到在乎的人，还是会先把语气放软一点。看得清，却愿意把情分放在前面，这样的温柔最该被认真珍惜。"
-    assert package["abstract"] == "心软有分寸，退让也有判断。一个人明明看得清，还愿意给关系留一点暖意，已经很难得。若你身边有这样的人，请记得好好接住他的温柔。"
+    assert package["publish_lead"] == "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。看得清，还愿意把场面接住，这份心软更该被珍惜。"
+    assert package["abstract"] == "心软有分寸，退让也有判断。他愿意给关系留一点暖意，心里装着的是情分，也是分寸。若你身边有这样的人，请记得好好接住他的温柔。"
     assert package["intro_options"][0] == package["publish_lead"]
-    assert "看得清，还愿意把语气放软的人，最该被认真珍惜。" in package["intro_options"]
+    assert "看得清，还愿意把场面接住的人，最该被认真珍惜。" in package["intro_options"]
     assert "心软不是迟钝，是明白以后还愿意留一点暖意。" in package["intro_options"]
     assert "敷衍" not in package["publish_lead"]
+    assert "他心里什么都懂" not in package["publish_lead"]
     assert "顺口应付" not in package["abstract"]
 
 
@@ -12998,11 +12999,14 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback({**payload, "outline": outline})
 
     assert title == "总把别人感受放在前面的人，其实最该被人好好珍惜"
-    assert body_markdown.startswith("他心里什么都懂，只是每次轮到在乎的人，还是会先把那点难受往回收一收。")
-    assert "心软的人，往往反应更快。" in body_markdown
+    assert body_markdown.startswith("饭桌上那句话刚落下，他夹菜的手停了一下")
+    assert "心软的人，反应往往很快。" in body_markdown
     assert "谁是真心，谁在敷衍" in body_markdown
-    assert "他不急着计较，是因为心里有判断" in body_markdown
+    assert "他不急着计较，心里有判断" in body_markdown
     assert "他递出来的，是一份有分寸的在乎，不会随手给谁。" in body_markdown
+    assert "他心里什么都懂" not in body_markdown
+    assert "很多事他不是没看出来" not in body_markdown
+    assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
     assert "明明已经有点难受了，对方把歉意说出口时" not in body_markdown
     assert "一句道歉真正有分量的地方" not in body_markdown
     assert not re.search(r"不是[^。！？!?\n]{1,40}(?:而是|也不是)", body_markdown)
@@ -13036,10 +13040,12 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
     assert title == "总把别人感受放在前面的人，其实最该被人好好珍惜"
     assert body_markdown.startswith(
         (
-            "他其实什么都懂，只是每次轮到在乎的人，还是会先把那点难受往回收一收。",
-            "很多事他不是没看出来，只是关系摆在面前时，他总习惯先把语气放软。",
+            "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。",
+            "消息里那句玩笑其实有点刺，他看了一会儿，最后只回了个轻一点的语气。",
         )
     )
+    assert "他其实什么都懂" not in body_markdown
+    assert "很多事他不是没看出来" not in body_markdown
     assert "她顺手让了一步、先顾了别人感受，结果又被当成理所当然的那一下。" not in body_markdown.split("\n\n")[0]
 
     assets_payload = workbench._build_local_assets_fallback(
@@ -13050,10 +13056,9 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
         draft_body_markdown=body_markdown,
     )
     assert assets_payload["cover_copy"] == "心软的人，往往看得很清，也把情分看得很重。"
-    assert assets_payload["social_teaser"] in {
-        "他其实什么都懂，只是每次轮到在乎的人，还是会先把那点难受往回收一收。他看得清，也愿意把情分放在前面。",
-        "很多事他不是没看出来，只是关系摆在面前时，他总习惯先把语气放软。他看得清，也愿意把情分放在前面。",
-    }
+    assert "看得清，也愿意把情分放在前面" in assets_payload["social_teaser"]
+    assert "他其实什么都懂" not in assets_payload["social_teaser"]
+    assert "很多事他不是没看出来" not in assets_payload["social_teaser"]
     assert "她看得清，也愿意把情分放在前面。" not in assets_payload["social_teaser"]
 
     assets = workbench.AssetItem(
@@ -13077,7 +13082,8 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
     )
     assert "看得清" in package["publish_lead"]
     assert "敷衍" not in package["publish_lead"]
-    assert any(fragment in package["publish_lead"] for fragment in ("放软", "留一点余地", "关系"))
+    assert any(fragment in package["publish_lead"] for fragment in ("饭桌", "场面接住", "留一点余地", "关系"))
+    assert "他心里什么都懂" not in package["publish_lead"]
     assert "吵完" not in package["publish_lead"]
     assert "冷气" not in package["publish_lead"]
 

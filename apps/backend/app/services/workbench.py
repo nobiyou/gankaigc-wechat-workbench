@@ -8512,8 +8512,8 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "他心里什么都懂，只是每次轮到在乎的人，还是会先把那点难受往回收一收。",
-                    "很多事他不是没看出来，只是关系摆在面前时，他总习惯先把语气放软。",
+                    "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。",
+                    "消息里那句玩笑其实有点刺，他看了一会儿，最后只回了个轻一点的语气。",
                 ),
             )
         if any(token in corpus for token in ("时有暴雨", "无尽暴雨", "去拥抱你", "四季平凡", "身边有你")):
@@ -9285,6 +9285,9 @@ def _has_local_supportive_discernment_profile(payload: Mapping[str, object]) -> 
             "心里其实都分得清",
             "把情分看得更重",
             "把锋芒收回去",
+            "夹菜的手停",
+            "把话题接了过去",
+            "把场面接住",
         )
     )
 
@@ -9310,17 +9313,18 @@ def _build_local_supportive_appreciation_paragraphs(
             "余地被珍惜，温柔才会留得久。那份好，不该总靠她一个人扛着，也该有人认真地回过头来护住。",
         ]
     if _has_local_supportive_discernment_profile(payload):
-        opening = intro.strip() if intro and intro.strip() and not stale_intro else "他心里什么都懂，只是每次轮到在乎的人，还是会先把锋芒收回去。"
+        opening = intro.strip() if intro and intro.strip() and not stale_intro else "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。"
         return [
             opening,
-            "心软的人，往往反应更快。谁是真心，谁在敷衍；哪句话只是无心，哪句话已经让自己不舒服，他心里都分得清。",
-            "比起当场争个输赢，他更在意眼前这个人值不值得继续走下去，这段关系还有没有必要被放回温柔里。",
-            "所以别人看到的，常常只是他先退一步、先把话放轻。却没看见，他是在看得很清的前提下，还是把情分放在了前面。",
-            "他不急着计较，是因为心里有判断；他愿意包容，也会记得什么事不能一直被带过去。",
+            "心软的人，反应往往很快。谁是真心，谁在敷衍；哪句话只是无心，哪句话已经让自己不舒服，他心里都分得清。",
+            "当场争个输赢不难，难的是还愿意看看眼前这个人值不值得继续走下去，这段关系还有没有必要被放回温柔里。",
+            "旁人多半只看见他把气氛接住了，把难听的话轻轻带过去了。看不见的是，他已经把分寸在心里量过一遍。",
+            "他不急着计较，心里有判断；他愿意包容，也会记得什么事不能一直被带过去。",
             "他肯把那些锋利先收一收，多半是因为心里还有在乎，还有舍不得。",
             "难得的地方也在这里。看得清以后还愿意体谅，明白得失以后还愿意把关系往暖处领，这份心软很有分量。",
-            "所以别只记得他好说话。也要记得，这份温柔背后，藏着很多本可以说重、最后又轻轻收回去的话。",
-            "能看懂这一层的人，自然会更珍惜。因为她知道，他递出来的，是一份有分寸的在乎，不会随手给谁。",
+            "别只记得他好说话。也要记得，这份温柔背后，藏着很多本可以说重、最后又轻轻收回去的话。",
+            "能看懂这一层的人，自然会更珍惜。他递出来的，是一份有分寸的在乎，不会随手给谁。",
+            "你若认真接住一次，他心里会记很久。温柔有了回应，才不会一点点往回收。",
             "这样的人若在你身边，别辜负他把锋芒收回去的那一下。你认真回一次，他的温柔才会一直亮着，心也会更安稳。",
         ]
     if _has_local_supportive_apology_profile(payload):
@@ -14187,7 +14191,7 @@ def _resolve_local_assets_social_teaser(
             lead = first if first_is_safe else "太好说话久了，别人很容易忘了，她也会疼。"
             return _compose_local_followup(lead, "体谅不是天生该让，能被珍惜，温柔才会一直留得住。")
         if _has_local_supportive_discernment_profile(payload):
-            lead = first if first_is_safe else "他心里什么都懂，只是每次轮到在乎的人，还是会先把锋芒收回去。"
+            lead = first if first_is_safe else "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。"
             subject = "他" if "他" in lead and "她" not in lead else "她"
             return _compose_local_followup(lead, f"{subject}看得清，也愿意把情分放在前面。")
         if _has_local_supportive_apology_profile(payload):
@@ -14745,8 +14749,8 @@ def _build_local_publish_package_fallback(
                 publish_lead = "太好说话的人，也会疼。她愿意翻篇，是因为把情分看得更重。这份体谅被认真珍惜，温柔才会留得久。"
                 abstract = "她愿意再把话接起来，已经是在给这段关系一次机会。下一次记得先听完她的话，也把答应过的改变做到。心软的人最看重的，是你真的没有让同一件事再发生。"
             elif _has_local_supportive_discernment_profile(focus_payload):
-                publish_lead = "他心里什么都懂，只是轮到在乎的人，还是会先把语气放软一点。看得清，却愿意把情分放在前面，这样的温柔最该被认真珍惜。"
-                abstract = "心软有分寸，退让也有判断。一个人明明看得清，还愿意给关系留一点暖意，已经很难得。若你身边有这样的人，请记得好好接住他的温柔。"
+                publish_lead = "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。看得清，还愿意把场面接住，这份心软更该被珍惜。"
+                abstract = "心软有分寸，退让也有判断。他愿意给关系留一点暖意，心里装着的是情分，也是分寸。若你身边有这样的人，请记得好好接住他的温柔。"
             elif any(token in draft_body_markdown for token in ("歉意", "道歉", "原谅", "真心道了歉", "把歉意说出口")):
                 publish_lead = "那句“对不起”说完，她沉默了一会儿，还是把水杯往你这边推了推。刚才的话确实伤到了她，可这段关系在她心里，比当下那口气更重要，所以她愿意再把话接起来。"
                 abstract = "道歉最有分量的部分，往往发生在下一次：你记得她为什么难过，也真的把那件事做得不一样。温柔被认真接住，才会一直是温柔。"
@@ -14909,7 +14913,7 @@ def _build_local_publish_package_fallback(
                 ]
             elif _has_local_supportive_discernment_profile(focus_payload):
                 supportive_intro_options = [
-                    "看得清，还愿意把语气放软的人，最该被认真珍惜。",
+                    "看得清，还愿意把场面接住的人，最该被认真珍惜。",
                     "心软不是迟钝，是明白以后还愿意留一点暖意。",
                 ]
             elif any(token in draft_body_markdown for token in ("歉意", "道歉", "原谅", "真心道了歉", "把歉意说出口")):
