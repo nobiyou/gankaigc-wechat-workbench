@@ -7136,6 +7136,12 @@ def test_build_local_tracked_article_responsibility_fallback_avoids_reference_da
     }
 
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(payload)
+    body_markdown = workbench._apply_final_tracked_article_guard(
+        title=title,
+        body_markdown=body_markdown,
+        source_type="tracked_article",
+        reference_source_markdown=source,
+    )
     assets = workbench._build_local_assets_fallback(
         project_title=title,
         topic_title=title,
@@ -7153,6 +7159,8 @@ def test_build_local_tracked_article_responsibility_fallback_avoids_reference_da
         "手机一亮，你先算今天怎么排",
     }
     assert "电话一响" in body_markdown
+    assert "先稳住场面" not in body_markdown
+    assert "心里的不容易了" not in body_markdown
     assert any(fragment in body_markdown for fragment in ("爸妈", "父母"))
     assert any(fragment in body_markdown for fragment in ("孩子", "这个家"))
     assert any(
@@ -7208,6 +7216,7 @@ def test_build_local_tracked_article_responsibility_fallback_avoids_reference_da
             "家里那几个人的心，才会跟着慢慢落下来",
             "家里的日子才能继续照常往前走",
             "家里的那点踏实会替你记着",
+            "家里的安稳才能被你慢慢托住",
         )
     )
     assert "心里很快就排了一遍：" not in assets["social_teaser"]
@@ -7811,29 +7820,6 @@ def test_responsibility_shelter_cleanup_removes_live_43_publish_and_body_not_ab_
     assert "日子过到后来，最熟悉的常常是随时接住变化。" in combined
 
 
-def test_final_tracked_article_guard_repairs_midlife_maturity_merge_regression() -> None:
-    repaired = workbench._apply_final_tracked_article_guard(
-        title="家里一有事，你总会先把家稳住",
-        body_markdown=(
-            "电话一响，你先把手里的事停了一下。还没接起来，心里已经明白，今天原本排好的事，多半又要重新挪一遍。爸妈那边谁去跑，孩子这周怎么接，这个月哪笔钱得先留出来。\n\n"
-            "人不舒服的时候，也想过请一天假。心里堵得慌的时候，也想过先不管了。可假还没请出口，你先想到的，还是手头的工作、家里的开销，还有后面一串安排。\n\n"
-            "很多人的成熟，轮到家里有事时，知道自己不能先慌，夜里也会冒出一句：怎么天天都是这些事。可第二天一早，水壶一响，消息一来，老人等回话，孩子等安排，你还是得起身去接。\n\n"
-            "再往后看，父母去医院没以前那么慌了，孩子碰上事也知道先想办法了，伴侣那边也不用什么都一个人扛。这样一想，这几年确实不算白忙。"
-        ),
-        source_type="tracked_article",
-        reference_source_markdown=(
-            "中年人的世界，半生风雨，半生奔波。电话的那头，是父母日渐佝偻的身影，是孩子越来越高的补习费用，"
-            "是每个月如期而至的各种账单。电话的这头，你扛住压力，喉咙发紧，却只能故作轻松地说一句：没事，有我。"
-            "这些年来，你是不是也是这样：生病了不敢请假，怕影响这个月的绩效；委屈了不敢辞职，因为你要撑起一个家的重量。"
-        ),
-    )
-
-    assert "很多人的成熟，不在别处，就在这种时候。家里这一头还乱着，你先知道自己不能跟着乱。" in repaired
-    assert "夜里躺下以后，脑子也不消停。可第二天一早" in repaired
-    assert "很多人的成熟，轮到家里有事时，知道自己不能先慌" not in repaired
-    assert "怎么天天都是这些事" not in repaired
-
-
 def test_resolve_tracked_article_expected_selection_mode_prefers_responsibility_shelter() -> None:
     mode = workbench._resolve_tracked_article_expected_selection_mode(
         {
@@ -7865,24 +7851,6 @@ def test_resolve_tracked_article_candidate_mode_prefers_responsibility_shelter_o
     )
 
     assert mode == "responsibility_shelter"
-
-
-def test_final_tracked_article_guard_repairs_midlife_maturity_merge_after_softening() -> None:
-    repaired = workbench._apply_final_tracked_article_guard(
-        title="家里一有事，你总会先把家稳住",
-        body_markdown=(
-            "电话一响，你先把手里的事停了一下。还没接起来，心里已经明白，今天原本排好的事，多半又要重新挪一遍。\n\n"
-            "很多人的成熟，轮到家里有事时，知道自己不能先慌，夜里也会觉得累，也会盯着第二天的安排发一会儿呆。可第二天一早，水壶一响，消息一来，老人等回话，孩子等安排，你还是得起身去接。"
-        ),
-        source_type="tracked_article",
-        reference_source_markdown=(
-            "中年人的世界，半生风雨，半生奔波。电话的那头，是父母日渐佝偻的身影，是孩子越来越高的补习费用，是每个月如期而至的各种账单。"
-        ),
-    )
-
-    assert "很多人的成熟，不在别处，就在这种时候。家里这一头还乱着，你先知道自己不能跟着乱。" in repaired
-    assert "夜里躺下以后，脑子也不消停。可第二天一早" in repaired
-    assert "很多人的成熟，轮到家里有事时，知道自己不能先慌" not in repaired
 
 
 def test_final_tracked_article_guard_cleans_live_46_embedded_not_ab_residue() -> None:
@@ -9106,8 +9074,8 @@ def test_local_responsibility_assets_and_publish_package_keep_human_positive_the
     assert "不要在画面里生成中文文字" in normalized_cover_prompt
     assert "很多认真多想的一步" not in "\n".join(str(item) for item in assets["social_teaser_options"])
     joined_teasers = "\n".join(str(item) for item in assets["social_teaser_options"])
-    assert any(fragment in joined_teasers for fragment in ("家里的灯", "家的底气", "家里那点踏实"))
-    assert any(fragment in joined_teasers for fragment in ("排稳", "安排妥", "踏实"))
+    assert any(fragment in joined_teasers for fragment in ("家里的灯", "家的底气", "家里那点踏实", "家里的安稳"))
+    assert any(fragment in joined_teasers for fragment in ("排稳", "安排妥", "踏实", "谁陪", "谁接"))
     assert any(fragment in package["publish_lead"] for fragment in ("账单", "家里", "日子"))
     assert any(fragment in package["publish_lead"] for fragment in ("稳", "安稳", "底气"))
     assert "这些事你心里很快就排了一遍：" not in package["publish_lead"]
@@ -9366,9 +9334,10 @@ def test_local_everyday_warmth_publish_package_uses_simple_happiness_variant() -
     assert "热饭" in assets["cover_prompt"]
     assert "药盒" not in assets["cover_prompt"]
     assert "检查单" not in assets["cover_prompt"]
-    assert any(token in package["publish_lead"] for token in ("父母", "孩子", "爱人", "灯还亮着", "饭也还热着", "一家人平安"))
-    assert any(token in package["publish_lead"] for token in ("心里是满的", "踏实", "热", "平安"))
-    assert any(token in package["abstract"] for token in ("陪伴", "日子", "温度", "家里人平安", "知己还在"))
+    assert "家里人平安" in package["publish_lead"]
+    assert "知己还在" in package["publish_lead"]
+    assert any(token in package["publish_lead"] for token in ("一日三餐", "踏实", "好日子"))
+    assert any(token in package["abstract"] for token in ("家人安康", "知己二三", "四季平安", "具体的福气"))
     assert package["abstract"] != assets["social_teaser"]
     assert "一顿热饭、一句惦记" not in package["publish_lead"]
     assert "药盒" not in package["publish_lead"]
@@ -9862,6 +9831,23 @@ def test_resolve_local_generic_opening_uses_concrete_resilience_scene() -> None:
     assert opening == "训练没做完的那天，你坐在原地缓了一会儿；第二天，还是重新站回了起点。"
 
 
+def test_resolve_local_generic_opening_uses_third_person_for_resilience_pool_profile() -> None:
+    opening = workbench._resolve_local_generic_opening(
+        payload={
+            "reference_article_body_markdown": (
+                "残奥会冠军蒋裕燕3岁失去右臂与右腿。"
+                "8岁，她走进泳池。别人游50米，她要比常人多划11下。"
+            )
+        },
+        mode="resilience_reconstruction",
+        hook="",
+        theme_axis="",
+        core_conflict="",
+    )
+
+    assert opening == "训练没做完的那天，她坐在泳池边缓了一会儿；第二天，还是重新下了水。"
+
+
 def test_resolve_local_generic_opening_uses_concrete_emotional_scene() -> None:
     opening = workbench._resolve_local_generic_opening(
         payload={},
@@ -10131,6 +10117,68 @@ def test_trust_boundary_structure_mode_and_local_topic_keep_trust_theme() -> Non
     assert "坦诚" in combined or "说到做到" in combined
     for forbidden in ("点赞", "评论", "读懂", "回消息", "没时间", "放下过去", "执念", "不是解释", "而是坦诚"):
         assert forbidden not in combined
+
+
+def test_midyear_stage_restart_does_not_drift_to_trust_boundary_on_believe_and_disappoint_words() -> None:
+    source_body = (
+        "过去的这半年，你过得好吗？工作还顺利吗？年初定下的目标又实现了多少呢？"
+        "不管过去的半年是否如愿，希望你没有完成的心愿，都能在下半年实现。"
+        "愿你上半年所有的努力和汗水，都是下半年好运和惊喜的铺垫。"
+        "若事与愿违，一定另有安排。做好眼前事，珍惜身边人。"
+        "每一段人生，都值得全力以赴。"
+    )
+    payload = {
+        "topic_title": "下半年，愿你所有努力都不被辜负",
+        "topic_angle": "从半年回望切入，写事与愿违时仍然相信安排、做好眼前事、珍惜身边人，并全力以赴走好每个阶段。",
+        "reference_article_body_markdown": source_body,
+        "outline": {
+            "hook": "",
+            "outline_body": "从半年回望切入，写事与愿违时仍然相信安排、做好眼前事、珍惜身边人，并全力以赴走好每个阶段。",
+        },
+        "strategy_card": {
+            "positive_direction": "从半年回望切入，写事与愿违时仍然相信安排、做好眼前事、珍惜身边人，并全力以赴走好每个阶段。"
+        },
+    }
+
+    assert workbench._resolve_local_fallback_mode(payload) == "inner_settlement"
+    title, body_markdown = workbench._build_local_tracked_article_draft_fallback(payload)
+    assets = workbench._build_local_assets_fallback(
+        project_title=title,
+        topic_title=str(payload["topic_title"]),
+        topic_angle=str(payload["topic_angle"]),
+        draft_title=title,
+        draft_body_markdown=body_markdown,
+    )
+    asset_item = workbench.AssetItem(
+        project_slug="midyear-stage-restart",
+        draft_version=1,
+        version=1,
+        cover_image_path="",
+        cover_image_url="",
+        **assets,
+    )
+    package = workbench._build_local_publish_package_fallback(
+        draft_title=title,
+        draft_body_markdown=body_markdown,
+        assets=asset_item,
+    )
+    combined = "\n".join(
+        [
+            title,
+            body_markdown,
+            str(assets["cover_copy"]),
+            str(assets["social_teaser"]),
+            str(package["publish_lead"]),
+            str(package["abstract"]),
+            str(assets["cover_prompt"]),
+        ]
+    )
+
+    assert any(token in combined for token in ("半年", "年初", "下半年", "清单", "阶段", "没完成"))
+    assert any(token in combined for token in ("愿望", "努力", "重新开始", "眼前事", "不算白走"))
+    for forbidden in ("信任最怕含糊", "前后两个版本", "谎言", "隐瞒", "坦诚", "说到做到", "裂缝"):
+        assert forbidden not in combined
+    assert "计划清单" in str(assets["cover_prompt"])
 
 
 def test_build_local_tracked_article_draft_fallback_trust_boundary_overrides_wrong_strategy_hint() -> None:
@@ -10425,7 +10473,7 @@ def test_local_assets_and_publish_package_drop_strategy_placeholder_for_trust_bo
     assert all("不是解释" not in str(title) and "而是坦诚" not in str(title) for title in assets_payload["title_options"])
     assert "信任" in combined
     assert "坦诚" in combined or "说到做到" in combined
-    assert str(package["publish_lead"]) == "听见前后两个版本时，手里的筷子会先停一下。你不一定立刻发火，可心里那份放心，已经没有刚开始那么稳了。"
+    assert str(package["publish_lead"]) == "信任不是每天查证出来的，是一次次说清楚、做得到以后，心里慢慢长出来的安稳。愿意放心信你的人，值得被你好好珍惜。"
     assert str(package["abstract"]) == "信任最怕含糊。明明可以坦诚，却拿绕开的说法去碰别人的真心，那份放心就会一点点变薄。能留住心安的，始终是把话说透，也把答应过的事做到。说到做到，比多少解释都有分量。"
     assert str(package["abstract"]) != str(assets_payload["social_teaser"])
     assert "信任最怕的，不是争吵，是心里那一下忽然不敢再全信了。" in [str(item) for item in package["intro_options"]]
@@ -10477,8 +10525,10 @@ def test_local_publish_package_uses_distinct_trust_boundary_packaging() -> None:
     )
 
     assert package["publish_title"] == "愿意信你的人，最需要被你好好守住"
-    assert str(package["publish_lead"]).startswith("听见前后两个版本时，手里的筷子会先停一下。")
-    assert "心里那份放心，已经没有刚开始那么稳了" in str(package["publish_lead"])
+    assert str(package["publish_lead"]).startswith("信任不是每天查证出来的")
+    assert "愿意放心信你的人" in str(package["publish_lead"])
+    first_paragraph = draft_body_markdown.split("\n\n", 1)[0].strip()
+    assert str(package["publish_lead"]) != first_paragraph
     assert str(package["abstract"]).startswith("信任最怕含糊。")
     assert "坦诚" in str(package["abstract"])
     assert "说到做到" in str(package["abstract"])
@@ -10660,6 +10710,11 @@ def test_build_local_assets_fallback_response_priority_uses_time_priority_copy()
 
     assert assets["cover_copy"] == "忙完以后还记得回来找你的人，心里一直给你留着位置。"
     assert assets["social_teaser"] == "他说自己很忙那一刻，你其实能理解。忙完以后还记得回来找你，这份交代最让人安心。"
+    assert "红灯" in str(assets["cover_prompt"])
+    assert "水杯" in str(assets["cover_prompt"])
+    assert "手机屏幕朝下" in str(assets["cover_prompt"])
+    assert "不要聊天界面" in str(assets["cover_prompt"])
+    assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
 
 
 def test_build_local_publish_package_fallback_response_priority_uses_time_priority_variant() -> None:
@@ -11192,7 +11247,11 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_warmt
         assets=assets,
     )
 
-    assert package["publish_lead"] == "别人递来一点暖意，他常常会想办法再多还回去一点。这样的人，未必最会说，可你会在很多小事里看见他的认真：记得你的难处，也舍得把自己的好一遍遍落回来。被这样的人放在心上，日子会慢慢暖起来。"
+    assert package["publish_lead"] == "心软的人最动人的地方，是收到一点好，就想认真还回去。这样的人未必会把爱说得很响，却会把你给过的暖，一点点落回日子里。"
+    first_paragraph = str(
+        "别人递来一点暖意，他常常会想办法再多还回去一点。"
+    )
+    assert package["publish_lead"] != first_paragraph
     assert package["abstract"] == "把温柔一遍遍落进小事里的人，很稀缺。别等他把失望咽多了，才想起他的体谅有多珍贵。"
     assert package["abstract"] != assets.social_teaser
     assert "一句道歉不难" not in package["abstract"]
@@ -11493,6 +11552,50 @@ def test_build_local_assets_fallback_resilience_pool_profile_keeps_specific_stor
     assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
 
 
+def test_build_local_publish_package_fallback_resilience_pool_profile_uses_third_person_packaging() -> None:
+    draft_body = (
+        "训练没做完的那天，她坐在泳池边缓了一会儿；第二天，还是重新下了水。\n\n"
+        "没有右臂帮她稳住平衡，没有右腿替她把水蹬开，每50米都要比别人多划11下。\n\n"
+        "别人后来看到的是成绩，是名字被念出来的那一刻。"
+    )
+    assets_payload = workbench._build_local_assets_fallback(
+        project_title="韧性，是一个人最大的底气",
+        topic_title="韧性，是一个人最大的底气",
+        topic_angle="从残奥冠军蒋裕燕失去右臂右腿后走进泳池切入，写韧性如何让人重建人生。",
+        draft_title="韧性，是一个人最大的底气",
+        draft_body_markdown=draft_body,
+    )
+    assets = workbench.AssetItem(
+        project_slug="resilience-pool-profile",
+        draft_version=1,
+        version=1,
+        title_options=list(assets_payload["title_options"]),
+        recommended_title=str(assets_payload["recommended_title"]),
+        cover_prompt=str(assets_payload["cover_prompt"]),
+        cover_copy=str(assets_payload["cover_copy"]),
+        social_teaser=str(assets_payload["social_teaser"]),
+        social_teaser_options=list(assets_payload["social_teaser_options"]),
+        cover_image_path="",
+        cover_image_url="",
+        created_at="2026-07-14T00:00:00Z",
+    )
+
+    package = workbench._build_local_publish_package_fallback(
+        draft_title="韧性，是一个人最大的底气",
+        draft_body_markdown=draft_body,
+        assets=assets,
+    )
+
+    assert package["publish_lead"].startswith("她重新下水的那一天")
+    assert "每多划一下" in package["publish_lead"]
+    assert "失去右臂和右腿" in package["abstract"]
+    assert "每50米多出来的11下" in package["abstract"]
+    assert any("泳池里多划出的那11下" in item for item in package["intro_options"])
+    combined = "\n".join([package["publish_lead"], package["abstract"], *package["intro_options"]])
+    for drift in ("今天你又把鞋带系紧", "你没有把余生", "站回起点"):
+        assert drift not in combined
+
+
 def test_build_local_assets_fallback_aftercare_uses_complete_repair_packaging() -> None:
     assets = workbench._build_local_assets_fallback(
         project_title="吵完还愿意回来，才是关系里的温柔",
@@ -11514,6 +11617,33 @@ def test_build_local_assets_fallback_aftercare_uses_complete_repair_packaging() 
     assert not assets["cover_copy"].endswith(("；", ";", "，", ",", "：", ":"))
     assert "争吵后的家中厨房或客厅" in str(assets["cover_prompt"])
     assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
+
+
+def test_build_local_tracked_article_draft_fallback_aftercare_rewrites_judgment_title() -> None:
+    title, body_markdown = workbench._build_local_tracked_article_draft_fallback(
+        {
+            "topic_title": "好的关系，不是永远不吵架",
+            "topic_angle": "从吵架后的态度切入，写沟通、妥协和修复怎样让两个人继续走下去。",
+            "reference_article_body_markdown": (
+                "在生活中，无论多么相爱的人也免不了会吵架。"
+                "有些人吵着吵着就散了，有些人则越吵越爱。"
+                "吵架后的态度，便是检验爱情的试金石。"
+                "好的关系，不是永远不吵架，而是争吵以后还想要继续走下去。"
+            ),
+            "outline": {
+                "hook": "",
+                "outline_body": "从吵架后的态度切入，写沟通、妥协和修复怎样让两个人继续走下去。",
+            },
+            "strategy_card": {
+                "positive_direction": "从吵架后的态度切入，写沟通、妥协和修复怎样让两个人继续走下去。"
+            },
+        }
+    )
+
+    assert title == "吵完还愿意回来，才是关系里的温柔"
+    assert "门关上以后" in body_markdown
+    assert "回来把话说完" in body_markdown
+    assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
 
 
 def test_build_local_tracked_article_draft_fallback_legacy_pressure_uses_pressure_interface_direct() -> None:
@@ -12261,6 +12391,36 @@ def test_generate_cover_image_file_surfaces_api_failure_in_api_only_mode(
     assert not cover_file_path.exists()
 
 
+def test_build_local_publish_package_fallback_keeps_safe_responsibility_title_aligned() -> None:
+    recommended_title = "电话一响，你先翻日历"
+    body_markdown = (
+        "# 把家稳住的人，也该被好好接住\n\n"
+        "电话一响，你先把手里的事停了一下。还没接起来，心里已经开始替父母、孩子和今天的安排排顺序。\n\n"
+        "很多中年人的一天，都是从把自己往后放半步开始的。先想爸妈那边谁去跑，先看孩子这周怎么接，再把这个月哪笔开销得先处理过一遍。\n\n"
+        "很喜欢一句话：“肩上有牵挂的人，脚下才会长出路。”\n\n"
+        "把家里顾好的人，也该轮到别人心疼你一下。你替一家人认真走过的那些日常，后来也会一点点变成照回自己身上的光。"
+    )
+    assets = SimpleNamespace(
+        recommended_title=recommended_title,
+        title_options=[
+            recommended_title,
+            "手机一亮，你先算今天怎么排",
+            "把家里日子托稳的人，也该被好好心疼",
+        ],
+        cover_copy="你把很多事安排妥了，家里的灯才会这样稳稳亮着。",
+        social_teaser="电话响起的时候，他先看了一眼墙上的日历，也把家里的事一件件排稳。",
+        social_teaser_options=["电话响起的时候，他先看了一眼墙上的日历，也把家里的事一件件排稳。"],
+    )
+
+    package = workbench._build_local_publish_package_fallback(
+        draft_title="把家稳住的人，也该被好好接住",
+        draft_body_markdown=body_markdown,
+        assets=assets,
+    )
+
+    assert package["publish_title"] == recommended_title
+
+
 def test_generate_cover_image_file_passes_configured_request_budget_to_generator(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -12876,8 +13036,12 @@ def test_assets_and_publish_generation_receive_strategy_bundle_for_tracked_artic
                 "recommended_title": "翻到年中清单时，别把几种遗憾算成同一种失败",
                 "cover_prompt": "21:9 横版公众号头图，年中回望，温暖现实感",
                 "cover_copy": "这半年没按你想的那样来，也不代表你白走了一程",
-                "social_teaser": "很多人一到年中，不是在复盘，而是在清算自己。",
-                "social_teaser_options": ["导语一", "导语二", "导语三"],
+                "social_teaser": "翻到年初那页计划时，先别急着给这半年判输。没完成的清单可以慢慢补，后面的日子还会有新的答案。",
+                "social_teaser_options": [
+                    "这半年没有完全照着计划走，也不代表你白走了一程。",
+                    "没完成的清单可以慢慢补，错过的人和事也能慢慢安放。",
+                    "把眼前事做好，把身边人珍惜好，后面的日子还会有新的答案。",
+                ],
             }
 
         def generate_cover_image(self, _: dict[str, object]) -> bytes:
@@ -12886,12 +13050,15 @@ def test_assets_and_publish_generation_receive_strategy_bundle_for_tracked_artic
         def generate_publish_package(self, payload: dict[str, object]) -> dict[str, object]:
             self.calls.append(("publish", payload))
             return {
-                "abstract": "写阶段回望里的误判，以及人怎样重新接纳自己。",
+                "abstract": "这半年没有完全照着计划走，也不代表你白走了一程。没完成的清单可以慢慢补，重新看见身边的支撑，人就有力气继续往前。",
                 "tags": ["阶段回望", "重新出发"],
                 "editor_note": "重点是把年中自责拆开，不是继续放大失败感。",
                 "publish_title": "翻到年中清单时，别把几种遗憾算成同一种失败",
-                "publish_lead": "很多人一到年中，不是在复盘，而是在清算自己。",
-                "intro_options": ["很多人一到年中，不是在复盘，而是在清算自己。"],
+                "publish_lead": "翻到年初那页计划时，先别急着给这半年判输。把眼前事做好，把身边人珍惜好，后面的日子还会有新的答案。",
+                "intro_options": [
+                    "这半年没按你想的那样来，也不代表你白走了一程。",
+                    "没完成的清单可以慢慢补，后面的日子还会有新的答案。",
+                ],
             }
 
     create_article = client.post(

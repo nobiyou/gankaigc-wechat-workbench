@@ -167,9 +167,8 @@ _TRACKED_ARTICLE_DANGER_FRAGMENT_REPLACEMENTS = {
     "还没发生的": "尚未走到眼前的",
     "没事，有我": "我来想办法",
     "没事有我": "我来想办法",
-    "“我没事”": "先稳住场面",
-    "我没事": "先稳住场面",
     "这个月的绩效": "手头的工作考核",
+    "这个月的": "眼下这段时间的",
     "缴费窗口前": "办事窗口前",
     "缴费窗口": "办事窗口",
     "一个家的": "一家人的",
@@ -213,8 +212,7 @@ _TRACKED_ARTICLE_DANGER_FRAGMENT_REPLACEMENTS = {
 _RESPONSIBILITY_ONLY_DANGER_FRAGMENTS = {
     "没事，有我",
     "没事有我",
-    "“我没事”",
-    "我没事",
+    "这个月的",
 }
 PIPELINE_BATCH_TASK_TYPES = (
     "batch_continue_projects",
@@ -366,6 +364,11 @@ def _apply_initial_draft_candidate_cleanups(
 ) -> tuple[str, int]:
     current_body = _strip_draft_response_wrappers(title=title, body_markdown=body_markdown)
     changed_steps = int(current_body != body_markdown)
+    responsibility_cleanup = source_type == "tracked_article" and _looks_like_responsibility_shelter_output(
+        title=title,
+        body_markdown=current_body,
+        reference_source_markdown=reference_source_markdown,
+    )
 
     cleanup_steps = _get_initial_draft_candidate_cleanup_steps(source_type=source_type)
     segmented_collapse_applied = False
@@ -376,6 +379,8 @@ def _apply_initial_draft_candidate_cleanups(
     }
 
     for step_name, cleanup_fn in cleanup_steps:
+        if responsibility_cleanup and step_name == "soften_not_ab_residue":
+            continue
         if segmented_collapse_applied and step_name in post_collapse_split_steps:
             continue
         collapsed_body = cleanup_fn(
@@ -399,6 +404,13 @@ def _apply_initial_draft_candidate_cleanups(
         if rewritten_body != current_body:
             changed_steps += 1
             current_body = rewritten_body
+
+    if responsibility_cleanup:
+        responsibility_body = _sanitize_responsibility_shelter_output_text(current_body)
+        responsibility_body = _split_responsibility_shelter_output_paragraphs(responsibility_body)
+        if responsibility_body != current_body:
+            changed_steps += 1
+            current_body = responsibility_body
 
     return current_body, changed_steps
 
@@ -441,10 +453,11 @@ def _rewrite_tracked_article_danger_fragments(
     if not source_markdown.strip() or not body_markdown.strip():
         return body_markdown
 
-    responsibility_focus = _has_everyday_warmth_responsibility_shelter_focus(
-        {"body_markdown": source_markdown}
+    responsibility_focus = _looks_like_responsibility_shelter_output(
+        title="",
+        body_markdown="",
+        reference_source_markdown=source_markdown,
     )
-
     rewritten = body_markdown
     for hit in _find_danger_fragment_hits(source_markdown, body_markdown):
         replacement = _TRACKED_ARTICLE_DANGER_FRAGMENT_REPLACEMENTS.get(hit.fragment)
@@ -624,7 +637,7 @@ def _normalize_tracked_article_source_name(source_name: str | None) -> str:
 
 def _get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
+    connection = sqlite3.connect(DB_PATH, timeout=30)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -3226,7 +3239,6 @@ _RESPONSIBILITY_SHELTER_METADATA_REPLACEMENTS = (
     ("长期疲惫、委屈、想停下却不敢停的内在消耗", "现实责任和自己也需要被照顾之间的拉扯"),
     ("长期疲惫", "长时间不容易"),
     ("疲惫", "不容易"),
-    ("委屈", "心里的不容易"),
     ("内在消耗", "心里的不容易"),
     ("消耗", "不容易"),
     ("孤撑感", "被理解的责任感"),
@@ -3234,8 +3246,6 @@ _RESPONSIBILITY_SHELTER_METADATA_REPLACEMENTS = (
     ("咬牙", "撑着"),
     ("没事，有我", "先把家里理顺"),
     ("没事有我", "先把家里理顺"),
-    ("“我没事”", "先把家里理顺"),
-    ("我没事", "先把家里理顺"),
     ("喉咙发紧", "心里开始排顺序"),
     ("万般辛苦", "那些认真托住日子的时刻"),
     ("人间安稳", "家里的踏实"),
@@ -8906,22 +8916,23 @@ def _uses_local_responsibility_endurance_variant(payload: Mapping[str, object]) 
         if token in corpus
     )
     has_i_am_ok = "没事，有我" in corpus
-    support_hits = sum(
+    endurance_scene_hits = sum(
         1
         for token in (
-            "喉咙发紧",
-            "半生风雨",
-            "半生奔波",
-            "请假",
-            "绩效",
             "辞职",
-            "天亮之前",
+            "缴费窗口",
+            "每一个黑夜",
+            "撑起一片晴空",
             "暖黄灯光",
             "热气腾腾",
         )
         if token in corpus
     )
-    return hard_endurance_hits >= 1 or (has_i_am_ok and support_hits >= 2 and "我没事" in corpus)
+    return hard_endurance_hits >= 1 or (
+        has_i_am_ok
+        and "我没事" in corpus
+        and endurance_scene_hits >= 2
+    )
 
 
 def _has_local_responsibility_endurance_concrete_duty(payload: Mapping[str, object]) -> bool:
@@ -9059,62 +9070,6 @@ def _pick_local_responsibility_text_variant(payload: Mapping[str, object], optio
     )
     seed = seed or _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
     return options[sum(ord(char) for char in seed) % len(options)]
-
-
-def _resolve_local_responsibility_opening(payload: Mapping[str, object]) -> str:
-    corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
-    if "请假" in corpus and "绩效" in corpus:
-        return _pick_local_responsibility_text_variant(
-            payload,
-            (
-                "请假两个字在心里转了一圈，先冒出来的却是这个月家里的安排。",
-                "请假申请还没点下去，你已经先把这个月的工作、父母和孩子的事排了一遍。",
-            ),
-        )
-    if "辞职" in corpus:
-        return _pick_local_responsibility_text_variant(
-            payload,
-            (
-                "辞职的念头不是没有来过，只是想到家里那几件事，又先被轻轻放回去。",
-                "那一刻当然也想转身离开，可家里的日子还要有人慢慢托住。",
-            ),
-        )
-    if any(token in corpus for token in ("缴费窗口", "医院", "复诊")):
-        return _pick_local_responsibility_text_variant(
-            payload,
-            (
-                "办事窗口前那几分钟，很多人想的不是自己多累，而是家里人能不能少一点慌。",
-                "医院走廊的灯亮得很白，你先想的却是怎么让父母和孩子都安心一点。",
-            ),
-        )
-    if any(token in corpus for token in ("账单", "缴费", "催款")):
-        return _pick_local_responsibility_text_variant(
-            payload,
-            (
-                "那张账单摊在桌上时，很多人先算的不是自己还有多少力气，而是家里接下来怎么稳住。",
-                "缴费提醒跳出来时，抱怨还没出口，心里已经开始把能调整的地方重新排了一遍。",
-                "现实开销一项项摆到眼前，人才会突然明白，责任不是口号，是今天先把日子托住。",
-            ),
-        )
-    if any(token in corpus for token in ("电话", "来电", "接电话")) and any(token in corpus for token in ("父母", "孩子", "伴侣", "家里")):
-        return _pick_local_responsibility_text_variant(
-            payload,
-            (
-                "那通电话挂断后，屋里安静了一会儿，心里的顺序反而更清楚了。",
-                "父母的叮嘱、孩子的安排和家里的事一起涌上来时，人会先学着把声音放稳。",
-                "家里临时有事的时候，很多人第一反应不是喊累，而是先把眼前的顺序理清。",
-            ),
-        )
-    if any(token in corpus for token in ("放学", "门口", "等你")):
-        return "站在学校门口等孩子出来的时候，忽然会明白，有人朝你奔来，本身就是很大的安慰。"
-    return _pick_local_responsibility_text_variant(
-        payload,
-        (
-            "很多中年人的一天，都是从先把家里的事安排稳开始的。",
-            "日子过到后来，最先被放到心上的，常常不是自己想要什么，而是家里还缺什么。",
-            "一个家要往前走，总会有人先把那些细小安排放在心上。",
-        ),
-    )
 
 
 def _resolve_local_responsibility_quote(payload: Mapping[str, object]) -> str:
@@ -9693,6 +9648,10 @@ def _resolve_local_responsibility_warmth_detail(payload: Mapping[str, object]) -
         return "孩子从学校门口朝你跑过来的那一下，会让你忽然觉得，这一天再难也不是白过。"
     if any(token in corpus for token in ("夜灯", "灯还亮着", "回来了", "热汤", "晚饭")):
         return "回到家那盏还亮着的灯，会把一个人从一天的奔忙里轻轻接回来。"
+    if any(token in corpus for token in ("父母", "爸妈")) and "孩子" in corpus and any(
+        token in corpus for token in ("电话", "来电", "路上")
+    ):
+        return "后来再看，爸妈再遇事时，电话那头没以前那么慌了；孩子碰上事情，也知道先稳一下再想办法了。"
     if "父母" in corpus and any(token in corpus for token in ("电话", "来电", "路上")):
         return "电话那头一句“你慢点”，就够让悬着的心往下落一点。"
     return "推门时屋里还有一盏灯亮着，这件事本身就是继续往前走的底气。"
@@ -9700,7 +9659,14 @@ def _resolve_local_responsibility_warmth_detail(payload: Mapping[str, object]) -
 
 def _resolve_local_responsibility_draft_opening(payload: Mapping[str, object]) -> str:
     scene_kind = _resolve_local_responsibility_scene_kind(payload)
-    intro = _resolve_local_responsibility_opening(payload)
+    opening_by_scene = {
+        "medical": "医院走廊的灯亮得很白，你先想的是怎么让家里人少一点慌。",
+        "schedule": "请假申请还没点下去，你已经先把工作、父母和孩子的事排了一遍。",
+        "bills": "账单摊在桌上时，你先把能调整的地方圈了出来。",
+        "pickup": "站在学校门口等孩子出来时，一天的奔忙忽然有了很具体的答案。",
+        "call": "电话一响，你先把手里的事停了一下。还没接起来，心里已经开始替父母、孩子和今天的安排排顺序。",
+        "family": "家里临时有事时，你先想的是眼前这件事该怎么接。",
+    }
     followup_by_scene = {
         "medical": "你先把缴费、复查和回家的安排理清，让家里人心里都有一个落点。",
         "schedule": "你先把工作、父母和孩子的事排一遍，想让每一头都稳一点。",
@@ -9709,6 +9675,7 @@ def _resolve_local_responsibility_draft_opening(payload: Mapping[str, object]) -
         "call": "你先把声音放稳，把父母、孩子和家里的安排一件件理清。",
         "family": "你先想的是眼前这件事该怎么接，家里的心才不会跟着乱。",
     }
+    intro = opening_by_scene.get(scene_kind, opening_by_scene["family"])
     return _compose_local_followup(intro, followup_by_scene.get(scene_kind, followup_by_scene["family"]))
 
 
@@ -9767,6 +9734,7 @@ def _resolve_local_responsibility_publish_lead(payload: Mapping[str, object]) ->
         "call": (
             "电话一响，你先想的不是自己累不累。"
             "父母那边谁陪、孩子这边谁接，家里的安排都要一件件往前排。"
+            "把顺序理清，家里的心也就稳一点。"
         ),
         "family": (
             "家里临时有事时，你先把手里的事停一下。"
@@ -9783,7 +9751,7 @@ def _resolve_local_responsibility_publish_abstract(payload: Mapping[str, object]
         "schedule": "请假前先把工作、父母和孩子的安排过一遍，是很多成年人很真实的一刻。你不是只会硬撑，而是心里一直装着要照顾的人。把眼前的顺序理清，日子就会多一点安稳。",
         "bills": "账单和开销摆到眼前时，人会先想着怎样让日子照常往前。你把能调的地方一点点排稳，那份细小的认真，会慢慢变成一家人的底气。",
         "pickup": "校门口那一下很小，却能把一天的辛苦轻轻接住。有人朝你奔来，有人等你回家，生活就不只是忙和累，也有值得继续往前的光。",
-        "call": "嘴上那句“没事”后面的辛苦，常常藏在一通电话里。父母那边谁陪、孩子这边谁接、家里那口悬着的气，都要有人先稳住。等到家里的灯又稳稳亮着，你会知道这些年真没白忙。",
+        "call": "嘴上那句“没事”后面的辛苦，常常藏在一通电话里。父母那边谁陪、孩子这边谁接、家里那口悬着的气，都要有人先稳住。等到家里的灯又稳稳亮着，日子照常往前，你会知道这些年真没白忙。",
         "family": "家里临时有事时，你总会先把人安顿好，再想自己。那些不张扬的认真，会在父母安心、孩子踏实和屋里那盏灯里慢慢显出意义。",
     }
     return abstract_by_scene.get(scene_kind, abstract_by_scene["family"])
@@ -9916,7 +9884,6 @@ def _resolve_local_fallback_mode(payload: Mapping[str, object]) -> str:
             "信任",
             "谎言",
             "隐瞒",
-            "辜负",
             "坦诚",
             "说到做到",
             "赤诚",
@@ -10147,6 +10114,11 @@ def _resolve_local_generic_opening(
         return _ensure_sentence_end(cleaned)
     if mode_reference_opening:
         return _ensure_sentence_end(mode_reference_opening)
+    resilience_opening = (
+        "训练没做完的那天，她坐在泳池边缓了一会儿；第二天，还是重新下了水。"
+        if _has_local_resilience_pool_profile(payload)
+        else "训练没做完的那天，你坐在原地缓了一会儿；第二天，还是重新站回了起点。"
+    )
     mode_openings = {
         "everyday_warmth_return": "有些晚上，推开家门闻到饭香，人才忽然不想再和谁比较了。",
         "inner_settlement": "忙完一天回到家，把鞋摆好，给自己倒杯水；没有答案也没关系，心先有地方安静下来。",
@@ -10156,7 +10128,7 @@ def _resolve_local_generic_opening(
         "relationship_aftercare": "门关上以后，屋里安静了几分钟；他去厨房倒了杯水，回来时没有继续争输赢，只问你刚才是不是难受。",
         "trust_boundary": "听见前后两个版本时，手里的筷子会先停一下。",
         "response_priority": "晚霞照片发出去以后，点赞很快就铺满屏幕；真正让你停下来的，是有人问你今天是不是很累。",
-        "resilience_reconstruction": "训练没做完的那天，你坐在原地缓了一会儿；第二天，还是重新站回了起点。",
+        "resilience_reconstruction": resilience_opening,
         "emotional_engine_direct": "路过那家旧店时，你脚步慢了一下，才发现有些告别并不会在当天结束。",
         "scene_first_progression": "那句话停在嘴边的时候，关系其实已经轻轻往后退了一步。",
         "pressure_interface_direct": "复查提醒弹出来的时候，手指先停一下。那张被改过几次的预约，终于又被你圈回日历上。",
@@ -10585,23 +10557,29 @@ def _uses_local_everyday_warmth_simple_happiness_variant(payload: Mapping[str, o
     corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
     if not corpus:
         return False
-    anchor_hits = sum(
+    strong_anchor_hits = sum(
         1
         for token in (
             "大富大贵",
             "简单快乐",
             "知己二三",
+            "有家人有知己",
+            "知己仍在",
+            "知己还在",
             "家人安康",
             "一家温暖",
             "四季平安",
             "高朋满座",
             "香车美宅",
-            "有家可回",
-            "有人可爱",
         )
         if token in corpus
     )
-    return anchor_hits >= 2
+    support_hits = sum(
+        1
+        for token in ("家人平安", "家里人平安", "有家可回", "有人可爱", "一日三餐", "平淡日子")
+        if token in corpus
+    )
+    return strong_anchor_hits >= 2 or (strong_anchor_hits >= 1 and support_hits >= 1)
 
 
 def _uses_local_self_reliance_shared_burden_variant(payload: Mapping[str, object]) -> bool:
@@ -11381,10 +11359,8 @@ def _build_local_mode_shaped_generic_paragraphs(
 
 def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> tuple[str, str]:
     outline = payload.get("outline")
-    hook = ""
     outline_body = ""
     if isinstance(outline, Mapping):
-        hook = str(outline.get("hook") or "").strip()
         outline_body = str(outline.get("outline_body") or "").strip()
     points = _extract_local_draft_outline_points(outline_body)
     strategy_card = payload.get("strategy_card")
@@ -11405,7 +11381,6 @@ def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> 
             if _has_local_responsibility_endurance_concrete_duty(payload)
             else _resolve_local_responsibility_endurance_topic_title(payload)
         )
-    intro = _resolve_local_responsibility_opening(payload)
     quote = _resolve_local_responsibility_quote(payload)
     second_point = _resolve_local_fallback_point(
         points[1] if len(points) > 1 else "",
@@ -11429,19 +11404,20 @@ def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> 
                 f"{responsibility_opening}很多中年人的“我没事”，都是在这种时候先说出口的。",
                 responsibility_daily_detail,
                 "生病了不是不想请假，委屈了也不是没想过转身。只是申请还没点下去，脑子里已经先把手头的工作考核、家里的支出和后面的安排排了一遍。",
-                "所以那句“我没事”，很多时候都带着一点仓促。你知道自己一慌，家里那几个人心里就更没底。",
-                "你当然也会在夜里问一句：这样熬，到底值不值得。可第二天一早，水壶响了，消息来了，老人等回话，孩子等安排，你还是会把该接的事一件件接回来。",
-                "直到有一天你发现，父母去医院没那么慌了，孩子遇事先想到办法了，伴侣也不再一个人硬扛。你才慢慢明白，那些咽回去的辛苦，并没有白受。",
-                "原来所谓安稳，不是生活突然变轻了。是账单还会来，责任还在肩上，可一家人已经被你和他们一起托得更稳了一点。",
+                "很多时候你不是比谁更有答案，只是知道这会儿不能让家里那头先乱。于是声音先放稳，最急的那件事先接过来，自己的那口气再晚一点慢慢喘。",
+                "很喜欢一句话：“肩上有牵挂的人，脚下才会长出路。”人到中年，许多选择看起来是在往前赶，其实都是在替爱的人把路铺平一点。",
+                "夜里躺下以后，脑子还在给白天那几件事排先后。你也会问一句：这样忙，到底值不值得。问完没有答案，只能翻个身，告诉自己明早先把哪件事办了。",
+                "后来再看，父母遇到医院的事没那么慌了，孩子碰上难题也知道先稳一下再想办法，伴侣累的时候终于肯说一句“你帮我想想”。这些变化都不响亮，却让你知道，忙过的路没有白走。",
+                "你忙这一圈，心里惦记的其实很简单：爸妈来电话别先慌，孩子碰上事知道还有人顶着。家里的日子不必多体面，只要每个人遇事时都还有一点底气。",
                 "推门回家的时候，桌上给你留着一口热饭，屋里有人顺手接过你的包，说一句先坐会儿。那一刻人不会一下子被治愈，却会真真切切地松一口气。",
-                "你这些年拼命往前，说到底还是想让爱的人少一点慌，多一点底气。",
-                "所以啊，把家撑住的人，也别总把自己忘在最后。你替一家人扛住的那些日常，后来都会一点点变成照回自己身上的光。",
+                "把家里顾好的人，也该轮到别人心疼你一下。别总等所有事都稳了，才想起自己也累。你替一家人认真走过的那些日常，后来也会一点点变成照回自己身上的光。",
             ]
             return title, "\n\n".join(paragraphs)
         paragraphs = [
             f"{responsibility_opening}很多中年人的“我没事”，都是在这种时候先说出口的。",
             "成年人最常说的谎，大概就是“我没事”。不是没觉得难，也不是没觉得累，只是你心里明白，自己这一乱，家里那几个人就会更没底。",
             "生病了想请假，先想到的是手头的工作考核；心里发涩的时候想转身，先想到的是家里的开销和孩子接下来的安排。不是谁天生更会扛，只是轮到你时，你总会先把自己放到后面。",
+            "很喜欢一句话：“肩上有牵挂的人，脚下才会长出路。”那些被你反复排顺的日常，最后都会替一家人攒下看得见的底气。",
             "你也会在夜里问一句：这样熬，到底值不值得。可第二天一早，水烧开了，消息响了，家里那头等着回话，你还是会把该做的事一件件接起来。",
             "真正把人撑住的，常常不是一句“再坚持一下”，而是你慢慢看见，那些咽下去的辛苦，真的在替家里换来一点安稳。",
             "父母去医院时少一点踌躇，孩子遇事时多一点底气，伴侣在风雨来的时候，知道这个家还有人一起撑。原来你熬过的每一晚，都没有白熬。",
@@ -11491,6 +11467,8 @@ def _build_local_generic_tracked_article_draft(payload: Mapping[str, object]) ->
 
     title = str(payload.get("topic_title") or payload.get("project_title") or "把眼前这件事重新说清").strip()
     title = _normalize_self_reliance_local_title(payload, title)
+    if mode == "relationship_aftercare":
+        title = _normalize_relationship_aftercare_local_title(title)
     intro = _resolve_local_generic_opening(
         payload=payload,
         mode=mode,
@@ -12520,7 +12498,20 @@ def _packaging_focus_markers(structure_mode: str) -> tuple[str, ...]:
     mapping: dict[str, tuple[str, ...]] = {
         "everyday_warmth_return": ("大事", "小事", "简单快乐", "家人", "平安", "知己", "人间烟火"),
         "responsibility_shelter": ("责任", "来电", "电话", "日历", "安排", "顺序", "家里", "托住"),
-        "inner_settlement": ("心安", "放平", "从容", "归处", "和解", "安顿"),
+        "inner_settlement": (
+            "心安",
+            "放平",
+            "从容",
+            "归处",
+            "和解",
+            "安顿",
+            "半年",
+            "年初",
+            "计划",
+            "清单",
+            "阶段",
+            "重新出发",
+        ),
         "self_reliance_inward_support": ("向内求", "自救", "自渡", "靠自己", "托住", "稳住"),
         "self_worth_rebuild": ("养贵", "边界", "门槛", "标准", "体面", "尊重自己", "将就", "放轻"),
         "response_priority": ("没时间", "优先", "顺序", "回应", "在乎", "时间在哪儿", "评论", "追问", "读懂", "理解", "被看见", "安稳"),
@@ -13373,7 +13364,20 @@ def _packaging_title_focus_markers(structure_mode: str) -> tuple[str, ...]:
     mapping: dict[str, tuple[str, ...]] = {
         "everyday_warmth_return": ("大事", "小事", "家人", "家里", "日子", "饭桌", "回家", "电话", "安稳"),
         "responsibility_shelter": ("责任", "来电", "电话", "日历", "安排", "顺序", "家里", "托住"),
-        "inner_settlement": ("心安", "放平", "从容", "归处", "安顿", "和解"),
+        "inner_settlement": (
+            "心安",
+            "放平",
+            "从容",
+            "归处",
+            "安顿",
+            "和解",
+            "半年",
+            "年初",
+            "计划",
+            "清单",
+            "阶段",
+            "重新出发",
+        ),
         "self_reliance_inward_support": ("向内", "靠自己", "自救", "自渡", "托住", "稳住", "今天"),
         "self_worth_rebuild": ("养贵", "边界", "门槛", "标准", "体面", "尊重自己", "将就"),
         "response_priority": ("时间", "优先", "回应", "在乎", "读懂", "理解", "被看见"),
@@ -13818,6 +13822,23 @@ def _normalize_self_reliance_local_title(payload: Mapping[str, object], title: s
     return cleaned
 
 
+def _normalize_relationship_aftercare_local_title(title: str) -> str:
+    cleaned = str(title or "").strip()
+    if not cleaned:
+        return "吵完还愿意回来，才是关系里的温柔"
+    stale_markers = (
+        "好的关系，不是",
+        "好的关系不是",
+        "真正爱你的人",
+        "一个人到底爱不爱你",
+        "吵一架就知道",
+        "不是永远不吵架",
+    )
+    if any(marker in cleaned for marker in stale_markers) or _looks_like_packaging_title_judgment_template(cleaned):
+        return "吵完还愿意回来，才是关系里的温柔"
+    return cleaned
+
+
 def _dedupe_safe_packaging_text_options(
     values: list[str],
     *,
@@ -13838,6 +13859,32 @@ def _dedupe_safe_packaging_text_options(
     if fallback and fallback not in safe:
         safe.insert(0, fallback)
     return safe or [fallback]
+
+
+def _is_safe_direct_publish_title_for_responsibility(payload: Mapping[str, object], title: str) -> bool:
+    cleaned = str(title or "").strip()
+    if not cleaned:
+        return False
+    unsafe_tokens = (
+        "没事，有我",
+        "没事有我",
+        "我没事",
+        "这个月的绩效",
+        "缴费窗口",
+        "一个家的",
+        "咽",
+        "压着",
+        "发紧",
+        "撑住",
+        "硬撑",
+    )
+    return (
+        not _starts_with_generic_packaging_openers(cleaned)
+        and not _looks_like_packaging_title_judgment_template(cleaned)
+        and not _looks_like_packaging_instruction_leakage(cleaned)
+        and not _looks_like_explanatory_responsibility_shelter_title(cleaned)
+        and not any(token in cleaned for token in unsafe_tokens)
+    )
 
 def _resolve_local_assets_cover_copy(
     *,
@@ -14144,6 +14191,9 @@ def _resolve_local_mode_cover_prompt(
         "relationship_aftercare": (
             "争吵后的家中厨房或客厅，一个人端着温水重新走回来，两个人隔着半张桌子坐下，身体姿态逐渐放松，暖灯把关系重新照亮"
         ),
+        "response_priority": (
+            "傍晚车内或路口红灯前，一个人把水杯放回杯架，手机屏幕朝下放在副驾或桌边，手指停在一条未读提醒旁，画面只表现等待和被想起的瞬间"
+        ),
         "resilience_reconstruction": resilience_scene,
     }
     scene = str(scene_map.get(mode) or "").strip()
@@ -14436,6 +14486,9 @@ def _build_local_publish_package_fallback(
     )
     publish_title = title_options[0]
     responsibility_focus = _should_use_local_responsibility_shelter_fallback(focus_payload)
+    if responsibility_focus and _is_safe_direct_publish_title_for_responsibility(focus_payload, assets.recommended_title):
+        publish_title = assets.recommended_title.strip()
+        title_options = _dedupe_nonempty_text_options([publish_title, *title_options])
     if responsibility_focus:
         publish_lead = _resolve_local_responsibility_publish_lead(focus_payload)
     else:
@@ -14489,7 +14542,7 @@ def _build_local_publish_package_fallback(
                     "过日子最踏实的时刻，是你说一句“今晚加班”，对方不用猜，也不用查。有人肯这样相信你，是把心里最柔软的地方交给了你。这份放心，比多少情话都难得，值得用同样的坦荡认真守住。",
                 )
             return (
-                "听见前后两个版本时，手里的筷子会先停一下。你不一定立刻发火，可心里那份放心，已经没有刚开始那么稳了。",
+                "信任不是每天查证出来的，是一次次说清楚、做得到以后，心里慢慢长出来的安稳。愿意放心信你的人，值得被你好好珍惜。",
                 "信任最怕含糊。明明可以坦诚，却拿绕开的说法去碰别人的真心，那份放心就会一点点变薄。能留住心安的，始终是把话说透，也把答应过的事做到。说到做到，比多少解释都有分量。",
             )
 
@@ -14523,12 +14576,12 @@ def _build_local_publish_package_fallback(
                     publish_lead = "那天你把手机扣在桌上，顺手说了句“没事”。他没有急着追问，只是把手边的水推过来，等你愿意开口。这样的在意，不会催你马上说明白。"
                     abstract = "点赞可以很快，认真听完却需要耐心。有人愿意记住你语气里的变化，等你把话说完整，那份在意就不止是互动，而是把你当成一个具体的人在珍惜。"
         elif mode == "everyday_warmth_return":
-            if _uses_local_everyday_warmth_small_things_variant(focus_payload):
+            if _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
+                publish_lead = "人到后来才懂，幸福不一定要很大的样子。家里人平安，知己还在，一日三餐有人惦记，就已经是很踏实的好日子。"
+                abstract = "大富大贵未必能让心安下来，家人安康、知己二三、四季平安，反而最能托住一个人的后半程。能把这样的日子守住，就是很具体的福气。"
+            elif _uses_local_everyday_warmth_small_things_variant(focus_payload):
                 publish_lead = "周末陪父母在小区慢慢走一圈，陪孩子把积木铺满地，再和爱人拎着菜回家。一天没有发生什么大事，可晚上躺下时，心里是满的。"
                 abstract = "属于你的生活，很少写在履历上。它藏在一次没有催促的散步、一个肯好好陪伴的下午里。把这些小事捡回来，日子就有了温度。"
-            elif _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
-                publish_lead = "回家时那盏灯还亮着，饭也还热着。忙了一整天以后，人想要的也许就是这份踏实。"
-                abstract = "家里人平安，知己还在，想说的话还有人听。能把这样的日子守住，已经很难得。"
             else:
                 publish_lead = "回家时那盏灯还亮着，饭也还热着。忙了一天的人，常常就是被这些细碎又实在的小事轻轻接住。"
                 abstract = "家里人平安，想说的话有人听，再普通的一天也会让人心里发暖。一顿热饭、一句惦记，就够人踏实很久。"
@@ -14596,7 +14649,7 @@ def _build_local_publish_package_fallback(
                 publish_lead = "那句“对不起”说完，她沉默了一会儿，还是把水杯往你这边推了推。刚才的话确实伤到了她，可这段关系在她心里，比当下那口气更重要，所以她愿意再把话接起来。"
                 abstract = "道歉最有分量的部分，往往发生在下一次：你记得她为什么难过，也真的把那件事做得不一样。温柔被认真接住，才会一直是温柔。"
             elif _has_local_supportive_warmth_profile(focus_payload):
-                publish_lead = "别人递来一点暖意，他常常会想办法再多还回去一点。这样的人，未必最会说，可你会在很多小事里看见他的认真：记得你的难处，也舍得把自己的好一遍遍落回来。被这样的人放在心上，日子会慢慢暖起来。"
+                publish_lead = "心软的人最动人的地方，是收到一点好，就想认真还回去。这样的人未必会把爱说得很响，却会把你给过的暖，一点点落回日子里。"
                 abstract = "把温柔一遍遍落进小事里的人，很稀缺。别等他把失望咽多了，才想起他的体谅有多珍贵。"
             else:
                 publish_lead = "饭桌上的气氛刚有点僵，她先夹了一筷子菜，问了句：“还吃吗？”她也会难受，只是舍不得让在乎的人一直隔着一口气。"
@@ -14616,8 +14669,12 @@ def _build_local_publish_package_fallback(
             publish_lead = "门关上以后，谁都没再说话。过了一会儿，他把热水放到你手边，低声问：“刚才是不是让你难受了？”"
             abstract = "争吵不会因为一句话马上消失，关系却可以从这句追问重新开始。把该道的歉道清楚，把下次要改的地方记在心里，两个人都肯往前一步，伤口就不会只剩下伤口。"
         elif mode == "resilience_reconstruction":
-            publish_lead = "昨天没做成的那件事，今天你又把鞋带系紧，站回了起点。韧性有时很安静，摔过以后还愿意再试一次，疼过以后还肯把身体一点点练回来。"
-            abstract = "生活给过你缺口，你没有把余生交给那个缺口。一次训练、一次复盘、一次重新出发，这些看起来不起眼的坚持，会慢慢长成你自己的力量。"
+            if _has_local_resilience_pool_profile(focus_payload):
+                publish_lead = "她重新下水的那一天，命运给过的缺口还在，疼也还在。可每多划一下，身体就多记住一点力量，人生也被她一点点练回自己手里。"
+                abstract = "失去右臂和右腿，没有替她写完人生。手术台、泳池、每50米多出来的11下，都在把她重新托起来。真正的韧性，是疼过以后还肯继续生长。"
+            else:
+                publish_lead = "昨天没做成的那件事，今天你又把鞋带系紧，站回了起点。韧性有时很安静，摔过以后还愿意再试一次，疼过以后还肯把身体一点点练回来。"
+                abstract = "生活给过你缺口，你没有把余生交给那个缺口。一次训练、一次复盘、一次重新出发，这些看起来不起眼的坚持，会慢慢长成你自己的力量。"
         elif mode == "emotional_engine_direct":
             if _uses_local_emotional_regret_forward_variant(focus_payload):
                 publish_lead = "阿婆把那条旧裙子叠起来时，像是把当年那句“如果去了会不会不一样”也轻轻收好。人真正往前走，不是忘了遗憾，而是不再让遗憾替今天做主。"
@@ -14642,21 +14699,21 @@ def _build_local_publish_package_fallback(
             and not _looks_like_packaging_instruction_leakage(item)
         ]
         if mode == "everyday_warmth_return":
-            if _uses_local_everyday_warmth_small_things_variant(focus_payload):
-                intro_options = _dedupe_nonempty_text_options(
-                    [
-                        publish_lead,
-                        "陪父母走慢一点，陪孩子玩久一点，日子会把这些时间还成温暖。",
-                        "履历写不下的陪伴，往往才是后来最舍不得丢的生活。",
-                        *intro_options,
-                    ]
-                )
-            elif _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
+            if _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
                 intro_options = _dedupe_nonempty_text_options(
                     [
                         publish_lead,
                         "能守住一日三餐和几句真心话，就是很具体的幸福。",
                         "家里人平安，老朋友还在，平凡日子也会发光。",
+                        *intro_options,
+                    ]
+                )
+            elif _uses_local_everyday_warmth_small_things_variant(focus_payload):
+                intro_options = _dedupe_nonempty_text_options(
+                    [
+                        publish_lead,
+                        "陪父母走慢一点，陪孩子玩久一点，日子会把这些时间还成温暖。",
+                        "履历写不下的陪伴，往往才是后来最舍不得丢的生活。",
                         *intro_options,
                     ]
                 )
@@ -14836,14 +14893,18 @@ def _build_local_publish_package_fallback(
                 ]
             )
         elif mode == "resilience_reconstruction":
-            intro_options = _dedupe_nonempty_text_options(
+            resilience_intro_options = (
                 [
-                    publish_lead,
+                    "泳池里多划出的那11下，会慢慢把命运没给的部分练回来。",
+                    "她不是没有疼过，只是疼过以后，还是一次次回到水里。",
+                ]
+                if _has_local_resilience_pool_profile(focus_payload)
+                else [
                     "今天还能把鞋带系紧、站回起点，本身就是一种力量。",
                     "生活留下的缺口，不会替你决定余生。",
-                    *intro_options,
                 ]
             )
+            intro_options = _dedupe_nonempty_text_options([publish_lead, *resilience_intro_options, *intro_options])
         if publish_lead and publish_lead not in intro_options:
             intro_options = [publish_lead, *intro_options]
         if not intro_options and publish_lead:
@@ -17255,7 +17316,6 @@ _RESPONSIBILITY_SHELTER_OUTPUT_REPLACEMENTS = (
     ("风浪", "忙乱"),
     ("委屈、疲惫、害怕", "心里的不容易和慌乱"),
     ("疲惫", "不容易"),
-    ("委屈", "心里的不容易"),
     ("咬牙", "撑着"),
     ("不是不想轻松一点，是知道日子不能只凭情绪往前走。", "也想轻松一点，只是知道日子不能只凭情绪往前走。"),
     ("很多坚持不是为了证明什么，而是为了把一家人的日子慢慢收拢起来。", "很多坚持，是为了把一家人的日子慢慢收拢起来。"),
@@ -17593,7 +17653,7 @@ def _sanitize_responsibility_shelter_output_text(value: str) -> str:
     cleaned = re.sub(r"还有一句更实在[:：]", "", cleaned)
     cleaned = re.sub(r"另一句(?:更实在)?是[:：]", "", cleaned)
     cleaned = re.sub(r"读到最后你会发现[，,]", "读到最后会明白，", cleaned)
-    cleaned = re.sub(r"你会发现[，,]", "慢慢走到后来，", cleaned)
+    cleaned = re.sub(r"你会发现[，,]", "慢慢也就明白，", cleaned)
     cleaned = cleaned.replace("后来你会看见，", "后来再看，")
     cleaned = cleaned.replace("手机一响，你还没看清是谁，心里已经先把父母、孩子和这个月的安排过了一遍。", "家里一有事，父母、孩子和这个月的安排就会先排到心里。")
     cleaned = cleaned.replace("手机屏幕亮起的一刻，家里的事也跟着排到心里来。", "家里的事一冒出来，人就会先把眼前的顺序理清。")
@@ -17696,8 +17756,6 @@ def _sanitize_responsibility_shelter_output_text(value: str) -> str:
         "路还长，但这一路不是白走。你正用自己的方式，把日子往能住下去的方向慢慢推过去。",
     )
     cleaned = _strip_responsibility_shelter_instruction_leakage(cleaned)
-    cleaned = cleaned.replace("电话那头", "手机那头")
-    cleaned = cleaned.replace("电话这头", "屏幕这边")
     cleaned = _soften_responsibility_shelter_not_ab_residue(cleaned)
     cleaned = re.sub(r"(^|\n)\s*金句[:：]\s*", r"\1", cleaned)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
@@ -17830,23 +17888,6 @@ def _split_responsibility_shelter_output_paragraphs(markdown: str) -> str:
     return "\n\n".join(rebuilt_blocks)
 
 
-def _repair_responsibility_shelter_output_residue(
-    *,
-    title: str,
-    body_markdown: str,
-    reference_source_markdown: str = "",
-) -> str:
-    if not _looks_like_responsibility_shelter_output(
-        title=title,
-        body_markdown=body_markdown,
-        reference_source_markdown=reference_source_markdown,
-    ):
-        return body_markdown
-    cleaned = _sanitize_responsibility_shelter_output_text(body_markdown)
-    cleaned = _split_responsibility_shelter_output_paragraphs(cleaned)
-    return cleaned if cleaned != body_markdown else body_markdown
-
-
 def _sanitize_responsibility_shelter_result_fields(
     *,
     ai_result: Mapping[str, object],
@@ -17942,18 +17983,6 @@ def _apply_final_tracked_article_guard(
         reference_source_markdown=reference_source_markdown,
     )
     current_body = _repair_tracked_article_fragment_residue(title=title, body_markdown=current_body)
-    current_body = _repair_responsibility_shelter_output_residue(
-        title=title,
-        body_markdown=current_body,
-        reference_source_markdown=reference_source_markdown,
-    )
-    if _looks_like_responsibility_shelter_output(
-        title=title,
-        body_markdown=current_body,
-        reference_source_markdown=reference_source_markdown,
-    ):
-        current_body = _sanitize_responsibility_shelter_output_text(current_body)
-        current_body = _split_responsibility_shelter_output_paragraphs(current_body)
     return current_body
 
 
@@ -18793,7 +18822,7 @@ def _resolve_tracked_article_candidate_mode(*, title: str, markdown: str) -> str
         return "self_worth_rebuild"
     if any(
         token in scene_text
-        for token in ("信任", "谎言", "隐瞒", "辜负", "坦诚", "说到做到", "赤诚", "裂了一道缝")
+        for token in ("信任", "谎言", "隐瞒", "坦诚", "说到做到", "赤诚", "裂了一道缝")
     ):
         return "trust_boundary"
     if _has_local_trust_boundary_focus(payload):

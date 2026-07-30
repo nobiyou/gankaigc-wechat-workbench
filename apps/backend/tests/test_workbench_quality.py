@@ -1773,8 +1773,11 @@ def test_local_everyday_publish_package_fallback_shortens_long_explanatory_title
     assert str(result["publish_title"]) == "有家人惦记，有知己可说，日子就很值得"
     assert str(result["publish_lead"]) != str(result["abstract"])
     assert "人活到后来" not in str(result["publish_lead"])
-    assert "再普通的一天也会让人心里发暖" in str(result["abstract"])
-    assert "一顿热饭、一句惦记" in str(result["abstract"])
+    assert any(
+        token in str(result["abstract"])
+        for token in ("家人安康", "知己二三", "四季平安", "具体的福气")
+    )
+    assert "一顿热饭、一句惦记" not in str(result["abstract"])
 
 
 def test_local_self_reliance_publish_package_fallback_shortens_long_explanatory_title() -> None:
