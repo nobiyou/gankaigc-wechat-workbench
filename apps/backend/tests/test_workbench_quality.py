@@ -337,6 +337,9 @@ def test_local_self_worth_luxury_draft_avoids_not_ab_skeleton() -> None:
     assert "不是突然端着" not in body_markdown
     assert "门槛不是拿来为难别人的" not in body_markdown
     assert "不是高傲，是清醒" not in body_markdown
+    assert "下班后的电话" in body_markdown
+    assert "你比较细心" in body_markdown
+    assert body_markdown.count("先把场面") <= 1
     assert summary.score < 20
 
 
