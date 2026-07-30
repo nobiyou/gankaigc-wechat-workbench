@@ -10724,6 +10724,25 @@ def test_build_local_tracked_article_draft_fallback_response_priority_time_prior
     assert body_markdown.startswith("他说自己很忙那一刻，你把手机放下，心里那点期待也跟着安静了一下。")
 
 
+def test_resolve_local_fallback_mode_detects_response_priority_without_literal_no_time() -> None:
+    body = (
+        "红灯30秒也能回一条消息。"
+        "真正把你放在心上的人，会在碎片时间里回应你，"
+        "让你知道自己不是被顺手路过，而是认真被看见。"
+    )
+
+    mode = workbench._resolve_local_fallback_mode(
+        {
+            "source_type": "tracked_article",
+            "article_title": "愿意回应你的人，心里早有你的位置",
+            "body_markdown": body,
+            "reference_article_body_markdown": body,
+        }
+    )
+
+    assert mode == "response_priority"
+
+
 def test_build_local_assets_fallback_response_priority_uses_time_priority_copy() -> None:
     assets = workbench._build_local_assets_fallback(
         project_title="愿意把时间留给你的人，才是真的把你放在心上",
@@ -10813,11 +10832,10 @@ def test_build_local_assets_fallback_response_priority_title_beats_self_reliance
         ),
     )
 
-    assert assets["cover_copy"] == "消息、评论或碎片时间被给出去的那一下，谁真正被排在了前面。"
-    assert (
-        assets["social_teaser"]
-        == "消息、评论或碎片时间被给出去的那一下，谁真正被排在了前面。那句顺着情绪接下去的话，往往比热闹互动更让人踏实。"
-    )
+    assert assets["cover_copy"] == "忙完以后还记得回来找你的人，心里一直给你留着位置。"
+    assert "回来找你" in assets["social_teaser"]
+    assert any(token in assets["social_teaser"] for token in ("放在心上", "安心", "排在了前面"))
+    assert all(token not in assets["social_teaser"] for token in ("自救", "自渡", "向内求"))
 
 
 def test_build_local_tracked_article_draft_fallback_inner_settlement_uses_mode_voice() -> None:
