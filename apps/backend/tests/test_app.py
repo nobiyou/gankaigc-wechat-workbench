@@ -11517,6 +11517,26 @@ def test_build_local_publish_package_fallback_emotional_release_uses_memory_refl
     assert "有些往事会反复回来" in package["intro_options"][1]
 
 
+def test_build_local_tracked_article_topic_fallback_uses_forgiveness_release_title() -> None:
+    topic = workbench._build_local_tracked_article_topic_fallback(
+        {
+            "source_type": "tracked_article",
+            "article_title": "学会原谅，也是放过自己",
+            "body_markdown": (
+                "毛姆在《面纱》中说，人世间的一切都是如此短暂易逝。"
+                "我们在计较、埋怨、讨厌乃至憎恨那些让我们不痛快的人和事时，心情并没有因此爽朗开阔。"
+                "哪怕只是为了自己，你也应该学会原谅和宽恕。"
+                "当你看透了无常，世事尽可原谅。原谅别人的同时，也是宽宥自己。"
+            ),
+        }
+    )
+
+    assert topic["title"] == "放过别人，也是把自己从旧事里放出来"
+    assert "旧怨" in topic["angle"]
+    assert "原谅不是替谁开脱" in topic["angle"]
+    assert "很多答案，都是把日子过到眼前以后" not in topic["title"]
+
+
 def test_local_emotional_release_uses_forgiveness_variant_instead_of_old_relationship_default() -> None:
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(
         {

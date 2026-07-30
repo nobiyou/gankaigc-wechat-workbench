@@ -105,6 +105,11 @@ def test_local_tracked_article_chain_keeps_theme_specific_packaging_across_commo
             "成年人的关系原本就是一段一段的。接纳离开，允许一切发生，也允许一切结束。感谢相遇，不谈亏欠。",
         ),
         (
+            "forgiveness",
+            "emotional_engine_direct",
+            "我们在计较、埋怨、憎恨那些让自己不痛快的人和事时，心情并不会因此开阔。学会原谅和宽恕，也是把自己从旧怨里放出来。",
+        ),
+        (
             "pressure",
             "pressure_interface_direct",
             "复查提醒改了一次又一次，晚饭也总往后拖。照顾自己不是暂停责任，而是把生活顺序一点点调回来。",

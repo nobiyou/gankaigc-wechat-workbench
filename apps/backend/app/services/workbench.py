@@ -3746,8 +3746,9 @@ def _should_rewrite_emotional_release_topic(payload: Mapping[str, object], ai_re
     memory_variant = _uses_local_emotional_memory_presence_variant(payload) or _uses_local_emotional_memory_reflux_variant(payload)
     endings_acceptance_variant = _uses_local_emotional_endings_acceptance_variant(payload)
     regret_forward_variant = _uses_local_emotional_regret_forward_variant(payload)
+    forgiveness_release_variant = _uses_local_emotional_forgiveness_release_variant(payload)
     if not _has_broad_emotional_release_focus(payload) and not (
-        memory_variant or endings_acceptance_variant or regret_forward_variant
+        memory_variant or endings_acceptance_variant or regret_forward_variant or forgiveness_release_variant
     ):
         return False
     title = str(ai_result.get("title") or "").strip()
@@ -3802,6 +3803,7 @@ def _rewrite_emotional_release_topic(payload: Mapping[str, object], ai_result: M
     joined_cues = " ".join(cues)
     regret_forward = _uses_local_emotional_regret_forward_variant(payload)
     endings_acceptance = _uses_local_emotional_endings_acceptance_variant(payload)
+    forgiveness_release = _uses_local_emotional_forgiveness_release_variant(payload)
     reflux_anchor = any(
         token in corpus or token in joined_cues
         for token in (
@@ -3823,6 +3825,8 @@ def _rewrite_emotional_release_topic(payload: Mapping[str, object], ai_result: M
     memory_presence = (not memory_reflux) and (not regret_forward) and _uses_local_emotional_memory_presence_variant(payload)
     if regret_forward:
         new_title = "旧事可以收起来，脚下的路还要往前走"
+    elif forgiveness_release:
+        new_title = "放过别人，也是把自己从旧事里放出来"
     elif endings_acceptance:
         new_title = "有些相遇没能走到最后，却会悄悄成全后来的你"
     elif memory_presence:
@@ -3842,6 +3846,13 @@ def _rewrite_emotional_release_topic(payload: Mapping[str, object], ai_result: M
             "写人为什么会反复替过去改写结局；"
             "重点不是劝人忘记遗憾，而是把回不去的旧事体面收好，"
             "让心重新轻一点，也让脚下的日子继续往前走。"
+        )
+    elif forgiveness_release:
+        new_angle = (
+            "从计较、埋怨和旧怨反复占住心里位置切入，"
+            "写原谅不是替谁开脱，也不是委屈自己继续忍；"
+            "而是把自己的心从那口气里慢慢放出来，"
+            "让今天重新有地方晒太阳、种花和好好生活。"
         )
     elif endings_acceptance:
         new_angle = (
@@ -8585,7 +8596,7 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "有些人和事一直放在心里，最先被困住的往往不是别人，是你自己。",
+                    "有些人和事一直放在心里，时间久了，自己的心反而先被那口气困住。",
                     "你以为一直计较是在替自己讨公道，后来才发现，心也被那口气拽住了很久。",
                 ),
             )
@@ -11368,11 +11379,11 @@ def _build_local_mode_shaped_generic_paragraphs(
             return [
                 intro,
                 "那些让你不痛快的人和事，未必每天都在眼前，却会在你心里占着地方。你越反复想，越像替它们留了一间屋子，自己反而没地方好好休息。",
-                "原谅不是说那件事没发生，也不是替谁开脱。原谅是你终于不再让一段旧怨，继续决定今天的心情。",
+                "那件事发生过，也需要被看清。只是从某一天起，你可以不再让一段旧怨，继续决定今天的心情。",
                 "一直计较下去，未必能让对方付出什么代价，却会让你一次次回到那口气里。夜里想起，心还是紧；白天碰到相似的人，情绪又被牵走。",
                 "所以放过别人，有时候更像是在放过自己。把那些无足轻重的争执、误会和旧伤慢慢清出去，心里才有地方晒太阳，也有地方重新种花。",
-                "真正的宽恕，不是委屈自己继续忍，而是看清事情已经过去，自己不必再跟着它一起受困。你可以记得教训，也可以把生活重新交还给今天。",
-                "往后的日子，少一点纠缠，多一点舒展。不是所有事都值得反复争赢，能让自己睡个安稳觉，已经是很大的胜利。",
+                "宽恕走到最后，是看清事情已经过去，自己不必再跟着它一起受困。你可以记得教训，也可以把生活重新交还给今天。",
+                "往后的日子，少一点纠缠，多一点舒展。有些事不值得反复争赢，能让自己睡个安稳觉，已经是很大的胜利。",
             ]
         if payload and _uses_local_emotional_memory_reflux_variant(payload):
             return [
