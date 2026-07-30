@@ -9377,8 +9377,11 @@ def test_build_local_tracked_article_draft_fallback_shapes_self_reliance_mode_wi
     )
 
     assert title == "扛事久了的人，最后都要学会把自己慢慢接回来"
-    assert not body_markdown.startswith("事情一多的时候，先把眼前能确定的一件事抓住。")
-    assert body_markdown.startswith(("有些委屈", "你把聊天框"))
+    assert body_markdown.startswith(("电话拨出去之前", "电话拿起来又放下", "事情一多的时候"))
+    assert "有些委屈" not in body_markdown
+    assert "你把聊天框" not in body_markdown
+    assert "我有点累" not in body_markdown
+    assert body_markdown.count("电话拨出去之前") <= 1
     assert not body_markdown.startswith("人到后来会懂")
     assert "事情一下撞到眼前、四周都腾不出空的时候，最先冒出来的往往是慌。" not in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
@@ -9417,9 +9420,13 @@ def test_build_local_tracked_article_draft_fallback_self_reliance_shared_burden_
 
     assert any(anchor in title for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
     assert all(stale not in title for stale in ("主心骨", "自己的光", "日子", "下一步"))
-    assert body_markdown.startswith(("有些委屈", "你把聊天框"))
+    assert body_markdown.startswith(("电话拨出去之前", "电话拿起来又放下", "事情一多的时候"))
+    assert "有些委屈" not in body_markdown
+    assert "你把聊天框" not in body_markdown
+    assert "我有点累" not in body_markdown
+    assert body_markdown.count("电话拨出去之前") <= 1
     assert not body_markdown.startswith("人到后来会懂")
-    assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
+    assert "眼前能确定的一件事" in body_markdown or "眼前最要紧的一件事" in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
     assert "那一刻你忽然明白，谁的生活都不只是一句" not in body_markdown
     assert "照顾自己" in body_markdown
@@ -9970,8 +9977,14 @@ def test_build_local_tracked_article_draft_fallback_uses_mode_shaped_outline_for
 
     assert any(anchor in title for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
     assert all(stale not in title for stale in ("主心骨", "自己的光", "日子", "下一步"))
-    assert body_markdown.startswith(("有些委屈", "你把聊天框", "人到后来会懂"))
-    assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
+    assert any(
+        body_markdown.startswith(prefix)
+        for prefix in ("电话拨出去之前", "电话拿起来又放下", "事情一多的时候")
+    )
+    assert "眼前最要紧的一件事" in body_markdown
+    assert "有些委屈" not in body_markdown
+    assert "我有点累" not in body_markdown
+    assert "聊天框打开又关上" not in body_markdown
     assert "也写一个人怎样" not in body_markdown
     assert "分清轻重缓急" not in body_markdown
     assert "能有人同行当然很好。" not in body_markdown
@@ -10035,7 +10048,7 @@ def test_build_local_publish_package_fallback_uses_shared_burden_self_reliance_v
     assert any(anchor in package["abstract"] for anchor in ("求助", "自救", "分担", "判断", "行动", "扶稳"))
     assert any(any(anchor in item for anchor in ("求助", "自救", "扶稳", "判断", "分担")) for item in package["intro_options"])
     combined_package = "\n".join([package["publish_lead"], package["abstract"], *package["intro_options"]])
-    for stale in ("主心骨", "人心里有了光", "有了光", "重新有下一步", "路就会慢慢亮"):
+    for stale in ("主心骨", "人心里有了光", "有了光", "重新有下一步", "路就会慢慢亮", "我有点累", "聊天框打开又关上", "矫情"):
         assert stale not in combined_package
 
 

@@ -1835,7 +1835,9 @@ def test_local_self_reliance_draft_removes_external_absence_template() -> None:
 
     combined = f"{title}\n{body}"
     assert any(anchor in title for anchor in ("稳住", "求助", "自救", "扶稳"))
-    assert "话到嘴边会先停一下" in combined or "聊天框打开又关上" in combined
+    assert "眼前能确定的一件事" in combined or "眼前最要紧的一件事" in combined
+    assert "话到嘴边会先停一下" not in combined
+    assert "聊天框打开又关上" not in combined
     assert "照顾自己" in combined
     assert "请别人一起分担" in combined
     assert "求助不丢人，自救也不丢人" in combined
