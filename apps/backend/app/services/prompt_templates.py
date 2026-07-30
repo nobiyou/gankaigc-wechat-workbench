@@ -5609,7 +5609,7 @@ def _describe_structure_mode(
     if structure_mode == "emotional_engine_direct":
         return (
             "情绪发动机直接推进",
-            "先抽出真正卡住人的误认、执念或价值偏差，再展开判断与现实答案；默认不铺生活场景。",
+            "先抽出参考文自己的误认、执念或价值偏差，再展开判断与现实答案；默认不铺生活场景。",
         )
     if structure_mode == "scene_first_progression":
         return (
@@ -5885,7 +5885,7 @@ def _build_structure_mode_instructions(payload: Mapping[str, object], *, stage: 
         if stage == "outline":
             return (
                 "若策略包要求情绪发动机直接推进，大纲默认不规划场景段，"
-                "先拆真正卡住人的误认、执念、舍不得或价值偏差，再整理情绪出口和现实答案。"
+                "先拆参考文自己的误认、执念、舍不得或价值偏差，再整理情绪出口和现实答案。"
                 "需要例证时只保留一句事实或引用，并并入判断段；不展开动作、物件、环境和氛围描写，也不单独保留动作残留段。"
             )
         if stage == "draft":

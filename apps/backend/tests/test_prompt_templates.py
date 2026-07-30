@@ -264,7 +264,7 @@ def test_build_draft_prompt_surfaces_strategy_hook_progression_and_share_reason(
         }
     )
 
-    assert "开头先停在：一句“先把家里理顺”背后那点心里开始排顺序" in template.prompt
+    assert "开头先停在：一句“没事，先稳住”背后那点心里开始排顺序" in template.prompt
     assert "中段主要靠这股力往前推：责任怎样把人往前推" in template.prompt
     assert "转发理由：" not in template.prompt
 

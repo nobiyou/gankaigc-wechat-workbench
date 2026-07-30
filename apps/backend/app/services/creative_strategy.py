@@ -2205,7 +2205,7 @@ def _build_emotional_value_goal(
     if structure_mode == "emotional_engine_direct":
         return "让读者从执念、遗憾或误认里退一步，最后留下的是理解、释怀和继续往前的力气。"
     if structure_mode == "scene_first_progression":
-        return "让读者先认出那个卡住人的现场，再在后面的推进里慢慢看懂自己。"
+        return "让读者先进入参考文自己的现场，再顺着现场里的变化慢慢看懂这段情绪。"
     if structure_mode == "pressure_interface_direct":
         return "让读者读完后不再只会硬扛，而是会重新看见生活排序和自我照料的必要。"
     return "让读者不只觉得被分析，而是真的被接住、被点醒，也能带着一点力气回到生活里。"
@@ -2493,7 +2493,7 @@ def _build_packaging_focus(
         if normalized_opening:
             base = f"标题、导语和封面先沿着这句起笔往前走：{normalized_opening}。先把人带进现场，再把判断慢慢放出来。"
             return f"{specific_focus} {base}".strip() if specific_focus else base
-        base = "标题、导语和封面先把人带进一个连续现场，再把真正卡住人的那句话慢慢放出来。"
+        base = "标题、导语和封面先把人带进参考文自己的连续现场，再让判断从现场里自然浮出来。"
         return f"{specific_focus} {base}".strip() if specific_focus else base
     if structure_mode == "pressure_interface_direct":
         base = "包装优先抓已经开始出代价的现实接口或身体提醒，再把回神点提出来。"
@@ -2835,12 +2835,12 @@ def _build_theme_axis(
     if structure_mode == "emotional_engine_direct":
         return "主线是人为什么总把执念、遗憾或舍不得误认成非要抓住不放，后来又怎样把这段经历安放回自己的人生里。"
     if structure_mode == "scene_first_progression":
-        return "主线是那个把人卡住的现场到底卡在了哪里，后面的判断都要从现场里慢慢长出来。"
+        return "主线要跟着参考文自己的现场变化走，后面的判断都要从人物、关系或处境里慢慢长出来。"
     if structure_mode == "pressure_interface_direct":
         return "主线是那些已经开始出代价的现实接口为什么总被往后推，以及一个人怎样重新把生活顺序调回来。"
     if structure_mode == "fragment_chain_observation":
         return "主线不是把道理讲圆，而是借几个现实接口把同一种误判、拖延或消耗慢慢看清。"
-    return "主线是把真正卡住人的现实和情绪重心讲清楚，再把人带回一个更稳、更亮一点的落点。"
+    return "主线要先守住参考文自己的现实和情绪重心，再把人带回一个更稳、更亮一点的落点。"
 
 
 def _build_anti_drift_axis(
@@ -3159,7 +3159,7 @@ def _build_packaging_hook(
         if normalized_opening:
             base = f"先抓这个现场入口：{normalized_opening}，再把判断慢慢递出来。"
             return f"{specific_hook} {base}".strip() if specific_hook else base
-        base = "先抓一个连续现场，再把真正卡住人的判断慢慢递出来。"
+        base = "先抓参考文自己的连续现场，再把判断从现场里慢慢递出来。"
         return f"{specific_hook} {base}".strip() if specific_hook else base
     if structure_mode == "pressure_interface_direct":
         base = "先抓一个已经开始出代价的现实接口或身体提醒，再带回顺序被重新看见。"
