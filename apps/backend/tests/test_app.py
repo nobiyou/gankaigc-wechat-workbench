@@ -9287,6 +9287,8 @@ def test_build_local_tracked_article_draft_fallback_shapes_everyday_warmth_simpl
     assert any(token in body_markdown for token in ("家人", "父母", "家里"))
     assert any(token in body_markdown for token in ("知己", "朋友", "老友"))
     assert any(token in body_markdown for token in ("平安", "福气", "日子已经很值得"))
+    for stale_template in ("有个朋友前阵子说", "他最开心的一天", "那一刻他才承认"):
+        assert stale_template not in body_markdown
     for responsibility_leak in ("账单", "检查单", "药盒", "肩上有责任", "没事，有我", "缴费"):
         assert responsibility_leak not in body_markdown
     assert len(paragraphs) >= 9
@@ -9338,9 +9340,9 @@ def test_local_everyday_warmth_publish_package_uses_simple_happiness_variant() -
     assert "热饭" in assets["cover_prompt"]
     assert "药盒" not in assets["cover_prompt"]
     assert "检查单" not in assets["cover_prompt"]
-    assert "家里人平安" in package["publish_lead"]
-    assert "知己还在" in package["publish_lead"]
-    assert any(token in package["publish_lead"] for token in ("一日三餐", "踏实", "好日子"))
+    assert any(token in package["publish_lead"] for token in ("饭香", "电话那头", "老朋友"))
+    assert "踏实" in package["publish_lead"]
+    assert "人到后来才懂" not in package["publish_lead"]
     assert any(token in package["abstract"] for token in ("家人安康", "知己二三", "四季平安", "具体的福气"))
     assert package["abstract"] != assets["social_teaser"]
     assert "一顿热饭、一句惦记" not in package["publish_lead"]
