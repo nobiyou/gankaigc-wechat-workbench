@@ -10856,6 +10856,8 @@ def test_build_local_tracked_article_draft_fallback_inner_settlement_uses_mode_v
     assert "很多时候，真正让人累的" not in body_markdown
     assert "后来才会慢慢懂得" not in body_markdown
     assert "心安先落在这些能亲手做的小事里" in body_markdown
+    assert "回消息" not in body_markdown
+    assert "该回的消息" not in body_markdown
     assert "苏轼说：“此心安处是吾乡。”" in body_markdown
     assert "先把自己带回屋里这盏灯、这口热饭、这张能睡下来的床" in body_markdown
     assert "一呼一吸" not in body_markdown
@@ -10894,7 +10896,7 @@ def test_build_local_assets_fallback_inner_settlement_uses_homecoming_cover_copy
         draft_title="心安这件事，比什么都重要",
         draft_body_markdown=(
             "外面的风景再热闹，心里若没有归处，人还是会觉得漂。\n\n"
-            "把鞋摆好，把饭吃热，把该回的消息慢慢回完。心安先落在这些能亲手做的小事里。\n\n"
+            "把鞋摆好，把饭吃热，把水杯洗干净放回原处。心安先落在这些能亲手做的小事里。\n\n"
             "苏轼说：“此心安处是吾乡。”这句话动人的地方，在于它把归处放回心里。外面的风还会吹，脚下的路却可以一天一天走稳。"
         ),
     )
@@ -10964,7 +10966,7 @@ def test_build_local_publish_package_fallback_inner_settlement_uses_homecoming_v
         draft_title="心安这件事，比什么都重要",
         draft_body_markdown=(
             "外面的风景再热闹，心里若没有归处，人还是会觉得漂。\n\n"
-            "把鞋摆好，把饭吃热，把该回的消息慢慢回完。心安先落在这些能亲手做的小事里。\n\n"
+            "把鞋摆好，把饭吃热，把水杯洗干净放回原处。心安先落在这些能亲手做的小事里。\n\n"
             "苏轼说：“此心安处是吾乡。”这句话动人的地方，在于它把归处放回心里。外面的风还会吹，脚下的路却可以一天一天走稳。"
         ),
         assets=assets,
