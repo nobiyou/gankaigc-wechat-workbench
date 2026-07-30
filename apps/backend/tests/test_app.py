@@ -9372,10 +9372,12 @@ def test_build_local_tracked_article_draft_fallback_shapes_self_reliance_mode_wi
 
     assert title == "扛事久了的人，最后都要学会把自己慢慢接回来"
     assert not body_markdown.startswith("事情一多的时候，先把眼前能确定的一件事抓住。")
-    assert body_markdown.startswith(("有些委屈", "你把聊天框", "人到后来会懂"))
+    assert body_markdown.startswith(("有些委屈", "你把聊天框"))
+    assert not body_markdown.startswith("人到后来会懂")
     assert "事情一下撞到眼前、四周都腾不出空的时候，最先冒出来的往往是慌。" not in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
     assert "先把眼前能确定的一件事抓住" not in body_markdown
+    assert "那一刻你忽然明白，谁的生活都不只是一句" not in body_markdown
     assert "先喝一口水" in body_markdown or "今晚必须处理的事" in body_markdown
     assert "不再把全部希望压在某一个人的回应上" in body_markdown
     assert "并不是认输" not in body_markdown
@@ -9409,9 +9411,11 @@ def test_build_local_tracked_article_draft_fallback_self_reliance_shared_burden_
 
     assert any(anchor in title for anchor in ("稳住", "求助", "自救", "扶稳", "眼前事"))
     assert all(stale not in title for stale in ("主心骨", "自己的光", "日子", "下一步"))
-    assert body_markdown.startswith(("有些委屈", "你把聊天框", "人到后来会懂"))
+    assert body_markdown.startswith(("有些委屈", "你把聊天框"))
+    assert not body_markdown.startswith("人到后来会懂")
     assert "事情一多的时候，先把眼前能确定的一件事抓住。" not in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
+    assert "那一刻你忽然明白，谁的生活都不只是一句" not in body_markdown
     assert "照顾自己" in body_markdown
     assert "请别人一起分担" in body_markdown
     assert "把力气重新回到自己手里" not in body_markdown

@@ -8534,7 +8534,6 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
                 (
                     "有些委屈，话到嘴边会先停一下。你开始懂得，每个人都有自己的难处，也都有撑不住的时候。",
                     "你把聊天框打开又关上。忽然想到，对方最近也过得不轻松。",
-                    "人到后来会懂，求助不丢人；在回应到来之前，先把自己稳住也很重要。",
                 ),
             )
 
@@ -10223,7 +10222,7 @@ _LOCAL_MODE_OUTLINE_DEFAULTS: dict[str, tuple[str, str, str, str]] = {
         "先把今天过回今天，把眼前的小事照顾好，心才会慢慢安稳下来",
     ),
     "self_reliance_inward_support": (
-        "那一刻你忽然明白，谁的生活都不只是一句“我在”那么轻松",
+        "电话拨出去之前，你先想起对方最近也在为自己的事发愁",
         "向内求这件事，说到底是先把慌乱放低，把眼前能做的事处理好",
         "真正托住人的，是你还愿意照顾自己、处理手边事，也知道什么时候请别人一起分担",
         "你可以求助，也可以先自救；两件事都不丢人",
@@ -11264,8 +11263,8 @@ def _build_local_mode_shaped_generic_paragraphs(
             return cleaned
 
         if "不是不想开口" in point_one:
-            point_one = "那一刻你忽然明白，谁的生活都不只是一句“我在”那么轻松"
-        point_one = _self_reliance_point(point_one, "那一刻你忽然明白，谁的生活都不只是一句“我在”那么轻松")
+            point_one = "电话拨出去之前，你先想起对方最近也在为自己的事发愁"
+        point_one = _self_reliance_point(point_one, "电话拨出去之前，你先想起对方最近也在为自己的事发愁")
         point_two = _self_reliance_point(point_two, "向内求不是硬撑，是先把情绪放低，把眼前最要紧的一件事处理好")
         point_three = _self_reliance_point(point_three, "真正托住人的，是你还愿意照顾自己、处理手边事，也知道什么时候请别人一起分担")
         point_four = _self_reliance_point(point_four, "你可以求助，也可以先自救；两件事都不丢人")
@@ -11274,7 +11273,7 @@ def _build_local_mode_shaped_generic_paragraphs(
         return [
             intro,
             _ensure_sentence_end(point_one),
-            "很多时候，人只是想找个人说说。可电话拨出去之前，又想起朋友最近在为工作焦头烂额，家人也有自己的烦心事。",
+            "很多时候，人只是想找个人说说。可话到嘴边，又想起朋友最近在为工作焦头烂额，家人也有自己的烦心事。",
             "于是那句“我有点累”，在喉咙口绕了一圈，又被你慢慢咽了回去。",
             _ensure_sentence_end(point_two),
             "先喝一口水，先把今晚必须处理的事写下来，先给自己留十分钟安静。人一稳，很多事就不会继续往心里压。",
