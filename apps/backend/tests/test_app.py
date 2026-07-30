@@ -11792,6 +11792,29 @@ def test_build_local_tracked_article_draft_fallback_legacy_pressure_uses_pressur
     assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
 
 
+def test_build_local_tracked_article_topic_fallback_pressure_interface_uses_positive_order_title() -> None:
+    body = (
+        "复查提醒改了一次又一次，晚饭也总往后拖。"
+        "照顾自己不是暂停责任，而是把生活顺序一点点调回来。"
+    )
+
+    topic = workbench._build_local_tracked_article_topic_fallback(
+        {
+            "source_type": "tracked_article",
+            "article_title": "pressure",
+            "body_markdown": body,
+            "reference_article_body_markdown": body,
+        }
+    )
+
+    assert topic["title"] == "把被挪走的生活顺序，一点点调回来"
+    assert "生活顺序" in topic["angle"]
+    assert "照顾自己不是暂停责任" in topic["angle"]
+    for forbidden in ("很多答案", "围绕《", "重建新的具体入口", "身体代价链", "求救信号"):
+        assert forbidden not in topic["title"]
+        assert forbidden not in topic["angle"]
+
+
 def test_build_local_tracked_article_draft_fallback_scene_first_progression_keeps_office_scene_flow() -> None:
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(
         {

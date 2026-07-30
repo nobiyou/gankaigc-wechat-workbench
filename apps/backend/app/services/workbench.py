@@ -3715,6 +3715,31 @@ def _rewrite_pressure_topic_angle(payload: Mapping[str, object], ai_result: Mapp
     return {"title": title, "angle": angle}
 
 
+def _rewrite_pressure_interface_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> dict[str, str]:
+    corpus = " ".join(
+        part
+        for part in (
+            str(payload.get("body_markdown") or ""),
+            str(payload.get("reference_article_body_markdown") or ""),
+            str(payload.get("summary") or ""),
+            str(payload.get("structure_notes") or ""),
+        )
+        if part
+    )
+    title = str(ai_result.get("title") or "").strip()
+    if not title or any(token in title for token in ("很多答案", "真正重要的地方", "过到眼前")):
+        if any(token in corpus for token in ("复查", "体检", "饭点", "晚饭", "生活顺序", "照顾自己", "自我照料")):
+            title = "把被挪走的生活顺序，一点点调回来"
+        else:
+            title = "把该照顾自己的那一步，放回今天"
+    angle = (
+        "从复查提醒、晚饭和休息一次次被往后挪切入，"
+        "写照顾自己不是暂停责任，而是把生活顺序一点点调回来；"
+        "最后落到人先回稳，后面的日子才更有力量。"
+    )
+    return {"title": title, "angle": angle}
+
+
 def _should_rewrite_emotional_release_topic(payload: Mapping[str, object], ai_result: Mapping[str, object]) -> bool:
     if _has_everyday_warmth_return_focus(payload):
         return False
@@ -4763,6 +4788,7 @@ def _build_local_tracked_article_topic_fallback(payload: Mapping[str, object]) -
         "self_reliance_inward_support": _rewrite_self_reliance_topic,
         "resilience_reconstruction": _rewrite_resilience_reconstruction_topic,
         "scene_first_progression": _rewrite_scene_first_topic,
+        "pressure_interface_direct": _rewrite_pressure_interface_topic,
     }
     builder = local_mode_builders.get(mode)
     if builder is not None:
