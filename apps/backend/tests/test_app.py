@@ -7313,9 +7313,12 @@ def test_local_fallback_mode_promotes_responsibility_variant_before_everyday_war
     assert title == "肩上有责任的人，心里也要留一盏灯"
     assert "年轻时总觉得幸福要有很大的样子" not in body_markdown
     assert "有个朋友前阵子说，他最开心的一天" not in body_markdown
-    assert "先把家里那头安顿好" in body_markdown
+    assert "家里那头一有动静，你会先过去稳住" in body_markdown
     assert "一盒药提前买好，把校服洗出来晾着，把冰箱里缺的菜顺手记下来" in body_markdown
     assert "把日子往前托的人，也该被日子温柔托住。" in body_markdown
+    assert "不是一个人有多厉害，而是" not in body_markdown
+    assert body_markdown.count("先把") <= 3
+    assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
 
 
 def test_should_use_local_responsibility_shelter_fallback_even_with_conflicting_strategy_bundle() -> None:

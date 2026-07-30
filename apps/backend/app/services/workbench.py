@@ -9576,6 +9576,10 @@ def _looks_like_local_fallback_instruction_fragment(text: str) -> bool:
 
 def _resolve_local_fallback_point(raw_text: str, *, default: str) -> str:
     cleaned = _clean_local_fallback_instruction_phrase(raw_text)
+    cleaned = cleaned.replace(
+        "责任最重的地方，不是一个人有多厉害，而是他心里一直装着想守护的人。",
+        "责任最重的地方，常常是心里一直装着想守护的人。",
+    )
     if (
         not cleaned
         or _looks_like_local_fallback_instruction_fragment(cleaned)
@@ -9730,7 +9734,7 @@ def _resolve_local_responsibility_draft_opening(payload: Mapping[str, object]) -
         "schedule": "你先把工作、父母和孩子的事排一遍，想让每一头都稳一点。",
         "bills": "你先把能调整的地方圈出来，想让这个家照常往前走。",
         "pickup": "那一刻，辛苦不是一下子消失了，而是突然有了值得继续往前的光。",
-        "call": "你先把声音放稳，把父母、孩子和家里的安排一件件理清。",
+        "call": "你把声音放稳，也把父母、孩子和家里的安排一件件理清。",
         "family": "你先想的是眼前这件事该怎么接，家里的心才不会跟着乱。",
     }
     intro = opening_by_scene.get(scene_kind, opening_by_scene["family"])
@@ -11624,10 +11628,10 @@ def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> 
         return title, "\n\n".join(paragraphs)
 
     paragraphs = [
-        f"{responsibility_opening}很多责任，都是在一次次先把家里安顿好的过程中，慢慢落到了肩上。",
-        "先看哪张单子得今天处理，先想谁能去跑这一趟，先把孩子那边的安排补上。责任看起来并不轰烈，临时有事时，你会本能地把下一步先想出来。",
+        f"{responsibility_opening}很多责任，都是在一次次替家里安顿现场的过程中，慢慢落到了肩上。",
+        "哪张单子今天得处理，谁能去跑这一趟，孩子那边的安排怎么补上。责任看起来并不轰烈，临时有事时，你会本能地把下一步想出来。",
         f"{_ensure_sentence_end(quote)}落到日常，不过是一盒药提前买好，把校服洗出来晾着，把冰箱里缺的菜顺手记下来。家里能少一分慌，人心就能多一分稳。",
-        f"{_resolve_local_responsibility_transition(payload)}时间久了，你就习惯先把家里那头安顿好，再回头看自己还能不能缓一口气。{_ensure_sentence_end(second_point)}{pressure_detail}",
+        f"{_resolve_local_responsibility_transition(payload)}时间久了，家里那头一有动静，你会先过去稳住，再回头看自己还能不能缓一口气。{_ensure_sentence_end(second_point)}{pressure_detail}",
         "事情一多，你会把能办的先办，把能问的先问。牵挂多了，人就会自然往前站半步。到这种时候，顾不上逞强不逞强，你只知道，今天要是自己先乱了，屋里那几个等你的人也会跟着慌。",
         "你不是天生会扛事，只是轮到你时，习惯先说一句“我来想办法”。久而久之，父母有事先找你，孩子有事先喊你，连家里那些零碎安排，也都默认你会接上。",
         "会扛事的人，也要被人接住。",
