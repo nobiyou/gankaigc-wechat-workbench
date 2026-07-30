@@ -52,6 +52,128 @@ def _strategy(*, structure_mode: str, positive_direction: str) -> dict[str, obje
     }
 
 
+def test_local_tracked_article_chain_keeps_theme_specific_packaging_across_common_modes() -> None:
+    samples = [
+        (
+            "simple_happiness",
+            "everyday_warmth_return",
+            "人生不求大富大贵，但求简单快乐。幸福其实是一种心态，身体无病痛，家人都安康，知己二三，一家人有饭吃有灯亮，这就够了。",
+        ),
+        (
+            "response_priority",
+            "response_priority",
+            "红灯30秒也能回一条消息。忙不是借口，真正把你放在心上的人，会在碎片时间里回应你，让你知道自己被看见。",
+        ),
+        (
+            "supportive_appreciation",
+            "supportive_appreciation",
+            "有一种人心很软，也很重感情。不是傻，也不是好欺负，只是不想让身边的人受伤。遇到这样愿意包容你的人，一定要珍惜。",
+        ),
+        (
+            "trust_boundary",
+            "trust_boundary",
+            "信任很贵，请别辜负。一次谎言一次隐瞒，都会让那个最相信你的人开始不安。真正长久的关系，靠坦诚和说到做到。",
+        ),
+        (
+            "inner_settlement",
+            "inner_settlement",
+            "心若不安，到哪里都是流浪。此心安处是吾乡。把心放平，把事看淡，于一餐一饮中安顿自己。",
+        ),
+        (
+            "responsibility",
+            "responsibility_shelter",
+            "中年人的世界，电话那头是父母、孩子和账单。你扛住压力，说没事有我。万般辛苦不是为了夸苦难，而是让家人有一处安稳屋檐。",
+        ),
+        (
+            "self_worth",
+            "self_worth_rebuild",
+            "你爱自己的程度，决定了谁能走进你的人生。别把时间贱卖给不值得的人，把门槛抬高一点，把标准收紧一点，把自己养贵一点。",
+        ),
+        (
+            "resilience",
+            "resilience_reconstruction",
+            "蒋裕燕三岁失去右臂右腿，八岁走进泳池。训练和疼痛没有定义她，她靠韧性一点点重建自己，成为残奥会冠军。",
+        ),
+        (
+            "relationship_aftercare",
+            "relationship_aftercare",
+            "两个人吵架以后，有人冷暴力，有人回来沟通。好的关系不是永远不吵架，而是争吵之后还愿意修复，继续走下去。",
+        ),
+        (
+            "endings",
+            "emotional_engine_direct",
+            "成年人的关系原本就是一段一段的。接纳离开，允许一切发生，也允许一切结束。感谢相遇，不谈亏欠。",
+        ),
+        (
+            "pressure",
+            "pressure_interface_direct",
+            "复查提醒改了一次又一次，晚饭也总往后拖。照顾自己不是暂停责任，而是把生活顺序一点点调回来。",
+        ),
+        (
+            "scene_first",
+            "scene_first_progression",
+            "会议室里那句话几次到嘴边又咽回去。很多关系不是突然变淡，而是一次次没问出口，把靠近慢慢让掉。",
+        ),
+    ]
+    generic_leaks = ("很多答案，都是把日子过到眼前以后", "围绕《", "重建新的具体入口")
+    stale_negative_leaks = ("有些委屈", "我有点累", "聊天框打开又关上", "矫情", "耗空", "身体先开始交代")
+
+    for sample_name, expected_mode, body in samples:
+        base_payload = {
+            "source_type": "tracked_article",
+            "article_title": sample_name,
+            "body_markdown": body,
+            "reference_article_body_markdown": body,
+        }
+        topic = _build_local_tracked_article_topic_fallback(base_payload)
+        topic_payload = {**base_payload, "topic_title": topic["title"], "topic_angle": topic["angle"]}
+        mode = _resolve_local_fallback_mode(topic_payload)
+        outline = _build_local_tracked_article_outline_fallback(
+            {**topic_payload, "strategy_card": {"structure_mode": mode}}
+        )
+        title, draft_body = _build_local_tracked_article_draft_fallback(
+            {**topic_payload, "outline": outline, "strategy_card": {"structure_mode": mode}}
+        )
+        assets_payload = _build_local_assets_fallback(
+            project_title=title,
+            topic_title=topic["title"],
+            topic_angle=topic["angle"],
+            draft_title=title,
+            draft_body_markdown=draft_body,
+        )
+        assets = SimpleNamespace(
+            recommended_title=assets_payload["recommended_title"],
+            title_options=list(assets_payload["title_options"]),
+            cover_copy=assets_payload["cover_copy"],
+            social_teaser=assets_payload["social_teaser"],
+            social_teaser_options=list(assets_payload["social_teaser_options"]),
+        )
+        package = _build_local_publish_package_fallback(
+            draft_title=title,
+            draft_body_markdown=draft_body,
+            assets=assets,
+        )
+        combined = "\n".join(
+            [
+                str(topic["title"]),
+                str(topic["angle"]),
+                title,
+                draft_body,
+                str(assets.cover_copy),
+                str(assets.social_teaser),
+                str(package["publish_lead"]),
+                str(package["abstract"]),
+            ]
+        )
+
+        assert mode == expected_mode, sample_name
+        assert evaluate_ai_flavor_risk(title=title, body_markdown=draft_body).score == 0, sample_name
+        assert assets.social_teaser != package["publish_lead"], sample_name
+        assert package["publish_lead"] != package["abstract"], sample_name
+        assert not any(token in combined for token in generic_leaks), sample_name
+        assert not any(token in combined for token in stale_negative_leaks), sample_name
+
+
 def test_positive_payoff_requires_theme_specific_landing_for_everyday_warmth() -> None:
     strategy = _strategy(
         structure_mode="everyday_warmth_return",
