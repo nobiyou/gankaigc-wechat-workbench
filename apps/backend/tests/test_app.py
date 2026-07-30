@@ -11630,7 +11630,9 @@ def test_local_emotional_release_uses_forgiveness_variant_instead_of_old_relatio
 
     assert title == "放过别人，也是放过自己"
     assert any(token in combined for token in ("原谅", "宽恕", "放过自己", "旧怨"))
-    assert any(token in package["abstract"] for token in ("心房", "阳光", "花", "怨气"))
+    assert any(token in package["abstract"] for token in ("窗帘", "阳光", "花", "怨气", "今天"))
+    assert "\n".join([assets["cover_copy"], package["publish_lead"], package["abstract"]]).count("心里") <= 1
+    assert "那口气" in package["publish_lead"]
     for stale in ("旧关系", "背影", "相遇来过", "停在半路", "没被接住"):
         assert stale not in combined
 

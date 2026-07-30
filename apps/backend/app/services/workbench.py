@@ -11383,10 +11383,10 @@ def _build_local_mode_shaped_generic_paragraphs(
         if payload and _uses_local_emotional_forgiveness_release_variant(payload):
             return [
                 intro,
-                "那些让你不痛快的人和事，未必每天都在眼前，却会在你心里占着地方。你越反复想，越像替它们留了一间屋子，自己反而没地方好好休息。",
+                "那些让你不痛快的人和事，未必每天都在眼前，却常常占着一盏灯、一口气、一个本该睡踏实的夜晚。你越反复想，越像替它们留了一间屋子，自己反而没地方好好休息。",
                 "那件事发生过，也需要被看清。只是从某一天起，你可以不再让一段旧怨，继续决定今天的心情。",
                 "一直计较下去，未必能让对方付出什么代价，却会让你一次次回到那口气里。夜里想起，心还是紧；白天碰到相似的人，情绪又被牵走。",
-                "所以放过别人，有时候更像是在放过自己。把那些无足轻重的争执、误会和旧伤慢慢清出去，心里才有地方晒太阳，也有地方重新种花。",
+                "所以放过别人，有时候更像是在放过自己。把那些无足轻重的争执、误会和旧伤慢慢清出去，今天才有地方晒太阳，也有地方重新种花。",
                 "宽恕走到最后，是看清事情已经过去，自己不必再跟着它一起受困。你可以记得教训，也可以把生活重新交还给今天。",
                 "往后的日子，少一点纠缠，多一点舒展。有些事不值得反复争赢，能让自己睡个安稳觉，已经是很大的胜利。",
             ]
@@ -14196,7 +14196,7 @@ def _resolve_local_assets_cover_copy(
         if _uses_local_emotional_regret_forward_variant(payload):
             return "把旧事轻轻收好，前面的风也会慢慢吹来。"
         if _uses_local_emotional_forgiveness_release_variant(payload):
-            return "把心里的旧刺拔掉，日子才有地方重新照进光。"
+            return "把那口旧气放下，今天才有地方重新照进光。"
         if _uses_local_emotional_memory_presence_variant(payload):
             return "有些人明明走远了，还是会在一个背影里轻轻回来。"
         if _uses_local_emotional_memory_reflux_variant(payload):
@@ -14909,8 +14909,8 @@ def _build_local_publish_package_fallback(
                 publish_lead = "阿婆把那条旧裙子叠起来时，像是把当年那句“如果去了会不会不一样”也轻轻收好。人真正往前走，不是忘了遗憾，而是不再让遗憾替今天做主。"
                 abstract = "旧事可以记得，遗憾也可以承认。只是路还在往前，风也还会吹来。把回不去的部分安放好，你才能腾出心，去穿新的裙子，去看新的晚霞，去过新的日子。"
             elif _uses_local_emotional_forgiveness_release_variant(focus_payload):
-                publish_lead = "有些事反复计较到最后，最累的往往是自己。原谅不是替谁开脱，而是终于肯把心从旧怨里慢慢放出来。"
-                abstract = "一直把怨气留在心里，日子也会跟着变窄。看清无常以后，能放下的就轻轻放下，把心房打扫干净，留给阳光、花和后面真正值得的人。"
+                publish_lead = "有些事反复计较到最后，最累的往往是自己。原谅不是替谁开脱，是终于肯把那口气慢慢放下来。"
+                abstract = "一直攥着怨气，日子也会跟着变窄。看清无常以后，能放下的就轻轻放下，把窗帘拉开，把今天过亮一点，也把余下的力气留给真正值得的人。"
             elif _uses_local_emotional_memory_presence_variant(focus_payload):
                 publish_lead = "灯火阑珊的街头，你只是多看了那个背影一眼，心里就忽然空了一下。原来有些人走远以后，也还是会在这样的时刻轻轻回来。"
                 abstract = "你会反复想起，不一定是想回头，只是那段认真来过的相遇，还在日常里留了个位置。不必催自己马上释怀，想起时就想一会儿，随后照常去赴约、去上班、去吃晚饭。人会在这些普通日子里，慢慢走出那段旧路。"
@@ -15082,8 +15082,8 @@ def _build_local_publish_package_fallback(
                 intro_options = _dedupe_nonempty_text_options(
                     [
                         publish_lead,
-                        "原谅不是替谁开脱，是把自己的心从旧怨里慢慢放出来。",
-                        "心里少养一点怨气，日子才会多照进一点光。",
+                        "原谅不是替谁开脱，是不再让那口旧气陪你过今天。",
+                        "旧事少占一点地方，眼前的日子才会多照进一点光。",
                         *intro_options,
                     ]
                 )
