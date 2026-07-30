@@ -11080,6 +11080,26 @@ def test_build_local_tracked_article_topic_fallback_supportive_appreciation_rewr
     assert "先顾别人感受" in topic["angle"]
 
 
+def test_build_local_tracked_article_topic_fallback_supportive_appreciation_avoids_title_judgment_template() -> None:
+    topic = workbench._build_local_tracked_article_topic_fallback(
+        {
+            "article_title": "心软的人，值得被珍惜",
+            "body_markdown": (
+                "有一种人，心很软，也很重感情。"
+                "他们不舍得让身边的人受伤，处处照顾别人的感受。"
+                "那些愿意包容你的人，一定很爱你。"
+            ),
+            "summary": "",
+            "structure_notes": "",
+        }
+    )
+
+    assert topic["title"] == "那个还愿意把话放软的人，值得被认真珍惜"
+    assert "真正难得的，从来不是" not in topic["title"]
+    assert "而是" not in topic["title"]
+    assert "包容" in topic["angle"] or "柔软" in topic["angle"]
+
+
 def test_build_local_assets_fallback_supportive_appreciation_uses_mode_copy() -> None:
     assets = workbench._build_local_assets_fallback(
         project_title="总把别人感受放在前面的人，其实最该被人好好珍惜",

@@ -4213,7 +4213,7 @@ def _rewrite_supportive_appreciation_topic(
             "也写真正难得的，是有人看懂这份温柔与包容、接住它，并认真珍惜和回应。"
         )
     elif any(token in corpus for token in ("温柔", "不糊涂", "包容")):
-        new_title = "真正难得的，从来不是嘴上会说，而是心里有分寸还舍得体谅你的人"
+        new_title = "那个还愿意把话放软的人，值得被认真珍惜"
         new_angle = (
             "从一个人总会先把场面放软、先顾别人感受写起，"
             "写这份柔软为什么常被误读成没脾气；"
