@@ -9387,7 +9387,9 @@ def test_build_local_tracked_article_draft_fallback_shapes_self_reliance_mode_wi
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
     assert "先把眼前能确定的一件事抓住" not in body_markdown
     assert "那一刻你忽然明白，谁的生活都不只是一句" not in body_markdown
-    assert "先喝一口水" in body_markdown or "今晚必须处理的事" in body_markdown
+    assert "先喝一口水" in body_markdown or "明早要确认的时间" in body_markdown
+    assert body_markdown.count("桌上的单子") <= 1
+    assert body_markdown.count("先把") <= 5
     assert "不再把全部希望压在某一个人的回应上" in body_markdown
     assert "并不是认输" not in body_markdown
     assert "不等于只能硬撑" not in body_markdown
@@ -9425,6 +9427,8 @@ def test_build_local_tracked_article_draft_fallback_self_reliance_shared_burden_
     assert "你把聊天框" not in body_markdown
     assert "我有点累" not in body_markdown
     assert body_markdown.count("电话拨出去之前") <= 1
+    assert body_markdown.count("桌上的单子") <= 1
+    assert body_markdown.count("先把") <= 5
     assert not body_markdown.startswith("人到后来会懂")
     assert "眼前能确定的一件事" in body_markdown or "眼前最要紧的一件事" in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
