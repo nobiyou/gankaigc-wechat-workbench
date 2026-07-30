@@ -10932,11 +10932,12 @@ def test_build_local_assets_fallback_inner_settlement_uses_homecoming_cover_copy
         ),
     )
 
-    assert assets["cover_copy"] == "心里有了归处，日子就不会一直飘着。"
+    assert assets["cover_copy"] == "把今天过稳，心就有了归处。"
     assert (
         assets["social_teaser"]
-        == "外面的风景再热闹，心里若没有归处，人还是会觉得漂。心里有了归处，外面的风再大，脚下也会有路。"
+        == "外面的风景再热闹，心里若没有归处，人还是会觉得漂。把饭吃热，把灯打开，外面的风再大，脚下也会有路。"
     )
+    assert assets["social_teaser"].count("心里") <= 1
 
 
 def test_build_local_assets_fallback_inner_settlement_title_beats_self_reliance_overlap() -> None:

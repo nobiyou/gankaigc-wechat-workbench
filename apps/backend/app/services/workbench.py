@@ -14167,7 +14167,7 @@ def _resolve_local_assets_cover_copy(
     if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(payload):
         return "这半年没有白走，后面的日子还可以重新开始。"
     if mode == "inner_settlement" and _uses_local_inner_settlement_homecoming_variant(payload):
-        return "心里有了归处，日子就不会一直飘着。"
+        return "把今天过稳，心就有了归处。"
     if mode == "inner_settlement" and _uses_local_inner_settlement_bedtime_variant(payload):
         return "别急着把所有事想通，今晚先把心放平一点。"
     if mode == "relationship_aftercare" and any(
@@ -14327,7 +14327,7 @@ def _resolve_local_assets_social_teaser(
         return _compose_local_followup(lead, "没完成的清单之外，你也已经认真走过一程。")
     if mode == "inner_settlement" and _uses_local_inner_settlement_homecoming_variant(payload):
         lead = first if first_is_safe else "心总往外悬着的时候，走到哪里都像没落稳。先回到自己心里，脚下的日子才会稳起来。"
-        return _compose_local_followup(lead, "心里有了归处，外面的风再大，脚下也会有路。")
+        return _compose_local_followup(lead, "把饭吃热，把灯打开，外面的风再大，脚下也会有路。")
     if mode == "inner_settlement" and _uses_local_inner_settlement_bedtime_variant(payload):
         lead = first if first_is_safe else "心一直悬着的时候，普通一天也像差一点没落地。"
         return _compose_local_followup(lead, "答案可以明天再来，今晚先把心放回今天。")
