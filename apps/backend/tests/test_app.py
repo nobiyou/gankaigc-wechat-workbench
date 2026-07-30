@@ -11278,6 +11278,33 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_misre
     assert "道歉说完以后，真正重要的是把答应过的改变做到。" in package["intro_options"]
 
 
+def test_build_local_tracked_article_fallback_supportive_misread_avoids_not_ab_shell() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "心软的人，一生难遇",
+        "topic_title": "别把一个人的体谅，当成他天生就该让着你",
+        "topic_angle": "从太好说话的人为什么总被误会成好欺负切入，写包容和和好从来不是没底线；也写一段关系真正该学会的，是珍惜这份体谅，而不是反复透支它。",
+        "reference_article_body_markdown": (
+            "有一种人，心很软，也很重感情。"
+            "或许是因为太好说话，给别人造成了好欺负的错觉。"
+            "心软的人并不傻，他们的心里比谁都拎得清。"
+            "如果你身边有这样一个心软的人，请你一定要牵紧他的手。"
+        ),
+        "strategy_card": {"structure_mode": "supportive_appreciation"},
+    }
+
+    title, body_markdown = workbench._build_local_tracked_article_draft_fallback(payload)
+
+    assert title == "别把一个人的体谅，当成他天生就该让着你"
+    assert "她看得见，也分得清。" in body_markdown
+    assert "这份心意经不起反复试探" in body_markdown
+    assert "不是因为没脾气，而是" not in body_markdown
+    assert "因为不是每个人" not in body_markdown
+    assert "不是在把自己交给你反复消耗" not in body_markdown
+    assert body_markdown.count("不是") <= 1
+    assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
+
+
 def test_build_local_tracked_article_fallback_supportive_appreciation_uses_pure_warmth_profile() -> None:
     payload = {
         "source_type": "tracked_article",
@@ -11888,6 +11915,10 @@ def test_build_local_tracked_article_draft_fallback_scene_first_progression_keep
     assert "领导把杯子往桌边一放，话题就顺着旧方案往下走了。" in body_markdown
     assert "等人散得差不多了，你再去想刚才那几句话该怎么说，已经不像表达，更像一个人给自己补课。" in body_markdown
     assert "我也可以在这里说话" in body_markdown
+    assert "很多位置，要靠一次次当场开口慢慢站出来。" in body_markdown
+    assert body_markdown.count("不是") <= 1
+    assert "不是问题本身，而是" not in body_markdown
+    assert "很多位置，不是等谁慢慢分给你的" not in body_markdown
     assert "我是不是本来就不该占那个位置" not in body_markdown
     assert "愿你以后遇到重要的人和事" not in body_markdown
     assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
