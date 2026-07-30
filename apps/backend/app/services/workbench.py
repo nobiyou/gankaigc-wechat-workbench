@@ -11628,17 +11628,21 @@ def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> 
         return title, "\n\n".join(paragraphs)
 
     paragraphs = [
-        f"{responsibility_opening}很多责任，都是在一次次替家里安顿现场的过程中，慢慢落到了肩上。",
-        "哪张单子今天得处理，谁能去跑这一趟，孩子那边的安排怎么补上。责任看起来并不轰烈，临时有事时，你会本能地把下一步想出来。",
+        responsibility_opening,
+        "很多责任，都是在一次次替家里安顿现场的过程中，慢慢落到了肩上。哪张单子今天得处理，谁能去跑这一趟，孩子那边的安排怎么补上。",
         f"{_ensure_sentence_end(quote)}落到日常，不过是一盒药提前买好，把校服洗出来晾着，把冰箱里缺的菜顺手记下来。家里能少一分慌，人心就能多一分稳。",
-        f"{_resolve_local_responsibility_transition(payload)}时间久了，家里那头一有动静，你会先过去稳住，再回头看自己还能不能缓一口气。{_ensure_sentence_end(second_point)}{pressure_detail}",
+        f"{_resolve_local_responsibility_transition(payload)}时间久了，家里那头一有动静，你会先过去稳住，再回头看自己还能不能缓一口气。",
+        f"{_ensure_sentence_end(second_point)}{pressure_detail}",
         "事情一多，你会把能办的先办，把能问的先问。牵挂多了，人就会自然往前站半步。到这种时候，顾不上逞强不逞强，你只知道，今天要是自己先乱了，屋里那几个等你的人也会跟着慌。",
         "你不是天生会扛事，只是轮到你时，习惯先说一句“我来想办法”。久而久之，父母有事先找你，孩子有事先喊你，连家里那些零碎安排，也都默认你会接上。",
         "会扛事的人，也要被人接住。",
-        f"真正让人继续往前走的，常常是你回头一看，家里确实比从前稳了一点。{_ensure_sentence_end(third_point)}{warmth_detail}",
+        f"真正让人继续往前走的，常常是你回头一看，家里确实比从前稳了一点。{_ensure_sentence_end(third_point)}",
+        warmth_detail,
         "所以后来你会明白，一个家真正的底气，是有人肯把事接住，也有人愿意在你回头的时候接住你。一个家要走得稳，靠的是彼此都愿意搭一把手。",
         "那口热饭、那句“先吃饭，别急”、那盏一直亮着的灯，看起来都很小。可人忙了一整天，最后靠的往往就是这些细碎的回应，把心重新安顿下来。",
-        f"把日子往前托的人，也该被日子温柔托住。某个晚上，你推门回家，桌上给你留着一口热饭，屋里有人问你累不累。那个瞬间你会明白，你替家里挡过的风，也会慢慢变成照回自己身上的光。{ending}",
+        "把日子往前托的人，也该被日子温柔托住。某个晚上，你推门回家，桌上给你留着一口热饭，屋里有人问你累不累。",
+        "那个瞬间你会明白，你替家里挡过的风，也会慢慢变成照回自己身上的光。",
+        ending,
     ]
     return title, "\n\n".join(paragraphs)
 

@@ -7319,6 +7319,8 @@ def test_local_fallback_mode_promotes_responsibility_variant_before_everyday_war
     assert "不是一个人有多厉害，而是" not in body_markdown
     assert body_markdown.count("先把") <= 3
     assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
+    paragraphs = [paragraph for paragraph in body_markdown.split("\n\n") if paragraph.strip()]
+    assert max(len(paragraph) for paragraph in paragraphs) <= 90
 
 
 def test_should_use_local_responsibility_shelter_fallback_even_with_conflicting_strategy_bundle() -> None:
