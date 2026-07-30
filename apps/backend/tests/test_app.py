@@ -10231,8 +10231,10 @@ def test_build_local_tracked_article_draft_fallback_trust_boundary_overrides_wro
     assert body_markdown.startswith("听见前后两个版本时，手里的筷子会先停一下。")
     assert body_markdown.count("手里的筷子") == 1
     assert "听见两个版本时" not in body_markdown
-    assert "信任最贵的地方" in body_markdown
-    assert "信任的底气" in body_markdown
+    assert "愿意相信你的人，给出去的不只是自由" in body_markdown
+    assert "临时改了安排，可以主动说一声" in body_markdown
+    assert "信任最贵的地方" not in body_markdown
+    assert "信任的底气" not in body_markdown
     assert "补全另一个故事" in body_markdown
     assert "有句话说得很轻，却很准" not in body_markdown
     assert "主动说一声" in body_markdown
@@ -10297,7 +10299,7 @@ def test_trust_boundary_short_source_does_not_drift_to_inner_settlement_chain() 
         {**topic_payload, "outline": outline, "strategy_card": {"structure_mode": "trust_boundary"}}
     )
     assert title == topic["title"]
-    assert "信任最贵的地方" in body_markdown
+    assert "愿意相信你的人，给出去的不只是自由" in body_markdown
     assert "坦诚" in body_markdown
     assert "忙完一天回到家" not in body_markdown
     assert "把鞋摆好" not in body_markdown
@@ -10497,8 +10499,9 @@ def test_local_assets_and_publish_package_drop_strategy_placeholder_for_trust_bo
     assert all("不是解释" not in str(title) and "而是坦诚" not in str(title) for title in assets_payload["title_options"])
     assert "信任" in combined
     assert "坦诚" in combined or "说到做到" in combined
-    assert str(package["publish_lead"]) == "信任不是每天查证出来的，是一次次说清楚、做得到以后，心里慢慢长出来的安稳。愿意放心信你的人，值得被你好好珍惜。"
-    assert str(package["abstract"]) == "信任最怕含糊。明明可以坦诚，却拿绕开的说法去碰别人的真心，那份放心就会一点点变薄。能留住心安的，始终是把话说透，也把答应过的事做到。说到做到，比多少解释都有分量。"
+    assert str(package["publish_lead"]) == "临时变了安排，主动说一声；答应过的事，能做到就做到。愿意放心信你的人，值得被你用这些小事好好守住。"
+    assert "信任不是每天查证出来的" not in str(package["publish_lead"])
+    assert str(package["abstract"]) == "信任最怕含糊。明明可以坦诚，却拿绕开的说法去碰别人的真心，那份放心就会一点点变薄。能留住心安的，是把话说透，也把答应过的事做到。说到做到，比多少解释都有分量。"
     assert str(package["abstract"]) != str(assets_payload["social_teaser"])
     assert "信任最怕的，不是争吵，是心里那一下忽然不敢再全信了。" in [str(item) for item in package["intro_options"]]
 
@@ -10549,7 +10552,7 @@ def test_local_publish_package_uses_distinct_trust_boundary_packaging() -> None:
     )
 
     assert package["publish_title"] == "愿意信你的人，最需要被你好好守住"
-    assert str(package["publish_lead"]).startswith("信任不是每天查证出来的")
+    assert str(package["publish_lead"]).startswith("临时变了安排，主动说一声")
     assert "愿意放心信你的人" in str(package["publish_lead"])
     first_paragraph = draft_body_markdown.split("\n\n", 1)[0].strip()
     assert str(package["publish_lead"]) != first_paragraph
