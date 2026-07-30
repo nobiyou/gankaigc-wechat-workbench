@@ -11647,6 +11647,9 @@ def test_build_local_tracked_article_draft_fallback_aftercare_rewrites_judgment_
     assert title == "吵完还愿意回来，才是关系里的温柔"
     assert "门关上以后" in body_markdown
     assert "回来把话说完" in body_markdown
+    paragraphs = [paragraph.strip() for paragraph in body_markdown.split("\n\n") if paragraph.strip()]
+    assert len(paragraphs) >= 2
+    assert not (paragraphs[0].startswith("门关上以后") and paragraphs[1].startswith("门关上以后"))
     assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
 
 
