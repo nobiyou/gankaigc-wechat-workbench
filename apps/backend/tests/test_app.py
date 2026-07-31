@@ -11677,7 +11677,8 @@ def test_build_local_tracked_article_topic_fallback_uses_forgiveness_release_tit
 
     assert topic["title"] == "放过别人，也是把自己从旧事里放出来"
     assert "旧怨" in topic["angle"]
-    assert "原谅不是替谁开脱" in topic["angle"]
+    assert "原谅不是替谁开脱" not in topic["angle"]
+    assert any(token in topic["angle"] for token in ("夜里", "睡眠", "窗帘", "能睡踏实"))
     assert "很多答案，都是把日子过到眼前以后" not in topic["title"]
 
 
@@ -11721,7 +11722,10 @@ def test_local_emotional_release_uses_forgiveness_variant_instead_of_old_relatio
     assert any(token in combined for token in ("原谅", "宽恕", "放过自己", "旧怨"))
     assert any(token in package["abstract"] for token in ("窗帘", "阳光", "花", "怨气", "今天"))
     assert "\n".join([assets["cover_copy"], package["publish_lead"], package["abstract"]]).count("心里") <= 1
-    assert "那口气" in package["publish_lead"]
+    assert "把旧怨慢慢放下" in package["publish_lead"]
+    assert combined.count("不是") <= 1
+    assert combined.count("有些") == 0
+    assert combined.count("那口气") <= 2
     for stale in ("旧关系", "背影", "相遇来过", "停在半路", "没被接住"):
         assert stale not in combined
 
