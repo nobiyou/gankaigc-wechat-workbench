@@ -9278,6 +9278,14 @@ def _has_local_supportive_warmth_profile(payload: Mapping[str, object]) -> bool:
             "去拥抱你",
             "四季平凡",
             "身边有你",
+            "早餐",
+            "不吃葱",
+            "备用的伞",
+            "多放一把伞",
+            "热牛奶",
+            "记得你的忌口",
+            "把收到的好",
+            "放进下一次见面",
         )
     )
 
@@ -9438,14 +9446,14 @@ def _build_local_supportive_appreciation_paragraphs(
         ]
 
     return [
-        "别人递来一点暖意，他常常会想办法再多还回去一点。",
-        "你对他好一分，他会记在心里很久，转身又把这份好慢慢添一点还给你。",
-        "这样的人，心里常常很软，也很重感情。不是不会累，只是看见别人对他的好，就舍不得让那份好落空。",
-        "他未必把感谢说得很响，却会在很多小事里慢慢还回来：记得你的难处，留意你的情绪，也愿意在你需要的时候多往前走一步。",
-        "心软的人最难得的地方，从来不只是脾气好。是他把关系看得认真，把别人给过的温暖，也认真放在心上。",
-        "所以，别把他的柔软看得太轻。那份好脾气背后，是一个人愿意把善意继续传下去的能力。",
-        "一生那么长，真正愿意把温暖回给你的人并不多。遇见了，就别只享受他的好，也要让他知道：他的真心有人看见。",
-        "被认真珍惜过的温柔，会越来越亮。它会在平淡日子里慢慢长成踏实的爱，也会让两个人都更愿意靠近。",
+        "你给他带一份早餐，他会记得你不吃葱；你替他挡过一次雨，他下次出门，总会在包里多放一把伞。",
+        "这样的人很少把“我记得”挂在嘴边，却会把别人给过的好，悄悄放进下一次见面里。",
+        "你随口说最近睡不好，过几天他还会问一句；你说工作忙得顾不上吃饭，他路过便利店，会顺手把热牛奶放到你桌边。",
+        "他回报一份好，常常不挑隆重的时机。多留一把椅子，多记一个忌口，走到楼下时替你把门扶住，都是他把情分放在日常里的方式。",
+        "心软的人并不迟钝。他知道谁认真对过自己，也知道一份温暖落到别人手里有多不容易，所以总想让它再往前走一点。",
+        "这份体贴最动人的地方，是它不急着被看见。有人给他一盏灯，他就想在别人晚归时，也把门口那盏灯留着。",
+        "遇见这样的人，别只享受他总是记得。你也可以记住他的习惯，问问他今天吃饭没有，让他知道，递出去的好有人接到了。",
+        "好的温柔从来不是一个人不停地给，而是你来我往，最后落成一段很踏实的日子。",
     ]
 
 
@@ -14179,7 +14187,7 @@ def _resolve_local_assets_cover_copy(
         if _has_local_supportive_apology_profile(payload):
             return "那个受了委屈还把语气放轻的人，更该被珍惜。"
         if _has_local_supportive_warmth_profile(payload):
-            return "你给出去的温柔，也值得有人认真还回来。"
+            return "他把收到的好，慢慢还进了日子里。"
         return "会先顾别人感受的人，也该被认真接住。"
     if mode == "self_reliance_inward_support" and _uses_local_self_reliance_shared_burden_variant(payload):
         return self_reliance_cover_copy
@@ -14326,8 +14334,8 @@ def _resolve_local_assets_social_teaser(
             lead = first if first_is_safe else "明明已经有点难受了，对方把歉意说出口时，她还是先把语气放轻了。"
             return _compose_local_followup(lead, "愿意留余地的人，更需要被认真回应。")
         if _has_local_supportive_warmth_profile(payload):
-            lead = first if first_is_safe else "别人递来一点暖意，他常常会想办法再多还回去一点。"
-            return _compose_local_followup(lead, "难得的是，他把收到的暖意又慢慢还了回来。")
+            lead = first if first_is_safe else "你说过的忌口、随口提过的难处，他总会记得。"
+            return _compose_local_followup(lead, "他把收到的好放进下一次见面里，慢慢还成了日常的照顾。")
         lead = first if first_is_safe else "会先顾别人感受的人，也该有人反过来护住。"
         return _compose_local_followup(lead, "有人看见退让背后的在乎，温柔才不会被白白消耗。")
     if mode == "self_worth_rebuild" and _has_local_self_worth_luxury_profile(payload):
@@ -14899,8 +14907,8 @@ def _build_local_publish_package_fallback(
                 publish_lead = "那句“对不起”说完，她沉默了一会儿，还是把水杯往你这边推了推。刚才的话确实伤到了她，可这段关系在她心里，比当下那口气更重要，所以她愿意再把话接起来。"
                 abstract = "道歉最有分量的部分，往往发生在下一次：你记得她为什么难过，也真的把那件事做得不一样。温柔被认真接住，才会一直是温柔。"
             elif _has_local_supportive_warmth_profile(focus_payload):
-                publish_lead = "心软的人最动人的地方，是收到一点好，就想认真还回去。这样的人未必会把爱说得很响，却会把你给过的暖，一点点落回日子里。"
-                abstract = "把温柔一遍遍落进小事里的人，很稀缺。别等他把失望咽多了，才想起他的体谅有多珍贵。"
+                publish_lead = "你给过的每一点好，他都没有随手放过。你说不吃什么、最近哪里难，他记在心上，下一次见面就替你多想一步。"
+                abstract = "有些人的温柔不在漂亮话里，而在一把备用的伞、一杯记得少糖的咖啡和一句隔了几天还会问起的近况里。收到过好意，也愿意把它继续传下去，日子就会越过越暖。"
             else:
                 publish_lead = "饭桌上的气氛刚有点僵，她先夹了一筷子菜，问了句：“还吃吗？”她也会难受，只是舍不得让在乎的人一直隔着一口气。"
                 abstract = "肯先把话接回来的人，已经把关系放在了输赢前面。别让这份主动总是一个人的习惯；你也往前走一步，很多误会就能停在今晚。"
@@ -15067,8 +15075,8 @@ def _build_local_publish_package_fallback(
                 ]
             elif _has_local_supportive_warmth_profile(focus_payload):
                 supportive_intro_options = [
-                    "心软的人，一生难遇，也值得被人好好珍惜。",
-                    "收到一点暖意，还愿意再慢慢还回来的人并不多。",
+                    "他记得你的忌口，也记得你随口提过的难处。",
+                    "收到过好意，还愿意把它继续传下去的人，值得被好好对待。",
                 ]
             else:
                 supportive_intro_options = [

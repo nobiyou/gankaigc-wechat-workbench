@@ -11422,10 +11422,10 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_pure_
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(payload)
 
     assert title == "心软的人，一生难遇，请一定好好珍惜"
-    assert body_markdown.startswith("别人递来一点暖意，他常常会想办法再多还回去一点。")
-    assert "你对他好一分，他会记在心里很久" in body_markdown
-    assert "心软的人最难得的地方，从来不只是脾气好。" in body_markdown
-    assert "一生那么长，真正愿意把温暖回给你的人并不多。" in body_markdown
+    assert body_markdown.startswith("你给他带一份早餐，他会记得你不吃葱；你替他挡过一次雨，他下次出门，总会在包里多放一把伞。")
+    assert "你随口说最近睡不好，过几天他还会问一句" in body_markdown
+    assert "把收到的好" not in body_markdown
+    assert "好的温柔从来不是一个人不停地给" in body_markdown
     assert "一句道歉真正有分量的地方" not in body_markdown
     assert "太好说话久了" not in body_markdown
     assert "谁是真心，谁在敷衍" not in body_markdown
@@ -11435,31 +11435,29 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_warmt
     assets = SimpleNamespace(
         recommended_title="心软的人，一生难遇，请一定好好珍惜",
         title_options=["心软的人，一生难遇，请一定好好珍惜"],
-        cover_copy="会先顾别人感受的人，也该被认真接住。",
-        social_teaser="别人递来一点暖意，他常常会想办法再多还回去一点。真正难得的，是他把收到的暖意又慢慢还了回来。",
-        social_teaser_options=["别人递来一点暖意，他常常会想办法再多还回去一点。真正难得的，是他把收到的暖意又慢慢还了回来。"],
+        cover_copy="他把收到的好，慢慢还进了日子里。",
+        social_teaser="你给他带一份早餐，他会记得你不吃葱；他把收到的好放进下一次见面里，慢慢还成了日常的照顾。",
+        social_teaser_options=["你给他带一份早餐，他会记得你不吃葱；他把收到的好放进下一次见面里，慢慢还成了日常的照顾。"],
     )
 
     package = workbench._build_local_publish_package_fallback(
         draft_title="心软的人，一生难遇，请一定好好珍惜",
         draft_body_markdown=(
-            "别人递来一点暖意，他常常会想办法再多还回去一点。\n\n"
-            "心软的人最难得的地方，从来不只是脾气好。是他明明也会累、也会疼，却还是愿意把收到的善意，再往回递一点给身边的人。\n\n"
-            "一生那么长，真正愿意把温暖回给你的人并不多。"
+            "你给他带一份早餐，他会记得你不吃葱；你替他挡过一次雨，他下次出门，总会在包里多放一把伞。\n\n"
+            "你随口说最近睡不好，过几天他还会问一句；你说工作忙得顾不上吃饭，他路过便利店，会顺手把热牛奶放到你桌边。\n\n"
+            "好的温柔从来不是一个人不停地给，而是你来我往，最后落成一段很踏实的日子。"
         ),
         assets=assets,
     )
 
-    assert package["publish_lead"] == "心软的人最动人的地方，是收到一点好，就想认真还回去。这样的人未必会把爱说得很响，却会把你给过的暖，一点点落回日子里。"
-    first_paragraph = str(
-        "别人递来一点暖意，他常常会想办法再多还回去一点。"
-    )
+    assert package["publish_lead"] == "你给过的每一点好，他都没有随手放过。你说不吃什么、最近哪里难，他记在心上，下一次见面就替你多想一步。"
+    first_paragraph = str("你给他带一份早餐，他会记得你不吃葱；你替他挡过一次雨，他下次出门，总会在包里多放一把伞。")
     assert package["publish_lead"] != first_paragraph
-    assert package["abstract"] == "把温柔一遍遍落进小事里的人，很稀缺。别等他把失望咽多了，才想起他的体谅有多珍贵。"
+    assert package["abstract"] == "有些人的温柔不在漂亮话里，而在一把备用的伞、一杯记得少糖的咖啡和一句隔了几天还会问起的近况里。收到过好意，也愿意把它继续传下去，日子就会越过越暖。"
     assert package["abstract"] != assets.social_teaser
     assert "一句道歉不难" not in package["abstract"]
-    assert "心软的人，一生难遇，也值得被人好好珍惜。" in package["intro_options"]
-    assert "收到一点暖意，还愿意再慢慢还回来的人并不多。" in package["intro_options"]
+    assert "他记得你的忌口，也记得你随口提过的难处。" in package["intro_options"]
+    assert "收到过好意，还愿意把它继续传下去的人，值得被好好对待。" in package["intro_options"]
 
 
 def test_build_local_assets_fallback_supportive_appreciation_uses_warmth_copy() -> None:
@@ -11469,14 +11467,14 @@ def test_build_local_assets_fallback_supportive_appreciation_uses_warmth_copy() 
         topic_angle="从那种总会先顾别人感受、把温暖回给别人、遇事也愿意留余地的人切入，写他们为什么值得被好好珍惜。",
         draft_title="心软的人，一生难遇，请一定好好珍惜",
         draft_body_markdown=(
-            "别人递来一点暖意，他常常会想办法再多还回去一点。\n\n"
-            "你对他好一分，他会记在心里很久，转身又把这份好慢慢添一点还给你。\n\n"
-            "心软的人最难得的地方，从来不只是脾气好。"
+            "你给他带一份早餐，他会记得你不吃葱；你替他挡过一次雨，他下次出门，总会在包里多放一把伞。\n\n"
+            "你随口说最近睡不好，过几天他还会问一句；他总把别人给过的好，悄悄放进下一次见面里。\n\n"
+            "好的温柔从来不是一个人不停地给。"
         ),
     )
 
-    assert assets["cover_copy"] == "你给出去的温柔，也值得有人认真还回来。"
-    assert assets["social_teaser"] == "别人递来一点暖意，他常常会想办法再多还回去一点。难得的是，他把收到的暖意又慢慢还了回来。"
+    assert assets["cover_copy"] == "他把收到的好，慢慢还进了日子里。"
+    assert assets["social_teaser"] == "你给他带一份早餐，他会记得你不吃葱；他把收到的好放进下一次见面里，慢慢还成了日常的照顾。"
     assert assets["cover_copy"].rstrip("。") != assets["recommended_title"].rstrip("。")
     assert "明亮的厨房或门厅" in str(assets["cover_prompt"])
     assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
