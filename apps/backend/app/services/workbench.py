@@ -4812,21 +4812,30 @@ def _build_local_tracked_article_topic_fallback(payload: Mapping[str, object]) -
             }
 
     article_title = str(payload.get("article_title") or "").strip()
-    analysis_theme = str(payload.get("analysis_theme") or "").strip()
-    summary = str(payload.get("summary") or "").strip()
-    structure_notes = str(payload.get("structure_notes") or "").strip()
-    anchor = analysis_theme or summary or structure_notes or article_title or "文章里的真实处境"
+    source_candidates = (
+        str(payload.get("body_markdown") or "").strip(),
+        str(payload.get("reference_article_body_markdown") or "").strip(),
+        str(payload.get("summary") or "").strip(),
+        str(payload.get("structure_notes") or "").strip(),
+        str(payload.get("analysis_theme") or "").strip(),
+    )
+    anchor = ""
+    for candidate in source_candidates:
+        cleaned = _clean_local_fallback_instruction_phrase(candidate)
+        if not cleaned or _looks_like_local_fallback_instruction_fragment(cleaned):
+            continue
+        first_sentence = re.split(r"(?<=[。！？!?])|\n+", cleaned, maxsplit=1)[0].strip(" \t\r\n-—•")
+        if first_sentence and not _looks_like_local_fallback_instruction_fragment(first_sentence):
+            anchor = first_sentence
+            break
+    if not anchor:
+        anchor = article_title or "眼前这段日子"
     if len(anchor) > 48:
         anchor = anchor[:47].rstrip("，,；;。.!?？、 ") + "…"
 
     fallback = {
-        "title": "很多答案，都是把日子过到眼前以后，才慢慢看清的",
-        "angle": (
-            f"围绕《{article_title}》对应的现实处境切入，重建新的具体入口，"
-            f"把{anchor}说得更贴近真人表达。"
-            if article_title
-            else f"围绕参考文章对应的现实处境切入，重建新的具体入口，把{anchor}说得更贴近真人表达。"
-        ),
+        "title": article_title or "把眼前这段日子过明白",
+        "angle": f"{anchor}。很多事情的分量，都是在这样的日常里慢慢显出来的。",
     }
     rewritten = _apply_tracked_article_topic_rewrites(payload, fallback)
     if rewritten["title"] and rewritten["angle"]:
@@ -9569,6 +9578,8 @@ def _looks_like_local_fallback_instruction_fragment(text: str) -> bool:
             "收束到",
             "为什么会变成常态",
             "为什么连",
+            "重建新的具体入口",
+            "更贴近真人表达",
         )
     ):
         return True
@@ -9577,7 +9588,7 @@ def _looks_like_local_fallback_instruction_fragment(text: str) -> bool:
         return True
     return bool(
         re.search(
-            r"^(怎样|为什么|落在哪里|回到|结尾|开头|中段|包装|标题|导语|主线是|重点是|核心是|不要收成|不要写成|写成|写我们|写人|写一个人|先写|再写|最后(?:回到|把|还是))",
+            r"^(怎样|为什么|落在哪里|回到|结尾|开头|中段|包装|标题|导语|主线是|重点是|核心是|不要收成|不要写成|写成|写我们|写人|写一个人|先写|再写|最后(?:回到|把|还是)|围绕(?:《[^》]+》|参考文章|参考))",
             prefix,
         )
     )

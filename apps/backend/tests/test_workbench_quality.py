@@ -236,6 +236,28 @@ def test_local_fallback_mode_recognizes_self_reliance_without_explicit_keyword()
     assert evaluate_ai_flavor_risk(title=title, body_markdown=draft).score == 0
 
 
+def test_unknown_local_topic_fallback_uses_source_scene_without_instruction_leakage() -> None:
+    body = (
+        "雨停以后，菜市场门口的人都慢了下来。有人收伞，有人把湿掉的菜叶重新装好。"
+        "这样的傍晚没有什么大事，却让人忽然想起，日子也可以不用一直赶。"
+    )
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "雨停以后，菜市场门口的人都慢了下来",
+        "body_markdown": body,
+        "reference_article_body_markdown": body,
+    }
+
+    assert _resolve_local_fallback_mode(payload) == ""
+    topic = _build_local_tracked_article_topic_fallback(payload)
+
+    assert topic["title"] == payload["article_title"]
+    assert topic["angle"].startswith("雨停以后，菜市场门口的人都慢了下来。")
+    for forbidden in ("围绕《", "重建新的具体入口", "更贴近真人表达"):
+        assert forbidden not in topic["title"]
+        assert forbidden not in topic["angle"]
+
+
 def test_positive_payoff_requires_theme_specific_landing_for_everyday_warmth() -> None:
     strategy = _strategy(
         structure_mode="everyday_warmth_return",
