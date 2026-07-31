@@ -1753,7 +1753,7 @@ def test_generate_topic_from_tracked_article_rewrites_responsibility_shelter_neg
 
     for forbidden in ("快撑不住", "熬沉默", "咽回去", "沉默", "女性", "把自己往后放", "自己往后放"):
         assert forbidden not in combined
-    assert any(token in payload["title"] for token in ("责任", "家里", "灯"))
+    assert any(token in payload["title"] for token in ("责任", "家里", "灯", "日子", "心疼"))
 
 
 def test_build_local_tracked_article_topic_fallback_uses_endurance_title_for_i_am_ok_responsibility_case() -> None:
@@ -7047,6 +7047,7 @@ def test_build_local_tracked_article_draft_fallback_avoids_instruction_leakage_f
     assert title in {
         "家里一有事，你总会先把家稳住",
         "肩上有责任的人，心里也要留一盏灯",
+        "把日子托稳的人，也该被好好心疼",
     }
     assert "责任怎样把人推着往前：" not in body_markdown
     assert "代价落在哪里：" not in body_markdown
@@ -7060,6 +7061,7 @@ def test_build_local_tracked_article_draft_fallback_avoids_instruction_leakage_f
         fragment in body_markdown
         for fragment in (
             "这几样一下都排到前面了",
+            "哪张单子今天得处理",
             "先看哪张单子得今天处理",
             "先把这个月的工作、父母和孩子的事排了一遍",
         )
@@ -7081,6 +7083,8 @@ def test_build_local_tracked_article_draft_fallback_avoids_instruction_leakage_f
         for fragment in (
             "替家里多想的每一步，都会慢慢变成日子的底气。",
             "你替家里挡过的风，也会慢慢变成照回自己身上的光。",
+            "多想一步的人，常常把慌乱挡在门外。",
+            "你挡过的风，也会慢慢变成照回自己身上的光。",
         )
     )
     assert "身体先报警" not in body_markdown
@@ -7202,6 +7206,7 @@ def test_build_local_tracked_article_responsibility_fallback_avoids_reference_da
     assert assets["cover_copy"] in {
         "你扛住的那些日常，后来都在替家里换安稳。",
         "你替一家人扛住风雨，也别忘了给自己留一盏灯。",
+        "你多想的那一步，后来都会落成日子的安心。",
     }
     assert any(
         fragment in assets["social_teaser"]
@@ -7217,6 +7222,7 @@ def test_build_local_tracked_article_responsibility_fallback_avoids_reference_da
             "家里的日子才能继续照常往前走",
             "家里的那点踏实会替你记着",
             "家里的安稳才能被你慢慢托住",
+            "日常的安稳才能被你慢慢托住",
         )
     )
     assert "心里很快就排了一遍：" not in assets["social_teaser"]
@@ -7251,7 +7257,7 @@ def test_build_local_tracked_article_responsibility_fallback_rewrites_diagnosis_
 
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(payload)
 
-    assert title == "肩上有责任的人，心里也要留一盏灯"
+    assert title == "把日子托稳的人，也该被好好心疼"
     for fragment in (
         "家庭分工",
         "经济压力",
@@ -7267,8 +7273,8 @@ def test_build_local_tracked_article_responsibility_fallback_rewrites_diagnosis_
     assert "父母的事要惦记，孩子的事要跟上，工作那头也不能松" in body_markdown
     assert "父母少一点担心，孩子多一点底气，家里多一点踏实" in body_markdown
     assert "桌上给你留着一口热饭，屋里有人问你累不累。" in body_markdown
-    assert "一个家要走得稳，靠的是彼此都愿意搭一把手。" in body_markdown
-    assert "替家里多想的每一步，都会慢慢变成日子的底气。" in body_markdown
+    assert "日子要走得稳，靠的是彼此都愿意搭一把手。" in body_markdown
+    assert "多想一步的人，常常把慌乱挡在门外。" in body_markdown
 
 
 def test_local_fallback_mode_promotes_responsibility_variant_before_everyday_warmth() -> None:
@@ -7310,10 +7316,13 @@ def test_local_fallback_mode_promotes_responsibility_variant_before_everyday_war
 
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(payload)
 
-    assert title == "肩上有责任的人，心里也要留一盏灯"
+    assert title == "把日子托稳的人，也该被好好心疼"
     assert "年轻时总觉得幸福要有很大的样子" not in body_markdown
     assert "有个朋友前阵子说，他最开心的一天" not in body_markdown
-    assert "家里那头一有动静，你会先过去稳住" in body_markdown
+    assert any(
+        fragment in body_markdown
+        for fragment in ("家里那头一有动静，你会先过去稳住", "那一头有动静，你会先过去稳住")
+    )
     assert "一盒药提前买好，把校服洗出来晾着，把冰箱里缺的菜顺手记下来" in body_markdown
     assert "把日子往前托的人，也该被日子温柔托住。" in body_markdown
     assert "不是一个人有多厉害，而是" not in body_markdown
@@ -7958,7 +7967,7 @@ def test_build_local_tracked_article_responsibility_fallback_rewrites_live_outli
 
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(payload)
 
-    assert title == "肩上有责任的人，心里也要留一盏灯"
+    assert title == "把日子托稳的人，也该被好好心疼"
     for fragment in (
         "家庭支持变薄",
         "养育成本",
@@ -7992,8 +8001,8 @@ def test_build_local_tracked_article_responsibility_fallback_rewrites_live_outli
     assert "父母的事要惦记，孩子的事要跟上，工作那头也不能松" in body_markdown
     assert "父母少一点担心，孩子多一点底气，家里多一点踏实" in body_markdown
     assert "桌上给你留着一口热饭，屋里有人问你累不累。" in body_markdown
-    assert "一个家要走得稳，靠的是彼此都愿意搭一把手。" in body_markdown
-    assert "替家里多想的每一步，都会慢慢变成日子的底气。" in body_markdown
+    assert "日子要走得稳，靠的是彼此都愿意搭一把手。" in body_markdown
+    assert "多想一步的人，常常把慌乱挡在门外。" in body_markdown
 
 def test_rewrite_tracked_article_danger_result_fields_cleans_publish_surfaces() -> None:
     source = (
@@ -8890,6 +8899,7 @@ def test_build_initial_draft_candidate_result_keeps_local_responsibility_fallbac
         for fragment in (
             "这几样一下都排到前面了",
             "先把这几样过了一遍",
+            "哪张单子今天得处理",
             "先看哪张单子得今天处理",
             "先把这个月的工作、父母和孩子的事排了一遍",
         )
@@ -8935,7 +8945,7 @@ def test_build_local_responsibility_shelter_fallback_skips_outline_instruction_l
         }
     )
 
-    assert title == "肩上有责任的人，心里也要留一盏灯"
+    assert title == "把日子托稳的人，也该被好好心疼"
     for forbidden in (
         "写清楚来电背后",
         "点出“肩上有责任的人”",
@@ -8997,7 +9007,7 @@ def test_build_local_responsibility_shelter_fallback_keeps_richer_human_positive
     )
 
     paragraphs = [paragraph for paragraph in body_markdown.split("\n\n") if paragraph.strip()]
-    assert title == "肩上有责任的人，心里也要留一盏灯"
+    assert title == "把日子托稳的人，也该被好好心疼"
     assert len(body_markdown) >= 780
     assert len(paragraphs) >= 10
     for anchor in ("一盒药", "校服", "冰箱", "先吃饭，别急"):
@@ -9079,7 +9089,10 @@ def test_local_responsibility_assets_and_publish_package_keep_human_positive_the
     assert "不要在画面里生成中文文字" in normalized_cover_prompt
     assert "很多认真多想的一步" not in "\n".join(str(item) for item in assets["social_teaser_options"])
     joined_teasers = "\n".join(str(item) for item in assets["social_teaser_options"])
-    assert any(fragment in joined_teasers for fragment in ("家里的灯", "家的底气", "家里那点踏实", "家里的安稳"))
+    assert any(
+        fragment in joined_teasers
+        for fragment in ("家里的灯", "屋里的灯", "家的底气", "家里那点踏实", "家里的安稳", "日常的安稳")
+    )
     assert any(fragment in joined_teasers for fragment in ("排稳", "安排妥", "踏实", "谁陪", "谁接"))
     assert any(fragment in package["publish_lead"] for fragment in ("账单", "家里", "日子"))
     assert any(fragment in package["publish_lead"] for fragment in ("稳", "安稳", "底气"))
@@ -9088,6 +9101,68 @@ def test_local_responsibility_assets_and_publish_package_keep_human_positive_the
     assert any(fragment in package["abstract"] for fragment in ("账单", "开销", "日子"))
     assert any(fragment in package["abstract"] for fragment in ("一家人", "家", "底气", "稳"))
     assert all(not workbench._starts_with_generic_packaging_openers(item) for item in package["intro_options"])
+
+
+def test_local_responsibility_fallback_keeps_repeated_family_terms_low() -> None:
+    body = (
+        "中年人的世界，电话那头是父母、孩子和账单。"
+        "你扛住压力，说没事有我。"
+        "万般辛苦不是为了夸苦难，而是让家人有一处安稳屋檐。"
+    )
+    base = {
+        "source_type": "tracked_article",
+        "article_title": "responsibility",
+        "body_markdown": body,
+        "reference_article_body_markdown": body,
+    }
+    topic = workbench._build_local_tracked_article_topic_fallback(base)
+    payload = {**base, "topic_title": topic["title"], "topic_angle": topic["angle"]}
+    mode = workbench._resolve_local_fallback_mode(payload)
+    outline = workbench._build_local_tracked_article_outline_fallback(
+        {**payload, "strategy_card": {"structure_mode": mode}}
+    )
+    title, draft = workbench._build_local_tracked_article_draft_fallback(
+        {**payload, "outline": outline, "strategy_card": {"structure_mode": mode}}
+    )
+    assets = workbench._build_local_assets_fallback(
+        project_title=title,
+        topic_title=topic["title"],
+        topic_angle=topic["angle"],
+        draft_title=title,
+        draft_body_markdown=draft,
+    )
+    asset_item = workbench.AssetItem(
+        project_slug="local-responsibility-repeat-guard",
+        draft_version=1,
+        version=1,
+        cover_image_path="",
+        cover_image_url="",
+        **assets,
+    )
+    package = workbench._build_local_publish_package_fallback(
+        draft_title=title,
+        draft_body_markdown=draft,
+        assets=asset_item,
+    )
+
+    combined = "\n".join(
+        [
+            topic["title"],
+            topic["angle"],
+            title,
+            draft,
+            str(assets["cover_copy"]),
+            str(assets["social_teaser"]),
+            str(package["publish_lead"]),
+            str(package["abstract"]),
+        ]
+    )
+
+    assert combined.count("家里") <= 3
+    assert combined.count("心里") <= 1
+    assert combined.count("先把") <= 2
+    assert "把日子托稳的人，也该被好好心疼" in combined
+    assert "你多想的那一步，后来都会落成日子的安心。" in combined
 
 
 def test_build_local_responsibility_shelter_fallback_uses_endurance_variant_for_i_am_ok_article() -> None:
@@ -9116,9 +9191,9 @@ def test_build_local_responsibility_shelter_fallback_uses_endurance_variant_for_
         }
     )
 
-    assert any(token in title for token in ("电话", "医院", "家里", "账单", "日子", "家人"))
+    assert any(token in title for token in ("电话", "医院", "家里", "账单", "日子", "家人", "责任", "心疼"))
     assert any(token in title for token in ("安心", "安顿", "排稳", "排顺序", "日子", "家"))
-    assert body_markdown.startswith(("电话一响，你先把手里的事停了一下", "请假", "医院走廊", "那通电话", "日子过到后来"))
+    assert body_markdown.startswith(("电话一响，你先把手里的事停了一下", "电话一响，你手里的事先停了一下", "请假", "医院走廊", "那通电话", "日子过到后来"))
     assert any(fragment in body_markdown for fragment in ("我先来想办法", "把声音放稳", "把家里的事一件件理清"))
     assert any(fragment in body_markdown for fragment in ("你也会在夜里问一句", "这样熬，到底值不值得"))
     assert "所谓人间安稳，从来不是生活忽然不难了。" in body_markdown
@@ -9181,6 +9256,7 @@ def test_local_responsibility_assets_and_publish_package_use_endurance_variant_p
     assert assets["cover_copy"] in {
         "你扛住的那些日常，后来都在替家里换安稳。",
         "你替一家人扛住风雨，也别忘了给自己留一盏灯。",
+        "你多想的那一步，后来都会落成日子的安心。",
     }
     assert any(
         fragment in assets["social_teaser"]
@@ -9194,6 +9270,7 @@ def test_local_responsibility_assets_and_publish_package_use_endurance_variant_p
         for fragment in (
             "把家慢慢托稳",
             "家里的安稳",
+            "日常的安稳",
         )
     )
     assert "心里很快就排了一遍：" not in assets["social_teaser"]

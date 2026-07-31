@@ -1496,7 +1496,7 @@ def test_local_responsibility_publish_package_fallback_stays_scene_first() -> No
     )
 
     assert "电话" in str(result["publish_lead"])
-    assert "家里的安排" in str(result["publish_lead"])
+    assert any(fragment in str(result["publish_lead"]) for fragment in ("家里的安排", "眼前的安排", "眼前的日子"))
     assert "父母" in str(result["publish_lead"])
     assert "孩子" in str(result["publish_lead"])
     assert "家里临时有事" in str(result["abstract"]) or "电话" in str(result["abstract"])

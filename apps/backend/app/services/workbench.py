@@ -4020,13 +4020,13 @@ def _rewrite_everyday_warmth_return_topic(payload: Mapping[str, object], ai_resu
                 )
             return {"title": new_title, "angle": new_angle}
         if any(token in corpus for token in ("账单", "缴费", "复查", "请假", "电话", "喉咙发紧")):
-            new_title = "肩上有责任的人，心里也要留一盏灯"
+            new_title = "把日子托稳的人，也该被好好心疼"
         else:
             new_title = "把家里日子托稳的人，也该被好好心疼"
         new_angle = (
-            "从成年人为什么会先把家里的事理顺切入，"
+            "从成年人为什么会先把眼前的事理顺切入，"
             "写责任怎样让人多想一步、把日子安排稳；"
-            "也写那些认真托住日子的时刻，后来为什么会在父母、孩子、伴侣和家里的安稳里慢慢显出意义。"
+            "也写那些认真托住日子的时刻，后来为什么会在父母、孩子、伴侣和一盏灯里慢慢显出意义。"
         )
         return {"title": new_title, "angle": new_angle}
 
@@ -9126,7 +9126,7 @@ def _pick_local_responsibility_text_variant(payload: Mapping[str, object], optio
 
 
 def _resolve_local_responsibility_quote(payload: Mapping[str, object]) -> str:
-    return "替家里多想的每一步，都会慢慢变成日子的底气。"
+    return "多想一步的人，常常把慌乱挡在门外。"
 
 
 def _build_local_responsibility_probe(
@@ -9157,7 +9157,7 @@ def _resolve_local_responsibility_packaging_title(payload: Mapping[str, object])
 def _resolve_local_responsibility_transition(payload: Mapping[str, object]) -> str:
     corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
     if any(token in corpus for token in ("账单", "缴费", "催款")):
-        return "账单被压在杯子下面，纸角微微卷起，却提醒人先把眼前的安排捋清。"
+        return "账单被压在杯子下面，纸角微微卷起，眼前的安排也得跟着捋清。"
     if any(token in corpus for token in ("父母", "孩子", "伴侣")):
         return "饭桌还没摆好，父母的叮嘱和孩子的安排已经在心里排成一列。"
     if any(token in corpus for token in ("电话", "来电", "接电话")):
@@ -9692,12 +9692,12 @@ def _normalize_local_responsibility_burden_point(text: str) -> str:
 def _resolve_local_responsibility_pressure_detail(payload: Mapping[str, object]) -> str:
     corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
     if "请假" in corpus and "绩效" in corpus:
-        return "你先把能协调的时间圈出来，再给家里留出一个更稳的安排。"
+        return "能协调的时间先圈出来，再给父母孩子留出一个更稳的安排。"
     if "辞职" in corpus:
         return "念头涌上来的时候，你会先停一停，想想怎样让眼前这一步走得更稳。"
     if any(token in corpus for token in ("账单", "缴费", "催款")):
-        return "消息一来，你先把能调的地方调一调，让家里的灯照常亮着。"
-    return "很多时候，你也想松一口气，只是更想让家里的人安心一点。"
+        return "消息一来，能调的地方先调一调，让屋里的灯照常亮着。"
+    return "很多时候，你也想松一口气，只是更想让身边的人安心一点。"
 
 
 def _resolve_local_responsibility_warmth_detail(payload: Mapping[str, object]) -> str:
@@ -9726,7 +9726,7 @@ def _resolve_local_responsibility_draft_opening(payload: Mapping[str, object]) -
         "schedule": "请假申请还没点下去，你已经先把工作、父母和孩子的事排了一遍。",
         "bills": "账单摊在桌上时，你先把能调整的地方圈了出来。",
         "pickup": "站在学校门口等孩子出来时，一天的奔忙忽然有了很具体的答案。",
-        "call": "电话一响，你先把手里的事停了一下。还没接起来，心里已经开始替父母、孩子和今天的安排排顺序。",
+        "call": "电话一响，你手里的事先停了一下。还没接起来，脑子里已经开始替父母、孩子和今天的安排排顺序。",
         "family": "家里临时有事时，你先想的是眼前这件事该怎么接。",
     }
     followup_by_scene = {
@@ -9734,8 +9734,8 @@ def _resolve_local_responsibility_draft_opening(payload: Mapping[str, object]) -
         "schedule": "你先把工作、父母和孩子的事排一遍，想让每一头都稳一点。",
         "bills": "你先把能调整的地方圈出来，想让这个家照常往前走。",
         "pickup": "那一刻，辛苦不是一下子消失了，而是突然有了值得继续往前的光。",
-        "call": "你把声音放稳，也把父母、孩子和家里的安排一件件理清。",
-        "family": "你先想的是眼前这件事该怎么接，家里的心才不会跟着乱。",
+        "call": "你把声音放稳，也把父母、孩子和眼前的安排一件件理清。",
+        "family": "你先想的是眼前这件事该怎么接，身边的人才不会跟着乱。",
     }
     intro = opening_by_scene.get(scene_kind, opening_by_scene["family"])
     return _compose_local_followup(intro, followup_by_scene.get(scene_kind, followup_by_scene["family"]))
@@ -9746,10 +9746,10 @@ def _resolve_local_responsibility_daily_detail(payload: Mapping[str, object]) ->
     detail_by_scene = {
         "medical": "很多中年人的一天，都是从把慌张先按住开始的。先看医院那边谁去跑，先问老人还缺什么，再把孩子和工作那头的时间一起排好。",
         "schedule": "很多中年人的一天，都是从把自己往后放半步开始的。先看工作能不能协调，先想爸妈那边谁去跑，再把孩子这周的安排补上。",
-        "bills": "很多中年人的一天，都是从把开销一项项摆清楚开始的。先看哪笔必须今天处理，先想哪里还能挪一点，再把家里接下来的日子往稳处排。",
+        "bills": "很多中年人的一天，都是从把开销一项项摆清楚开始的。先看哪笔必须今天处理，先想哪里还能挪一点，再把后面的日子往稳处排。",
         "pickup": "很多中年人的一天，都是从一件件小事里被重新点亮的。忙归忙，只要校门口有人朝你跑来，那些奔波就有了很具体的答案。",
         "call": "很多中年人的一天，都是从把自己往后放半步开始的。先想爸妈那边谁去跑，先看孩子这周怎么接，再把这个月哪笔开销得先处理过一遍。",
-        "family": "很多中年人的一天，都是从把家里的顺序理清开始的。先顾哪一头，先办哪件事，先让谁心里别慌，都要在脑子里过一遍。",
+        "family": "很多中年人的一天，都是从把顺序理清开始的。先顾哪一头，先办哪件事，先让谁别慌，都要在脑子里过一遍。",
     }
     return detail_by_scene.get(scene_kind, detail_by_scene["family"])
 
@@ -9762,8 +9762,8 @@ def _resolve_local_responsibility_teaser(payload: Mapping[str, object]) -> str:
         "schedule": "请假前，你先把工作、父母和孩子的事排了一遍。心里装着家的人，总会先让日子稳一点。",
         "bills": "账单摊开时，你先想的是日子怎么继续往前。那些被你一点点排稳的琐事，后来都会变成家的底气。",
         "pickup": "站在校门口等孩子出来时，一天的辛苦会忽然松一点。有人朝你奔来，日子就有了很具体的光。",
-        "call": "电话一响，你先想父母那边谁陪、孩子这边谁接。这些事你都得先想在前面，家里的安稳才能被你慢慢托住。",
-        "family": "你把很多事安排妥了，家里的灯才会这样稳稳亮着。",
+        "call": "电话一响，你先想父母那边谁陪、孩子这边谁接。这些事你都得先想在前面，日常的安稳才能被你慢慢托住。",
+        "family": "你把很多事安排妥了，屋里的灯才会这样稳稳亮着。",
     }
     if scene_kind in teaser_by_scene:
         return teaser_by_scene[scene_kind]
@@ -9771,7 +9771,7 @@ def _resolve_local_responsibility_teaser(payload: Mapping[str, object]) -> str:
         return teaser_by_scene["schedule"]
     if any(token in corpus for token in ("账单", "缴费", "电话")):
         return teaser_by_scene["family"]
-    return "有些辛苦不张扬，却一直在把家里的日子托稳。"
+    return "有些辛苦不张扬，却一直在把普通日子托稳。"
 
 
 def _resolve_local_responsibility_publish_lead(payload: Mapping[str, object]) -> str:
@@ -9787,7 +9787,7 @@ def _resolve_local_responsibility_publish_lead(payload: Mapping[str, object]) ->
         ),
         "bills": (
             "账单摊在桌上时，你先把能调的地方圈出来。"
-            "日子不一定一下变轻，但家里的心会先稳一点。"
+            "日子不一定一下变轻，但屋里的心会先稳一点。"
         ),
         "pickup": (
             "站在校门口等孩子出来时，一天的紧绷会松一点。"
@@ -9795,8 +9795,8 @@ def _resolve_local_responsibility_publish_lead(payload: Mapping[str, object]) ->
         ),
         "call": (
             "电话一响，你先想的不是自己累不累。"
-            "父母那边谁陪、孩子这边谁接，家里的安排都要一件件往前排。"
-            "把顺序理清，家里的心也就稳一点。"
+            "父母那边谁陪、孩子这边谁接，眼前的日子都要一件件往前排。"
+            "把顺序理清，人心也就稳一点。"
         ),
         "family": (
             "家里临时有事时，你先把手里的事停一下。"
@@ -9810,11 +9810,11 @@ def _resolve_local_responsibility_publish_abstract(payload: Mapping[str, object]
     scene_kind = _resolve_local_responsibility_scene_kind(payload)
     abstract_by_scene = {
         "medical": "医院走廊、缴费窗口和复查安排，会让人一瞬间变得很清醒。你先把事情理顺，是为了让家人少一点慌。那些被你安顿好的细节，最后都会慢慢变成家的踏实。",
-        "schedule": "请假前先把工作、父母和孩子的安排过一遍，是很多成年人很真实的一刻。你不是只会硬撑，而是心里一直装着要照顾的人。把眼前的顺序理清，日子就会多一点安稳。",
+        "schedule": "请假前先把工作、父母和孩子的安排过一遍，是很多成年人很真实的一刻。你不是只会硬撑，而是一直装着要照顾的人。把眼前的顺序理清，日子就会多一点安稳。",
         "bills": "账单和开销摆到眼前时，人会先想着怎样让日子照常往前。你把能调的地方一点点排稳，那份细小的认真，会慢慢变成一家人的底气。",
         "pickup": "校门口那一下很小，却能把一天的辛苦轻轻接住。有人朝你奔来，有人等你回家，生活就不只是忙和累，也有值得继续往前的光。",
-        "call": "嘴上那句“没事”后面的辛苦，常常藏在一通电话里。父母那边谁陪、孩子这边谁接、家里那口悬着的气，都要有人先稳住。等到家里的灯又稳稳亮着，日子照常往前，你会知道这些年真没白忙。",
-        "family": "家里临时有事时，你总会先把人安顿好，再想自己。那些不张扬的认真，会在父母安心、孩子踏实和屋里那盏灯里慢慢显出意义。",
+        "call": "嘴上那句“没事”后面的辛苦，常常藏在一通电话里。父母那边谁陪、孩子这边谁接、那口悬着的气，都要有人先稳住。等到屋里的灯又稳稳亮着，日子照常往前，你会知道这些年真没白忙。",
+        "family": "临时有事时，你总会先把人安顿好，再想自己。那些不张扬的认真，会在父母安心、孩子踏实和屋里那盏灯里慢慢显出意义。",
     }
     return abstract_by_scene.get(scene_kind, abstract_by_scene["family"])
 
@@ -9827,11 +9827,11 @@ def _resolve_local_responsibility_intro_options(payload: Mapping[str, object], p
             "把复查、缴费和回家的路都理清，人心就会慢慢落下来。",
         ],
         "schedule": [
-            "请假前先排一遍家里的事，是很多成年人没说出口的认真。",
-            "你把今天排稳，家里那头也就少一点慌。",
+            "请假前先排一遍父母孩子的事，是很多成年人没说出口的认真。",
+            "你把今天排稳，那一头也就少一点慌。",
         ],
         "bills": [
-            "账单摊开时，日子会提醒人先把眼前这一步走稳。",
+            "账单摊开时，眼前这一步得先走稳。",
             "那些被你一点点调顺的开销，最后会变成家的底气。",
         ],
         "pickup": [
@@ -9839,7 +9839,7 @@ def _resolve_local_responsibility_intro_options(payload: Mapping[str, object], p
             "日子不只是在忙，也藏着这些忽然亮起来的瞬间。",
         ],
         "call": [
-            "那通电话后，你先把声音放稳，也把家里的事理清。",
+            "那通电话后，你先把声音放稳，也把眼前的事理清。",
             "你多想的那一步，后来都会慢慢落成安心。",
         ],
         "family": [
@@ -11582,12 +11582,14 @@ def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> 
         positive_direction = str(strategy_card.get("positive_direction") or "").strip()
 
     raw_title = str(payload.get("topic_title") or payload.get("project_title") or "").strip()
-    title = raw_title or "肩上有责任的人，心里也要留一盏灯"
-    if any(token in title for token in ("没事，有我", "这个月的绩效", "缴费窗口")):
-        title = "肩上有责任的人，心里也要留一盏灯"
+    title = raw_title or "把日子托稳的人，也该被好好心疼"
+    if title == "肩上有责任的人，心里也要留一盏灯" or any(
+        token in title for token in ("没事，有我", "这个月的绩效", "缴费窗口")
+    ):
+        title = "把日子托稳的人，也该被好好心疼"
     if (
         _uses_local_responsibility_endurance_variant(payload)
-        and title == "肩上有责任的人，心里也要留一盏灯"
+        and title == "把日子托稳的人，也该被好好心疼"
     ):
         title = (
             _resolve_local_responsibility_packaging_title(payload)
@@ -11644,19 +11646,19 @@ def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> 
 
     paragraphs = [
         responsibility_opening,
-        "很多责任，都是在一次次替家里安顿现场的过程中，慢慢落到了肩上。哪张单子今天得处理，谁能去跑这一趟，孩子那边的安排怎么补上。",
-        f"{_ensure_sentence_end(quote)}落到日常，不过是一盒药提前买好，把校服洗出来晾着，把冰箱里缺的菜顺手记下来。家里能少一分慌，人心就能多一分稳。",
-        f"{_resolve_local_responsibility_transition(payload)}时间久了，家里那头一有动静，你会先过去稳住，再回头看自己还能不能缓一口气。",
+        "很多责任，都是在一次次安顿现场的过程中，慢慢落到了肩上。哪张单子今天得处理，谁能去跑这一趟，孩子那边的安排怎么补上。",
+        f"{_ensure_sentence_end(quote)}落到日常，不过是一盒药提前买好，把校服洗出来晾着，把冰箱里缺的菜顺手记下来。屋里能少一分慌，人心就能多一分稳。",
+        f"{_resolve_local_responsibility_transition(payload)}时间久了，那一头有动静，你会先过去稳住，再回头看自己还能不能缓一口气。",
         f"{_ensure_sentence_end(second_point)}{pressure_detail}",
         "事情一多，你会把能办的先办，把能问的先问。牵挂多了，人就会自然往前站半步。到这种时候，顾不上逞强不逞强，你只知道，今天要是自己先乱了，屋里那几个等你的人也会跟着慌。",
-        "你不是天生会扛事，只是轮到你时，习惯先说一句“我来想办法”。久而久之，父母有事先找你，孩子有事先喊你，连家里那些零碎安排，也都默认你会接上。",
+        "你不是天生会扛事，只是轮到你时，习惯先说一句“我来想办法”。久而久之，父母有事先找你，孩子有事先喊你，连那些零碎安排，也都默认你会接上。",
         "会扛事的人，也要被人接住。",
-        f"真正让人继续往前走的，常常是你回头一看，家里确实比从前稳了一点。{_ensure_sentence_end(third_point)}",
+        f"真正让人继续往前走的，常常是你回头一看，父母和孩子都比从前稳了一点。{_ensure_sentence_end(third_point)}",
         warmth_detail,
-        "所以后来你会明白，一个家真正的底气，是有人肯把事接住，也有人愿意在你回头的时候接住你。一个家要走得稳，靠的是彼此都愿意搭一把手。",
+        "所以后来你会明白，真正的底气，是有人肯把事接住，也有人愿意在你回头的时候接住你。日子要走得稳，靠的是彼此都愿意搭一把手。",
         "那口热饭、那句“先吃饭，别急”、那盏一直亮着的灯，看起来都很小。可人忙了一整天，最后靠的往往就是这些细碎的回应，把心重新安顿下来。",
         "把日子往前托的人，也该被日子温柔托住。某个晚上，你推门回家，桌上给你留着一口热饭，屋里有人问你累不累。",
-        "那个瞬间你会明白，你替家里挡过的风，也会慢慢变成照回自己身上的光。",
+        "那个瞬间你会明白，你挡过的风，也会慢慢变成照回自己身上的光。",
         ending,
     ]
     return title, "\n\n".join(paragraphs)
@@ -13939,7 +13941,7 @@ def _resolve_mode_shaped_local_packaging_title(
         "self_worth_rebuild": "别让那句“都可以”，替你让掉自己的位置",
         "response_priority": "真正在意你的人，会把话接下去",
         "trust_boundary": "那句没说清的话，后来要认真补回来",
-        "responsibility_shelter": "肩上有责任的人，心里也要留一盏灯",
+        "responsibility_shelter": "把日子托稳的人，也该被好好心疼",
         "supportive_appreciation": "心软的人，值得被认真珍惜",
         "relationship_aftercare": "吵完还肯递杯水的人，最舍不得你难过",
         "resilience_reconstruction": (
@@ -14131,7 +14133,7 @@ def _resolve_local_assets_cover_copy(
         "self_worth_rebuild": "你的感受，也该在关系里占一个位置。",
         "response_priority": "一句补问落下来，心里悬着的地方会先松一下。",
         "trust_boundary": "信任很贵，别让赤诚输给含糊。",
-        "responsibility_shelter": "肩上有责任，心里也要留一盏灯。",
+        "responsibility_shelter": "你多想的那一步，后来都会落成日子的安心。",
         "supportive_appreciation": "会先顾别人感受的人，也该被认真接住。",
         "relationship_aftercare": "递来的那杯热水，比输赢更能让人心软。",
         "resilience_reconstruction": (
@@ -14461,8 +14463,10 @@ def _build_local_assets_fallback(
         specific_title = _resolve_local_responsibility_packaging_title(focus_payload)
         corpus = _extract_local_reference_corpus(focus_payload) or _extract_local_fallback_corpus(focus_payload)
         safe_draft_title = draft_title
-        if any(token in safe_draft_title for token in ("没事，有我", "这个月的绩效", "缴费窗口")):
-            safe_draft_title = "肩上有责任的人，心里也要留一盏灯"
+        if safe_draft_title == "肩上有责任的人，心里也要留一盏灯" or any(
+            token in safe_draft_title for token in ("没事，有我", "这个月的绩效", "缴费窗口")
+        ):
+            safe_draft_title = "把日子托稳的人，也该被好好心疼"
         if "请假" in corpus and "绩效" in corpus:
             specific_title = _resolve_local_responsibility_packaging_title(focus_payload)
         endurance_variant = _uses_local_responsibility_endurance_variant(focus_payload)
@@ -14487,7 +14491,7 @@ def _build_local_assets_fallback(
             else (
                 "你替一家人扛住风雨，也别忘了给自己留一盏灯。"
                 if endurance_variant
-                else "肩上有责任，心里也要留一盏灯。"
+                else "你多想的那一步，后来都会落成日子的安心。"
             )
         )
         social_teaser = teaser
@@ -14496,7 +14500,7 @@ def _build_local_assets_fallback(
                 social_teaser,
                 "很多中年人的一天，都是从把自己往后放半步开始的。" if midlife_variant else "",
                 "把家撑住的人，也别忘了照顾那个总说“我没事”的自己。" if endurance_variant else "",
-                "你把很多事安排妥了，家里的灯才会这样稳稳亮着。",
+                "你把很多事安排妥了，屋里的灯才会这样稳稳亮着。",
                 "辛苦不必说得很响，家里那点踏实会记得。",
                 "把日子往前托的人，也该被生活轻轻托一下。",
             ]
