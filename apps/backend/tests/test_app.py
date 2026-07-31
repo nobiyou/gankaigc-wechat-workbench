@@ -9669,6 +9669,7 @@ def test_build_local_tracked_article_draft_fallback_self_worth_uses_reference_po
     assert title == "别让那句“都可以”，替你让掉自己的位置"
     assert body_markdown.startswith(
         (
+            "周末有人临时约你，离出门只剩一小时。你看了眼自己的安排，第一次没有把整天划掉，只回：这次不方便，下周提前约吧。",
             "你明明有标准，可场面一僵，还是习惯先把那点不舒服往后放。",
             "你其实有标准，只是太习惯先把场面让过去，连自己那点不舒服也跟着往后放了。",
             "你不是没有标准，只是太习惯先把场面让过去，连自己那点不舒服也跟着往后放了。",
@@ -9784,7 +9785,10 @@ def test_build_local_assets_fallback_self_worth_uses_luxury_profile_copy() -> No
     )
 
     assert assets["cover_copy"] == "不该接的别硬接，该说清的就说清。"
-    assert "不该接的别硬接，该说清的就说清。" in assets["social_teaser"]
+    assert assets["social_teaser"] == (
+        "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。"
+        "把时间留给值得的人，也把自己的安排当回事。"
+    )
     assert "\n".join([assets["cover_copy"], assets["social_teaser"]]).count("把自己") <= 2
     assert assets["cover_copy"].rstrip("。") != assets["recommended_title"].rstrip("。")
 
@@ -9808,9 +9812,8 @@ def test_build_local_publish_package_fallback_self_worth_uses_luxury_profile_var
         assets=assets,
     )
 
-    assert package["publish_lead"] == "有些事你可以帮一次，却不能次次都咬牙接住。后来你才懂，不该接的别硬接，体面才不会一次次被拿去商量。"
-    assert any(token in package["abstract"] for token in ("门槛", "标准", "能答应", "不能退", "真正想珍惜你"))
-    assert any(token in package["abstract"] for token in ("认真靠近", "认真地对待", "更认真"))
+    assert package["publish_lead"] == "周末有人临时约你，离出门只剩一小时。你看了眼自己的安排，第一次没有把整天划掉，只回：这次不方便，下周提前约吧。"
+    assert package["abstract"] == "把时间留给值得的人，把安静留给自己，也把不方便说得坦荡一点。真正合适的关系，不需要你一再缩小自己的生活来维持。"
     assert "\n".join([package["publish_lead"], package["abstract"], *package["intro_options"]]).count("把自己") <= 2
 
 

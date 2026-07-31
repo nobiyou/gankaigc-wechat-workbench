@@ -345,8 +345,8 @@ def test_local_self_worth_luxury_draft_avoids_not_ab_skeleton() -> None:
     assert "不是突然端着" not in body_markdown
     assert "门槛不是拿来为难别人的" not in body_markdown
     assert "不是高傲，是清醒" not in body_markdown
-    assert "下班后的电话" in body_markdown
-    assert "你比较细心" in body_markdown
+    assert "周末有人临时约你" in body_markdown
+    assert "这次不方便" in body_markdown
     assert "这次不硬接，体面反而回来了" in body_markdown
     assert body_markdown.count("把自己") <= 2
     assert body_markdown.count("先把场面") <= 1
@@ -2462,9 +2462,9 @@ def test_local_self_worth_luxury_publish_package_fallback_uses_luxury_branch() -
         assets=assets,
     )
 
-    assert "什么能答应、什么不能退" in str(result["abstract"])
-    assert "不会嫌你麻烦" in str(result["abstract"])
-    assert "真正珍惜你的人，不会嫌那句“不方便”麻烦。" in result["intro_options"]
+    assert any(token in str(result["abstract"]) for token in ("时间", "安静", "关系", "生活"))
+    assert "真正合适的关系" in str(result["abstract"])
+    assert "真正尊重你的人，不会把你的“不方便”听成故意为难。" in result["intro_options"]
     assert "\n".join([str(result["publish_lead"]), str(result["abstract"]), *result["intro_options"]]).count("把自己") <= 2
 
 

@@ -11172,16 +11172,31 @@ def _build_local_self_worth_rebuild_paragraphs(
             "你把自己看重一点，日子里的轻重，关系里的分寸，才会慢慢回到该有的位置。",
         ]
 
+    stale_intro = any(
+        token in (intro or "")
+        for token in (
+            "下班后的电话",
+            "收尾的表格",
+            "你比较细心",
+            "硬着头皮接",
+            "你明明有标准",
+            "那句“都可以”",
+            "最先被压低",
+        )
+    )
+    opening = intro.strip() if intro and intro.strip() and not stale_intro else (
+        "周末有人临时约你，离出门只剩一小时。你看了眼自己的安排，第一次没有把整天划掉，只回：这次不方便，下周提前约吧。"
+    )
     return [
-        intro,
-        "比如下班后的电话又追过来，原本不归你收尾的表格，又被一句“你比较细心”推到面前。你顿了一下，还是接了。",
-        "时间久了，别人会以为你好商量，你也差点忘了，那些不想答应、不想将就的感觉，本来就该算数。",
-        "所谓把日子过得贵一点，说到底，是开始知道什么值得花时间，什么要求不必硬着头皮接。",
-        "门槛摆在那里，是留给生活的一道提醒：别再为了显得懂事，把尊重和体面一并让掉。",
-        "标准慢慢收回来，不会吓跑真心。愿意珍惜你的人，反而会从那句说清楚的话里，知道以后该怎样认真对待你。",
-        "有要求并不可怕。可惜的是，你连开口前都默认：随便一点也行。",
-        "这次不硬接，体面反而回来了。",
-        "人清醒起来，往往就从一次拒绝开始。那句“不方便”，会替你挡掉很多不该落到身上的消耗。",
+        opening,
+        "消息发出去，世界没有塌。你也没有因此变得难相处，只是终于把自己的时间，当成一件需要被尊重的东西。",
+        "以前你总怕拒绝会失去谁，于是把饭局、休息和喜欢的事一再往后挪。别人觉得你随时有空，你也习惯用一句“都可以”收尾。",
+        "把日子过得贵一点，落到日常里其实只是：不随便答应，不笑着接受让你为难的安排，也不把所有空闲都交给别人。",
+        "你愿意去见让自己舒服的人，也愿意把一段安静的周末留给自己。时间有了去处，心里的分量才慢慢回来。",
+        "真正适合你的关系，不会靠你不停让步来维持。你把想法说清，对方反而更知道该怎样认真靠近。",
+        "不方便就说不方便，改天再约就改天再约。你不需要用每一次点头，证明自己值得被喜欢。",
+        "不方便，就说不方便。",
+        "这次不硬接，体面反而回来了。把时间留给值得的人，也把生活重新放回自己的前排。",
     ]
 
 
@@ -14339,8 +14354,8 @@ def _resolve_local_assets_social_teaser(
         lead = first if first_is_safe else "会先顾别人感受的人，也该有人反过来护住。"
         return _compose_local_followup(lead, "有人看见退让背后的在乎，温柔才不会被白白消耗。")
     if mode == "self_worth_rebuild" and _has_local_self_worth_luxury_profile(payload):
-        lead = first if first_is_safe else "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。"
-        return _compose_local_followup(lead, "不该接的别硬接，该说清的就说清。")
+        lead = first if first_is_safe else "周末有人临时约你，离出门只剩一小时。你看了眼自己的安排，还是回了句：这次不方便。"
+        return _compose_local_followup(lead, "把时间留给值得的人，也把自己的安排当回事。")
     if mode == "self_reliance_inward_support" and _uses_local_self_reliance_shared_burden_variant(payload):
         lead = first if first_is_safe else "那句“我有点累”，在喉咙口绕了一圈，又被你慢慢咽了回去。"
         return _compose_local_followup(lead, "手边能做的事先落下去，愿意分担的人也会更容易接住你。")
@@ -14916,8 +14931,8 @@ def _build_local_publish_package_fallback(
             publish_lead, abstract = _resolve_trust_boundary_publish_copy()
         elif mode == "self_worth_rebuild":
             if _has_local_self_worth_luxury_profile(focus_payload):
-                publish_lead = "有些事你可以帮一次，却不能次次都咬牙接住。后来你才懂，不该接的别硬接，体面才不会一次次被拿去商量。"
-                abstract = "别总怕一开口就显得难相处。什么能答应、什么不能退，说清以后，愿意珍惜你的人不会嫌你麻烦，反而会更认真地对待你。"
+                publish_lead = "周末有人临时约你，离出门只剩一小时。你看了眼自己的安排，第一次没有把整天划掉，只回：这次不方便，下周提前约吧。"
+                abstract = "把时间留给值得的人，把安静留给自己，也把不方便说得坦荡一点。真正合适的关系，不需要你一再缩小自己的生活来维持。"
             else:
                 publish_lead = "有一天你终于把那句“这次不行”说出口，关系没有天塌，生活也没有乱。你才发现，认真对待自己，并不会把爱你的人推远。"
                 abstract = "能长久留在身边的人，不只喜欢你的好说话，也会尊重你的不愿意。把想法讲清，把边界守好，你会过得更舒展，别人也更知道该怎样珍惜你。"
@@ -15087,8 +15102,8 @@ def _build_local_publish_package_fallback(
         elif mode == "self_worth_rebuild":
             self_worth_intro_options = (
                 [
-                    "什么能答应、什么不能退，说清以后，别人反而更知道分寸。",
-                    "真正珍惜你的人，不会嫌那句“不方便”麻烦。",
+                    "不想去的局可以拒绝，自己的周末也值得被认真安排。",
+                    "真正尊重你的人，不会把你的“不方便”听成故意为难。",
                 ]
                 if _has_local_self_worth_luxury_profile(focus_payload)
                 else [
