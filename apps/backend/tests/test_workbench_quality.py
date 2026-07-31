@@ -317,6 +317,9 @@ def test_local_relationship_aftercare_draft_avoids_not_ab_and_short_judgment_cad
     assert all("单句敲钟段偏多" not in hit for hit in summary.hits)
     assert "这不是输赢" not in body_markdown
     assert "心里有这段关系的人，不会让你独自站在那阵冷气里。" not in body_markdown
+    assert body_markdown.count("不是") <= 2
+    assert "不是永远不吵架，而是" not in body_markdown
+    assert body_markdown.count("关系") <= 3
     assert summary.score < 20
 
 
@@ -2220,8 +2223,8 @@ def test_local_relationship_aftercare_publish_package_fallback_keeps_aftercare_s
         project_slug="aftercare-project",
         draft_version=1,
         version=1,
-        title_options=["吵完还愿意回来，才是关系里的温柔"],
-        recommended_title="吵完还愿意回来，才是关系里的温柔",
+        title_options=["吵完还肯递杯水的人，最舍不得你难过"],
+        recommended_title="吵完还肯递杯水的人，最舍不得你难过",
         cover_prompt="16:9横版封面",
         cover_copy="吵完以后，屋里还冷着，可他还是回来了，把那句没说完的话接上。",
         social_teaser="吵完以后，屋里还冷着，可他还是回来了，把那句没说完的话接上。",
@@ -2240,13 +2243,14 @@ def test_local_relationship_aftercare_publish_package_fallback_keeps_aftercare_s
     )
 
     result = _build_local_publish_package_fallback(
-        draft_title="吵完还愿意回来，才是关系里的温柔",
+        draft_title="吵完还肯递杯水的人，最舍不得你难过",
         draft_body_markdown="吵架停下来了，屋里却更冷了。\n\n如果每次都靠一个人回头、一个人缓和，那份想继续走下去的心，也会慢慢被耗掉。",
         assets=assets,
     )
 
     assert "把热水放到你手边" in str(result["publish_lead"])
-    assert "把下次要改的地方记在心里" in str(result["abstract"])
+    assert "把下次要改的地方记住" in str(result["abstract"])
+    assert "\n".join([str(result["publish_lead"]), str(result["abstract"])]).count("关系") <= 1
     assert "热水放到手边的那一刻，关系已经开始往回走。" in result["intro_options"]
 
 

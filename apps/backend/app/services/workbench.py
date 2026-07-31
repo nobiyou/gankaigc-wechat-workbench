@@ -3926,7 +3926,7 @@ def _rewrite_relationship_aftercare_withdrawn_topic(
             "重点放在谁误解了她、谁没有接住她，以及这份后撤后来怎样慢慢改写关系。"
         )
     elif any(token in corpus for token in ("吵架", "争吵", "冷暴力", "达成共识", "回归理性", "不理不睬", "妥协")):
-        new_title = "吵完以后还肯回来把话说完的人，心里真的有这段关系"
+        new_title = "吵完还肯递杯水的人，最舍不得你难过"
         new_angle = (
             "从一场争执停下来以后，屋里那股别扭还在不在写起，"
             "写一个人有没有回来找你、把情绪接住、把误会说开；"
@@ -11431,13 +11431,13 @@ def _build_local_mode_shaped_generic_paragraphs(
         return [
             intro,
             "桌上的水杯还在原处，两个人都没再吵，可屋里比刚才更冷。刚才那些重话像没收干净的碎片，谁走过去都会被扎一下。",
-            "一场争执真正伤人的地方，很多时候不在声音有多大。而是你难过了很久，对方却像什么都没发生；你还停在原地，他已经把这件事当成了过去。",
+            "一场争执最伤人的地方，常常不在声音有多大。你难过了很久，对方却像什么都没发生；你还停在原地，他已经把这件事当成了过去。",
             "有些人吵完就躲进沉默里，把问题交给时间。可时间只能把场面晾干，接不住心里的失望。",
             "一次两次还能劝自己算了，先睡吧。次数多了，人先学会的，往往就是把期待收小。",
-            "好的关系当然会有争执。更要紧的，是争执以后还有人肯把门重新打开，肯把刚才那句重话慢慢收回来。",
-            "愿意回来的人，会先把声音放低，会承认刚才哪句话说重了，也会问一句：你刚刚是不是很难受。",
+            "两个人过日子，争执很难完全避开。难得的是，争执以后还有人肯把门重新打开，肯把刚才那句重话慢慢收回来。",
+            "愿意回来的人，会先把声音放低，会承认刚才哪句话说重了，也会问一句：刚才让你难受了吗。",
             "愿意修复的人，才是真的舍不得。",
-            "输赢放到一边，关系才有机会从那阵冷气里回暖。真正想继续走下去的人，会回来把话说完，把情绪接住，也把那份失望一点点接回去。",
+            "输赢放到一边，屋里的冷气才有机会慢慢回暖。真正想继续走下去的人，会回来把话说完，把情绪接住，也把那份失望一点点接回去。",
         ]
     if mode == "self_reliance_inward_support":
         stale_markers = (
@@ -13941,7 +13941,7 @@ def _resolve_mode_shaped_local_packaging_title(
         "trust_boundary": "那句没说清的话，后来要认真补回来",
         "responsibility_shelter": "肩上有责任的人，心里也要留一盏灯",
         "supportive_appreciation": "心软的人，值得被认真珍惜",
-        "relationship_aftercare": "吵完还愿意回来，才是关系里的温柔",
+        "relationship_aftercare": "吵完还肯递杯水的人，最舍不得你难过",
         "resilience_reconstruction": (
             "每50米多划11下，她把命运划成了自己的赛道"
             if _has_local_resilience_pool_profile(payload)
@@ -14045,7 +14045,7 @@ def _normalize_self_reliance_local_title(payload: Mapping[str, object], title: s
 def _normalize_relationship_aftercare_local_title(title: str) -> str:
     cleaned = str(title or "").strip()
     if not cleaned:
-        return "吵完还愿意回来，才是关系里的温柔"
+        return "吵完还肯递杯水的人，最舍不得你难过"
     stale_markers = (
         "好的关系，不是",
         "好的关系不是",
@@ -14055,7 +14055,7 @@ def _normalize_relationship_aftercare_local_title(title: str) -> str:
         "不是永远不吵架",
     )
     if any(marker in cleaned for marker in stale_markers) or _looks_like_packaging_title_judgment_template(cleaned):
-        return "吵完还愿意回来，才是关系里的温柔"
+        return "吵完还肯递杯水的人，最舍不得你难过"
     return cleaned
 
 
@@ -14133,7 +14133,7 @@ def _resolve_local_assets_cover_copy(
         "trust_boundary": "信任很贵，别让赤诚输给含糊。",
         "responsibility_shelter": "肩上有责任，心里也要留一盏灯。",
         "supportive_appreciation": "会先顾别人感受的人，也该被认真接住。",
-        "relationship_aftercare": "愿意回来把话说完的人，才是真的想和你走下去。",
+        "relationship_aftercare": "递来的那杯热水，比输赢更能让人心软。",
         "resilience_reconstruction": (
             "命运少给的，她用一次次划水练了回来。"
             if _has_local_resilience_pool_profile(payload)
@@ -14252,7 +14252,7 @@ def _resolve_local_assets_social_teaser(
         "trust_boundary": "坦诚的分量，是把话说透，也把答应过的事做到。",
         "responsibility_shelter": "人可以担起责任，也要记得给自己留一盏灯。",
         "supportive_appreciation": "有人看见退让背后的在乎，温柔才不会被白白消耗。",
-        "relationship_aftercare": "肯不肯回来把那阵冷气化开，最能看出对方有没有把这段关系放在心上。",
+        "relationship_aftercare": "肯回来把那阵冷气化开的人，舍不得让你一个人难受太久。",
         "resilience_reconstruction": "熬过最难的那段路，你会重新长出自己的力量。",
         "emotional_engine_direct": "回头看过、想明白过，然后把今天重新过好。",
         "scene_first_progression": "很多距离，就是从这一句没说出来开始的。",
@@ -14286,8 +14286,8 @@ def _resolve_local_assets_social_teaser(
     )
     mode_specific_teasers = {
         "relationship_aftercare": (
-            "门关上后，他没有把沉默留到第二天，而是端了杯水回来，先问了一句：“刚才是不是让你难受了？”"
-            "好的关系不是从不争吵，是争吵以后仍有人愿意修复。"
+            "门关上后，他没有把沉默留到第二天。端了杯水回来，又轻声问：“刚才让你难受了吗？”"
+            "那一刻，屋里的冷气先散了一点。"
         ),
         "resilience_reconstruction": (
             "没有右臂维持平衡，没有右腿蹬水发力，她每50米要比别人多划11下。"
@@ -14909,8 +14909,8 @@ def _build_local_publish_package_fallback(
         elif mode == "trust_boundary" or _has_local_trust_boundary_focus(focus_payload):
             publish_lead, abstract = _resolve_trust_boundary_publish_copy()
         elif mode == "relationship_aftercare":
-            publish_lead = "门关上以后，谁都没再说话。过了一会儿，他把热水放到你手边，低声问：“刚才是不是让你难受了？”"
-            abstract = "争吵不会因为一句话马上消失，关系却可以从这句追问重新开始。把该道的歉道清楚，把下次要改的地方记在心里，两个人都肯往前一步，伤口就不会只剩下伤口。"
+            publish_lead = "门关上以后，谁都没再说话。过了一会儿，他把热水放到你手边，低声问：“刚才让你难受了吗？”"
+            abstract = "争吵不会因为一句话马上消失，可那杯热水、那句追问，会让人知道今晚还有机会好好收场。把歉意说清，把下次要改的地方记住，两个人都肯往前一步，伤口就不会只剩下伤口。"
         elif mode == "resilience_reconstruction":
             if _has_local_resilience_pool_profile(focus_payload):
                 publish_lead = "她重新下水的那一天，命运给过的缺口还在，疼也还在。可每多划一下，身体就多记住一点力量，人生也被她一点点练回自己手里。"

@@ -11787,10 +11787,10 @@ def test_build_local_publish_package_fallback_resilience_pool_profile_uses_third
 
 def test_build_local_assets_fallback_aftercare_uses_complete_repair_packaging() -> None:
     assets = workbench._build_local_assets_fallback(
-        project_title="吵完还愿意回来，才是关系里的温柔",
-        topic_title="吵完还愿意回来，才是关系里的温柔",
+        project_title="吵完还肯递杯水的人，最舍不得你难过",
+        topic_title="吵完还肯递杯水的人，最舍不得你难过",
         topic_angle="从吵架后的态度切入，写愿意回来沟通和修复的人怎样把关系重新接住。",
-        draft_title="吵完还愿意回来，才是关系里的温柔",
+        draft_title="吵完还肯递杯水的人，最舍不得你难过",
         draft_body_markdown=(
             "门关上以后，屋里安静了几分钟；他去厨房倒了杯水，回来时没有继续争输赢，只问你刚才是不是难受。\n\n"
             "两个人都没再吵，可屋里比刚才更冷。\n\n"
@@ -11798,11 +11798,13 @@ def test_build_local_assets_fallback_aftercare_uses_complete_repair_packaging() 
         ),
     )
 
-    assert assets["cover_copy"] == "愿意回来把话说完的人，才是真的想和你走下去。"
+    assert assets["cover_copy"] == "递来的那杯热水，比输赢更能让人心软。"
     assert assets["social_teaser"] == (
-        "门关上后，他没有把沉默留到第二天，而是端了杯水回来，先问了一句：“刚才是不是让你难受了？”"
-        "好的关系不是从不争吵，是争吵以后仍有人愿意修复。"
+        "门关上后，他没有把沉默留到第二天。端了杯水回来，又轻声问：“刚才让你难受了吗？”"
+        "那一刻，屋里的冷气先散了一点。"
     )
+    assert "\n".join([assets["cover_copy"], assets["social_teaser"]]).count("关系") <= 1
+    assert "\n".join([assets["cover_copy"], assets["social_teaser"]]).count("不是") <= 1
     assert not assets["cover_copy"].endswith(("；", ";", "，", ",", "：", ":"))
     assert "争吵后的家中厨房或客厅" in str(assets["cover_prompt"])
     assert "克制现实感，中文标题清晰可读" not in str(assets["cover_prompt"])
@@ -11829,7 +11831,7 @@ def test_build_local_tracked_article_draft_fallback_aftercare_rewrites_judgment_
         }
     )
 
-    assert title == "吵完还愿意回来，才是关系里的温柔"
+    assert title == "吵完还肯递杯水的人，最舍不得你难过"
     assert "门关上以后" in body_markdown
     assert "回来把话说完" in body_markdown
     paragraphs = [paragraph.strip() for paragraph in body_markdown.split("\n\n") if paragraph.strip()]
