@@ -324,7 +324,7 @@ def test_local_self_worth_luxury_draft_avoids_not_ab_skeleton() -> None:
     title, body_markdown = _build_local_generic_tracked_article_draft(
         {
             "source_type": "tracked_article",
-            "topic_title": "把自己看重一点，关系里的分寸才会回来",
+            "topic_title": "这次不硬接，体面反而回来了",
             "topic_angle": "从把自己养贵一点、把门槛和标准收回来切入。",
             "reference_article_body_markdown": (
                 "你不贵重，就容易被忽略；你不自爱，就是会被辜负。"
@@ -337,13 +337,15 @@ def test_local_self_worth_luxury_draft_avoids_not_ab_skeleton() -> None:
 
     summary = evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown)
 
-    assert title == "把自己看重一点，关系里的分寸才会回来"
+    assert title == "这次不硬接，体面反而回来了"
     assert all("不是A，是B" not in hit for hit in summary.hits)
     assert "不是突然端着" not in body_markdown
     assert "门槛不是拿来为难别人的" not in body_markdown
     assert "不是高傲，是清醒" not in body_markdown
     assert "下班后的电话" in body_markdown
     assert "你比较细心" in body_markdown
+    assert "这次不硬接，体面反而回来了" in body_markdown
+    assert body_markdown.count("把自己") <= 2
     assert body_markdown.count("先把场面") <= 1
     assert summary.score < 20
 
@@ -2432,7 +2434,7 @@ def test_local_self_worth_luxury_publish_package_fallback_uses_luxury_branch() -
         title_options=["把自己养贵一点，日子才能过好一点"],
         recommended_title="把自己养贵一点，日子才能过好一点",
         cover_prompt="16:9横版封面",
-        cover_copy="把自己看重一点，关系里的分寸才会回来。",
+        cover_copy="不该接的别硬接，该说清的就说清。",
         social_teaser="把自己养贵一点，日子才能过好一点。",
         social_teaser_options=["别总怕自己要求太多。"],
         cover_image_path="",
@@ -2456,7 +2458,8 @@ def test_local_self_worth_luxury_publish_package_fallback_uses_luxury_branch() -
 
     assert "什么能答应、什么不能退" in str(result["abstract"])
     assert "不会嫌你麻烦" in str(result["abstract"])
-    assert "真正珍惜你的人，不会嫌你的边界麻烦。" in result["intro_options"]
+    assert "真正珍惜你的人，不会嫌那句“不方便”麻烦。" in result["intro_options"]
+    assert "\n".join([str(result["publish_lead"]), str(result["abstract"]), *result["intro_options"]]).count("把自己") <= 2
 
 
 def test_local_trust_publish_package_fallback_uses_less_template_summary() -> None:

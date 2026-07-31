@@ -4257,7 +4257,7 @@ def _rewrite_self_worth_rebuild_topic(payload: Mapping[str, object], ai_result: 
     daily_yield_profile = any(token in corpus for token in ("都可以", "算了", "先说了句行", "先把自己往后挪半步", "往后让"))
 
     if luxury_profile:
-        new_title = "把自己看重一点，关系里的分寸才会回来"
+        new_title = "这次不硬接，体面反而回来了"
     elif daily_yield_profile:
         new_title = "别总把那句“都可以”说得太顺口"
     elif any(token in corpus for token in ("你爱自己的程度", "人必自爱", "当你开始爱自己")):
@@ -4268,8 +4268,8 @@ def _rewrite_self_worth_rebuild_topic(payload: Mapping[str, object], ai_result: 
     if luxury_profile:
         new_angle = (
             "从一个人为什么总把门槛放低、把标准放松切入，"
-            "写很多轻慢并不是突然发生的，常常是你先把自己放轻以后，关系也顺着这个位置往下走；"
-            "也写人怎样把精力收回来、把标准收回来，让边界、体面和分寸一点点回到自己手里。"
+            "写很多轻慢并不是突然发生的，常常是一次次勉强答应以后，别人也顺着这个位置继续加码；"
+            "也写人怎样把精力收回来、把标准说清楚，让边界、体面和分寸一点点回到手里。"
         )
     else:
         new_angle = (
@@ -8531,8 +8531,8 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "你不是没有标准，只是太习惯先把场面让过去，连自己那点不舒服也跟着往后放了。",
-                    "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。",
+                    "你明明有标准，可场面一僵，还是习惯先把那点不舒服往后放。",
+                    "下班后的电话又追过来时，你明明已经很累，嘴上还是先说了句“行”。",
                 ),
             )
         if any(token in corpus for token in ("都可以", "算了", "我没事", "将就")):
@@ -10620,7 +10620,19 @@ def _has_local_self_worth_luxury_profile(payload: Mapping[str, object]) -> bool:
         return False
     luxury_hits = sum(
         1
-        for token in ("打折品", "奢侈品", "身价", "门槛", "标准收紧", "配得上", "把自己养贵", "贱卖")
+        for token in (
+            "打折品",
+            "奢侈品",
+            "身价",
+            "门槛",
+            "标准收紧",
+            "配得上",
+            "把自己养贵",
+            "贱卖",
+            "不硬接",
+            "体面反而",
+            "不该接",
+        )
         if token in corpus
     )
     return luxury_hits >= 2
@@ -11152,12 +11164,13 @@ def _build_local_self_worth_rebuild_paragraphs(
     return [
         intro,
         "比如下班后的电话又追过来，原本不归你收尾的表格，又被一句“你比较细心”推到面前。你顿了一下，还是接了。",
-        "时间久了，别人会以为你好商量，你自己也会差点忘了，那些不想答应、不想将就的感觉，本来就该算数。",
-        "所谓把自己养贵一点，说到底，是开始知道什么关系值得花时间，什么要求不必硬着头皮接。",
-        "门槛摆在那里，是给自己留一道提醒：别再为了显得懂事，把尊重和体面一并让掉。",
-        "你把标准慢慢收回来，不会失去愿意珍惜你的人。对方也会因为你终于认真对待自己，知道该怎样认真对待你。",
-        "关系里有要求并不可怕。可惜的是，你连自己都默认：随便一点也行。",
-        "把自己放回前面以后，人会清醒很多。你先把自己看重，别人才能慢慢学会看重你。",
+        "时间久了，别人会以为你好商量，你也差点忘了，那些不想答应、不想将就的感觉，本来就该算数。",
+        "所谓把日子过得贵一点，说到底，是开始知道什么值得花时间，什么要求不必硬着头皮接。",
+        "门槛摆在那里，是留给生活的一道提醒：别再为了显得懂事，把尊重和体面一并让掉。",
+        "标准慢慢收回来，不会吓跑真心。愿意珍惜你的人，反而会从那句说清楚的话里，知道以后该怎样认真对待你。",
+        "有要求并不可怕。可惜的是，你连开口前都默认：随便一点也行。",
+        "这次不硬接，体面反而回来了。",
+        "人清醒起来，往往就从一次拒绝开始。那句“不方便”，会替你挡掉很多不该落到身上的消耗。",
     ]
 
 
@@ -13982,7 +13995,7 @@ def _resolve_mode_shaped_local_packaging_title(
     if mode == "response_priority" and _uses_local_response_priority_time_priority_variant(payload):
         return "肯把时间补给你的人，才是真的在乎"
     if mode == "self_worth_rebuild" and _has_local_self_worth_luxury_profile(payload):
-        return "把自己看重一点，关系里的分寸才会回来"
+        return "这次不硬接，体面反而回来了"
     if mode == "supportive_appreciation" and _has_local_supportive_warmth_profile(payload):
         return "总会先顾别人感受的人，也该被认真护住"
     if mode == "emotional_engine_direct" and _uses_local_emotional_regret_forward_variant(payload):
@@ -14178,7 +14191,7 @@ def _resolve_local_assets_cover_copy(
         if mode_copy:
             return mode_copy
     if mode == "self_worth_rebuild":
-        mode_copy = "把门槛留给敷衍，把真心留给值得的人。" if _has_local_self_worth_luxury_profile(payload) else short_map.get(mode, "").strip()
+        mode_copy = "不该接的别硬接，该说清的就说清。" if _has_local_self_worth_luxury_profile(payload) else short_map.get(mode, "").strip()
         if mode_copy:
             return mode_copy
     if mode in {
@@ -14314,7 +14327,7 @@ def _resolve_local_assets_social_teaser(
         return _compose_local_followup(lead, "有人看见退让背后的在乎，温柔才不会被白白消耗。")
     if mode == "self_worth_rebuild" and _has_local_self_worth_luxury_profile(payload):
         lead = first if first_is_safe else "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。"
-        return _compose_local_followup(lead, "把自己看重一点，关系里的分寸才会慢慢回来。")
+        return _compose_local_followup(lead, "不该接的别硬接，该说清的就说清。")
     if mode == "self_reliance_inward_support" and _uses_local_self_reliance_shared_burden_variant(payload):
         lead = first if first_is_safe else "那句“我有点累”，在喉咙口绕了一圈，又被你慢慢咽了回去。"
         return _compose_local_followup(lead, "手边能做的事先落下去，愿意分担的人也会更容易接住你。")
@@ -14888,8 +14901,8 @@ def _build_local_publish_package_fallback(
             publish_lead, abstract = _resolve_trust_boundary_publish_copy()
         elif mode == "self_worth_rebuild":
             if _has_local_self_worth_luxury_profile(focus_payload):
-                publish_lead = "你越轻易把自己放低，别人越容易把你的体面当成可商量。后来你才懂，把自己看重，是把委屈从关系里慢慢撤出来。"
-                abstract = "别总怕自己一开口就显得难相处。你把什么能答应、什么不能退说清以后，愿意珍惜你的人，不会嫌你麻烦，反而会更认真地对待你。"
+                publish_lead = "有些事你可以帮一次，却不能次次都咬牙接住。后来你才懂，不该接的别硬接，体面才不会一次次被拿去商量。"
+                abstract = "别总怕一开口就显得难相处。什么能答应、什么不能退，说清以后，愿意珍惜你的人不会嫌你麻烦，反而会更认真地对待你。"
             else:
                 publish_lead = "有一天你终于把那句“这次不行”说出口，关系没有天塌，生活也没有乱。你才发现，认真对待自己，并不会把爱你的人推远。"
                 abstract = "能长久留在身边的人，不只喜欢你的好说话，也会尊重你的不愿意。把想法讲清，把边界守好，你会过得更舒展，别人也更知道该怎样珍惜你。"
@@ -15059,8 +15072,8 @@ def _build_local_publish_package_fallback(
         elif mode == "self_worth_rebuild":
             self_worth_intro_options = (
                 [
-                    "把什么能答应、什么不能退说清，关系反而会更认真。",
-                    "真正珍惜你的人，不会嫌你的边界麻烦。",
+                    "什么能答应、什么不能退，说清以后，别人反而更知道分寸。",
+                    "真正珍惜你的人，不会嫌那句“不方便”麻烦。",
                 ]
                 if _has_local_self_worth_luxury_profile(focus_payload)
                 else [

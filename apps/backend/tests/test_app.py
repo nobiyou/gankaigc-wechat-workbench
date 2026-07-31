@@ -2419,8 +2419,8 @@ def test_generate_topic_from_tracked_article_rewrites_self_worth_article_out_of_
     assert "被敷衍" not in payload["title"]
     assert "时间总让位" not in payload["angle"]
     assert "情绪总自我消化" not in payload["angle"]
-    assert payload["title"] == "把自己看重一点，关系里的分寸才会回来"
-    assert "把自己看重一点" in payload["title"] or "关系里的分寸" in payload["title"]
+    assert payload["title"] == "这次不硬接，体面反而回来了"
+    assert "不硬接" in payload["title"] or "体面" in payload["title"]
     assert "门槛" in payload["angle"] or "标准" in payload["angle"] or "边界" in payload["angle"]
     assert "体面" in payload["angle"] or "分寸" in payload["angle"] or "把精力收回来" in payload["angle"]
     for forbidden in ("养贵", "贱卖", "打折品", "奢侈品", "不是高傲", "不是冷漠"):
@@ -9592,6 +9592,7 @@ def test_build_local_tracked_article_draft_fallback_self_worth_uses_reference_po
     assert title == "别让那句“都可以”，替你让掉自己的位置"
     assert body_markdown.startswith(
         (
+            "你明明有标准，可场面一僵，还是习惯先把那点不舒服往后放。",
             "你其实有标准，只是太习惯先把场面让过去，连自己那点不舒服也跟着往后放了。",
             "你不是没有标准，只是太习惯先把场面让过去，连自己那点不舒服也跟着往后放了。",
             "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。",
@@ -9626,22 +9627,24 @@ def test_build_local_publish_package_fallback_self_worth_uses_mode_lead_and_abst
 def test_build_local_tracked_article_draft_fallback_self_worth_uses_luxury_profile_variation() -> None:
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(
         {
-            "topic_title": "把自己看重一点，关系里的分寸才会回来",
+            "topic_title": "这次不硬接，体面反而回来了",
             "reference_article_body_markdown": "你不贵重，就容易被忽略；你不自爱，就是会被辜负。总把时间贱卖给不值得的人和事，只会越忙越廉价。把自己养贵一点，日子才能过好一点。",
             "outline": {
                 "hook": "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。",
-                "outline_body": "1. 先把自己放低的人，最容易先丢掉分寸\n2. 门槛和标准为什么会慢慢退掉\n3. 重新看重自己以后，关系才会回来",
+                "outline_body": "1. 勉强接下去的人，最容易先丢掉分寸\n2. 门槛和标准为什么会慢慢退掉\n3. 说清楚以后，体面才会回来",
             },
             "strategy_card": {"structure_mode": "self_worth_rebuild"},
         }
     )
 
-    assert title == "把自己看重一点，关系里的分寸才会回来"
+    assert title == "这次不硬接，体面反而回来了"
     assert any(
         token in body_markdown
-        for token in ("把自己养贵一点", "把自己看重", "什么关系值得", "什么要求", "把自己放回前面")
+        for token in ("不该接", "不方便", "什么值得花时间", "什么要求", "体面反而回来了")
     )
     assert any(token in body_markdown for token in ("门槛", "标准", "尊重", "体面", "清醒"))
+    assert body_markdown.count("把自己") <= 2
+    assert body_markdown.count("关系") <= 3
     assert "点菜时你想吃辣，最后还是说“都可以”。" not in body_markdown
 
 
@@ -9659,7 +9662,7 @@ def test_build_local_tracked_article_topic_fallback_uses_self_worth_mode_seed() 
         }
     )
 
-    assert topic["title"] == "把自己看重一点，关系里的分寸才会回来"
+    assert topic["title"] == "这次不硬接，体面反而回来了"
     assert "标准" in topic["angle"] or "边界" in topic["angle"] or "体面" in topic["angle"]
     assert topic["title"] != "很多答案，都是把日子过到眼前以后，才慢慢看清的"
     for forbidden in ("养贵", "高傲", "贱卖", "不是高傲"):
@@ -9692,10 +9695,10 @@ def test_build_local_assets_fallback_uses_mode_shaped_cover_copy_for_self_worth_
 
 def test_build_local_assets_fallback_self_worth_uses_luxury_profile_copy() -> None:
     assets = workbench._build_local_assets_fallback(
-        project_title="把自己看重一点，关系里的分寸才会回来",
-        topic_title="把自己看重一点，关系里的分寸才会回来",
+        project_title="这次不硬接，体面反而回来了",
+        topic_title="这次不硬接，体面反而回来了",
         topic_angle="从把自己养贵一点、把门槛和标准收回来切入。",
-        draft_title="把自己看重一点，关系里的分寸才会回来",
+        draft_title="这次不硬接，体面反而回来了",
         draft_body_markdown=(
             "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。\n\n"
             "所谓把自己养贵一点，说到底，就是开始知道什么关系值得花时间，什么要求不必硬着头皮接。\n\n"
@@ -9703,22 +9706,23 @@ def test_build_local_assets_fallback_self_worth_uses_luxury_profile_copy() -> No
         ),
     )
 
-    assert assets["cover_copy"] == "把门槛留给敷衍，把真心留给值得的人。"
-    assert "把自己看重一点，关系里的分寸才会慢慢回来。" in assets["social_teaser"]
+    assert assets["cover_copy"] == "不该接的别硬接，该说清的就说清。"
+    assert "不该接的别硬接，该说清的就说清。" in assets["social_teaser"]
+    assert "\n".join([assets["cover_copy"], assets["social_teaser"]]).count("把自己") <= 2
     assert assets["cover_copy"].rstrip("。") != assets["recommended_title"].rstrip("。")
 
 
 def test_build_local_publish_package_fallback_self_worth_uses_luxury_profile_variant() -> None:
     assets = SimpleNamespace(
-        recommended_title="把自己看重一点，关系里的分寸才会回来",
-        title_options=["把自己看重一点，关系里的分寸才会回来"],
-        cover_copy="把自己看重一点，关系里的分寸才会回来。",
-        social_teaser="很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。把自己看重一点，关系里的分寸才会慢慢回来。",
-        social_teaser_options=["很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。把自己看重一点，关系里的分寸才会慢慢回来。"],
+        recommended_title="这次不硬接，体面反而回来了",
+        title_options=["这次不硬接，体面反而回来了"],
+        cover_copy="不该接的别硬接，该说清的就说清。",
+        social_teaser="很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。不该接的别硬接，该说清的就说清。",
+        social_teaser_options=["很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。不该接的别硬接，该说清的就说清。"],
     )
 
     package = workbench._build_local_publish_package_fallback(
-        draft_title="把自己看重一点，关系里的分寸才会回来",
+        draft_title="这次不硬接，体面反而回来了",
         draft_body_markdown=(
             "很多关系里最先被压低的，不是身价，是你明明不想答应，嘴上还是先说了句“行”。\n\n"
             "所谓把自己养贵一点，说到底，就是开始知道什么关系值得花时间，什么要求不必硬着头皮接。\n\n"
@@ -9727,9 +9731,10 @@ def test_build_local_publish_package_fallback_self_worth_uses_luxury_profile_var
         assets=assets,
     )
 
-    assert package["publish_lead"] == "你越轻易把自己放低，别人越容易把你的体面当成可商量。后来你才懂，把自己看重，是把委屈从关系里慢慢撤出来。"
+    assert package["publish_lead"] == "有些事你可以帮一次，却不能次次都咬牙接住。后来你才懂，不该接的别硬接，体面才不会一次次被拿去商量。"
     assert any(token in package["abstract"] for token in ("门槛", "标准", "能答应", "不能退", "真正想珍惜你"))
     assert any(token in package["abstract"] for token in ("认真靠近", "认真地对待", "更认真"))
+    assert "\n".join([package["publish_lead"], package["abstract"], *package["intro_options"]]).count("把自己") <= 2
 
 
 
