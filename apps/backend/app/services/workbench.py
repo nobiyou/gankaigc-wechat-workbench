@@ -10753,6 +10753,12 @@ def _uses_local_self_reliance_shared_burden_variant(payload: Mapping[str, object
             "请别人一起分担",
             "把选择重新拿回来",
             "帮助在该出现的时候进得来",
+            "等待救赎",
+            "向上爬",
+            "足以扛事",
+            "扛事儿",
+            "没有帮助",
+            "自己也有能力",
         )
         if token in corpus
     )

@@ -202,6 +202,40 @@ def test_local_tracked_article_chain_keeps_theme_specific_packaging_across_commo
         assert not any(token in combined for token in stale_negative_leaks), sample_name
 
 
+def test_local_fallback_mode_recognizes_self_reliance_without_explicit_keyword() -> None:
+    body = (
+        "心情不好的时候想找朋友倾诉，却发现朋友也在焦头烂额。"
+        "遇到麻烦想找人商量，却发现身边的人也各有各的难处。"
+        "不要只知道等待救赎，自己也有能力试着向上爬。"
+        "你早就长成了一个足以扛事的大人。"
+    )
+    payload = {
+        "source_type": "tracked_article",
+        "article_title": "成年人也要学会自救",
+        "body_markdown": body,
+        "reference_article_body_markdown": body,
+    }
+
+    assert _resolve_local_fallback_mode(payload) == "self_reliance_inward_support"
+    topic = _build_local_tracked_article_topic_fallback(payload)
+    topic_payload = {**payload, "topic_title": topic["title"], "topic_angle": topic["angle"]}
+    outline = _build_local_tracked_article_outline_fallback(
+        {**topic_payload, "strategy_card": {"structure_mode": "self_reliance_inward_support"}}
+    )
+    title, draft = _build_local_tracked_article_draft_fallback(
+        {
+            **topic_payload,
+            "outline": outline,
+            "strategy_card": {"structure_mode": "self_reliance_inward_support"},
+        }
+    )
+
+    assert "围绕《" not in topic["angle"]
+    assert "重建新的具体入口" not in draft
+    assert any(token in draft for token in ("眼前", "行动", "求助不丢人", "自救"))
+    assert evaluate_ai_flavor_risk(title=title, body_markdown=draft).score == 0
+
+
 def test_positive_payoff_requires_theme_specific_landing_for_everyday_warmth() -> None:
     strategy = _strategy(
         structure_mode="everyday_warmth_return",
