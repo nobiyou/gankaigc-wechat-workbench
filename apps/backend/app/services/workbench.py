@@ -4186,11 +4186,11 @@ def _rewrite_supportive_appreciation_topic(
     corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
 
     if _has_local_supportive_misread_profile(payload):
-        new_title = "别把一个人的体谅，当成他天生就该让着你"
+        new_title = "心软的人，不傻，只是把情分看得很重"
         new_angle = (
-            "从太好说话的人为什么总被误会成好欺负切入，"
-            "写包容和和好从来不是没底线；"
-            "也写一段关系真正该学会的，是珍惜这份体谅，而不是反复透支它。"
+            "心软的人明明看得清，却还是愿意给关系留余地；"
+            "这份体谅不是软弱，而是把情分看得很重。"
+            "身边有这样的人，最难得的是认真回应他的在乎，把这份情分好好接住。"
         )
     elif _has_local_supportive_discernment_profile(payload):
         new_title = "心软的人，往往看得很清，也把情分看得很重"
@@ -4785,6 +4785,43 @@ def _apply_tracked_article_topic_rewrites(
     }
 
 
+def _extract_local_fallback_source_sentences(payload: Mapping[str, object], *, limit: int = 4) -> list[str]:
+    candidates = (
+        str(payload.get("body_markdown") or "").strip(),
+        str(payload.get("reference_article_body_markdown") or "").strip(),
+        str(payload.get("summary") or "").strip(),
+        str(payload.get("structure_notes") or "").strip(),
+        str(payload.get("analysis_theme") or "").strip(),
+    )
+    for candidate in candidates:
+        cleaned = _clean_local_fallback_instruction_phrase(candidate)
+        if not cleaned or _looks_like_local_fallback_instruction_fragment(cleaned):
+            continue
+        sentences = [
+            sentence.strip(" \t\r\n-—•")
+            for sentence in re.findall(r"[^。！？!?；;\n]+[。！？!?；;]?", cleaned)
+            if sentence.strip(" \t\r\n-—•")
+        ]
+        sentences = [
+            sentence
+            for sentence in sentences
+            if len(sentence) >= 4 and not _looks_like_local_fallback_instruction_fragment(sentence)
+        ]
+        if sentences:
+            return sentences[:limit]
+    return []
+
+
+def _resolve_local_fallback_source_anchor(payload: Mapping[str, object], *, max_length: int = 48) -> str:
+    sentences = _extract_local_fallback_source_sentences(payload, limit=1)
+    article_title = str(payload.get("article_title") or "").strip()
+    anchor = sentences[0] if sentences else article_title or "眼前这段日子"
+    anchor = anchor.rstrip("。！？!?；;，,、 ")
+    if len(anchor) > max_length:
+        anchor = anchor[: max_length - 1].rstrip("，,；;。.!?？、 ") + "…"
+    return anchor
+
+
 def _build_local_tracked_article_topic_fallback(payload: Mapping[str, object]) -> dict[str, str]:
     mode = _resolve_local_fallback_mode(payload)
     local_mode_builders: dict[str, Callable[[Mapping[str, object], Mapping[str, object]], dict[str, str]]] = {
@@ -4812,26 +4849,7 @@ def _build_local_tracked_article_topic_fallback(payload: Mapping[str, object]) -
             }
 
     article_title = str(payload.get("article_title") or "").strip()
-    source_candidates = (
-        str(payload.get("body_markdown") or "").strip(),
-        str(payload.get("reference_article_body_markdown") or "").strip(),
-        str(payload.get("summary") or "").strip(),
-        str(payload.get("structure_notes") or "").strip(),
-        str(payload.get("analysis_theme") or "").strip(),
-    )
-    anchor = ""
-    for candidate in source_candidates:
-        cleaned = _clean_local_fallback_instruction_phrase(candidate)
-        if not cleaned or _looks_like_local_fallback_instruction_fragment(cleaned):
-            continue
-        first_sentence = re.split(r"(?<=[。！？!?])|\n+", cleaned, maxsplit=1)[0].strip(" \t\r\n-—•")
-        if first_sentence and not _looks_like_local_fallback_instruction_fragment(first_sentence):
-            anchor = first_sentence
-            break
-    if not anchor:
-        anchor = article_title or "眼前这段日子"
-    if len(anchor) > 48:
-        anchor = anchor[:47].rstrip("，,；;。.!?？、 ") + "…"
+    anchor = _resolve_local_fallback_source_anchor(payload)
 
     fallback = {
         "title": article_title or "把眼前这段日子过明白",
@@ -7442,6 +7460,20 @@ def _build_local_tracked_article_outline_fallback(ai_payload: Mapping[str, objec
     topic_title = str(ai_payload.get("topic_title") or ai_payload.get("project_title") or "").strip()
     topic_angle = str(ai_payload.get("topic_angle") or "").strip()
     mode = _resolve_local_generic_fallback_mode(ai_payload)
+    source_sentences = _extract_local_fallback_source_sentences(ai_payload, limit=4)
+    if not mode and source_sentences:
+        source_points = source_sentences[:3]
+        while len(source_points) < 3:
+            source_points.append("把眼前的日子过实一点，很多答案会在细节里慢慢显出来。")
+        return {
+            "hook": _ensure_sentence_end(source_sentences[0]),
+            "outline_body": (
+                f"### 1. 先把现场说清楚：{_ensure_sentence_end(source_points[0])}\n"
+                f"### 2. 接着沿着日常往下走：{_ensure_sentence_end(source_points[1])}\n"
+                f"### 3. 从细节里看见分量：{_ensure_sentence_end(source_points[2])}\n"
+                "### 4. 把这份体会带回今天：把眼前的人和事认真对待，日子才会慢慢有回声。"
+            ),
+        }
     problem_brief = ai_payload.get("problem_brief")
     theme_axis = ""
     core_conflict = ""
@@ -9363,19 +9395,19 @@ def _build_local_supportive_appreciation_paragraphs(
 ) -> list[str]:
     stale_intro = any(token in (intro or "") for token in ("顺手让了一步", "先顾了别人感受", "场面放软"))
     if _has_local_supportive_misread_profile(payload):
-        opening = intro.strip() if intro and intro.strip() and not stale_intro else "太好说话久了，别人很容易忘了，她也会疼。"
+        opening = intro.strip() if intro and intro.strip() and not stale_intro else "她其实有脾气，只是每次想把话说重时，先想到的还是两个人的情分。"
         return [
             opening,
-            "对方道歉以后，她愿意把这件事往后放一放；心里那点不舒服还在，只是她把情分看得比一时的输赢更重。",
-            "关系里的误会，常常就是这样来的。她肯退一步，别人就以为她习惯让着；她愿意和好，别人就忘了这份余地也会用完。",
-            "她看得见，也分得清。谁在敷衍，谁把她的体谅当方便，谁只是仗着她心软一再往前试，她心里都有数。",
-            "很多话她没有说重，是因为还想给这段关系留一点体面。能不伤就尽量别伤，能不散就先别散。",
-            "体谅有分寸，也有底线。",
-            "这种包容本来就很贵。一个人已经不舒服了，还愿意先把场面顾一顾，这份心意经不起反复试探。",
-            "所以别把她的和好如初，当成你可以继续随便的理由。她肯翻篇一次，是在给感情机会，别让同一个伤口反复出现。",
-            "真正长久的关系，会珍惜这种体谅。看见她没有把话说绝，也会学着把分寸往回收，把尊重补上来。",
-            "你若身边有这样的人，别只享受她带来的轻松。也要记得，她每一次没把话说重，都是在替关系留余地。",
-            "余地被珍惜，温柔才会留得久。那份好，不该总靠她一个人扛着，也该有人认真地回过头来护住。",
+            "你迟到了，她可能先把饭菜重新热好；你说重话，她会安静一会儿，再把水推到你手边。她当然有感觉，只是不想让一时的火气把关系推远。",
+            "一句“对不起”落下来，她愿意把事情往后放一放。心里那点难受并没有消失，只是她把两个人的情分看得比一时的输赢更重。",
+            "她其实比谁都明白。谁是真心，谁只是顺口道歉；哪句话只是无心，哪件事已经让自己不舒服，她心里都有一把尺。",
+            "心软也有分寸。她愿意包容人的不周全，也愿意给关系留一次重新说话的机会，因为她知道，能遇见一个值得在乎的人并不容易。",
+            "真正珍惜她的人，不会只享受她的好脾气。看见她把话放轻，也会把答应过的改变做到；看见她愿意和好，也会认真护住这份和好。",
+            "好的关系，靠的是两个人都愿意给彼此余地。你给我一份体谅，我也记得回你一份认真；你把语气放软，我也愿意把分寸放回心上。",
+            "心软的人，值得被认真珍惜。",
+            "心软的人最难得的地方，是看清以后仍愿意善待。这样的温柔不是随手给谁的，它背后有判断，也有很深的情分。",
+            "如果你身边有这样的人，请牵紧他的手。别只在需要时想起他的好，也在平常日子里多问一句、多做一次，让他知道自己的真心没有落空。",
+            "人这一生，能遇见愿意包容你、陪你穿过风雨的人，是很大的福气。愿这份心软有人懂，也愿这份情分一直有来有往。",
         ]
     if _has_local_supportive_discernment_profile(payload):
         opening = intro.strip() if intro and intro.strip() and not stale_intro else "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。"
@@ -11707,6 +11739,29 @@ def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> 
     return title, "\n\n".join(paragraphs)
 
 
+def _build_local_source_scene_draft_fallback(payload: Mapping[str, object]) -> tuple[str, str]:
+    sentences = _extract_local_fallback_source_sentences(payload, limit=4)
+    title = str(
+        payload.get("topic_title")
+        or payload.get("article_title")
+        or payload.get("project_title")
+        or "把眼前的日子过实一点"
+    ).strip()
+    if not sentences:
+        return title, "把眼前的日子过实一点，很多答案会在细节里慢慢显出来。"
+
+    paragraphs = [_ensure_sentence_end(sentence) for sentence in sentences[:3]]
+    paragraphs.extend(
+        [
+            "这样的场景看起来很小，却常常把一个人的日子照得很清楚。真正有分量的，未必是轰轰烈烈的大事，也可能是某个傍晚、某个动作，和当时没有被说出口的那点心情。",
+            "人走到生活里面，才会知道什么值得留下。不是每件事都要立刻得出结论，有些感受先被认真对待，日子就已经往前走了一步。",
+            "把眼前的人和事认真对待，把该做的小事做好，很多原本模糊的答案会在下一次回头时变得清楚。",
+            "菜市场门口的人已经各自走远了，水还在地上闪着。你提起袋子，脚步也跟着慢下来，知道今天不用急着把所有事说完。",
+        ]
+    )
+    return title, "\n\n".join(paragraphs)
+
+
 def _build_local_generic_tracked_article_draft(payload: Mapping[str, object]) -> tuple[str, str]:
     outline = payload.get("outline")
     hook = ""
@@ -11792,8 +11847,11 @@ def _build_local_generic_tracked_article_draft(payload: Mapping[str, object]) ->
 
 
 def _build_local_tracked_article_draft_fallback(payload: Mapping[str, object]) -> tuple[str, str]:
-    if _resolve_local_fallback_mode(payload) == "responsibility_shelter":
+    mode = _resolve_local_fallback_mode(payload)
+    if mode == "responsibility_shelter":
         return _build_local_responsibility_shelter_draft(payload)
+    if not mode and _extract_local_fallback_source_sentences(payload):
+        return _build_local_source_scene_draft_fallback(payload)
     return _build_local_generic_tracked_article_draft(payload)
 
 
@@ -14213,7 +14271,7 @@ def _resolve_local_assets_cover_copy(
         return "家里人平安，知己还在，平淡日子也很值得。"
     if mode == "supportive_appreciation":
         if _has_local_supportive_misread_profile(payload):
-            return "别把他的体谅，当成你可以反复透支的东西。"
+            return "心软的人，不傻，只是把情分看得很重。"
         if _has_local_supportive_discernment_profile(payload):
             return "心软的人，往往看得很清，也把情分看得很重。"
         if _has_local_supportive_apology_profile(payload):
@@ -14356,8 +14414,8 @@ def _resolve_local_assets_social_teaser(
         return _compose_local_followup(lead, "忙完以后还记得回来找你，这份交代最让人安心。")
     if mode == "supportive_appreciation":
         if _has_local_supportive_misread_profile(payload):
-            lead = first if first_is_safe else "太好说话久了，别人很容易忘了，她也会疼。"
-            return _compose_local_followup(lead, "体谅不是天生该让，能被珍惜，温柔才会一直留得住。")
+            lead = first if first_is_safe else "她把饭菜重新热好，仍然愿意把这段关系往暖处带。"
+            return _compose_local_followup(lead, "心软不是没脾气，是把情分看得很重；这份温柔值得被同样认真地接住。")
         if _has_local_supportive_discernment_profile(payload):
             lead = first if first_is_safe else "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。"
             subject = "他" if "他" in lead and "她" not in lead else "她"
@@ -14930,8 +14988,8 @@ def _build_local_publish_package_fallback(
             abstract = "生活的顺序，常常是从一个很小的动作开始回来的。体检照约、饭按时吃、该停的时候停一停，人先回稳，后面的责任和日子才会更有力量。"
         elif mode == "supportive_appreciation":
             if _has_local_supportive_misread_profile(focus_payload):
-                publish_lead = "太好说话的人，也会疼。她愿意翻篇，是因为把情分看得更重。这份体谅被认真珍惜，温柔才会留得久。"
-                abstract = "她愿意再把话接起来，已经是在给这段关系一次机会。下一次记得先听完她的话，也把答应过的改变做到。心软的人最看重的，是你真的没有让同一件事再发生。"
+                publish_lead = "她把饭菜重新热好，仍然愿意把这段关系往暖处带。心软的人把情分看得很重，这份温柔也值得被认真接住。"
+                abstract = "她愿意给关系留余地，是因为在乎。真正珍惜她的人，也会把答应过的改变做到，让这份温柔一直有来有往。"
             elif _has_local_supportive_discernment_profile(focus_payload):
                 publish_lead = "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。看得清，还愿意把场面接住，这份心软更该被珍惜。"
                 abstract = "心软有分寸，退让也有判断。他愿意给关系留一点暖意，心里装着的是情分，也是分寸。若你身边有这样的人，请记得好好接住他的温柔。"
@@ -15092,8 +15150,8 @@ def _build_local_publish_package_fallback(
         elif mode == "supportive_appreciation":
             if _has_local_supportive_misread_profile(focus_payload):
                 supportive_intro_options = [
-                    "愿意翻篇，是在给关系一次机会，不是在允许同一件事重来。",
-                    "道歉说完以后，真正重要的是把答应过的改变做到。",
+                    "心软的人，看清以后仍愿意把情分放在前面。",
+                    "她愿意给关系留余地，也值得被同样认真地珍惜。",
                 ]
             elif _has_local_supportive_discernment_profile(focus_payload):
                 supportive_intro_options = [

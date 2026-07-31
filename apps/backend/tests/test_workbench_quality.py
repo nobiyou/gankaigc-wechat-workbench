@@ -257,6 +257,44 @@ def test_unknown_local_topic_fallback_uses_source_scene_without_instruction_leak
         assert forbidden not in topic["title"]
         assert forbidden not in topic["angle"]
 
+    topic_payload = {**payload, "topic_title": topic["title"], "topic_angle": topic["angle"]}
+    outline = _build_local_tracked_article_outline_fallback(
+        {**topic_payload, "strategy_card": {"structure_mode": ""}}
+    )
+    title, draft = _build_local_tracked_article_draft_fallback(
+        {**topic_payload, "outline": outline, "strategy_card": {"structure_mode": ""}}
+    )
+    assets_payload = _build_local_assets_fallback(
+        project_title=title,
+        topic_title=topic["title"],
+        topic_angle=topic["angle"],
+        draft_title=title,
+        draft_body_markdown=draft,
+    )
+    package = _build_local_publish_package_fallback(
+        draft_title=title,
+        draft_body_markdown=draft,
+        assets=SimpleNamespace(**assets_payload),
+    )
+    combined = "\n".join(
+        [
+            outline["hook"],
+            outline["outline_body"],
+            draft,
+            str(assets_payload["cover_copy"]),
+            str(package["publish_lead"]),
+            str(package["abstract"]),
+        ]
+    )
+
+    assert title == payload["article_title"]
+    assert draft.startswith("雨停以后，菜市场门口的人都慢了下来。")
+    assert "菜市场门口" in str(assets_payload["cover_copy"])
+    assert "菜市场门口" in str(package["publish_lead"])
+    assert not any(token in combined for token in ("很多事走到后来", "换一个角度看", "把眼前这件事重新说清"))
+    assert "。。" not in combined
+    assert evaluate_ai_flavor_risk(title=title, body_markdown=draft).score == 0
+
 
 def test_positive_payoff_requires_theme_specific_landing_for_everyday_warmth() -> None:
     strategy = _strategy(
@@ -2235,9 +2273,9 @@ def test_local_supportive_publish_package_fallback_shortens_long_explanatory_tit
     )
 
     assert str(result["publish_title"]) == "心软的人，值得被认真珍惜"
-    assert "给这段关系一次机会" in str(result["abstract"])
-    assert "没有让同一件事再发生" in str(result["abstract"])
-    assert "愿意翻篇，是在给关系一次机会，不是在允许同一件事重来。" in result["intro_options"]
+    assert "她愿意给关系留余地，是因为在乎" in str(result["abstract"])
+    assert "有来有往" in str(result["abstract"])
+    assert "心软的人，看清以后仍愿意把情分放在前面。" in result["intro_options"]
 
 
 def test_local_resilience_publish_package_fallback_shortens_long_explanatory_title() -> None:

@@ -1503,15 +1503,10 @@ def test_generate_topic_from_tracked_article_local_fallback_keeps_simple_happine
     payload = response.json()
 
     assert payload["title"] != "很多答案，都藏在失去以后才明白"
-    assert (
-        "家人" in payload["title"]
-        or "知己" in payload["title"]
-        or "日子过到眼前" in payload["title"]
-        or "慢慢看清" in payload["title"]
-    )
+    assert payload["title"] == "人生不求大富大贵，但求简单快乐"
     assert "放手" not in payload["angle"]
     assert "不谈亏欠" not in payload["angle"]
-    assert "更大的拥有" in payload["angle"] or "平凡日常" in payload["angle"] or "家人知己" in payload["angle"]
+    assert "人活着，到底是为了什么" in payload["angle"]
 
 
 def test_generate_strategy_package_keeps_simple_happiness_article_on_everyday_warmth_lane(monkeypatch) -> None:
@@ -11354,38 +11349,37 @@ def test_build_local_assets_fallback_supportive_appreciation_uses_apology_packag
 
 def test_build_local_publish_package_fallback_supportive_appreciation_uses_misread_variant() -> None:
     assets = SimpleNamespace(
-        recommended_title="别把一个人的体谅，当成他天生就该让着你",
-        title_options=["别把一个人的体谅，当成他天生就该让着你"],
-        cover_copy="别把他的体谅，当成你可以反复透支的东西。",
-        social_teaser="太好说话久了，别人很容易忘了，她也会疼。体谅不是天生该让，能被珍惜，温柔才会一直留得住。",
-        social_teaser_options=["太好说话久了，别人很容易忘了，她也会疼。体谅不是天生该让，能被珍惜，温柔才会一直留得住。"],
+        recommended_title="心软的人，不傻，只是把情分看得很重",
+        title_options=["心软的人，不傻，只是把情分看得很重"],
+        cover_copy="心软的人，不傻，只是把情分看得很重。",
+        social_teaser="她把饭菜重新热好，仍然愿意把这段关系往暖处带。心软不是没脾气，是把情分看得很重；这份温柔值得被同样认真地接住。",
+        social_teaser_options=["她把饭菜重新热好，仍然愿意把这段关系往暖处带。心软不是没脾气，是把情分看得很重；这份温柔值得被同样认真地接住。"],
     )
 
     package = workbench._build_local_publish_package_fallback(
-        draft_title="别把一个人的体谅，当成他天生就该让着你",
+        draft_title="心软的人，不傻，只是把情分看得很重",
         draft_body_markdown=(
-            "太好说话久了，别人很容易忘了，她也会疼。\n\n"
-            "一句对不起落下来，她愿意把这件事往后放一放，不代表她真的什么都不介意。\n\n"
-            "她肯翻篇一次，是在给感情机会，不是在把自己交给你反复消耗。"
+            "她把饭菜重新热好，仍然愿意把这段关系往暖处带。\n\n"
+            "别人常说她太好说话，可一句对不起落下来，她还是愿意把这件事往后放一放，因为她把情分看得很重。\n\n"
+            "真正珍惜她的人，也会把答应过的改变做到。"
         ),
         assets=assets,
     )
 
-    assert "好说话" in package["publish_lead"]
-    assert "会疼" in package["publish_lead"]
+    assert "饭菜重新热好" in package["publish_lead"]
+    assert "心软的人把情分看得很重" in package["publish_lead"]
     assert "情分" in package["publish_lead"]
-    assert "认真珍惜" in package["publish_lead"]
-    assert "同一件事再发生" in package["abstract"]
-    assert "愿意翻篇，是在给关系一次机会，不是在允许同一件事重来。" in package["intro_options"]
-    assert "道歉说完以后，真正重要的是把答应过的改变做到。" in package["intro_options"]
+    assert "有来有往" in package["abstract"]
+    assert "心软的人，看清以后仍愿意把情分放在前面。" in package["intro_options"]
+    assert "她愿意给关系留余地，也值得被同样认真地珍惜。" in package["intro_options"]
 
 
 def test_build_local_tracked_article_fallback_supportive_misread_avoids_not_ab_shell() -> None:
     payload = {
         "source_type": "tracked_article",
         "article_title": "心软的人，一生难遇",
-        "topic_title": "别把一个人的体谅，当成他天生就该让着你",
-        "topic_angle": "从太好说话的人为什么总被误会成好欺负切入，写包容和和好从来不是没底线；也写一段关系真正该学会的，是珍惜这份体谅，而不是反复透支它。",
+        "topic_title": "心软的人，不傻，只是把情分看得很重",
+        "topic_angle": "心软的人明明看得清，却还是愿意给关系留余地；这份体谅不是软弱，而是把情分看得很重。",
         "reference_article_body_markdown": (
             "有一种人，心很软，也很重感情。"
             "或许是因为太好说话，给别人造成了好欺负的错觉。"
@@ -11397,10 +11391,10 @@ def test_build_local_tracked_article_fallback_supportive_misread_avoids_not_ab_s
 
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(payload)
 
-    assert title == "别把一个人的体谅，当成他天生就该让着你"
-    assert "她看得见，也分得清。" in body_markdown
-    assert "这份心意经不起反复试探" in body_markdown
-    assert "不是因为没脾气，而是" not in body_markdown
+    assert title == "心软的人，不傻，只是把情分看得很重"
+    assert "她其实比谁都明白。" in body_markdown
+    assert "心软的人最难得的地方，是看清以后仍愿意善待。" in body_markdown
+    assert "别把她的和好如初" not in body_markdown
     assert "因为不是每个人" not in body_markdown
     assert "不是在把自己交给你反复消耗" not in body_markdown
     assert body_markdown.count("不是") <= 1
