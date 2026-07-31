@@ -412,7 +412,9 @@ def test_local_response_priority_followup_publish_package_keeps_theme_and_avoids
     summary = evaluate_ai_flavor_risk(title=str(result["publish_title"]), body_markdown=combined)
 
     assert "晚霞" in str(result["publish_lead"])
-    assert "多问一句" in str(result["publish_lead"])
+    assert any(fragment in str(result["publish_lead"]) for fragment in ("认真问", "言外之意", "又遇到事"))
+    assert "\n\n".join(str(result.get(key) or "") for key in ("publish_lead", "abstract")).count("心里") == 0
+    assert "真正在意" not in combined
     assert "主心骨" not in combined
     assert "眼前的路" not in combined
     assert all("不是A，是B" not in hit for hit in summary.hits)

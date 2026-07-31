@@ -10684,7 +10684,7 @@ def test_build_local_tracked_article_draft_fallback_response_priority_avoids_the
     assert title == "真正在意你的人，会读懂你的言外之意"
     assert "主线是" not in body_markdown
     assert body_markdown.startswith("很多回应都会路过你，难得的是有人真的停下来。")
-    assert "他不会急着把话题带开，也不会只留一个表情就算回应。他只是多问一句：你是不是还有话没说完。" in body_markdown
+    assert "他不会急着把话题带开，也不会只留一个表情就算回应。他会多停一下，问你：是不是还有话没说完。" in body_markdown
     assert "在意会变成很具体的注意力。" in body_markdown
     assert "被这样接住过一次，人就会知道什么样的关系值得珍惜。" in body_markdown
     assert "等电梯的半分钟，够不够回一句话？其实够的。" not in body_markdown
@@ -10724,7 +10724,12 @@ def test_build_local_tracked_article_draft_fallback_response_priority_uses_refer
     )
 
     assert title == "真正在意你的人，会读懂你的言外之意"
-    assert body_markdown.startswith(("朋友圈那张晚霞发出去以后，最后留在心里的，常常是那句认真追问。", "你发了一张晚霞照，本来只想轻轻带过一天。可真正把你放在心上的人，还是会顺着那句配文多看一眼。"))
+    assert body_markdown.startswith(
+        (
+            "那张晚霞照发出去以后，点赞很快铺满屏幕；你后来反复看的，却是那条认真评论。",
+            "你发了一张晚霞照，本来只想轻轻带过一天。把你放在心上的人，还是会顺着那句配文多看一眼。",
+        )
+    )
     assert "很多回应都会路过你，难得的是有人真的停下来。" not in body_markdown.split("\n\n")[0]
     assert "是不是项目又出岔子了？" in body_markdown
 
@@ -10763,8 +10768,8 @@ def test_build_local_assets_fallback_uses_followup_variant_copy_for_response_pri
     )
 
     assert assets["recommended_title"] == "你轻轻带过的话，真正在意的人会再问一句"
-    assert assets["cover_copy"] == "你轻轻带过的话，有人真的听进去了。"
-    assert assets["social_teaser"] == "那张晚霞发出去以后，最暖的是那句看懂你疲惫的追问。"
+    assert assets["cover_copy"] == "那条认真评论，把你的疲惫接住了。"
+    assert assets["social_teaser"] == "那张晚霞发出去以后，你记住的是那条认真评论。"
     assert "晚霞余晖" in str(assets["cover_prompt"])
     assert "不要聊天界面" in str(assets["cover_prompt"])
 
@@ -10911,10 +10916,10 @@ def test_build_local_publish_package_fallback_response_priority_uses_followup_sc
         assets=assets,
     )
 
-    assert package["publish_lead"] == "那条朋友圈发出去以后，别人看见了晚霞，在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。"
-    assert package["abstract"] == "一条朋友圈下面热闹不难，难的是有人看懂你那句轻描淡写，追着问一句“是不是又把累藏起来了”。被这样惦记一次，人心里那根绷着的弦会先松一点。"
+    assert package["publish_lead"] == "那条朋友圈发出去以后，别人看见了晚霞；有人却看见了你那句轻描淡写后面的疲惫。他停在那儿，认真问你：是不是又遇到事了。"
+    assert package["abstract"] == "一条朋友圈下面热闹不难，难的是有人愿意读完你的言外之意。被这样惦记一次，绷着的那根弦会先松一点。"
     assert package["intro_options"][:2] == [
-        "那条朋友圈发出去以后，别人看见了晚霞，在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。",
+        "那条朋友圈发出去以后，别人看见了晚霞；有人却看见了你那句轻描淡写后面的疲惫。他停在那儿，认真问你：是不是又遇到事了。",
         assets.social_teaser,
     ]
 

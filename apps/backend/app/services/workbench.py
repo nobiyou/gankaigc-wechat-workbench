@@ -4132,10 +4132,11 @@ def _rewrite_response_priority_topic(payload: Mapping[str, object], ai_result: M
     if _uses_local_response_priority_followup_variant(payload) or any(
         token in corpus for token in ("评论", "追问", "言外之意", "我没事", "有点累", "注意力分给你")
     ):
-        new_title = "你轻轻带过的话，真正在意的人会再问一句"
+        new_title = "你轻轻带过的话，值得有人认真接下去"
         new_angle = (
             "从点赞、评论和一句“我没事”背后的分量差别切入，"
-            "写为什么轻互动很多，人却还是会悬着；也写真正的关心，往往藏在一句追问、一次补问和被认真听懂的那一下。"
+            "写热闹互动散去以后，谁还愿意停下来读懂你；"
+            "也写一条评论、一次电话和被认真听完的那一下，怎样把人的疲惫轻轻接住。"
         )
     elif any(token in corpus for token in ("红灯30秒", "红灯", "蓝牙")):
         new_title = "肯把时间补给你的人，才是真的在乎"
@@ -8634,7 +8635,7 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
                 payload,
                 (
                     "朋友圈那张晚霞发出去以后，最后留在心里的，常常是那句认真追问。",
-                    "你发了一张晚霞照，本来只想轻轻带过一天。可真正把你放在心上的人，还是会顺着那句配文多看一眼。",
+                    "你发了一张晚霞照，本来只想轻轻带过一天。把你放在心上的人，还是会顺着那句配文多看一眼。",
                 ),
             )
         if has_time_priority and not has_comment_like:
@@ -11222,13 +11223,13 @@ def _build_local_response_priority_followup_paragraphs(
     opening = intro.strip()
     if not opening or any(token in opening for token in ("轻描淡写的话", "多问一句", "被听懂")):
         if has_photo_scene and has_comment_like:
-            opening = "一张晚霞照发出去，点赞很快铺满屏幕；让人心里一松的，是那句认真追问。"
+            opening = "那张晚霞照发出去以后，点赞很快铺满屏幕；你后来反复看的，却是那条认真评论。"
         else:
             opening = "很多回应都会路过你，难得的是有人真的停下来。"
 
     paragraphs = [
         opening,
-        "你明明只说了一句很轻的话，像是随手带过。可在意你的人会顺着那点语气再往前走一步，听出你为什么忽然只发了这一句。",
+        "你明明只是把话说得很轻，像随手把一天带过去。可有人会顺着那点语气多停一会儿，听出你为什么忽然只发这一张图。",
     ]
     if has_specific_comment_scene:
         paragraphs.extend(
@@ -11241,21 +11242,21 @@ def _build_local_response_priority_followup_paragraphs(
             [
                 (
                     "他不会急着把话题带开，也不会只留一个表情就算回应。"
-                    "他只是多问一句：你是不是还有话没说完。"
+                    "他会多停一下，问你：是不是还有话没说完。"
                 )
                 if has_followup
-                else "他不会急着把话题带开，也不会只留一个表情就算回应。他会停一下，听你把那句轻描淡写慢慢说完。",
+                else "他不会急着把话题带开，也不会只留一个表情就算回应。他会停一下，听你把那点疲惫慢慢说完。",
             ]
         )
     paragraphs.extend(
         [
-            "这句追问看起来不大，落在心里却很重。你终于不用把那点情绪再往回收，也不用把“我没事”来回说给自己听。",
+            "这点停顿看起来不大，却能让人忽然松一口气。你不用再把那点情绪往回收，也不用把“我没事”来回说给自己听。",
             (
-                "有人陪你热闹，有人顺手点赞，有人寒暄两句就走。等屏幕暗下来，留在心里的，还是那个肯停下来的人，是那句补问，也是那份被认真听见的感觉。"
+                "有人陪你热闹，有人顺手点赞，有人寒暄两句就走。等屏幕暗下来，你记得最清楚的，还是那个肯停下来的人，是那条评论，也是那份被认真听见的感觉。"
                 if has_comment_like
-                else "有人会顺手回应你，也有人愿意把你的话再听深一点。那句追问落下来，心里悬着的地方会先松一下。"
+                else "有人会顺手回应你，也有人愿意把你的话再听深一点。那点停顿落下来，悬着的地方会先松一下。"
             ),
-            "在意会变成很具体的注意力。它不会被一句“我没事”轻轻带过去，也不会把你的情绪当成顺手划过去的动态。它愿意听完你没说完的话，也愿意在忙完以后，再回来把那句轻描淡写接下去。",
+            "在意会变成很具体的注意力。它不会把“我没事”当成句号，也不会把你的情绪当成顺手划过去的动态。它愿意听完你没说完的话，也愿意在忙完以后，再回来把那点疲惫接下去。",
         ]
     )
     if has_photo_scene:
@@ -11265,7 +11266,7 @@ def _build_local_response_priority_followup_paragraphs(
     if has_fly_tired:
         paragraphs.append("别人问你飞得高不高，他会先问一句：你今天是不是太累了。")
     paragraphs.append(
-        "被这样接住过一次，人就会知道什么样的关系值得珍惜。以后再看热闹不热闹、互动多不多，心里自然会分得清：谁只是路过，谁愿意为你停下来。"
+        "被这样接住过一次，人就会知道什么样的关系值得珍惜。以后再看热闹不热闹、互动多不多，你自然会分得清：谁只是路过，谁愿意为你停下来。"
     )
     return paragraphs
 def _build_local_mode_shaped_generic_paragraphs(
@@ -14162,8 +14163,8 @@ def _resolve_local_assets_cover_copy(
         if "点赞" in response_priority_scene_corpus and "评论" in response_priority_scene_corpus and any(
             token in response_priority_scene_corpus for token in ("晚霞", "夕阳", "落日", "朋友圈", "照片")
         ):
-            return "你轻轻带过的话，有人真的听进去了。"
-        return "有人肯再问一句，心里会先松一下。"
+            return "那条认真评论，把你的疲惫接住了。"
+        return "有人肯把话接下去，悬着的地方会先松一下。"
     if mode == "response_priority" and _uses_local_response_priority_time_priority_variant(payload):
         return "真正让人心安的，不是秒回，是忙完还记得补一句。"
     if mode == "everyday_warmth_return" and _uses_local_everyday_warmth_small_things_priority(payload):
@@ -14307,9 +14308,9 @@ def _resolve_local_assets_social_teaser(
         corpus = _build_local_response_priority_followup_corpus(payload)
         if "点赞" in corpus and "评论" in corpus:
             if any(token in corpus for token in ("晚霞", "夕阳", "落日", "朋友圈", "照片")):
-                return "那张晚霞发出去以后，最暖的是那句看懂你疲惫的追问。"
-            return "一排点赞里，最暖的往往是那句认真追问。"
-        return "被认真听懂一次，心里悬着的地方会先松一下。"
+                return "那张晚霞发出去以后，你记住的是那条认真评论。"
+            return "一排点赞里，最暖的往往是有人把话认真接下去。"
+        return "被认真听懂一次，悬着的地方会先松一下。"
     if mode == "response_priority" and _uses_local_response_priority_time_priority_variant(payload):
         lead = first if first_is_safe else "他说自己很忙那一刻，你把手机放下，原本等着的那句话也慢慢安静了。"
         return _compose_local_followup(lead, "忙完以后还记得回来找你，这份交代最让人安心。")
@@ -14819,8 +14820,8 @@ def _build_local_publish_package_fallback(
                     token in response_priority_scene_corpus
                     for token in ("点赞", "评论", "追问", "补问", "项目又出岔子了", "打电话", "我没事", "我有点累")
                 ):
-                    publish_lead = "那条朋友圈发出去以后，别人看见了晚霞，在意你的人，也看见了你那句轻描淡写后面的疲惫。他不会只留个赞就走，还会顺着那点情绪，多问一句。"
-                    abstract = "一条朋友圈下面热闹不难，难的是有人看懂你那句轻描淡写，追着问一句“是不是又把累藏起来了”。被这样惦记一次，人心里那根绷着的弦会先松一点。"
+                    publish_lead = "那条朋友圈发出去以后，别人看见了晚霞；有人却看见了你那句轻描淡写后面的疲惫。他停在那儿，认真问你：是不是又遇到事了。"
+                    abstract = "一条朋友圈下面热闹不难，难的是有人愿意读完你的言外之意。被这样惦记一次，绷着的那根弦会先松一点。"
                 else:
                     publish_lead = "那天你把手机扣在桌上，顺手说了句“没事”。他没有急着追问，只是把手边的水推过来，等你愿意开口。这样的在意，不会催你马上说明白。"
                     abstract = "点赞可以很快，认真听完却需要耐心。有人愿意记住你语气里的变化，等你把话说完整，那份在意就不止是互动，而是把你当成一个具体的人在珍惜。"
