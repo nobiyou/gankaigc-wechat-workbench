@@ -506,6 +506,25 @@ def _is_usable_analysis_emotional_exit(value: str) -> bool:
     return any(marker in normalized for marker in _ANALYSIS_EXIT_RETURN_MARKERS)
 
 
+_ANALYSIS_EXECUTION_PLACEHOLDER_PATTERNS = (
+    r"^(?:一个|一处)?具体(?:的)?(?:生活)?(?:停顿|接口|场景)$",
+    r"^(?:一个|一处)?具体现实入口$",
+    r"^(?:一个|一处)?具体(?:的)?(?:生活)?(?:入口|抓手|动作|场景|选择|停顿|接口)$",
+    r"^(?:当前主题|当前选题|本文|本篇)(?:自己的)?现实入口$",
+    r"^(?:从|以)(?:当前主题|当前选题|本文|本篇)?(?:自己的)?现实入口(?:切入|起笔)$",
+    r"^(?:从|以)(?:一个|一处)?具体(?:的)?(?:生活)?(?:现实)?(?:入口|抓手|动作|场景|选择|停顿|接口)(?:切入|起笔|发生)?$",
+)
+
+
+def _is_usable_analysis_specific_field(value: str) -> bool:
+    """Reject execution scaffolding that is non-empty but not article-specific."""
+    normalized = _normalize_strategy_contract_text(value)
+    if not normalized:
+        return False
+    compact = re.sub(r"\s+", "", normalized)
+    return not any(re.fullmatch(pattern, compact) for pattern in _ANALYSIS_EXECUTION_PLACEHOLDER_PATTERNS)
+
+
 def has_complete_tracked_article_analysis_contract(
     *,
     analysis_structure_mode_hint: str = "",
@@ -517,22 +536,31 @@ def has_complete_tracked_article_analysis_contract(
     analysis_progression_drive: str = "",
     analysis_share_reason: str = "",
     analysis_do_not_turn_into: str = "",
+    analysis_content_pillars: list[str] | tuple[str, ...] = (),
 ) -> bool:
     """Return whether a tracked reference has a usable non-generic contract."""
     normalized_mode = normalize_structure_mode_hint(analysis_structure_mode_hint)
     if not normalized_mode or normalized_mode == "emotional_engine_direct":
         return False
-    return all(
+    normalized_content_pillars = tuple(
+        dict.fromkeys(
+            _normalize_strategy_contract_text(item)
+            for item in analysis_content_pillars
+            if _normalize_strategy_contract_text(item)
+        )
+    )
+    return len(normalized_content_pillars) >= 2 and all(
         _normalize_strategy_contract_text(value)
         for value in (
             analysis_theme,
             analysis_core_conflict,
-            analysis_opening_pattern,
-            analysis_hook_trigger,
             analysis_progression_drive,
             analysis_share_reason,
             analysis_do_not_turn_into,
         )
+    ) and all(
+        _is_usable_analysis_specific_field(value)
+        for value in (analysis_opening_pattern, analysis_hook_trigger)
     ) and _is_usable_analysis_emotional_exit(analysis_emotional_exit)
 
 
@@ -654,6 +682,7 @@ def resolve_tracked_article_structure_mode(
         analysis_progression_drive=analysis_progression_drive,
         analysis_share_reason=analysis_share_reason,
         analysis_do_not_turn_into=analysis_do_not_turn_into,
+        analysis_content_pillars=analysis_content_pillars,
     ):
         return normalized_hint
     if (
@@ -2206,6 +2235,7 @@ def build_complete_contract_execution_surface(project: Mapping[str, object]) -> 
         analysis_progression_drive=contract.progression_drive,
         analysis_share_reason=contract.share_reason,
         analysis_do_not_turn_into=contract.do_not_turn_into,
+        analysis_content_pillars=contract.content_pillars,
     ):
         return {}
 
@@ -2364,6 +2394,7 @@ def build_strategy_package(
         analysis_progression_drive=reference_analysis_progression_drive,
         analysis_share_reason=reference_analysis_share_reason,
         analysis_do_not_turn_into=reference_analysis_do_not_turn_into,
+        analysis_content_pillars=analysis_contract.content_pillars,
     )
     complete_contract_surface = (
         build_complete_contract_execution_surface(project)

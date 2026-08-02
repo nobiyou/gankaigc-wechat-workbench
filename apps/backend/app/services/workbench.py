@@ -2287,6 +2287,7 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
         analysis_progression_drive=analysis_progression_drive,
         analysis_share_reason=analysis_share_reason,
         analysis_do_not_turn_into=analysis_do_not_turn_into,
+        analysis_content_pillars=analysis_content_pillars,
         created_at=str(row["created_at"]) if "created_at" in row.keys() and row["created_at"] is not None else None,
         tags=tags,
     )
@@ -3084,6 +3085,7 @@ def _tracked_article_has_analysis(article: TrackedArticleItem) -> bool:
         analysis_progression_drive=article.analysis_progression_drive,
         analysis_share_reason=article.analysis_share_reason,
         analysis_do_not_turn_into=article.analysis_do_not_turn_into,
+        analysis_content_pillars=article.analysis_content_pillars,
     )
 
 
@@ -4830,6 +4832,7 @@ def _has_complete_tracked_article_topic_analysis(payload: Mapping[str, object]) 
         analysis_progression_drive=str(payload.get("analysis_progression_drive") or ""),
         analysis_share_reason=str(payload.get("analysis_share_reason") or ""),
         analysis_do_not_turn_into=str(payload.get("analysis_do_not_turn_into") or ""),
+        analysis_content_pillars=_normalize_analysis_content_pillars(payload.get("analysis_content_pillars")),
     )
 
 
@@ -8997,6 +9000,7 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             token in corpus
             for token in ("没时间", "红灯30秒", "等红绿灯", "24小时在线", "优先", "优先级", "时间在哪儿", "心就在哪儿")
         )
+        has_explicit_traffic_scene = any(token in corpus for token in ("红灯30秒", "等红绿灯", "红灯", "路口"))
         if has_comment_like and has_photo_scene:
             return _pick_local_seeded_text_variant(
                 payload,
@@ -9006,6 +9010,14 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
                 ),
             )
         if has_time_priority and not has_comment_like:
+            if not has_explicit_traffic_scene:
+                return _pick_local_seeded_text_variant(
+                    payload,
+                    (
+                        "他说自己很忙那一刻，你把手机放下，原本等着的那句话也慢慢安静了。",
+                        "忙不是问题，真正让人安心的是，对方会把没说完的那件事记在心上，空下来以后再回来接住。",
+                    ),
+                )
             return _pick_local_seeded_text_variant(
                 payload,
                 (
@@ -9893,6 +9905,16 @@ def _build_local_inner_settlement_paragraphs(
             "愿你回头看这半年时，不只看见没完成的清单，也看见那个一路没有停下来的自己。前面还有新的日子，你带着这些经验和温暖继续走，就不算白走。",
         ]
 
+    if has_homecoming and has_future_release:
+        return [
+            intro,
+            "人常常同时被两头牵着：已经发生的事还在心里回响，尚未发生的事又提前来借走今天的安静。心一直向前预支，脚下这一刻就很难真正被看见。",
+            "把过去反复重播，并不能替昨天改写结局；把明天提前演完，也不会让未知变得更听话。真正能握住的，只有今天这一小段时间，以及你愿意用什么心情把它过完。",
+            "心安不是所有事情都有答案，而是你不再把每个答案都交给外界。该努力的继续努力，该等待的耐心等待，剩下的先放回它自己的时间里。",
+            "苏轼说：“此心安处是吾乡。”所谓归处，不是终于拥有了一个没有波澜的世界，而是无论外面怎样变化，你都知道自己的判断、节奏和盼头还在。",
+            "今晚先把今天还给今天。睡前不替明天发愁，醒来再处理醒来的事；你不必一夜之间变得通透，肯让心少绕一个弯，生活就已经在往从容处走。",
+        ]
+
     if has_homecoming and not has_future_release:
         return [
             intro,
@@ -9953,6 +9975,12 @@ def _looks_like_local_fallback_instruction_fragment(text: str) -> bool:
     candidate = str(text or "").strip()
     if not candidate:
         return False
+    if re.fullmatch(
+        r"(?:从|以)?(?:一个|一处)?具体(?:的)?(?:生活)?(?:现实)?"
+        r"(?:入口|抓手|动作|场景|选择|停顿|接口)(?:切入|起笔|发生)?[。.!?！？]?",
+        candidate,
+    ):
+        return True
     if any(
         token in candidate
         for token in (
@@ -9976,6 +10004,24 @@ def _looks_like_local_fallback_instruction_fragment(text: str) -> bool:
             "为什么连",
             "重建新的具体入口",
             "更贴近真人表达",
+            "让本篇独有的现实变化先发生",
+            "让当前选题自己的现实变化先发生",
+            "先让当前选题的现实功能发生",
+            "让主题判断长出来",
+            "当前选题自己的现实入口",
+            "新选题自己的现实入口",
+            "合同指定的现实入口",
+            "沿当前主题的现实变化推进",
+            "一个具体生活停顿",
+            "一个具体生活接口",
+            "一个具体现实入口",
+            "一个具体动作",
+            "一个具体场景",
+            "一个具体选择",
+            "一个现实入口",
+            "当前主题的现实入口",
+            "本文自己的现实抓手",
+            "本篇自己的入口",
         )
     ):
         return True
@@ -10150,11 +10196,37 @@ def _resolve_local_responsibility_draft_opening(payload: Mapping[str, object]) -
         "schedule": "你先把工作、父母和孩子的事排一遍，想让每一头都稳一点。",
         "bills": "你先把能调整的地方圈出来，想让这个家照常往前走。",
         "pickup": "那一刻，辛苦不是一下子消失了，而是突然有了值得继续往前的光。",
-        "call": "你把声音放稳，也把父母、孩子和眼前的安排一件件理清。",
+        "call": "你把声音放稳，也开始把接下来的安排一件件理清。",
         "family": "你先想的是眼前这件事该怎么接，身边的人才不会跟着乱。",
     }
     intro = opening_by_scene.get(scene_kind, opening_by_scene["family"])
     return _compose_local_followup(intro, followup_by_scene.get(scene_kind, followup_by_scene["family"]))
+
+
+def _resolve_local_analysis_first_responsibility_opening(payload: Mapping[str, object]) -> str:
+    """Use the adopted strategy's new entry instead of the reference article's scene shell."""
+    strategy_card = payload.get("strategy_card")
+    candidates: list[str] = []
+    if isinstance(strategy_card, Mapping):
+        for key in ("hook_trigger", "opening_move", "packaging_hook"):
+            candidates.append(str(strategy_card.get(key) or "").strip())
+        for key in ("scene_anchor_requirements", "quotable_line_seeds"):
+            values = strategy_card.get(key)
+            if isinstance(values, list):
+                candidates.extend(str(value or "").strip() for value in values)
+
+    for raw in candidates:
+        cleaned = _clean_local_fallback_instruction_phrase(raw)
+        if (
+            len(cleaned) >= 8
+            and len(cleaned) <= 96
+            and not _looks_like_local_fallback_instruction_fragment(cleaned)
+            and not _looks_like_local_fallback_strategy_scaffold(cleaned)
+            and not _looks_like_packaging_instruction_leakage(cleaned)
+        ):
+            return _ensure_sentence_end(cleaned)
+
+    return "事情同时来到眼前时，你没有急着把自己放到最后，先把最重要的那一件落到手边。"
 
 
 def _resolve_local_responsibility_daily_detail(payload: Mapping[str, object]) -> str:
@@ -10172,6 +10244,8 @@ def _resolve_local_responsibility_daily_detail(payload: Mapping[str, object]) ->
 
 def _resolve_local_responsibility_teaser(payload: Mapping[str, object]) -> str:
     corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
+    if _has_local_analysis_first_pillars(payload):
+        return "事情同时来到眼前时，你先把轻重排出来，也给身边的人留下一起分担的位置。"
     scene_kind = _resolve_local_responsibility_scene_kind(payload)
     teaser_by_scene = {
         "medical": "医院走廊里，你先把家人的心安顿下来。那些一件件理清的安排，最后都会变成日子的踏实。",
@@ -10191,6 +10265,11 @@ def _resolve_local_responsibility_teaser(payload: Mapping[str, object]) -> str:
 
 
 def _resolve_local_responsibility_publish_lead(payload: Mapping[str, object]) -> str:
+    if _has_local_analysis_first_pillars(payload):
+        return (
+            "事情同时来到眼前时，你先把轻重排出来。不是为了一个人承担所有，"
+            "而是让身边的人知道，这份责任可以一起接住。"
+        )
     scene_kind = _resolve_local_responsibility_scene_kind(payload)
     lead_by_scene = {
         "medical": (
@@ -10223,6 +10302,11 @@ def _resolve_local_responsibility_publish_lead(payload: Mapping[str, object]) ->
 
 
 def _resolve_local_responsibility_publish_abstract(payload: Mapping[str, object]) -> str:
+    if _has_local_analysis_first_pillars(payload):
+        return (
+            "责任来到眼前时，可靠不是一个人把所有事收进自己手里，而是知道什么先做、什么可以交给别人。"
+            "把事情理清，也把分担留在家里，安稳才不会只落在一个人的身上。"
+        )
     scene_kind = _resolve_local_responsibility_scene_kind(payload)
     abstract_by_scene = {
         "medical": "医院走廊、缴费窗口和复查安排，会让人一瞬间变得很清醒。你先把事情理顺，是为了让家人少一点慌。那些被你安顿好的细节，最后都会慢慢变成家的踏实。",
@@ -10927,7 +11011,12 @@ def _resolve_local_generic_opening(
         "supportive_appreciation": "饭桌上她先问一句“还吃吗？”，像什么都没发生；可她把那口气咽下去的样子，只有熟悉她的人看得见。",
         "relationship_aftercare": "门关上以后，屋里安静了几分钟；他去厨房倒了杯水，回来时没有继续争输赢，只问你刚才是不是难受。",
         "trust_boundary": "听见前后两个版本时，手里的筷子会先停一下。",
-        "response_priority": "晚霞照片发出去以后，点赞很快就铺满屏幕；真正让你停下来的，是有人问你今天是不是很累。",
+        "response_priority": (
+            "晚霞照片发出去以后，点赞很快就铺满屏幕；真正让你停下来的，是有人问你今天是不是很累。"
+            if not _extract_local_reference_corpus(payload)
+            or any(token in _extract_local_reference_corpus(payload) for token in ("晚霞", "夕阳", "落日", "朋友圈", "点赞", "评论"))
+            else "大家都有忙不过来的时候，真正让人安心的是，对方会把没说完的那件事记在心上，空下来以后再回来接住。"
+        ),
         "resilience_reconstruction": resilience_opening,
         "emotional_engine_direct": "路过那家旧店时，你脚步慢了一下，才发现有些告别并不会在当天结束。",
         "scene_first_progression": "那句话停在嘴边的时候，关系其实已经轻轻往后退了一步。",
@@ -11274,6 +11363,15 @@ def _uses_local_response_priority_time_priority_variant(payload: Mapping[str, ob
     if not corpus:
         return False
 
+    if _has_local_analysis_first_pillars(payload):
+        analyzed_pillars = " ".join(
+            item
+            for key in ("analysis_content_pillars", "reference_article_analysis_content_pillars")
+            for item in _normalize_analysis_content_pillars(payload.get(key))
+        )
+        if any(token in analyzed_pillars for token in ("时间", "回应", "交代", "顺序", "在意")):
+            return True
+
     classic_hits = sum(
         1
         for keyword in (
@@ -11415,6 +11513,14 @@ def _uses_local_everyday_warmth_simple_happiness_variant(payload: Mapping[str, o
         if token in corpus
     )
     return strong_anchor_hits >= 2 or (strong_anchor_hits >= 1 and support_hits >= 1)
+
+
+def _has_local_analysis_first_pillars(payload: Mapping[str, object]) -> bool:
+    """Enable the newer lane-specific fallback only for analyzed references."""
+    pillars = _normalize_analysis_content_pillars(payload.get("analysis_content_pillars"))
+    if not pillars:
+        pillars = _normalize_analysis_content_pillars(payload.get("reference_article_analysis_content_pillars"))
+    return len(pillars) >= 2
 
 
 def _uses_local_self_reliance_shared_burden_variant(payload: Mapping[str, object]) -> bool:
@@ -12020,6 +12126,8 @@ def _build_local_response_priority_time_priority_paragraphs(
     payload: Mapping[str, object],
     intro: str,
 ) -> list[str]:
+    corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
+    has_explicit_traffic_scene = any(token in corpus for token in ("红灯30秒", "等红绿灯", "红灯", "路口"))
     opening = intro.strip()
     if not opening or any(token in opening for token in ("轻描淡写的话", "多问一句", "被听懂")):
         opening = _pick_local_seeded_text_variant(
@@ -12027,13 +12135,24 @@ def _build_local_response_priority_time_priority_paragraphs(
             (
                 "他说自己很忙那一刻，你把手机放下，原本等着的那句话也慢慢安静了。",
                 "红灯只有三十秒，也够喝口水、切首歌、回一句“晚点找你”。有些答案，就藏在这些小空当里。",
+            )
+            if has_explicit_traffic_scene
+            else (
+                "他说自己很忙那一刻，你把手机放下，原本等着的那句话也慢慢安静了。",
+                "忙不是问题，真正让人安心的是，对方会把没说完的那件事记在心上，空下来以后再回来接住。",
             ),
         )
+
+    time_window_paragraph = (
+        "红灯的三十秒、排队的几分钟、到家换鞋前那会儿，都够发一句“我看到了，晚点说”。你可以等一会儿，可一直等不到交代，期待就会慢慢凉下来。"
+        if has_explicit_traffic_scene
+        else "时间不一定总有大片空白，但交代可以有。哪怕只说一句“我现在顾不上，晚点回来找你”，也比让对方独自猜测更有分量。"
+    )
 
     return [
         opening,
         "在意你的人，也会忙，也会顾不上。可他会先留一句交代，忙完以后，也会回来把那句落下的话接完。",
-        "红灯的三十秒、排队的几分钟、到家换鞋前那会儿，都够发一句“我看到了，晚点说”。你可以等一会儿，可一直等不到交代，期待就会慢慢凉下来。",
+        time_window_paragraph,
         "你一次次替对方解释：他只是太忙了，今天事情太多了。解释得久了，连失落都像成了自己不懂事。",
         "一个人把时间给谁，答案常常藏在那些细小空当里。愿意把回应补回来的人，早就把你排进了自己的顺序里。",
         "记得回来，就是答案。",
@@ -12122,6 +12241,23 @@ def _build_local_mode_shaped_generic_paragraphs(
     closing: str,
 ) -> list[str]:
     if mode == "everyday_warmth_return":
+        if payload and _has_local_analysis_first_pillars(payload) and _uses_local_everyday_warmth_simple_happiness_variant(payload):
+            corpus = _extract_local_reference_corpus(payload)
+            wish_scene = (
+                "有人给自己列过一张很朴素的心愿单：女儿考上理想的大学，和家人去一趟海边，再给爱人换一台好用的洗衣机。"
+                if "洗衣机" in corpus and "海边" in corpus
+                else "有人把自己的心愿写得很朴素：家人平安，知己还在，想做的事一件件有着落。"
+            )
+            return [
+                intro,
+                "年轻时总觉得幸福要等一个更大的结果来证明。收入再高一点，房子再宽一点，认识的人再多一点，才敢说自己过得不错。",
+                "后来才发现，幸福常常不是被谁颁发的奖，而是你回头一看，身边的人还在，身体允许你去做喜欢的事，心里也还保留着一点期待。",
+                wish_scene,
+                "知己不必很多。有人愿意把你的话听完，见你得意不酸，见你低落不躲，平时各自忙，真正需要时却不会把你留在原地，这样的情分已经很重。",
+                "家也不必拿来和别人比较。父母有自己的节奏，孩子慢慢长大，伴侣愿意和你商量明天，平凡日子就有了可以依靠的秩序。",
+                "人走到后来，真正想守住的不是热闹，而是心里那份不用证明的踏实。你可以继续努力，也可以承认已经拥有的值得珍惜。",
+                "幸福不是把生活堆得越来越满，而是知道什么不能丢。把家人放在心上，把朋友留在身边，也给自己留一点从容，日子就会越过越有滋味。",
+            ]
         if payload and _uses_local_everyday_warmth_simple_happiness_variant(payload):
             opening = (
                 intro
@@ -12539,6 +12675,20 @@ def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> 
     responsibility_opening = _resolve_local_responsibility_draft_opening(payload)
     responsibility_daily_detail = _resolve_local_responsibility_daily_detail(payload)
 
+    if _has_local_analysis_first_pillars(payload):
+        analysis_opening = _resolve_local_analysis_first_responsibility_opening(payload)
+        return title, "\n\n".join(
+            [
+                f"{analysis_opening}很多中年人的“我没事”，不是没有难处，而是知道身后还有人等着你把日子接住。",
+                "事情来到眼前，不必每一件都立刻解决。先把最重要的那件落下来，再看看哪些可以交给身边的人，日子就不会只靠一个人往前推。",
+                "所谓成熟，很多时候只是先把能办的办了，把该问的问了，把最坏的打算提前想一遍。这样做不是因为你不怕，而是因为你不想让家里的人跟着慌。",
+                "你也有过想停下来的时候。可真正让你重新站稳的，往往不是一句“再坚持一下”，而是后来发现：父母少了一点担心，孩子多了一点底气，伴侣也敢把难处拿出来和你商量。",
+                "一个人替家里多想一步，家人就可能少走一段慌乱的路。你熬过的那些夜，最后会变成他们遇事时的一点从容。",
+                "所以别把自己只看成那个负责解决问题的人。你可以继续可靠，也可以把疲惫说出来，把能交给别人的事交出去。一个家真正的安稳，不是一个人永远不倒，而是每个人都愿意互相接力。",
+                "万般辛苦不是勋章，也不是必须独自背完的命题。它只是你认真爱着一群人的证据。往后的路，继续往前走，也记得让身边的人分一点重量给你。",
+            ]
+        )
+
     if _uses_local_responsibility_endurance_variant(payload):
         if _uses_local_responsibility_midlife_variant(payload):
             paragraphs = [
@@ -12789,21 +12939,10 @@ def _finalize_initial_draft_candidate(
             cleanup_changed_steps=changed_steps,
         )
 
-    compressed_body_markdown, compressed_title = _maybe_compress_draft_output(
-        project_slug=project_slug,
-        tone_profile=tone_profile,
-        title=title,
-        body_markdown=body_markdown,
-        project=project,
-        outline_row=outline_row,
-        review_comment=review_comment,
-        reference_article_payload=reference_article_payload,
-        generator=generator,
-    )
     try:
         finalized_body_markdown, finalized_title = _maybe_auto_polish_ai_flavor_draft_output(
-            title=compressed_title,
-            body_markdown=compressed_body_markdown,
+            title=title,
+            body_markdown=body_markdown,
             project=project,
             outline_row=outline_row,
             tone_profile=tone_profile,
@@ -12814,6 +12953,28 @@ def _finalize_initial_draft_candidate(
             generator=generator,
             retry_budget=retry_budget,
         )
+        # Let the one quality pass also handle length when it is already
+        # needed. A separate compression request before the pass repeats the
+        # full draft and strategy payload for no useful gain.
+        if (
+            finalized_body_markdown == body_markdown
+            and finalized_title == title
+            and _draft_exceeds_length_budget(
+                body_markdown=finalized_body_markdown,
+                target_word_count=tone_profile.target_word_count,
+            )
+        ):
+            finalized_body_markdown, finalized_title = _maybe_compress_draft_output(
+                project_slug=project_slug,
+                tone_profile=tone_profile,
+                title=finalized_title,
+                body_markdown=finalized_body_markdown,
+                project=project,
+                outline_row=outline_row,
+                review_comment=review_comment,
+                reference_article_payload=reference_article_payload,
+                generator=generator,
+            )
         finalized_body_markdown, finalized_title = _maybe_retry_draft_for_positive_payoff(
             project=project,
             outline_row=outline_row,
@@ -12845,7 +13006,9 @@ def _finalize_initial_draft_candidate(
             title,
             exc,
         )
-        return _finish(compressed_body_markdown, compressed_title)
+        # The initial draft is already usable. Do not issue a second recovery
+        # request after a failed quality pass; the caller can retry the stage.
+        return _finish(body_markdown, title)
 
 
 def _maybe_retry_draft_for_positive_payoff(
@@ -12936,12 +13099,10 @@ def _maybe_compress_draft_output(
     reference_article_payload: dict[str, object],
     generator,
 ) -> tuple[str, str]:
-    target_word_count = tone_profile.target_word_count
-    if target_word_count <= 0:
-        return body_markdown, title
-
-    max_allowed_length = int(target_word_count * 1.5)
-    if len(body_markdown) <= max_allowed_length:
+    if not _draft_exceeds_length_budget(
+        body_markdown=body_markdown,
+        target_word_count=tone_profile.target_word_count,
+    ):
         return body_markdown, title
 
     try:
@@ -12989,6 +13150,12 @@ def _maybe_compress_draft_output(
         return body_markdown, title
 
     return compressed_body_markdown, compressed_title
+
+
+def _draft_exceeds_length_budget(*, body_markdown: str, target_word_count: int) -> bool:
+    if target_word_count <= 0:
+        return False
+    return len(body_markdown) > int(target_word_count * 1.5)
 
 
 def _split_markdown_blocks(markdown: str) -> list[str]:
@@ -13696,6 +13863,7 @@ def _has_complete_strategy_bundle_analysis_contract(
         analysis_progression_drive=str(contract.get("progression_drive") or ""),
         analysis_share_reason=str(contract.get("share_reason") or ""),
         analysis_do_not_turn_into=str(contract.get("do_not_turn_into") or ""),
+        analysis_content_pillars=_normalize_analysis_content_pillars(contract.get("content_pillars")),
     )
 
 
@@ -15367,6 +15535,7 @@ def _resolve_local_assets_social_teaser(
         first
         and not extract_generic_reflective_openers(first)
         and not _starts_with_generic_packaging_openers(first)
+        and not _looks_like_local_fallback_instruction_fragment(first)
         and not _looks_like_packaging_instruction_leakage(first)
     )
     mode_specific_teasers = {
@@ -15507,6 +15676,8 @@ def _resolve_local_mode_cover_prompt(
         ),
         "response_priority": (
             "傍晚车内或路口红灯前，一个人把水杯放回杯架，手机屏幕朝下放在副驾或桌边，手指停在一条未读提醒旁，画面只表现等待和被想起的瞬间"
+            if any(token in _extract_local_reference_corpus(payload) for token in ("红灯", "路口", "等红绿灯"))
+            else "傍晚办公楼门口，一个人合上电脑、拎起外套，手机屏幕朝下放在包旁，等忙乱告一段落后再回到一段未完的关系里"
         ),
         "resilience_reconstruction": resilience_scene,
     }
@@ -15616,6 +15787,21 @@ def _build_local_assets_fallback(
             topic_angle=topic_angle,
             recommended_title=recommended_title,
         )
+        if mode == "everyday_warmth_return" and _has_local_analysis_first_pillars(focus_payload) and _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
+            cover_copy = "幸福不是拥有更多，而是知道什么值得一直放在心上。"
+            social_teaser = (
+                "家人平安，知己还在，心里还有一点想去完成的事。走过一些路才知道，简单日子并不简单。"
+            )
+        elif mode == "inner_settlement" and _has_local_analysis_first_pillars(focus_payload) and _uses_local_inner_settlement_homecoming_variant(focus_payload) and any(
+            token in _extract_local_reference_corpus(focus_payload) for token in ("已经过去的事", "还没发生的事", "静待花开")
+        ):
+            cover_copy = "心安不是没有风浪，是不再把今天交给未知。"
+            social_teaser = "过去的先放回过去，明天的等明天到来。把今天还给今天，心才会慢慢从容。"
+        elif mode == "response_priority" and _has_local_analysis_first_pillars(focus_payload) and not any(
+            token in _extract_local_reference_corpus(focus_payload) for token in ("红灯", "路口", "等红绿灯")
+        ):
+            cover_copy = "时间不必很多，愿意把交代补回来就很珍贵。"
+            social_teaser = "大家都有忙不过来的时候，真正让人安心的，是那句未完的话有人记得回来接上。"
         social_teaser_options = [
             item
             for item in _dedupe_nonempty_text_options([social_teaser, cover_copy, topic_angle])
@@ -15670,6 +15856,14 @@ def _build_local_assets_fallback(
         )
         if mode_cover_prompt:
             cover_prompt = mode_cover_prompt
+        elif mode == "inner_settlement" and _has_local_analysis_first_pillars(focus_payload) and _uses_local_inner_settlement_homecoming_variant(focus_payload) and any(
+            token in _extract_local_reference_corpus(focus_payload) for token in ("已经过去的事", "还没发生的事", "静待花开")
+        ):
+            cover_prompt = (
+                f"16:9横版公众号封面，真实摄影感，清晨窗边的书桌与日历，一页旧记录被轻轻合上，旁边放着一支笔和一盆新叶，"
+                f"人物把视线从窗外收回到当天的安排，画面明亮安静，保留左下标题安全区，主题是《{recommended_title}》，副文案是“{cover_copy}”。"
+                "不要聊天界面，不要消息气泡，不要可读手机屏幕，不要纯文字海报。"
+            )
         elif mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(focus_payload):
             cover_prompt = (
                 f"16:9横版公众号封面，真实摄影感，年中傍晚的书桌或窗边，摊开的计划清单、日历页、笔和一杯水，"
@@ -15689,10 +15883,17 @@ def _build_local_assets_fallback(
                 f"主题是《{recommended_title}》，副文案是“{cover_copy}”。不要手机，不要聊天界面，不要消息气泡，不要可读屏幕，不要纯文字海报。"
             )
         elif mode == "everyday_warmth_return":
+            if _has_local_analysis_first_pillars(focus_payload) and _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
+                cover_scene = (
+                    "周末海边或城市公园，一家人并肩走在开阔步道上，手里带着简单的生活物件，"
+                    "人物自然交谈或回头相视，画面有风、有空间、有被日子照顾到的轻松感"
+                )
+            else:
+                cover_scene = "傍晚家中餐桌或客厅一角，暖灯、一碗热饭、家人围坐或留灯等生活细节"
             cover_prompt = (
-                f"16:9横版公众号封面，真实摄影感，傍晚家中餐桌或客厅一角，暖灯、一碗热饭、家人围坐或留灯等生活细节，"
+                f"16:9横版公众号封面，真实摄影感，{cover_scene}，"
                 f"画面温暖明亮，保留左下标题安全区，主题是《{recommended_title}》，副文案是“{cover_copy}”。"
-                "画面聚焦日常餐桌、灯光和人物互动，清爽留白，生活抓拍感。"
+                "清爽留白，生活抓拍感，不要聊天界面，不要消息气泡，不要可读手机屏幕，不要纯文字海报。"
             )
         elif scene_variant == "transit":
             cover_prompt = (
@@ -15912,8 +16113,12 @@ def _build_local_publish_package_fallback(
                 publish_lead = "周末陪父母在小区慢慢走一圈，陪孩子把积木铺满地，再和爱人拎着菜回家。一天没有发生什么大事，可晚上躺下时，心里是满的。"
                 abstract = "属于你的生活，很少写在履历上。它藏在一次没有催促的散步、一个肯好好陪伴的下午里。把这些小事捡回来，日子就有了温度。"
             elif _uses_local_everyday_warmth_simple_happiness_variant(focus_payload):
-                publish_lead = "推开家门有饭香，电话那头有人惦记，想说话时还有老朋友愿意听。这样的日子不惊艳，却很踏实。"
-                abstract = "家人安康、知己二三、四季平安，听起来都是小愿望，却最能托住一个人的后半程。能把这些平淡守好，就是很具体的福气。"
+                if _has_local_analysis_first_pillars(focus_payload):
+                    publish_lead = "家人平安，知己还在，心里还有一点想去完成的事。走过一些路才知道，简单日子并不简单。"
+                    abstract = "幸福不是把生活堆得越来越满，而是知道什么值得一直放在心上。家人有自己的节奏，朋友在需要时愿意靠近，自己也还保留着对明天的期待，这些就是很实在的富足。"
+                else:
+                    publish_lead = "推开家门有饭香，电话那头有人惦记，想说话时还有老朋友愿意听。这样的日子不惊艳，却很踏实。"
+                    abstract = "家人安康、知己二三、四季平安，听起来都是小愿望，却最能托住一个人的后半程。能把这些平淡守好，就是很具体的福气。"
             else:
                 publish_lead = "回家时那盏灯还亮着，饭也还热着。忙了一天的人，常常就是被这些细碎又实在的小事轻轻接住。"
                 abstract = "家里人平安，想说的话有人听，再普通的一天也会让人心里发暖。一顿热饭、一句惦记，就够人踏实很久。"
@@ -15921,6 +16126,11 @@ def _build_local_publish_package_fallback(
             if _uses_local_inner_settlement_stage_restart_variant(focus_payload):
                 publish_lead = "翻到年初那页计划时，先别急着给这半年判输。有些目标还空着，但你认真扛过的日子、遇见的温暖和重新调整的勇气，都不该被轻轻抹掉。"
                 abstract = "这半年没有完全照着计划走，也不代表你白走了一程。没完成的清单可以慢慢补，错过的人和事可以慢慢安放。把眼前事做好，把身边人珍惜好，后面的日子还会有新的答案。"
+            elif _uses_local_inner_settlement_homecoming_variant(focus_payload) and _has_local_analysis_first_pillars(focus_payload) and any(
+                token in _extract_local_reference_corpus(focus_payload) for token in ("已经过去的事", "还没发生的事", "静待花开")
+            ):
+                publish_lead = "过去的先放回过去，明天的等明天到来。把今天还给今天，心才会慢慢从容。"
+                abstract = "心安不是所有事情都有答案，而是不再把每个答案都交给外界。该努力的继续努力，该等待的耐心等待，剩下的先放回它自己的时间里，生活自然会长出自己的节奏。"
             elif _uses_local_inner_settlement_homecoming_variant(focus_payload):
                 publish_lead, abstract = _pick_local_seeded_pair_variant(
                     focus_payload,

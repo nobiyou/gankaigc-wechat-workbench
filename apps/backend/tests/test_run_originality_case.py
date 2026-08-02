@@ -72,6 +72,18 @@ def test_request_budget_accounts_for_one_topic_retry() -> None:
     assert budget["topic"] == 2
 
 
+def test_request_budget_accounts_for_one_analysis_retry() -> None:
+    script = _load_run_originality_case_module()
+
+    budget = script._build_request_budget(
+        include_assets_publish=False,
+        skip_metadata=False,
+        reuse_topic=False,
+    )
+
+    assert budget["metadata"] == 2
+
+
 def test_request_budget_accounts_for_one_outline_retry() -> None:
     script = _load_run_originality_case_module()
 

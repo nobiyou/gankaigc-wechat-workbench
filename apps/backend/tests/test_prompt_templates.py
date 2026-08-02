@@ -88,6 +88,10 @@ def _complete_contract_payload(*, mode: str, theme: str, conflict: str, exit_hin
         "analysis_share_reason": f"经历过{theme}的人会想把它转给身边的人。",
         "analysis_structure_mode": mode,
         "analysis_do_not_turn_into": "不要换成另一类泛情绪文章。",
+        "analysis_content_pillars": [
+            f"{theme}的现实入口和第一层判断",
+            f"{conflict}带来的关系或生活变化",
+        ],
         "tone_profile": TONE_PROFILE,
         "trend_title": f"参考文章 / {mode}",
         "topic_title": f"围绕{theme}重新组织的选题",
@@ -172,8 +176,12 @@ def test_tracked_article_stage_prompts_use_analysis_contract_as_single_theme_own
             "analysis_hook_trigger": f"{slug} 的具体停顿。",
             "analysis_progression_drive": f"从 {slug} 的现实矛盾推进到具体选择。",
             "analysis_share_reason": f"让经历过 {slug} 的人愿意转给身边的人。",
-            "analysis_structure_mode": structure_mode,
-            "analysis_do_not_turn_into": f"不要写成脱离 {slug} 的泛泛安慰。",
+                "analysis_structure_mode": structure_mode,
+                "analysis_do_not_turn_into": f"不要写成脱离 {slug} 的泛泛安慰。",
+                "analysis_content_pillars": [
+                    f"{slug}的现实入口和第一层判断",
+                    f"{conflict}带来的后续变化",
+                ],
             "tone_profile": TONE_PROFILE,
             "trend_title": f"参考文章 / {slug}",
             "topic_title": f"围绕 {slug} 重新组织的选题",
@@ -353,6 +361,85 @@ def test_complete_contract_quality_retry_keeps_the_same_function_projection() ->
     assert "沿同一份主题功能投影执行" in combined
     assert "推进到让可靠通过持续行动重新被感受到" in combined
     assert "固定消息、关系或内耗模板" in combined
+
+
+def test_complete_contract_stage_execution_surface_keeps_modes_distinct() -> None:
+    response_payload = _complete_contract_payload(
+        mode="response_priority",
+        theme="被认真听见，比热闹互动更让人踏实。",
+        conflict="表面回应很多，却没有真正进入对方的处境。",
+        exit_hint="把被理解后的安稳和双向珍惜写出来。",
+    )
+    supportive_payload = _complete_contract_payload(
+        mode="supportive_appreciation",
+        theme="温柔的人也值得被认真回应。",
+        conflict="心软常被误认成没有分寸，包容也需要被珍惜。",
+        exit_hint="让柔软被看见，也让珍惜变成双向回应。",
+    )
+    everyday_payload = _complete_contract_payload(
+        mode="everyday_warmth_return",
+        theme="普通生活重新显出幸福的分量。",
+        conflict="人容易把更大的拥有误认成更好的生活。",
+        exit_hint="把注意力收回家人、知己和眼前的踏实。",
+    )
+    resilience_payload = _complete_contract_payload(
+        mode="resilience_reconstruction",
+        theme="重复训练会把人生的主动权一点点练回来。",
+        conflict="限制真实存在，但不能替一个人定义人生宽度。",
+        exit_hint="让继续行动成为不被命运定义的证据。",
+    )
+
+    response_outline = build_outline_prompt(response_payload)
+    resilience_outline = build_outline_prompt(resilience_payload)
+    supportive_draft = build_draft_prompt(supportive_payload)
+    everyday_draft = build_draft_prompt(everyday_payload)
+    resilience_draft = build_draft_prompt(resilience_payload)
+
+    response_text = response_outline.instructions + response_outline.prompt
+    resilience_text = resilience_outline.instructions + resilience_outline.prompt
+    supportive_text = supportive_draft.instructions + supportive_draft.prompt
+    everyday_text = everyday_draft.instructions + everyday_draft.prompt
+    resilience_draft_text = resilience_draft.instructions + resilience_draft.prompt
+
+    assert "表层互动与真正被理解之间出现一处落差" in response_text
+    assert "柔软被误读为理所当然" in supportive_text
+    assert "外在标准突然失重" in everyday_text
+    assert "重复训练、反复校正" in resilience_draft_text
+    assert "消息等待" not in supportive_text
+    assert "回消息" not in supportive_text
+    assert "身体告警" not in everyday_text
+    assert "训练" in resilience_text
+    assert response_text != resilience_text
+
+
+def test_complete_contract_stage_execution_surface_is_kept_short_for_all_stages() -> None:
+    payload = _complete_contract_payload(
+        mode="everyday_warmth_return",
+        theme="普通生活重新显出幸福的分量。",
+        conflict="人容易把更大的拥有误认成更好的生活。",
+        exit_hint="把注意力收回家人、知己和眼前的踏实。",
+    )
+    payload["draft"] = {
+        "title": "普通日子也有自己的分量",
+        "body_markdown": "家人、知己和一顿安稳的饭，让生活重新有了重量。",
+    }
+    payload["assets"] = {
+        "cover_copy": "日子简单，也可以很幸福",
+        "social_teaser": "幸福不一定在更大的拥有里。",
+        "social_teaser_options": ["把眼前的日子过好。"],
+        "recommended_title": "普通日子也有自己的分量",
+        "title_options": ["普通日子也有自己的分量"],
+    }
+
+    templates = (
+        build_outline_prompt(payload),
+        build_draft_prompt(payload),
+        build_assets_prompt(payload),
+        build_publish_package_prompt(payload),
+    )
+    for template in templates:
+        assert "本阶段主题执行面" in template.instructions
+        assert len(template.instructions) + len(template.prompt) < 6200
 
 
 def test_complete_contract_owns_packaging_and_cover_without_mode_templates() -> None:
@@ -549,6 +636,10 @@ def _build_tracked_article_prompt_budget_payloads() -> tuple[
         "analysis_share_reason": "读者会想把它发给正在清算自己的朋友。",
         "analysis_structure_mode": "inner_settlement",
         "analysis_do_not_turn_into": "不要写成泛心安、泛放下或单纯失恋遗憾稿。",
+        "analysis_content_pillars": [
+            "阶段回望如何把遗憾误认成失败",
+            "眼前的人和继续生活如何重新提供支撑",
+        ],
         "problem_brief": problem_brief,
         "strategy_card": strategy_card,
         "benchmarks": benchmarks,
@@ -729,6 +820,10 @@ def test_complete_analysis_contract_responsibility_prompt_uses_contract_scene_in
         "analysis_progression_drive": "从被误认为耽误时间的陪伴推进到家人共同记住的日常价值。",
         "analysis_share_reason": "让总把陪伴排到后面的人重新看见那些时刻的分量。",
         "analysis_do_not_turn_into": "不要改写成电话、账单、回消息或泛中年吃苦稿。",
+        "analysis_content_pillars": [
+            "陪伴如何在具体小物件里留下回声",
+            "共同记忆如何重新说明照料的价值",
+        ],
         "strategy_card": {
             "structure_mode": "responsibility_shelter",
             "scene_anchor_requirements": [
@@ -2994,6 +3089,10 @@ def test_self_worth_focus_detector_and_topic_guards() -> None:
         "analysis_progression_drive": "从反复迁就的现实动作推进到边界、标准和自我尊重如何改变关系质量。",
         "analysis_share_reason": "让总在关系里把自己放轻的人重新确认自己的分量和选择权。",
         "analysis_do_not_turn_into": "不要改写成单纯鼓吹高价值感的鸡汤，也不要写成教人冷漠抬价的爽文套路；它更接近在谈自尊、边界和自我照料。",
+        "analysis_content_pillars": [
+            "反复迁就如何让人逐渐放低自己",
+            "边界和标准如何把选择权带回来",
+        ],
         "tags": ["自爱", "自尊", "边界", "自我价值"],
         "tone_profile": TONE_PROFILE,
     }
@@ -3875,10 +3974,11 @@ def test_nested_reference_contract_keeps_packaging_on_one_prompt_owner() -> None
         "opening_pattern": draft_payload["analysis_opening_pattern"],
         "hook_trigger": draft_payload["analysis_hook_trigger"],
         "progression_drive": draft_payload["analysis_progression_drive"],
-        "share_reason": draft_payload["analysis_share_reason"],
-        "do_not_turn_into": draft_payload["analysis_do_not_turn_into"],
-        "structure_mode": draft_payload["analysis_structure_mode"],
-    }
+            "share_reason": draft_payload["analysis_share_reason"],
+            "do_not_turn_into": draft_payload["analysis_do_not_turn_into"],
+            "structure_mode": draft_payload["analysis_structure_mode"],
+            "content_pillars": draft_payload["analysis_content_pillars"],
+        }
     assets_template = build_assets_prompt(
         {
             **assets_payload,

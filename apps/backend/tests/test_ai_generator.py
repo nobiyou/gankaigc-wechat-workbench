@@ -1028,7 +1028,7 @@ def test_custom_base_url_recovery_honors_configured_timeout_and_retry_budget() -
         {"timeout_recovery_mode": True, "source_type": "tracked_article"}
     ) == 1
     assert generator._resolve_topic_max_attempts({"source_type": "tracked_article"}) == 2
-    assert generator._resolve_tracked_article_metadata_max_attempts({"body_markdown": "x"}) == 1
+    assert generator._resolve_tracked_article_metadata_max_attempts({"body_markdown": "x"}) == 2
 
 def test_generate_outline_timeout_recovery_mode_uses_plain_chat_json_without_extra_body(monkeypatch) -> None:
     generator = build_custom_base_url_generator()
@@ -2694,6 +2694,13 @@ def test_generate_tracked_article_metadata_uses_chat_json_fast_path_on_custom_ba
             chat_calls["count"] += 1
             captured.update(kwargs)
 
+            if chat_calls["count"] == 1:
+                raise openai.InternalServerError(
+                    "Upstream access forbidden, please contact administrator",
+                    response=response,
+                    body={"error": {"message": "Upstream access forbidden, please contact administrator"}},
+                )
+
             class FakeMessage:
                 content = (
                     '{"author":"毛姆摘引","summary":"文章围绕原谅与释怀展开，重点提醒人别让反复计较毁掉自己的心境。",'
@@ -2750,9 +2757,54 @@ def test_generate_tracked_article_metadata_uses_chat_json_fast_path_on_custom_ba
         "tags": ["释怀", "自我和解"],
     }
     assert parse_calls["count"] == 0
-    assert chat_calls["count"] == 1
+    assert chat_calls["count"] == 2
     assert "extra_body" not in captured
     assert captured["timeout"] == 60.0
+
+
+def test_generate_tracked_article_metadata_does_not_retry_invalid_json_on_custom_base_url(
+    monkeypatch,
+) -> None:
+    generator = build_custom_base_url_generator()
+    chat_calls = {"count": 0}
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+
+            class FakeMessage:
+                content = '{"author":'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    with pytest.raises(ValueError):
+        generator.generate_tracked_article_metadata(
+            {
+                "source_kind": "manual",
+                "source_name": "手动录入",
+                "article_title": "参考文章",
+                "article_url": "https://example.com/article",
+                "author": "",
+                "summary": "",
+                "structure_notes": "",
+                "tags": [],
+                "body_source": "manual",
+                "body_markdown": "正文",
+            }
+        )
+
+    assert chat_calls["count"] == 1
 
 
 def test_generator_passes_configured_timeout_to_openai_client(monkeypatch) -> None:

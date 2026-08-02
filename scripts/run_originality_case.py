@@ -652,7 +652,9 @@ def _build_request_budget(
     reuse_topic: bool = False,
 ) -> dict[str, int]:
     return {
-        "metadata": 0 if skip_metadata else 1,
+        # Metadata analysis is the gate for the whole tracked-article chain;
+        # allow one same-prompt retry for a transient upstream 5xx.
+        "metadata": 0 if skip_metadata else 2,
         # Tracked-article topic generation uses one initial request plus one
         # same-protocol retry on custom text routes when the provider returns 5xx.
         "topic": 0 if reuse_topic else 2,

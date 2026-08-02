@@ -28,6 +28,10 @@ def test_complete_analysis_contract_requires_a_forward_emotional_exit() -> None:
         "analysis_progression_drive": "由顺序落差推进到关系判断。",
         "analysis_share_reason": "读者会在熟悉的等待里认出自己。",
         "analysis_do_not_turn_into": "泛泛的关系控诉。",
+        "analysis_content_pillars": [
+            "时间安排如何显出关系里的真实投入",
+            "回应落差如何改变一个人的关系判断",
+        ],
     }
     assert has_complete_tracked_article_analysis_contract(
         **base,
@@ -37,6 +41,28 @@ def test_complete_analysis_contract_requires_a_forward_emotional_exit() -> None:
         **base,
         analysis_emotional_exit="看清位置，也把时间留给真正愿意回应你的人。",
     ) is True
+    incomplete = dict(base)
+    incomplete.pop("analysis_content_pillars")
+    assert has_complete_tracked_article_analysis_contract(
+        **incomplete,
+        analysis_emotional_exit="看清位置，也把时间留给真正愿意回应你的人。",
+    ) is False
+
+
+def test_complete_analysis_contract_rejects_execution_placeholder_entry() -> None:
+    base = {
+        "analysis_structure_mode_hint": "everyday_warmth_return",
+        "analysis_theme": "幸福在普通日子里重新有了分量。",
+        "analysis_core_conflict": "人容易把更大的拥有误认成更好的生活。",
+        "analysis_opening_pattern": "一个具体生活停顿。",
+        "analysis_hook_trigger": "一个具体生活停顿。",
+        "analysis_progression_drive": "由标准变化推进到知足惜福。",
+        "analysis_share_reason": "读者会重新看见眼前生活的价值。",
+        "analysis_do_not_turn_into": "不要写成空泛反成功学。",
+        "analysis_emotional_exit": "把注意力收回家人、知己和眼前的踏实。",
+    }
+
+    assert has_complete_tracked_article_analysis_contract(**base) is False
 
 
 def test_complete_contract_execution_surface_preserves_content_pillars() -> None:
@@ -284,6 +310,10 @@ def test_resolve_tracked_article_structure_mode_can_trust_complete_analysis_cont
         "analysis_progression_drive": "从一次次退让如何变成习惯推进到边界回收。",
         "analysis_share_reason": "让总在关系里把自己放轻的人重新看见自己的分量。",
         "analysis_do_not_turn_into": "不要写成信任裂缝或关系修复稿。",
+        "analysis_content_pillars": [
+            "习惯性退让如何压低一个人的感受",
+            "边界和标准如何在日常选择里重新回来",
+        ],
     }
 
     assert (
@@ -324,6 +354,10 @@ def test_build_strategy_package_can_use_complete_analysis_contract_as_production
             "reference_article_analysis_progression_drive": "从一次次退让如何变成习惯推进到边界回收。",
             "reference_article_analysis_share_reason": "让总在关系里把自己放轻的人重新看见自己的分量。",
             "reference_article_analysis_do_not_turn_into": "不要写成信任裂缝或关系修复稿。",
+            "reference_article_analysis_content_pillars": [
+                "习惯性退让如何压低一个人的感受",
+                "边界和标准如何在日常选择里重新回来",
+            ],
         },
         problem_brief_version=1,
         strategy_version=1,
@@ -361,6 +395,10 @@ def test_complete_analysis_contract_does_not_store_reference_shell_in_strategy_a
             "reference_article_analysis_progression_drive": "沿着旧搪瓷饭盒被放回桌边的动作推进到边界和标准回收。",
             "reference_article_analysis_share_reason": "让总在迁就里想起旧搪瓷饭盒的人重新确认分量。",
             "reference_article_analysis_do_not_turn_into": "不要写成旧物怀旧或泛泛放下稿。",
+            "reference_article_analysis_content_pillars": [
+                "害怕失去如何让人压低感受",
+                "重新确认边界和标准如何带回分量",
+            ],
         },
         problem_brief_version=1,
         strategy_version=1,
@@ -404,6 +442,10 @@ def test_complete_analysis_contract_does_not_reuse_structure_profile_copy_fields
                 "reference_article_analysis_progression_drive": progression,
                 "reference_article_analysis_share_reason": share,
                 "reference_article_analysis_do_not_turn_into": avoid,
+                "reference_article_analysis_content_pillars": [
+                    f"{theme}的现实入口",
+                    f"{conflict}带来的重新判断",
+                ],
             },
             problem_brief_version=1,
             strategy_version=1,
@@ -461,6 +503,10 @@ def test_complete_contract_execution_surface_separates_topic_jobs_and_drops_refe
         "reference_article_analysis_progression_drive": "沿着旧搪瓷饭盒被放回桌边的动作推进到边界和标准回收。",
         "reference_article_analysis_share_reason": "让总在迁就里想起旧搪瓷饭盒的人重新确认分量。",
         "reference_article_analysis_do_not_turn_into": "不要写成旧物怀旧或泛泛放下稿。",
+        "reference_article_analysis_content_pillars": [
+            "害怕失去如何让人压低感受",
+            "重新确认边界和标准如何带回分量",
+        ],
     }
     boundary_surface = build_complete_contract_execution_surface(
         {**base, "reference_article_analysis_structure_mode": "self_worth_rebuild"}

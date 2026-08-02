@@ -376,6 +376,7 @@ def _has_tracked_article_analysis_contract(payload: Mapping[str, object] | None)
         analysis_progression_drive=contract.progression_drive,
         analysis_share_reason=contract.share_reason,
         analysis_do_not_turn_into=contract.do_not_turn_into,
+        analysis_content_pillars=contract.content_pillars,
     )
 
 
@@ -4139,6 +4140,56 @@ def _build_theme_first_execution_instructions(payload: Mapping[str, object], *, 
     return ""
 
 
+def _build_complete_contract_stage_execution_instructions(
+    payload: Mapping[str, object],
+    *,
+    stage: str,
+) -> str:
+    """Keep the short, mode-specific production job visible at every stage."""
+    if stage not in {"outline", "draft", "assets", "publish_package"}:
+        return ""
+    if not _has_tracked_article_analysis_contract(payload):
+        return ""
+
+    contract = _build_tracked_article_analysis_contract(payload)
+    execution_surface = _build_complete_contract_execution_surface(payload)
+    if not execution_surface:
+        return ""
+
+    def surface_text(key: str, fallback: str, *, max_length: int = 76) -> str:
+        value = _as_clean_text(execution_surface.get(key)) or fallback
+        return _truncate_text(value, max_length=max_length)
+
+    def surface_items(key: str, *, limit: int = 2, max_length: int = 62) -> str:
+        values = execution_surface.get(key)
+        if not isinstance(values, list):
+            return ""
+        cleaned = [
+            _truncate_text(_as_clean_text(item), max_length=max_length)
+            for item in values
+            if _as_clean_text(item)
+        ]
+        return " / ".join(cleaned[:limit])
+
+    mode = contract.structure_mode or "当前主题"
+    exit_hint = _truncate_text(contract.emotional_exit or "当前合同指定的正向出口", max_length=82)
+    lines = [
+        f"本阶段主题执行面（{mode}）：只执行当前分析合同，不回收参考文外壳。",
+        f"观察焦点：{surface_text('observed_phenomenon', '让当前选题自己的现实变化先发生')}。",
+        f"开头职责：{surface_text('opening_pattern', '从当前选题自己的现实入口起笔')}；"
+        f"中段推进：{surface_text('progression_drive', '沿当前主题的现实变化推进')}。",
+        f"写法纹理：{surface_items('writing_texture_notes', limit=1) or '先让现实功能发生，再让判断长出来'}。",
+        f"替代骨架：{surface_items('recomposition_recipe', limit=2) or '新入口 → 现实变化 → 当前主题出口'}。",
+        f"情绪出口：{exit_hint}。",
+    ]
+    do_not_turn_into = _as_clean_text(contract.do_not_turn_into)
+    if do_not_turn_into:
+        lines.append(f"偏题禁区：{_truncate_text(do_not_turn_into, max_length=82)}。")
+    if stage in {"assets", "publish_package"}:
+        lines.append("包装只压缩正文已经成立的入口和情绪回报，不新增场景，不按流量模板换题。")
+    return "".join(lines)
+
+
 def _build_tracked_article_analysis_alignment_instructions(
     payload: Mapping[str, object],
     *,
@@ -6882,6 +6933,10 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         )
     )
     theme_first_execution_instructions = _build_theme_first_execution_instructions(payload, stage="outline")
+    complete_contract_stage_execution_instructions = _build_complete_contract_stage_execution_instructions(
+        payload,
+        stage="outline",
+    )
     analysis_alignment_instructions = _build_tracked_article_analysis_alignment_instructions(
         payload,
         stage="outline",
@@ -6957,6 +7012,7 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         )
         + preset_stage_instructions
         + theme_first_execution_instructions
+        + complete_contract_stage_execution_instructions
         + analysis_alignment_instructions
         + legacy_pressure_topic_tweak
         + legacy_compatibility_instructions
@@ -7216,6 +7272,10 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         )
     )
     theme_first_execution_instructions = _build_theme_first_execution_instructions(payload, stage="draft")
+    complete_contract_stage_execution_instructions = _build_complete_contract_stage_execution_instructions(
+        payload,
+        stage="draft",
+    )
     analysis_alignment_instructions = _build_tracked_article_analysis_alignment_instructions(
         payload,
         stage="draft",
@@ -7417,6 +7477,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         )
         + preset_stage_instructions
         + theme_first_execution_instructions
+        + complete_contract_stage_execution_instructions
         + analysis_alignment_instructions
         + strategy_resonance_instructions
         + legacy_pressure_topic_tweak
@@ -7507,6 +7568,10 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         stage="assets",
         compact=True,
     )
+    complete_contract_stage_execution_instructions = _build_complete_contract_stage_execution_instructions(
+        payload,
+        stage="assets",
+    )
     packaging_theme_alignment_instructions = (
         _build_tracked_article_analysis_contract_packaging_owner(payload, stage="assets")
         if complete_analysis_contract
@@ -7560,6 +7625,7 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         )
         + preset_stage_instructions
         + theme_first_execution_instructions
+        + complete_contract_stage_execution_instructions
         + strategy_resonance_instructions
         + packaging_theme_alignment_instructions
         + analysis_alignment_instructions
@@ -7797,6 +7863,10 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
         stage="publish_package",
         compact=True,
     )
+    complete_contract_stage_execution_instructions = _build_complete_contract_stage_execution_instructions(
+        payload,
+        stage="publish_package",
+    )
     packaging_theme_alignment_instructions = (
         _build_tracked_article_analysis_contract_packaging_owner(payload, stage="publish_package")
         if complete_analysis_contract
@@ -7848,6 +7918,7 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
         )
         + preset_stage_instructions
         + theme_first_execution_instructions
+        + complete_contract_stage_execution_instructions
         + analysis_alignment_instructions
         + strategy_resonance_instructions
         + packaging_theme_alignment_instructions

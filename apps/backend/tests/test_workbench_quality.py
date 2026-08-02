@@ -140,6 +140,10 @@ def test_quality_retry_targets_rebuild_scene_and_quote_targets_from_new_topic() 
             "progression_drive": "从悬着推进到回到今天。",
             "share_reason": "让总在反复思量的人重新回到生活。",
             "do_not_turn_into": "不要写成关系回应排序稿。",
+            "content_pillars": [
+                "反复思量如何让人错过眼前生活",
+                "把注意力收回今天如何重新获得生活重量",
+            ],
         },
         "problem_brief": {
             "theme_axis": "人怎样把注意力从外界收回正在过的生活。",
@@ -513,7 +517,6 @@ def test_local_publish_fallback_rebuilds_lead_when_generic_teaser_is_reused() ->
 
 def test_finalize_draft_candidate_does_not_recompress_after_quality_cleanup(monkeypatch) -> None:
     events: list[str] = []
-    compressed = ("压缩后正文", "压缩后标题")
     polished = ("精修后正文", "精修后标题")
 
     def compress(**kwargs):
@@ -522,8 +525,8 @@ def test_finalize_draft_candidate_does_not_recompress_after_quality_cleanup(monk
 
     def auto_polish(**kwargs):
         events.append("auto_polish")
-        assert kwargs["body_markdown"] == compressed[0]
-        assert kwargs["title"] == compressed[1]
+        assert kwargs["body_markdown"] == "初始正文"
+        assert kwargs["title"] == "初始标题"
         return polished
 
     def payoff_retry(**kwargs):
@@ -564,7 +567,7 @@ def test_finalize_draft_candidate_does_not_recompress_after_quality_cleanup(monk
         body_markdown="初始正文",
     )
 
-    assert events == ["compress", "auto_polish", "positive_payoff"]
+    assert events == ["auto_polish", "positive_payoff"]
     assert result.title == polished[1]
     assert result.body_markdown == polished[0]
 
@@ -758,6 +761,63 @@ def test_positive_payoff_accepts_concrete_landing_without_external_quote() -> No
         strategy_bundle_payload=strategy,
         candidate_markdown="饭还热着，家人就在身边。日子没有喧闹，却有很实在的安稳。",
     )
+
+
+def test_local_assets_do_not_promote_analysis_placeholder_to_social_teaser() -> None:
+    assets = _build_local_assets_fallback(
+        project_title="普通日子也有自己的分量",
+        topic_title="普通日子也有自己的分量",
+        topic_angle="把幸福重新带回家人、知己和眼前的生活",
+        draft_title="普通日子也有自己的分量",
+        draft_body_markdown=(
+            "一个具体生活停顿。\n\n"
+            "有人把心愿写得很朴素：家人平安，知己还在，日子有一点期待。"
+        ),
+        strategy_context={
+            "analysis_structure_mode": "everyday_warmth_return",
+            "analysis_content_pillars": ["知足惜福", "知己二三", "一家温暖"],
+            "analysis_hook_trigger": "一个具体生活停顿。",
+        },
+    )
+
+    assert "一个具体生活停顿" not in str(assets["social_teaser"])
+    assert str(assets["social_teaser"]).strip()
+
+
+def test_analysis_first_responsibility_opening_does_not_repeat_scene_entities() -> None:
+    _title, body_markdown = _build_local_responsibility_shelter_draft(
+        {
+            "source_type": "tracked_article",
+            "body_markdown": "电话一响，父母、孩子和账单同时来到眼前。",
+            "reference_article_body_markdown": "电话一响，父母、孩子和账单同时来到眼前。",
+            "analysis_structure_mode": "responsibility_shelter",
+            "analysis_content_pillars": ["父母", "孩子", "账单"],
+        }
+    )
+
+    first_paragraph = body_markdown.split("\n\n", 1)[0]
+
+    assert first_paragraph.count("父母") <= 1
+    assert "电话一响" not in first_paragraph
+    assert "父母、孩子和眼前的安排一件件理清" not in first_paragraph
+
+
+def test_analysis_first_responsibility_prefers_strategy_entry() -> None:
+    _title, body_markdown = _build_local_responsibility_shelter_draft(
+        {
+            "source_type": "tracked_article",
+            "body_markdown": "电话一响，父母、孩子和账单同时来到眼前。",
+            "reference_article_body_markdown": "电话一响，父母、孩子和账单同时来到眼前。",
+            "analysis_structure_mode": "responsibility_shelter",
+            "analysis_content_pillars": ["父母", "孩子", "账单"],
+            "strategy_card": {
+                "hook_trigger": "厨房里那锅汤刚关火，手机上的安排又多了一项。",
+            },
+        }
+    )
+
+    assert body_markdown.startswith("厨房里那锅汤刚关火，手机上的安排又多了一项。")
+    assert "电话一响" not in body_markdown.split("\n\n", 1)[0]
 
 
 def test_local_everyday_warmth_draft_avoids_short_judgment_cadence() -> None:
@@ -1396,6 +1456,10 @@ def test_complete_tracked_article_analysis_preserves_normal_api_topic_result() -
         "analysis_progression_drive": "从会前、会中推进到会后，再落到下一次开口。",
         "analysis_share_reason": "让总在现场里先让路的人重新看见自己的位置。",
         "analysis_do_not_turn_into": "不要写成抽象职场说理文。",
+        "analysis_content_pillars": [
+            "会议现场如何让人把该说的话不断压后",
+            "重新找回开口时机如何改变位置感",
+        ],
     }
     api_result = {
         "title": "散会后还在心里补那段发言的人，真正被耗掉的是表达时机感",
@@ -3296,3 +3360,67 @@ def test_local_trust_publish_package_fallback_uses_broken_trust_scene() -> None:
     assert "谎话落下来" in str(result["publish_lead"])
     assert "对方不用猜，也不用查" in str(result["abstract"])
     assert "坦荡认真守住" in str(result["abstract"])
+
+
+def test_analysis_first_fallback_lanes_do_not_share_the_same_emotional_landing() -> None:
+    samples = [
+        (
+            "simple_happiness",
+            "人生不求大富大贵，但求简单快乐。家人安康，知己二三，四季平安。",
+            ["简单快乐", "知己二三", "家人安康"],
+        ),
+        (
+            "inner_settlement",
+            "心若不安，到哪里都是流浪。此心安处是吾乡。已经过去的事不必反复，"
+            "还没发生的事不必提前发愁，静待花开。",
+            ["心安", "与内心和解", "把今天还给今天"],
+        ),
+        (
+            "responsibility_shelter",
+            "中年人的世界，电话那头是父母和孩子，桌角还压着账单。你说没事有我，"
+            "只想让家里的人少一点慌。",
+            ["父母", "孩子", "账单"],
+        ),
+        (
+            "response_priority",
+            "大家都有忙不过来的时候，真正的在意不是随时在线，而是忙完以后愿意把没说完的话接上。",
+            ["时间", "交代", "把话接上"],
+        ),
+    ]
+
+    drafts: dict[str, str] = {}
+    for name, body, pillars in samples:
+        payload = {
+            "source_type": "tracked_article",
+            "article_title": name,
+            "body_markdown": body,
+            "reference_article_body_markdown": body,
+            "analysis_content_pillars": pillars,
+        }
+        topic = _build_local_tracked_article_topic_fallback(payload)
+        topic_payload = {
+            **payload,
+            "topic_title": topic["title"],
+            "topic_angle": topic["angle"],
+        }
+        mode = _resolve_local_fallback_mode(topic_payload)
+        outline = _build_local_tracked_article_outline_fallback(
+            {**topic_payload, "strategy_card": {"structure_mode": mode}}
+        )
+        _, draft = _build_local_tracked_article_draft_fallback(
+            {**topic_payload, "outline": outline, "strategy_card": {"structure_mode": mode}}
+        )
+        drafts[name] = draft
+
+    assert "红灯" not in drafts["response_priority"]
+    assert "晚霞" not in drafts["response_priority"]
+    assert "点赞" not in drafts["response_priority"]
+    assert "饭还热着" not in drafts["inner_settlement"]
+    assert "灯还亮着" not in drafts["inner_settlement"]
+    assert "饭还热着" not in drafts["responsibility_shelter"]
+    assert "灯还亮着" not in drafts["responsibility_shelter"]
+    endings = {
+        name: [paragraph.strip() for paragraph in draft.split("\n\n") if paragraph.strip()][-1]
+        for name, draft in drafts.items()
+    }
+    assert len(set(endings.values())) == len(endings)

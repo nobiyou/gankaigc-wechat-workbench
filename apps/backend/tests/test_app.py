@@ -626,6 +626,10 @@ def test_generate_topic_from_tracked_article_auto_enriches_analysis_before_topic
                 "analysis_progression_drive": "从当下的情绪停顿推进到谁愿意回来修复关系。",
                 "analysis_share_reason": "让经历过争执的人重新看见修复比争赢更重要。",
                 "analysis_do_not_turn_into": "不要写成泛沟通技巧或谁输谁赢的辩论稿。",
+                "analysis_content_pillars": [
+                    "争执后的情绪停顿如何改变关系走向",
+                    "重新开口和修复如何把关系带回可继续的位置",
+                ],
                 "tags": ["表达修复", "关系修复"],
             }
 
@@ -678,6 +682,10 @@ def test_generate_topic_from_tracked_article_auto_enriches_analysis_before_topic
     assert topic_payload["analysis_progression_drive"] == "从当下的情绪停顿推进到谁愿意回来修复关系。"
     assert topic_payload["analysis_share_reason"] == "让经历过争执的人重新看见修复比争赢更重要。"
     assert topic_payload["analysis_do_not_turn_into"] == "不要写成泛沟通技巧或谁输谁赢的辩论稿。"
+    assert topic_payload["analysis_content_pillars"] == [
+        "争执后的情绪停顿如何改变关系走向",
+        "重新开口和修复如何把关系带回可继续的位置",
+    ]
 
     tracked_article = next(
         article for article in client.get("/api/tracked-articles").json() if article["slug"] == "slow-repair-auto-analyze"
@@ -10009,6 +10017,43 @@ def test_resolve_local_generic_opening_skips_stale_inner_settlement_hook_trigger
     )
 
     assert opening == "忙完一天回到家，把鞋摆好，给自己倒杯水；没有答案也没关系，心先有地方安静下来。"
+
+
+def test_resolve_local_generic_opening_drops_execution_surface_placeholder() -> None:
+    opening = workbench._resolve_local_generic_opening(
+        payload={
+            "reference_article_body_markdown": "人活着，不必把所有答案都换成更大的拥有。",
+            "strategy_card": {
+                "hook_trigger": "让本篇独有的现实变化先发生。",
+                "opening_move": "先让当前选题的现实功能发生，再让主题判断长出来。",
+            },
+        },
+        mode="everyday_warmth_return",
+        hook="让本篇独有的现实变化先发生。",
+        theme_axis="幸福重新回到眼前的生活",
+        core_conflict="人容易把更大的拥有误认成更好的生活",
+    )
+
+    assert "让本篇独有的现实变化先发生" not in opening
+    assert "当前选题" not in opening
+    assert opening
+    assert opening != "让本篇独有的现实变化先发生。"
+
+
+def test_resolve_local_generic_opening_drops_generic_analysis_placeholder() -> None:
+    opening = workbench._resolve_local_generic_opening(
+        payload={
+            "analysis_hook_trigger": "一个具体生活停顿。",
+            "strategy_card": {"hook_trigger": "一个具体生活接口。"},
+        },
+        mode="everyday_warmth_return",
+        hook="一个具体生活停顿。",
+        theme_axis="幸福重新回到眼前的生活",
+        core_conflict="人容易把更大的拥有误认成更好的生活",
+    )
+
+    assert "一个具体" not in opening
+    assert opening != "一个具体生活停顿。"
 
 
 def test_tracked_article_candidate_mode_keeps_inner_settlement_ahead_of_scene_first() -> None:

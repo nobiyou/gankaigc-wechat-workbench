@@ -607,6 +607,7 @@ class OpenAIWorkbenchGenerator:
                 max_attempts=max_attempts_override or 1,
                 enforce_custom_base_url_retry_floor=False,
                 include_custom_base_url_extra_body=False,
+                retry_on_output_error=False,
             )
         else:
             result = self._parse_response(
@@ -888,7 +889,11 @@ class OpenAIWorkbenchGenerator:
 
     def _resolve_tracked_article_metadata_max_attempts(self, payload: dict[str, object]) -> int | None:
         if self._uses_custom_base_url and str(payload.get("body_markdown") or "").strip():
-            return 1
+            # A transient 502/503 must not be mistaken for an incomplete
+            # analysis contract. One same-prompt retry is cheap on success
+            # (it is never used) and prevents the workflow from stopping on a
+            # single upstream blip.
+            return 2
         return None
 
     def _should_use_tracked_article_bounded_draft_chat_path(self, payload: dict[str, object]) -> bool:
