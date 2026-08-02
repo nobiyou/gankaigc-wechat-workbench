@@ -11,6 +11,7 @@ from app.services.prompt_templates import (
     _extract_tracked_article_emotional_cues,
     _extract_tracked_article_topic_cues,
     _build_structure_mode_instructions,
+    _build_focused_quality_retry_prompt,
     _build_theme_first_execution_instructions,
     _infer_tracked_article_pressure_guard,
     _has_broad_emotional_release_focus,
@@ -19,6 +20,7 @@ from app.services.prompt_templates import (
     _has_inner_settlement_focus,
     _has_self_reliance_inward_support_focus,
     _has_self_worth_rebuild_focus,
+    _has_tracked_article_analysis_contract,
     _has_supportive_appreciation_focus,
     _has_response_priority_focus,
     _has_resilience_reconstruction_focus,
@@ -46,6 +48,389 @@ TONE_PROFILE = {
     "target_word_count": 1400,
     "default_polish_instruction": "重写开头和结尾，打散重复句式。",
 }
+
+
+LEGACY_THEME_GUARD_MARKERS = (
+    "不要把选题收窄成亲密关系摊牌",
+    "标题和切入角度优先围绕身体提醒、生活次序、工作/家人/自我照料的接口重建",
+    "大纲不要自动改写成亲密关系冲突处理流程",
+    "正文不要自动收窄成亲密关系摊牌",
+    "不要把选题改写成泛内耗",
+    "轻互动很多，但真正让人踏实的是有人愿意停下来理解你",
+    "大纲不要自动缩成坏关系止损手册",
+    "正文不要自动改写成泛励志样板文",
+    "不要把主线改写成关系优先级审判",
+)
+
+
+def _assert_legacy_theme_guards_absent(*templates) -> None:
+    for template in templates:
+        assert not any(marker in template.instructions for marker in LEGACY_THEME_GUARD_MARKERS)
+
+
+def _complete_contract_payload(*, mode: str, theme: str, conflict: str, exit_hint: str) -> dict[str, object]:
+    return {
+        "source_type": "tracked_article",
+        "source_ref_slug": f"complete-{mode}",
+        "source_name": "手动录入",
+        "article_title": f"参考文：{theme}",
+        "author": "未知",
+        "summary": theme,
+        "body_markdown": "参考文的具体入口已经由分析合同保留。",
+        "structure_notes": conflict,
+        "tags": [mode],
+        "analysis_theme": theme,
+        "analysis_core_conflict": conflict,
+        "analysis_emotional_exit": exit_hint,
+        "analysis_opening_pattern": f"从这篇文章自己的现实入口切入：{theme}。",
+        "analysis_hook_trigger": f"{theme}里的一个具体停顿。",
+        "analysis_progression_drive": f"沿着{conflict}推进到{exit_hint}。",
+        "analysis_share_reason": f"经历过{theme}的人会想把它转给身边的人。",
+        "analysis_structure_mode": mode,
+        "analysis_do_not_turn_into": "不要换成另一类泛情绪文章。",
+        "tone_profile": TONE_PROFILE,
+        "trend_title": f"参考文章 / {mode}",
+        "topic_title": f"围绕{theme}重新组织的选题",
+        "topic_angle": theme,
+        "project_title": f"{mode}项目",
+        "problem_brief": {
+            "theme_axis": theme,
+            "core_conflict": conflict,
+            "emotional_value_goal": exit_hint,
+            "anti_drift_axis": "不要换成另一类泛情绪文章。",
+        },
+        "strategy_card": {
+            "structure_mode": mode,
+            "point_of_view": theme,
+            "conflict_frame": conflict,
+            "emotional_path": exit_hint,
+            "opening_move": f"按合同指定的入口写{theme}。",
+            "positive_direction": exit_hint,
+            "hook_trigger": f"{theme}里的一个具体停顿。",
+            "progression_drive": f"沿着{conflict}推进。",
+            "share_reason": f"经历过{theme}的人会想转发。",
+            "scene_anchor_requirements": ["本文自己的现实抓手"],
+        },
+        "outline": {"hook": "让本篇自己的入口先出现。", "outline_body": "1. 入口\n2. 推进\n3. 回到出口"},
+    }
+
+
+def test_tracked_article_stage_prompts_use_analysis_contract_as_single_theme_owner() -> None:
+    cases = [
+        (
+            "simple_happiness",
+            "普通日子里的幸福来自被惦记和有地方可回，而不是持续追逐更大的证明。",
+            "人容易把成就和热闹当成幸福，直到慢下来才重新看见陪伴、知己和家人的分量。",
+            "把注意力从比较收回真实生活，珍惜眼前的人和仍然拥有的安稳。",
+            "everyday_warmth_return",
+        ),
+        (
+            "trust_boundary",
+            "信任一旦被隐瞒划开裂口，关系需要靠坦诚和持续兑现重新变得可靠。",
+            "一次小谎并不只改变一件事，它会让对方开始怀疑自己的判断和安全感。",
+            "珍惜敢把心交出来的人，用说到做到把信任还回去。",
+            "trust_boundary",
+        ),
+        (
+            "soft_appreciation",
+            "温柔的人明明看得清，却仍愿意给关系留出体谅和余地。",
+            "心软常被误认成没有分寸，真正稀缺的是温柔里仍然有清醒。",
+            "让这份柔软被认真看见，也让珍惜变成具体回应。",
+            "supportive_appreciation",
+        ),
+        (
+            "resilience",
+            "命运的裂痕不能替一个人决定人生的宽度，重复训练会把主动权一点点练回来。",
+            "疼痛和限制是真实的，但真正推动人生重建的是一次次回到训练现场。",
+            "力量来自持续行动，也来自不接受残缺替自己下定义。",
+            "resilience_reconstruction",
+        ),
+        (
+            "inward_support",
+            "外部支撑未必随时到位，一个人仍能把冷静、判断和行动慢慢收回自己手里。",
+            "想被帮助与学会自我支撑并不矛盾，真正的成长发生在等待没有及时兑现之后。",
+            "自救不是拒绝世界，而是让自己在没有人立刻赶来时也能继续向前。",
+            "self_reliance_inward_support",
+        ),
+    ]
+
+    for slug, theme, conflict, emotional_exit, structure_mode in cases:
+        base = {
+            "source_type": "tracked_article",
+            "source_ref_slug": slug,
+            "source_name": "手动录入",
+            "article_title": f"参考文：{slug}",
+            "author": "未知",
+            "summary": theme,
+            "body_markdown": "参考文的现实入口已经在上游分析合同中保留。",
+            "structure_notes": conflict,
+            "tags": [slug],
+            "analysis_theme": theme,
+            "analysis_core_conflict": conflict,
+            "analysis_emotional_exit": emotional_exit,
+            "analysis_opening_pattern": f"从 {slug} 自己的现实入口切入。",
+            "analysis_hook_trigger": f"{slug} 的具体停顿。",
+            "analysis_progression_drive": f"从 {slug} 的现实矛盾推进到具体选择。",
+            "analysis_share_reason": f"让经历过 {slug} 的人愿意转给身边的人。",
+            "analysis_structure_mode": structure_mode,
+            "analysis_do_not_turn_into": f"不要写成脱离 {slug} 的泛泛安慰。",
+            "tone_profile": TONE_PROFILE,
+            "trend_title": f"参考文章 / {slug}",
+            "topic_title": f"围绕 {slug} 重新组织的选题",
+            "topic_angle": theme,
+            "project_title": f"{slug} 项目",
+            "outline": {"hook": f"{slug} 的现实入口先出现。", "outline_body": "1. 现实入口\n2. 核心矛盾\n3. 正向落点"},
+            "strategy_card": {
+                "structure_mode": structure_mode,
+                "point_of_view": theme,
+                "conflict_frame": conflict,
+                "emotional_path": emotional_exit,
+                "opening_move": f"从 {slug} 自己的现实入口切入。",
+                "positive_direction": emotional_exit,
+            },
+            "draft": {
+                "title": f"{slug} 标题",
+                "body_markdown": "正文只服务当前分析合同。",
+            },
+            "assets": {
+                "cover_copy": f"{slug} 封面文案",
+                "social_teaser": f"{slug} 导语",
+                "social_teaser_options": [f"{slug} 导语候选"],
+                "recommended_title": f"{slug} 主推标题",
+                "title_options": [f"{slug} 标题备选"],
+            },
+        }
+        templates = (
+            build_topic_prompt(base),
+            build_outline_prompt(base),
+            build_draft_prompt(base),
+            build_assets_prompt(base),
+            build_publish_package_prompt(base),
+        )
+        for template_index, template in enumerate(templates):
+            combined = template.instructions + template.prompt
+            assert "参考文章分析合同是当前参考文链路的唯一主题来源。" in template.instructions
+            assert "原文的开头方式和触发点只提炼叙事功能" in template.instructions
+            assert "新稿至少换掉其中两项" in template.instructions
+            if template_index == 0:
+                assert "选题标题和切入角度要体现这次重建的入口" in template.instructions
+            elif template_index in {1, 2}:
+                assert "正文开头必须从新入口开始" in template.instructions
+            else:
+                assert "包装只提炼新稿已经成立的入口" in template.instructions
+            assert theme.rstrip("。；;，,")[:48] in combined
+            assert conflict.rstrip("。；;，,")[:48] in combined
+            assert emotional_exit.rstrip("。；;，,")[:48] in combined
+            assert base["analysis_progression_drive"].rstrip("。；;，,")[:48] in combined, template_index
+            assert base["analysis_share_reason"].rstrip("。；;，,")[:48] in combined, template_index
+            assert base["analysis_do_not_turn_into"].rstrip("。；;，,")[:48] in combined, template_index
+        _assert_legacy_theme_guards_absent(*templates)
+
+
+def test_complete_contract_does_not_inject_fixed_response_or_warmth_openings() -> None:
+    response_payload = _complete_contract_payload(
+        mode="response_priority",
+        theme="被认真听见，比热闹互动更让人踏实。",
+        conflict="表面回应很多，却没有真正进入对方的处境。",
+        exit_hint="把被理解后的安稳和双向珍惜写出来。",
+    )
+    warmth_payload = _complete_contract_payload(
+        mode="everyday_warmth_return",
+        theme="普通日子里的幸福来自相互惦记和有地方可回。",
+        conflict="人总把更大的证明误认成生活的重量。",
+        exit_hint="重新看见眼前日常的分量。",
+    )
+
+    response_draft = build_draft_prompt(response_payload)
+    warmth_outline = build_outline_prompt(warmth_payload)
+
+    response_text = response_draft.instructions + response_draft.prompt
+    warmth_text = warmth_outline.instructions + warmth_outline.prompt
+    assert "没回的消息、迟到的电话" not in response_text
+    assert "一张随手发的照片、一句“我没事”" not in response_text
+    assert "等待和找补" not in response_text
+    assert "饭桌、回家、有人惦记" not in warmth_text
+    assert "若策略包要求回应顺序显形推进" not in response_text
+    assert "若策略包要求大事祛魅后的小事回归推进" not in warmth_text
+
+
+def test_complete_contract_treats_reference_opening_as_function_not_draft_material() -> None:
+    payload = _complete_contract_payload(
+        mode="everyday_warmth_return",
+        theme="日常的分量来自有人认真记得彼此。",
+        conflict="人容易把重要感押在更大的证明上，却忽略了被惦记的细节。",
+        exit_hint="重新看见眼前关系里的温暖和分量。",
+    )
+    payload.update(
+        {
+            "analysis_opening_pattern": "从旧搪瓷饭盒被重新放回餐桌的动作切入。",
+            "analysis_hook_trigger": "旧搪瓷饭盒上那道磨掉的花纹让人停了一下。",
+            "draft": {"title": "当前正文标题", "body_markdown": "当前正文只服务本篇主题。"},
+            "assets": {
+                "title_options": ["标题一", "标题二", "标题三"],
+                "recommended_title": "标题一",
+                "cover_copy": "把日子过得有分量",
+                "social_teaser": "有些温暖，藏在很小的地方。",
+            },
+        }
+    )
+
+    topic = build_topic_prompt(payload)
+    downstream = (
+        build_outline_prompt(payload),
+        build_draft_prompt(payload),
+        build_assets_prompt(payload),
+        build_publish_package_prompt(payload),
+    )
+
+    topic_text = topic.instructions + topic.prompt
+    assert "旧搪瓷饭盒" not in topic_text
+    assert "参考文原始标题、摘要、结构备注、开头素材或正文片段" in topic.prompt
+    assert "新现实入口" in topic.instructions
+    assert "题材以分析合同为准" in topic.instructions
+    assert "不预设成女性情感、亲密关系、内耗、自救或励志稿" in topic.instructions
+    assert "日常的分量来自有人认真记得彼此" in topic_text
+    assert "人容易把重要感押在更大的证明上" in topic_text
+    assert "情绪出口" in topic.instructions
+    assert "当前分析合同定义的主题与读者处境" in topic.instructions
+    assert "女性情感成长赛道" not in topic.instructions
+    for template in downstream:
+        combined = template.instructions + template.prompt
+        assert "旧搪瓷饭盒" not in combined
+        assert "新稿自己的" in combined or "新入口" in combined
+        assert "当前分析合同定义的主题与读者处境" in template.instructions
+        assert "女性情感成长赛道" not in template.instructions
+
+
+def test_complete_contract_outline_uses_a_short_theme_owned_operator() -> None:
+    response_outline = build_outline_prompt(
+        _complete_contract_payload(
+            mode="response_priority",
+            theme="被认真听见，比热闹互动更让人踏实。",
+            conflict="表面回应很多，却没有真正进入对方的处境。",
+            exit_hint="把被理解后的安稳和双向珍惜写出来。",
+        )
+    )
+    resilience_outline = build_outline_prompt(
+        _complete_contract_payload(
+            mode="resilience_reconstruction",
+            theme="重复训练会把人生的主动权一点点练回来。",
+            conflict="真实限制存在，但不能替一个人定义人生宽度。",
+            exit_hint="让继续行动成为不被命运定义的证据。",
+        )
+    )
+
+    for template in (response_outline, resilience_outline):
+        assert "参考文章分析合同驱动的大纲阶段" in template.instructions
+        assert "题材以分析合同为准" in template.instructions
+        assert "入口可以是场景、引用、判断、人物、阶段节点或关系接口" in template.instructions
+        assert "按中文公众号 AI 味风险检查表达" not in template.instructions
+        assert "不要把不同参考文章压成同一套" in template.instructions
+        assert len(template.instructions) + len(template.prompt) < 2600
+
+    assert response_outline.prompt != resilience_outline.prompt
+    assert "等待和找补" not in response_outline.instructions
+    assert "重击、疼痛和训练代价" not in resilience_outline.instructions
+
+
+def test_complete_contract_quality_retry_keeps_the_same_function_projection() -> None:
+    payload = _complete_contract_payload(
+        mode="trust_boundary",
+        theme="信任要靠坦诚和持续兑现重新站稳。",
+        conflict="一次隐瞒会让原本放心的关系出现事实落差。",
+        exit_hint="让可靠通过持续行动重新被感受到。",
+    )
+    retry = _build_focused_quality_retry_prompt(
+        payload,
+        current_draft={
+            "title": "信任不是一句保证",
+            "body_markdown": "一段需要继续修整的正文。",
+        },
+        tone_profile=TONE_PROFILE,
+        polish_instruction="删掉重复判断并补足事实推进。",
+    )
+    combined = retry.instructions + retry.prompt
+    assert "沿同一份主题功能投影执行" in combined
+    assert "推进到让可靠通过持续行动重新被感受到" in combined
+    assert "固定消息、关系或内耗模板" in combined
+
+
+def test_complete_contract_owns_packaging_and_cover_without_mode_templates() -> None:
+    payload = _complete_contract_payload(
+        mode="responsibility_shelter",
+        theme="陪伴一个人成长，也是在替家人保存重要时刻。",
+        conflict="人容易把陪伴当成耽误时间，却在一个被递回来的小物件里看见它的分量。",
+        exit_hint="愿意把重要的人和重要时刻留在日常里。",
+    )
+    payload["draft"] = {
+        "title": "那件被递回来的小东西，替一家人记住了什么",
+        "body_markdown": "孩子把号码布递回来的时候，陪伴突然有了形状。",
+    }
+    assets_template = build_assets_prompt(payload)
+    publish_payload = {
+        **payload,
+        "assets": {
+            "cover_copy": "重要的时刻，值得被留下",
+            "social_teaser": "孩子把那件小东西递回来时，很多话突然不用解释了。",
+            "social_teaser_options": ["陪伴没有耽误谁。"],
+            "recommended_title": "那件被递回来的小东西",
+            "title_options": ["那件被递回来的小东西"],
+        },
+    }
+    publish_template = build_publish_package_prompt(publish_payload)
+    cover_prompt = build_cover_image_prompt({**payload, "cover_prompt": "a child returning a small keepsake"})
+
+    assets_text = assets_template.instructions + assets_template.prompt
+    publish_text = publish_template.instructions + publish_template.prompt
+    assert "包装必须继续服务当前正文主题" in assets_template.instructions
+    assert payload["analysis_theme"] in assets_text
+    assert "如果当前正文属于回应顺序" not in assets_text
+    assert "手机必须入镜" not in assets_text
+    assert "责任类题材尤其优先动作型、现场型、停顿型标题" not in publish_text
+    assert "可以从来电、门口、日历、接送、请假、回家或开销等现实入口里选择" not in publish_text
+    assert "可以分别抓动作、判断、引用或情绪回落" in publish_text
+    assert "手机必须清晰入镜" not in cover_prompt
+    assert "16:9" in cover_prompt
+    assert "不要生成双面手机" in cover_prompt
+
+
+def test_tracked_article_stage_prompts_keep_legacy_guards_for_partial_analysis_contract() -> None:
+    template = build_topic_prompt(
+        {
+            "source_type": "tracked_article",
+            "source_ref_slug": "partial-analysis",
+            "source_name": "手动录入",
+            "article_title": "只有半份分析",
+            "author": "未知",
+            "summary": "主题已经有了，但分析尚未完成。",
+            "tags": [],
+            "analysis_theme": "只提供主题，不足以接管完整创作链路。",
+            "analysis_core_conflict": "核心矛盾还没有完整拆开。",
+            "tone_profile": TONE_PROFILE,
+        }
+    )
+
+    assert _has_tracked_article_analysis_contract(
+        {
+            "source_type": "tracked_article",
+            "analysis_theme": "只提供主题，不足以接管完整创作链路。",
+            "analysis_core_conflict": "核心矛盾还没有完整拆开。",
+        }
+    ) is False
+
+    complete_but_generic = {
+        "source_type": "tracked_article",
+        "analysis_structure_mode": "emotional_engine_direct",
+        "analysis_theme": "主题",
+        "analysis_core_conflict": "矛盾",
+        "analysis_emotional_exit": "出口",
+        "analysis_opening_pattern": "起笔",
+        "analysis_hook_trigger": "抓手",
+        "analysis_progression_drive": "推进",
+        "analysis_share_reason": "转发理由",
+        "analysis_do_not_turn_into": "偏题边界",
+    }
+    assert _has_tracked_article_analysis_contract(complete_but_generic) is False
 
 
 def test_build_draft_prompt_uses_focused_payload_for_quality_retry() -> None:
@@ -155,6 +540,15 @@ def _build_tracked_article_prompt_budget_payloads() -> tuple[
         "project_title": "半年回望",
         "source_type": "tracked_article",
         "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
+        "analysis_theme": "阶段节点上的自我清算，怎样被眼前的支撑和继续生活的勇气慢慢化开。",
+        "analysis_core_conflict": "人总想用一个结果证明自己有没有白走，因而把没完成、没拥有和没赶上一起算成失败。",
+        "analysis_emotional_exit": "从自我清算里退一步，把力气收回到眼前的人和接下来的生活里。",
+        "analysis_opening_pattern": "从翻到年初计划时的停顿切入。",
+        "analysis_hook_trigger": "翻到年初计划时那一下停顿。",
+        "analysis_progression_drive": "先拆误判，再写支撑，最后回到继续往前。",
+        "analysis_share_reason": "读者会想把它发给正在清算自己的朋友。",
+        "analysis_structure_mode": "inner_settlement",
+        "analysis_do_not_turn_into": "不要写成泛心安、泛放下或单纯失恋遗憾稿。",
         "problem_brief": problem_brief,
         "strategy_card": strategy_card,
         "benchmarks": benchmarks,
@@ -312,6 +706,77 @@ def test_build_draft_prompt_responsibility_shelter_uses_responsibility_tone_over
     assert "目标字数：900" in template.prompt
     assert "参考文章链路的稳定首稿目标" in template.prompt
     assert "目标字数：1400" not in template.prompt
+
+
+def test_complete_analysis_contract_responsibility_prompt_uses_contract_scene_instead_of_fixed_entry() -> None:
+    payload = {
+        "trend_title": "参考文章 / 手动录入",
+        "topic_title": "孩子把号码布递过来时，很多奔波都有了回声",
+        "topic_angle": "从孩子比赛结束后递来的号码布切入，写照料和陪伴怎样把忙乱变成一家人共同记得的日常。",
+        "project_title": "责任托家合同样稿",
+        "source_type": "tracked_article",
+        "tone_profile": TONE_PROFILE,
+        "reference_article_title": "万般辛苦，终会落成人间安稳",
+        "reference_article_summary": "文章写责任如何落在家人的具体日常里，最后回到被陪伴和被记得的温暖。",
+        "reference_article_structure_notes": "从一个孩子递来的小物件切入，中段写照料和陪伴如何改变奔波的意义，结尾回到共同记得的日常。",
+        "reference_article_body_markdown": "孩子比赛结束后，把号码布递到家长手里。家里人一起收好这件小东西，日子也有了回声。",
+        "analysis_theme": "责任并不只等于承担开销，也会落在陪伴一个人成长、替家人保存重要时刻上。",
+        "analysis_core_conflict": "人容易把照料和陪伴当成耽误时间，却在某个被递回来的小物件里发现，这些投入正构成家人的共同记忆。",
+        "analysis_emotional_exit": "看见陪伴的价值，愿意把重要的人和重要时刻留在日常里。",
+        "analysis_structure_mode": "responsibility_shelter",
+        "analysis_opening_pattern": "从孩子把比赛号码布递回手里的动作切入。",
+        "analysis_hook_trigger": "一件被递回来的号码布让人突然意识到陪伴没有白费。",
+        "analysis_progression_drive": "从被误认为耽误时间的陪伴推进到家人共同记住的日常价值。",
+        "analysis_share_reason": "让总把陪伴排到后面的人重新看见那些时刻的分量。",
+        "analysis_do_not_turn_into": "不要改写成电话、账单、回消息或泛中年吃苦稿。",
+        "strategy_card": {
+            "structure_mode": "responsibility_shelter",
+            "scene_anchor_requirements": [
+                "孩子把比赛号码布递回手里的动作",
+                "一家人把小物件收进抽屉的停顿",
+            ],
+            "writing_texture_notes": ["先写物件和动作，再让判断从共同记忆里长出来。"],
+        },
+        "outline": {
+            "hook": "孩子把号码布递回我手里。",
+            "outline_body": "1. 号码布的动作\n2. 陪伴为何常被当成耽误\n3. 共同记住的日常",
+        },
+        "problem_brief": {
+            "theme_axis": "陪伴和照料怎样构成家人的共同记忆。",
+            "core_conflict": "把陪伴当成耽误时间，与后来发现它正是生活分量之间的落差。",
+            "emotional_value_goal": "让读者重新确认陪伴值得被留在日常里。",
+        },
+        "draft": {
+            "title": "孩子把号码布递回手里的那一刻",
+            "body_markdown": "孩子把号码布递回手里，家里人把它收进抽屉。",
+        },
+        "assets": {
+            "cover_copy": "陪伴会留下回声",
+            "social_teaser": "有些奔波，后来会变成一家人共同记得的日常。",
+            "social_teaser_options": ["陪伴值得被留在日常里。"],
+            "recommended_title": "陪伴会留下回声",
+            "title_options": ["孩子把号码布递回手里的那一刻"],
+        },
+    }
+
+    outline_template = build_outline_prompt(payload)
+    draft_template = build_draft_prompt(payload)
+    assets_template = build_assets_prompt(payload)
+    publish_template = build_publish_package_prompt(payload)
+
+    assert "孩子把比赛号码布递回手里的动作" not in draft_template.instructions
+    assert "新稿自己的现实抓手" not in draft_template.instructions
+    assert "新选题现实入口" in draft_template.instructions
+    assert "完整分析合同优先于模式名" in draft_template.instructions
+    assert "不要套‘电话一响’" in draft_template.instructions
+    assert "先翻日历" not in draft_template.instructions
+    assert "电话、日历安排、复查预约" not in draft_template.instructions
+    assert "孩子把比赛号码布递回手里的动作" not in outline_template.instructions
+    assert "新现实入口" in outline_template.instructions or "新入口" in outline_template.instructions
+    assert "不引入固定关系、身体或消息模板" in outline_template.prompt
+    for template in (assets_template, publish_template):
+        assert "新选题现实入口" in template.instructions
+        assert "孩子把比赛号码布递回手里的动作" not in template.instructions
 
 
 def test_responsibility_shelter_assets_and_publish_prompts_prefer_spoken_packaging() -> None:
@@ -774,12 +1239,14 @@ def test_build_tracked_article_metadata_prompt_requires_analysis_before_field_co
 
     assert "公众号内容分析编辑" in template.instructions
     assert "先分析文章，再补字段；不要跳过分析直接写摘要。" in template.instructions
+    assert "必须写成读者最终获得的力量、关系回温、现实选择或下一步" in template.instructions
     assert "结构模式只能从这些值里选一个" in template.instructions
     assert "偏题边界要写成一条最容易偏离的方向，短句即可" in template.instructions
     assert "不要写成要明确提醒" not in template.instructions
     assert "4. 分析主题 analysis_theme" in template.prompt
     assert "7. 结构模式 analysis_structure_mode" in template.prompt
     assert "12. 偏题边界 analysis_do_not_turn_into" in template.prompt
+    assert "13. 内容支柱 analysis_content_pillars" in template.prompt
 
 
 def test_outline_and_draft_prompts_consume_generated_dbskill_rules(monkeypatch, tmp_path: Path) -> None:
@@ -1909,7 +2376,15 @@ def test_everyday_warmth_return_topic_prompt_keeps_simple_happiness_axis() -> No
         "analysis_emotional_exit": "不必拿宏大的成功要求自己，守住家人平安、关系真诚、日子踏实，就已经是在过值得珍惜的人生。",
         "analysis_structure_mode": "everyday_warmth_return",
         "analysis_opening_pattern": "从直接发问“人活着为了什么”切入，再用一句概括性生活愿望的回答定下全文价值判断。",
+        "analysis_hook_trigger": "人活着到底为了什么，以及那句简单愿望为什么会让人停下来。",
+        "analysis_progression_drive": "从幸福标准的变化推进到知己、家人和平安日常的重新排序。",
+        "analysis_share_reason": "让总在外在拥有里寻找答案的人重新看见简单生活的分量。",
         "analysis_do_not_turn_into": "不要改写成励志式的低配安慰或反成功学口号文。",
+        "analysis_content_pillars": [
+            "幸福标准从外在拥有转向知足",
+            "知己关系比泛泛社交更有分量",
+            "家人的平安和日常温度构成归处",
+        ],
         "tags": ["幸福观重估", "知足感", "知己关系", "家庭温暖"],
         "tone_profile": TONE_PROFILE,
     }
@@ -1917,8 +2392,12 @@ def test_everyday_warmth_return_topic_prompt_keeps_simple_happiness_axis() -> No
     template = build_topic_prompt(payload)
 
     assert "守住家人平安、关系真诚、日子踏实" in template.prompt
-    assert "不要把选题改写成哪顿饭又没吃成" in template.instructions
-    assert "不要把题眼再降成某一顿饭、某条消息或某个待办被改期" in template.instructions
+    assert "这篇文章真正想讨论的是：" in template.prompt
+    assert payload["analysis_core_conflict"] in template.prompt
+    assert payload["analysis_emotional_exit"] in template.prompt
+    assert "幸福标准从外在拥有转向知足" in template.prompt
+    assert "不要把选题改写成哪顿饭又没吃成" not in template.instructions
+    assert "不要把题眼再降成某一顿饭、某条消息或某个待办被改期" not in template.instructions
 
 
 def test_inner_settlement_focus_detects_heart_settled_article() -> None:
@@ -2509,6 +2988,11 @@ def test_self_worth_focus_detector_and_topic_guards() -> None:
         "analysis_theme": "这篇文章真正想讨论的是：一个人在关系和生活里被怎样对待，往往与她是否尊重自己、是否守住边界密切相关。",
         "analysis_core_conflict": "很多人在关系里反复受委屈、被轻慢，以为是运气差或他人问题，实际上更深的冲突是自我价值感过低、边界松散。",
         "analysis_emotional_exit": "先把精力从无效关系里收回来，抬高边界、尊重自己，也相信日子会因此慢慢变稳、变体面。",
+        "analysis_structure_mode": "self_worth_rebuild",
+        "analysis_opening_pattern": "从“把自己养贵一点”的判断性表达切入，先让读者看见将就如何压低自己的分量。",
+        "analysis_hook_trigger": "那句“别人怎么对你，都是你教的”带来的刺痛和回望。",
+        "analysis_progression_drive": "从反复迁就的现实动作推进到边界、标准和自我尊重如何改变关系质量。",
+        "analysis_share_reason": "让总在关系里把自己放轻的人重新确认自己的分量和选择权。",
         "analysis_do_not_turn_into": "不要改写成单纯鼓吹高价值感的鸡汤，也不要写成教人冷漠抬价的爽文套路；它更接近在谈自尊、边界和自我照料。",
         "tags": ["自爱", "自尊", "边界", "自我价值"],
         "tone_profile": TONE_PROFILE,
@@ -2529,15 +3013,14 @@ def test_self_worth_focus_detector_and_topic_guards() -> None:
         }
     )
 
-    assert "不要把主线改写成关系优先级审判、被敷衍控诉或回应顺序判断稿" in topic_template.instructions
+    combined = topic_template.instructions + outline_template.instructions + draft_template.instructions
+    assert payload["analysis_theme"].rstrip("。；;，,")[:48] in combined
+    assert payload["analysis_core_conflict"].rstrip("。；;，,")[:48] in combined
+    assert payload["analysis_emotional_exit"].rstrip("。；;，,")[:48] in combined
+    assert "参考文章分析合同是当前参考文链路的唯一主题来源。" in combined
     assert "没时间就是不够在乎" not in topic_template.instructions
-    assert "主线要留在自我价值感、边界、标准和自我尊重上。" in topic_template.instructions
-    assert "不要滑成关系优先级判断稿。" in outline_template.instructions
-    assert "不要把第一屏改成‘没时间’‘回消息慢’‘优先级’这类回应顺序稿" in draft_template.instructions
-    assert "不要把大纲自动滑成消息框、解释、善后、谁先回头沟通这类关系表达稿。" in outline_template.instructions
-    assert "第一屏不要写消息框、聊天框、打了又删、解释、善后、怕对方嫌烦这类关系沟通外壳。" in draft_template.instructions
-    assert "不要把主线收窄成‘这句话要不要说’‘谁先回头沟通’‘谁先递台阶’这类关系表达稿。" in draft_template.instructions
-    assert "结尾回到体面、边界、自我尊重和配得上" in draft_template.instructions
+    assert "关系优先级审判" not in combined
+    assert "消息框、聊天框" not in combined
 
 
 def test_self_worth_focus_detector_recognizes_rewritten_position_language() -> None:
@@ -3362,15 +3845,83 @@ def test_build_draft_prompt_compacts_tracked_article_strategy_payload() -> None:
     assert "大纲锚点：" in template.prompt
     assert "大纲内容：" not in template.prompt
     assert "执行原则：沿着这些策略结论写，不回收参考文原句、原顺序和原结尾。" in template.prompt
-    assert "执行协议：" in template.prompt
+    assert "执行协议：" not in template.prompt
     assert LONG_TRACKED_TOPIC_ANGLE not in template.prompt
-    assert "少写万能道理，多写日常接口、局部机制和现实阻力" in template.instructions
-    assert "不要连续宣布观点，不要系统性补氛围场景，也不要机械扩句增肥。" in template.instructions
-    assert "默认优先保留单场景或窄场景，不要为了显得完整主动补成双线并跑或多案例铺开。" in template.instructions
-    assert "不要把稿子收成已经准备进编辑排版的完整示范文" in template.instructions
-    assert "它应该像作者仍在推进中的一版，不是已经准备进编辑排版的完整示范文。" in template.instructions
+    assert "当前任务是参考文章策略稿的首稿阶段。" in template.instructions
+    assert "不要抢着把去 AI 味、平台包装、漂亮收尾和完整示范文腔一次做满" in template.instructions
     assert len(template.instructions) < 3200
     assert len(template.prompt) < 2600
+
+
+def test_compact_strategy_draft_prompt_is_not_longer_than_normal_prompt() -> None:
+    payload, _, _ = _build_tracked_article_prompt_budget_payloads()
+    normal = build_draft_prompt(payload)
+    compact_payload = {**payload, "compact_strategy_mode": True}
+    compact = build_draft_prompt(compact_payload)
+
+    normal_size = len(normal.instructions) + len(normal.prompt)
+    compact_size = len(compact.instructions) + len(compact.prompt)
+
+    assert compact_size <= normal_size
+    assert compact_size < 4500
+
+
+def test_nested_reference_contract_keeps_packaging_on_one_prompt_owner() -> None:
+    draft_payload, assets_payload, publish_payload = _build_tracked_article_prompt_budget_payloads()
+    contract = {
+        "theme": draft_payload["analysis_theme"],
+        "core_conflict": draft_payload["analysis_core_conflict"],
+        "emotional_exit": draft_payload["analysis_emotional_exit"],
+        "opening_pattern": draft_payload["analysis_opening_pattern"],
+        "hook_trigger": draft_payload["analysis_hook_trigger"],
+        "progression_drive": draft_payload["analysis_progression_drive"],
+        "share_reason": draft_payload["analysis_share_reason"],
+        "do_not_turn_into": draft_payload["analysis_do_not_turn_into"],
+        "structure_mode": draft_payload["analysis_structure_mode"],
+    }
+    assets_template = build_assets_prompt(
+        {
+            **assets_payload,
+            "source_type": "tracked_article",
+            "reference_analysis_contract": contract,
+        }
+    )
+    publish_template = build_publish_package_prompt(
+        {
+            **publish_payload,
+            "source_type": "tracked_article",
+            "reference_analysis_contract": contract,
+        }
+    )
+
+    assert "当前是完整分析合同驱动的assets包装阶段。" in assets_template.instructions
+    assert "当前是完整分析合同驱动的publish_package包装阶段。" in publish_template.instructions
+    assert "这篇真正要守住的主题主线：" not in assets_template.instructions
+    assert "当前主题问题：" not in assets_template.instructions
+    assert "包装必须继续服务当前正文主题，不允许在标题、导语、封面文案或编辑备注阶段二次换题。" not in assets_template.instructions
+    assert len(assets_template.instructions) + len(assets_template.prompt) < 3500
+    assert len(publish_template.instructions) + len(publish_template.prompt) < 2500
+
+
+def test_exported_strategy_first_draft_prompt_matches_production_surface() -> None:
+    payload, _, _ = _build_tracked_article_prompt_budget_payloads()
+    production = build_draft_prompt(payload)
+    exported = build_draft_prompt({**payload, "export_prompt_bundle_mode": True})
+
+    assert exported.instructions == production.instructions
+    assert exported.prompt == production.prompt
+
+
+def test_adopted_strategy_draft_does_not_append_legacy_guard_stack() -> None:
+    payload, _, _ = _build_tracked_article_prompt_budget_payloads()
+
+    template = build_draft_prompt(payload)
+    total_size = len(template.instructions) + len(template.prompt)
+
+    assert "创作策略包（执行摘要）：" in template.prompt
+    assert "执行原则：沿着这些策略结论写，不回收参考文原句、原顺序和原结尾。" in template.prompt
+    assert not any(marker in template.instructions for marker in LEGACY_THEME_GUARD_MARKERS)
+    assert total_size < 4500
 
 
 def test_tracked_article_prompt_surfaces_stay_within_budget_after_strategy_adoption() -> None:
@@ -4189,6 +4740,12 @@ def test_jinwan_youyu_internal_pressure_overrides_opening_style_in_prompt_sectio
             "reference_article_summary": "文章重点是人总把自己的身体提醒和自我照料拖到最后。",
             "reference_article_structure_notes": "从身体变化进入，再落到人总把自己排在最后。",
             "reference_article_tags": ["身体提醒", "自我照料"],
+            "analysis_theme": "把身体提醒和自我照料重新放回生活的优先顺序。",
+            "analysis_core_conflict": "人总把自己的求救信号排到最后，直到代价变得无法忽略。",
+            "analysis_emotional_exit": "从今天开始认真照顾自己，让行动替代等待救赎。",
+            "analysis_opening_pattern": "从复查提醒被顺手划掉的现实接口切入。",
+            "analysis_hook_trigger": "复查提醒弹出来时，她先点了稍后再说。",
+            "analysis_structure_mode": "self_reliance_inward_support",
             "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
             "outline": {
                 "hook": "复查提醒弹出来时，她先点了稍后再说。",
@@ -4197,10 +4754,10 @@ def test_jinwan_youyu_internal_pressure_overrides_opening_style_in_prompt_sectio
         }
     )
 
-    assert "开篇方式：如果题材是自我消耗、生活排序失衡、健康透支或身体提醒，开头先落到一个真实接口、被顺手往后放的安排或已经露出的代价，不要先写成空泛答案句；可以直接，但不要把答案先钉死在抽象判断上。" in template.prompt
-    assert "段落节奏：先用真实接口带路，再给判断与落点；多数段落以 1 到 2 句为主" in template.prompt
-    assert "每段都要能让读者认出自己当下正在经历的那一下" in template.prompt
-    assert "收束方式：收束时优先落在一个现实动作、后果余波或轻微决定上，可以给判断，但不要把结尾写成已经讲完题的标准答案。" in template.prompt
+    combined = template.instructions + template.prompt
+    assert "参考文章分析合同是当前参考文链路的唯一主题来源。" in combined
+    assert "把身体提醒和自我照料重新放回生活的优先顺序" in combined
+    assert "健康透支或身体提醒" not in combined
 
 
 def test_jinwan_youyu_internal_pressure_draft_rules_do_not_prioritize_question_opening() -> None:
@@ -4215,6 +4772,12 @@ def test_jinwan_youyu_internal_pressure_draft_rules_do_not_prioritize_question_o
             "reference_article_summary": "文章重点是人总把自己的身体提醒和自我照料拖到最后。",
             "reference_article_structure_notes": "从身体变化进入，再落到人总把自己排在最后。",
             "reference_article_tags": ["身体提醒", "自我照料"],
+            "analysis_theme": "把身体提醒和自我照料重新放回生活的优先顺序。",
+            "analysis_core_conflict": "人总把自己的求救信号排到最后，直到代价变得无法忽略。",
+            "analysis_emotional_exit": "从今天开始认真照顾自己，让行动替代等待救赎。",
+            "analysis_opening_pattern": "从复查提醒被顺手划掉的现实接口切入。",
+            "analysis_hook_trigger": "复查提醒弹出来时，她先点了稍后再说。",
+            "analysis_structure_mode": "self_reliance_inward_support",
             "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
             "outline": {
                 "hook": "复查提醒弹出来时，她先点了稍后再说。",
@@ -4223,23 +4786,14 @@ def test_jinwan_youyu_internal_pressure_draft_rules_do_not_prioritize_question_o
         }
     )
 
-    assert "开头先落一个现实接口、被顺手往后放的安排或已经露出的代价，不要先用问句、引用或共鸣替读者下定义。" in template.instructions
-    assert "判断可以直接，但不要一上来就把答案说成空泛结论，要让读者先认出自己正在付出的代价。" in template.instructions
-    assert "前两到三段里，至少有一段只让动作、后果或现实余波自己说话，不要句句都抢着解释。" in template.instructions
-    assert "前四段里，至少保住 1 处一句一段的现实接口、动作后果或被挪走的安排" in template.instructions
-    assert "多数段落控制在 1 到 2 句" in template.instructions
-    assert "但每个判断最多只补一层解释" in template.instructions
-    assert "不要连续两个中长解释段挨着出现" in template.instructions
-    assert "除非参考文主冲突本来就建立在身体代价上，否则不要把正文排成身体不适清单。" in template.instructions
-    assert "胸口、胃口、睡眠" not in template.instructions
-    assert "前半篇至少保住 1 句从真实代价里长出来、可以单独成段的可摘录短句或引用式短句" in template.instructions
-    assert "如果状态允许，可以再留 1 句，但要把关系位置、代价排序或没被接住的事实压进去，不要连发口号。" in template.instructions
-    assert "结尾优先落在一个现实动作、后果余波、没等来的回应或轻微决定上，不要把答案写成空泛总结。" in template.instructions
-    assert "尾段不要替读者把情绪讲完，尽量留一点没说满的关系余波" in template.instructions
-    assert "开头优先使用问句、引用或共鸣开场" not in template.instructions
+    combined = template.instructions + template.prompt
+    assert "参考文章分析合同" in combined
+    assert "把身体提醒和自我照料重新放回生活的优先顺序" in combined
+    assert "身体不适清单" not in combined
+    assert "开头优先使用问句、引用或共鸣开场" not in combined
 
 
-def test_jinwan_youyu_internal_pressure_polish_instruction_is_harmonized() -> None:
+def test_jinwan_youyu_polish_preserves_explicit_analysis_contract() -> None:
     template = build_draft_prompt(
         {
             "trend_title": "参考文章 / 手动录入",
@@ -4251,8 +4805,14 @@ def test_jinwan_youyu_internal_pressure_polish_instruction_is_harmonized() -> No
             "reference_article_summary": "文章重点是人总把自己的身体提醒和自我照料拖到最后。",
             "reference_article_structure_notes": "从身体变化进入，再落到人总把自己排在最后。",
             "reference_article_tags": ["身体提醒", "自我照料"],
+            "analysis_theme": "把身体提醒和自我照料重新放回生活的优先顺序。",
+            "analysis_core_conflict": "人总把自己的求救信号排到最后，直到代价变得无法忽略。",
+            "analysis_emotional_exit": "从今天开始认真照顾自己，让行动替代等待救赎。",
+            "analysis_opening_pattern": "从复查提醒被顺手划掉的现实接口切入。",
+            "analysis_hook_trigger": "复查提醒弹出来时，她先点了稍后再说。",
+            "analysis_structure_mode": "self_reliance_inward_support",
             "tone_profile": JINWAN_YOUYU_TONE_PROFILE,
-            "polish_instruction": "请把正文改成“今晚有语”完整风格：开头用直接问题、现实接口或一句共鸣判断迅速点题，中段围绕 2 到 4 个明确判断展开。",
+            "polish_instruction": "请保留现实接口，把正文改得更具体，始终围绕身体提醒和自我照料主线。",
             "draft": {
                 "title": "旧标题",
                 "body_markdown": "# 旧标题\n\n旧正文",
@@ -4264,10 +4824,11 @@ def test_jinwan_youyu_internal_pressure_polish_instruction_is_harmonized() -> No
         }
     )
 
-    assert "开头用问句、引用或共鸣迅速点题" not in template.prompt
-    assert "开头用直接问题、现实接口或一句共鸣判断迅速点题" not in template.prompt
-    assert "开头先落一个现实接口、被顺手往后放的安排或已经露出的代价，不要先用问句、引用或共鸣替读者下定义" in template.prompt
-    assert "请保留直接感，但把空泛答案句改成真实接口、被顺手往后放的安排或已经露出的代价" in template.prompt
+    combined = template.instructions + template.prompt
+    assert "参考文章分析合同是当前参考文链路的唯一主题来源。" in combined
+    assert "把身体提醒和自我照料重新放回生活的优先顺序" in combined
+    assert "身体提醒和自我照料主线" in template.prompt
+    assert "开头用直接问题、现实接口或一句共鸣判断迅速点题" not in combined
 
 
 def test_draft_prompt_includes_anti_ai_flavor_guardrails() -> None:

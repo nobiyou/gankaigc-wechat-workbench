@@ -88,7 +88,9 @@ from app.services.draft_quality_summary import build_draft_quality_summary
 from app.services.creative_reports import build_creative_review_report
 from app.services.creative_patterns import build_reusable_pattern_from_lesson, build_reusable_pattern_id
 from app.services.creative_strategy import (
+    build_complete_contract_execution_surface,
     build_strategy_package,
+    has_complete_tracked_article_analysis_contract,
     normalize_structure_mode_hint,
     resolve_tracked_article_structure_mode,
 )
@@ -331,6 +333,19 @@ class _InitialDraftCandidateResult:
     cleanup_changed_steps: int
 
 
+@dataclass
+class _CreativeQualityRetryBudget:
+    """Limit quality retries to one extra text request per generation."""
+
+    remaining: int
+
+    def acquire(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+
 @dataclass(frozen=True)
 class _DirectionalPolishContext:
     diagnosis_report_version: int | None
@@ -376,6 +391,8 @@ def _apply_initial_draft_candidate_cleanups(
         "split_tracked_article_dense_explainer_residue",
         "split_resilience_dense_paragraph_residue",
         "split_resilience_process_anchor_residue",
+        "split_tracked_article_long_paragraph_residue",
+        "split_tracked_article_scene_anchor_residue",
     }
 
     for step_name, cleanup_fn in cleanup_steps:
@@ -411,6 +428,17 @@ def _apply_initial_draft_candidate_cleanups(
         if responsibility_body != current_body:
             changed_steps += 1
             current_body = responsibility_body
+
+        # The responsibility-specific split can reintroduce a paragraph shell that
+        # the general cleanup already removed. Re-run only the light, reversible
+        # compactor for this theme instead of spending another model request.
+        recompressed_body = _collapse_light_segmented_shell_residue(
+            title=title,
+            body_markdown=current_body,
+        )
+        if recompressed_body != current_body:
+            changed_steps += 1
+            current_body = recompressed_body
 
     return current_body, changed_steps
 
@@ -1287,6 +1315,7 @@ def _ensure_tracked_articles_schema(connection: sqlite3.Connection) -> None:
             analysis_progression_drive TEXT NOT NULL DEFAULT '',
             analysis_share_reason TEXT NOT NULL DEFAULT '',
             analysis_do_not_turn_into TEXT NOT NULL DEFAULT '',
+            analysis_content_pillars TEXT NOT NULL DEFAULT '[]',
             created_at TEXT DEFAULT NULL,
             tags TEXT NOT NULL
         )
@@ -1344,6 +1373,10 @@ def _ensure_tracked_articles_schema(connection: sqlite3.Connection) -> None:
     if "analysis_do_not_turn_into" not in columns:
         connection.execute(
             "ALTER TABLE tracked_articles ADD COLUMN analysis_do_not_turn_into TEXT NOT NULL DEFAULT ''"
+        )
+    if "analysis_content_pillars" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN analysis_content_pillars TEXT NOT NULL DEFAULT '[]'"
         )
 
 
@@ -2154,6 +2187,23 @@ def _update_background_task_log_status(
     )
 
 
+def _normalize_analysis_content_pillars(value: object) -> list[str]:
+    parsed: object = value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = []
+    if not isinstance(parsed, (list, tuple)):
+        return []
+    normalized: list[str] = []
+    for item in parsed:
+        text = re.sub(r"\s+", " ", str(item or "")).strip(" \t\r\n-•")
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized[:4]
+
+
 def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
     summary = str(row["summary"])
     body_markdown = str(row["body_markdown"]) if "body_markdown" in row.keys() else ""
@@ -2166,6 +2216,9 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
     analysis_progression_drive = str(row["analysis_progression_drive"]) if "analysis_progression_drive" in row.keys() else ""
     analysis_share_reason = str(row["analysis_share_reason"]) if "analysis_share_reason" in row.keys() else ""
     analysis_do_not_turn_into = str(row["analysis_do_not_turn_into"]) if "analysis_do_not_turn_into" in row.keys() else ""
+    analysis_content_pillars = _normalize_analysis_content_pillars(
+        row["analysis_content_pillars"] if "analysis_content_pillars" in row.keys() else []
+    )
     tags = _normalize_tracked_article_tags(json.loads(str(row["tags"])))
     metadata = _sanitize_responsibility_shelter_tracked_article_metadata(
         {
@@ -2180,6 +2233,7 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
             "analysis_progression_drive": analysis_progression_drive,
             "analysis_share_reason": analysis_share_reason,
             "analysis_do_not_turn_into": analysis_do_not_turn_into,
+            "analysis_content_pillars": analysis_content_pillars,
         },
         article_title=str(row["title"]),
         body_markdown=body_markdown,
@@ -2195,6 +2249,7 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
     analysis_progression_drive = str(metadata["analysis_progression_drive"])
     analysis_share_reason = str(metadata["analysis_share_reason"])
     analysis_do_not_turn_into = str(metadata["analysis_do_not_turn_into"])
+    analysis_content_pillars = _normalize_analysis_content_pillars(metadata.get("analysis_content_pillars"))
     tags = _normalize_tracked_article_tags(metadata.get("tags"))
     analysis_structure_mode = resolve_tracked_article_structure_mode(
         body_markdown=body_markdown,
@@ -2205,7 +2260,12 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
         analysis_core_conflict=analysis_core_conflict,
         analysis_emotional_exit=analysis_emotional_exit,
         analysis_opening_pattern=analysis_opening_pattern,
+        analysis_hook_trigger=analysis_hook_trigger,
+        analysis_progression_drive=analysis_progression_drive,
+        analysis_share_reason=analysis_share_reason,
         analysis_do_not_turn_into=analysis_do_not_turn_into,
+        analysis_content_pillars=analysis_content_pillars,
+        trust_complete_analysis_contract=True,
     )
     return TrackedArticleItem(
         slug=str(row["slug"]),
@@ -2238,7 +2298,7 @@ def _get_tracked_article_row_by_slug(connection: sqlite3.Connection, article_slu
         SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
                analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
                analysis_opening_pattern, analysis_hook_trigger, analysis_progression_drive, analysis_share_reason,
-               analysis_do_not_turn_into, created_at, tags
+               analysis_do_not_turn_into, analysis_content_pillars, created_at, tags
         FROM tracked_articles
         WHERE slug = ?
         """,
@@ -2255,7 +2315,7 @@ def _find_tracked_article_by_url(connection: sqlite3.Connection, url: str) -> Tr
         SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
                analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
                analysis_opening_pattern, analysis_hook_trigger, analysis_progression_drive, analysis_share_reason,
-               analysis_do_not_turn_into, created_at, tags
+               analysis_do_not_turn_into, analysis_content_pillars, created_at, tags
         FROM tracked_articles
         WHERE url = ?
         """,
@@ -2285,9 +2345,9 @@ def _create_tracked_article_in_connection(
             slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
             analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
             analysis_opening_pattern, analysis_hook_trigger, analysis_progression_drive, analysis_share_reason,
-            analysis_do_not_turn_into, created_at, tags
+            analysis_do_not_turn_into, analysis_content_pillars, created_at, tags
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload.slug,
@@ -2309,6 +2369,7 @@ def _create_tracked_article_in_connection(
             payload.analysis_progression_drive,
             payload.analysis_share_reason,
             payload.analysis_do_not_turn_into,
+            json.dumps(payload.analysis_content_pillars, ensure_ascii=False),
             created_at,
             json.dumps(payload.tags, ensure_ascii=False),
         ),
@@ -2812,7 +2873,7 @@ def list_tracked_articles() -> list[TrackedArticleItem]:
             SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
                    analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
                    analysis_opening_pattern, analysis_hook_trigger, analysis_progression_drive, analysis_share_reason,
-                   analysis_do_not_turn_into, created_at, tags
+                   analysis_do_not_turn_into, analysis_content_pillars, created_at, tags
             FROM tracked_articles
             ORDER BY rowid DESC
             """
@@ -2917,7 +2978,8 @@ def refresh_tracked_article_body(
             SET body_markdown = ?, body_source = ?,
                 analysis_theme = '', analysis_core_conflict = '', analysis_emotional_exit = '',
                 analysis_structure_mode = '', analysis_opening_pattern = '', analysis_hook_trigger = '',
-                analysis_progression_drive = '', analysis_share_reason = '', analysis_do_not_turn_into = ''
+                analysis_progression_drive = '', analysis_share_reason = '', analysis_do_not_turn_into = '',
+                analysis_content_pillars = '[]'
             WHERE slug = ?
             """,
             (body_markdown, body_source, article_slug),
@@ -2985,7 +3047,6 @@ def _sanitize_responsibility_shelter_tracked_article_metadata(
         "title": article_title,
         "body_markdown": body_markdown,
         "tags": normalized["tags"],
-        **normalized,
     }
     if not _has_everyday_warmth_responsibility_shelter_focus(probe):
         return normalized
@@ -3004,12 +3065,26 @@ def _sanitize_responsibility_shelter_tracked_article_metadata(
     )
     for field in text_fields:
         normalized[field] = _sanitize_responsibility_shelter_metadata_text(str(normalized.get(field) or ""))
+    normalized["analysis_content_pillars"] = [
+        _sanitize_responsibility_shelter_metadata_text(item)
+        for item in _normalize_analysis_content_pillars(normalized.get("analysis_content_pillars"))
+    ]
     normalized["tags"] = _sanitize_responsibility_shelter_metadata_tags(tags)
     return normalized
 
 
 def _tracked_article_has_analysis(article: TrackedArticleItem) -> bool:
-    return all(getattr(article, field, "").strip() for field in _TRACKED_ARTICLE_ANALYSIS_FIELDS[:4])
+    return has_complete_tracked_article_analysis_contract(
+        analysis_structure_mode_hint=article.analysis_structure_mode,
+        analysis_theme=article.analysis_theme,
+        analysis_core_conflict=article.analysis_core_conflict,
+        analysis_emotional_exit=article.analysis_emotional_exit,
+        analysis_opening_pattern=article.analysis_opening_pattern,
+        analysis_hook_trigger=article.analysis_hook_trigger,
+        analysis_progression_drive=article.analysis_progression_drive,
+        analysis_share_reason=article.analysis_share_reason,
+        analysis_do_not_turn_into=article.analysis_do_not_turn_into,
+    )
 
 
 _ABSTRACT_PRESSURE_TOPIC_ANGLE_TOKENS = (
@@ -3166,18 +3241,6 @@ _ABSTRACT_SCENE_FIRST_ANGLE_TOKENS = (
     "内部时机",
     "人际预判机制",
 )
-_TRACKED_ARTICLE_ANALYSIS_FIELDS = (
-    "analysis_theme",
-    "analysis_core_conflict",
-    "analysis_emotional_exit",
-    "analysis_structure_mode",
-    "analysis_opening_pattern",
-    "analysis_hook_trigger",
-    "analysis_progression_drive",
-    "analysis_share_reason",
-    "analysis_do_not_turn_into",
-)
-
 _RESPONSIBILITY_SHELTER_METADATA_REPLACEMENTS = (
     ("撑不撑得住", "怎样把顺序理清"),
     ("撑不住", "想歇一歇"),
@@ -4192,6 +4255,13 @@ def _rewrite_supportive_appreciation_topic(
             "这份体谅不是软弱，而是把情分看得很重。"
             "身边有这样的人，最难得的是认真回应他的在乎，把这份情分好好接住。"
         )
+    elif _has_local_supportive_warmth_lead_profile(payload):
+        new_title = "愿意把温暖还给你的人，最值得被认真珍惜"
+        new_angle = (
+            "从一个人总会把收到的好继续传下去写起，"
+            "写这份心软不是没有判断，而是愿意把温暖留在关系里；"
+            "也写真正好的关系，应该让温柔有来有往，而不是只让一个人不停付出。"
+        )
     elif _has_local_supportive_discernment_profile(payload):
         new_title = "心软的人，往往看得很清，也把情分看得很重"
         new_angle = (
@@ -4399,14 +4469,22 @@ def _rewrite_self_reliance_topic(payload: Mapping[str, object], ai_result: Mappi
     summary = str(payload.get("summary") or "")
     corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
 
-    if any(token in corpus for token in ("向内求", "默默向内求", "冷静、沉淀和成长")):
+    if _uses_local_self_compassion_variant(payload):
+        new_title = _pick_local_self_reliance_title(payload, "self_compassion")
+    elif any(token in corpus for token in ("向内求", "默默向内求", "冷静、沉淀和成长")):
         new_title = _pick_local_self_reliance_title(payload, "inward")
     elif any(token in corpus for token in ("外求", "求而不得", "靠不到", "靠不住")):
         new_title = _pick_local_self_reliance_title(payload, "external")
     else:
         new_title = _pick_local_self_reliance_title(payload, "generic")
 
-    if any(token in corpus for token in ("倾诉", "朋友也", "愁眉不展", "焦头烂额", "自顾不暇")):
+    if _uses_local_self_compassion_variant(payload):
+        new_angle = (
+            "从小时候缺过的安慰、倾听和保护，怎样在成年后变成不安全感切入，"
+            "写一个人如何不再把迟迟等不来的温柔交给别人补齐；"
+            "也写人怎样学着做自己的大人、朋友和爱人，把需要和爱稳稳还给自己。"
+        )
+    elif any(token in corpus for token in ("倾诉", "朋友也", "愁眉不展", "焦头烂额", "自顾不暇")):
         new_angle = (
             "从想找人说说话，却发现身边人也在各自稳住自己的处境切入，"
             "写成年人怎样把求而不得的委屈放回可处理的位置；"
@@ -4741,6 +4819,57 @@ def _sanitize_responsibility_shelter_topic_result(
     return rewritten
 
 
+def _has_complete_tracked_article_topic_analysis(payload: Mapping[str, object]) -> bool:
+    return has_complete_tracked_article_analysis_contract(
+        analysis_structure_mode_hint=str(payload.get("analysis_structure_mode") or ""),
+        analysis_theme=str(payload.get("analysis_theme") or ""),
+        analysis_core_conflict=str(payload.get("analysis_core_conflict") or ""),
+        analysis_emotional_exit=str(payload.get("analysis_emotional_exit") or ""),
+        analysis_opening_pattern=str(payload.get("analysis_opening_pattern") or ""),
+        analysis_hook_trigger=str(payload.get("analysis_hook_trigger") or ""),
+        analysis_progression_drive=str(payload.get("analysis_progression_drive") or ""),
+        analysis_share_reason=str(payload.get("analysis_share_reason") or ""),
+        analysis_do_not_turn_into=str(payload.get("analysis_do_not_turn_into") or ""),
+    )
+
+
+def _looks_like_analyzed_topic_meta_leakage(value: str) -> bool:
+    normalized = re.sub(r"\s+", "", str(value or "").strip())
+    return normalized.startswith(
+        (
+            "先抓",
+            "包装优先",
+            "标题、导语",
+            "标题和开头",
+            "开头先",
+            "围绕参考",
+            "围绕《",
+            "重建新的具体入口",
+            "更贴近真人表达",
+            "这篇",
+            "本文",
+            "作者想",
+            "文章从",
+            "稿子",
+        )
+    )
+
+
+def _sanitize_analyzed_tracked_article_topic_result(
+    ai_result: Mapping[str, object],
+) -> dict[str, str]:
+    """Keep a valid analyzed topic intact while removing response wrappers/meta leakage."""
+    title = _strip_responsibility_title_label(str(ai_result.get("title") or ""))
+    angle = _strip_packaging_editorial_meta_clauses(str(ai_result.get("angle") or ""))
+    if not title or not angle:
+        raise ValueError("AI 选题结果缺少标题或主题角度")
+    if _looks_like_analyzed_topic_meta_leakage(title):
+        raise ValueError("AI 选题标题包含提示词或编辑元叙事")
+    if _looks_like_analyzed_topic_meta_leakage(angle):
+        raise ValueError("AI 选题角度包含提示词或编辑元叙事")
+    return {"title": title, "angle": angle}
+
+
 def _apply_tracked_article_topic_rewrites(
     payload: Mapping[str, object],
     ai_result: Mapping[str, object],
@@ -4749,6 +4878,8 @@ def _apply_tracked_article_topic_rewrites(
         "title": str(ai_result.get("title") or "").strip(),
         "angle": str(ai_result.get("angle") or "").strip(),
     }
+    if _has_complete_tracked_article_topic_analysis(payload):
+        return _sanitize_analyzed_tracked_article_topic_result(ai_result)
     if _should_rewrite_pressure_topic_title(payload, rewritten):
         rewritten = {
             "title": _rewrite_pressure_topic_title(payload, rewritten),
@@ -4792,6 +4923,7 @@ def _extract_local_fallback_source_sentences(payload: Mapping[str, object], *, l
         str(payload.get("summary") or "").strip(),
         str(payload.get("structure_notes") or "").strip(),
         str(payload.get("analysis_theme") or "").strip(),
+        str(payload.get("reference_article_analysis_theme") or "").strip(),
     )
     for candidate in candidates:
         cleaned = _clean_local_fallback_instruction_phrase(candidate)
@@ -4872,8 +5004,8 @@ def _creative_quality_retry_max_attempts() -> int:
     return max(0, int(getattr(settings, "openai_creative_quality_retry_max_attempts", 0) or 0))
 
 
-def _allow_extra_quality_candidate_generation() -> bool:
-    return _creative_quality_retry_max_attempts() > 0
+def _new_creative_quality_retry_budget() -> _CreativeQualityRetryBudget:
+    return _CreativeQualityRetryBudget(remaining=min(1, _creative_quality_retry_max_attempts()))
 
 
 def _image_generation_max_attempts() -> int:
@@ -4944,6 +5076,9 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
         updated_analysis_do_not_turn_into = (
             str(ai_result.get("analysis_do_not_turn_into") or "").strip() or article.analysis_do_not_turn_into
         )
+        updated_analysis_content_pillars = _normalize_analysis_content_pillars(
+            ai_result.get("analysis_content_pillars")
+        ) or article.analysis_content_pillars
         updated_metadata = _sanitize_responsibility_shelter_tracked_article_metadata(
             {
                 "summary": updated_summary,
@@ -4958,6 +5093,7 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
                 "analysis_progression_drive": updated_analysis_progression_drive,
                 "analysis_share_reason": updated_analysis_share_reason,
                 "analysis_do_not_turn_into": updated_analysis_do_not_turn_into,
+                "analysis_content_pillars": updated_analysis_content_pillars,
             },
             article_title=article.title,
             body_markdown=article.body_markdown,
@@ -4973,6 +5109,9 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
         updated_analysis_progression_drive = str(updated_metadata["analysis_progression_drive"])
         updated_analysis_share_reason = str(updated_metadata["analysis_share_reason"])
         updated_analysis_do_not_turn_into = str(updated_metadata["analysis_do_not_turn_into"])
+        updated_analysis_content_pillars = _normalize_analysis_content_pillars(
+            updated_metadata.get("analysis_content_pillars")
+        )
         updated_tags = _normalize_tracked_article_tags(updated_metadata.get("tags"))
         updated_analysis_structure_mode = resolve_tracked_article_structure_mode(
             body_markdown=article.body_markdown,
@@ -4983,7 +5122,11 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
             analysis_core_conflict=updated_analysis_core_conflict,
             analysis_emotional_exit=updated_analysis_emotional_exit,
             analysis_opening_pattern=updated_analysis_opening_pattern,
+            analysis_hook_trigger=updated_analysis_hook_trigger,
+            analysis_progression_drive=updated_analysis_progression_drive,
+            analysis_share_reason=updated_analysis_share_reason,
             analysis_do_not_turn_into=updated_analysis_do_not_turn_into,
+            trust_complete_analysis_contract=True,
         )
 
         connection.execute(
@@ -4992,7 +5135,8 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
             SET author = ?, summary = ?, structure_notes = ?, tags = ?,
                 analysis_theme = ?, analysis_core_conflict = ?, analysis_emotional_exit = ?,
                 analysis_structure_mode = ?, analysis_opening_pattern = ?, analysis_hook_trigger = ?,
-                analysis_progression_drive = ?, analysis_share_reason = ?, analysis_do_not_turn_into = ?
+                analysis_progression_drive = ?, analysis_share_reason = ?, analysis_do_not_turn_into = ?,
+                analysis_content_pillars = ?
             WHERE slug = ?
             """,
             (
@@ -5009,6 +5153,7 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
                 updated_analysis_progression_drive,
                 updated_analysis_share_reason,
                 updated_analysis_do_not_turn_into,
+                json.dumps(updated_analysis_content_pillars, ensure_ascii=False),
                 article_slug,
             ),
         )
@@ -5330,7 +5475,12 @@ def generate_topic_from_trend(trend_slug: str) -> TopicItem:
     )
 
 
-def generate_topic_from_tracked_article(article_slug: str) -> TopicItem:
+def generate_topic_from_tracked_article(
+    article_slug: str,
+    *,
+    auto_enrich_analysis: bool = True,
+    analysis_already_attempted: bool = False,
+) -> TopicItem:
     tone_profile = get_active_tone_profile()
     article_for_analysis: TrackedArticleItem | None = None
     generator = get_ai_generator()
@@ -5342,14 +5492,25 @@ def generate_topic_from_tracked_article(article_slug: str) -> TopicItem:
 
     if article_for_analysis is None:
         raise HTTPException(status_code=404, detail="Tracked article not found")
-    if not _tracked_article_has_analysis(article_for_analysis) and hasattr(generator, "generate_tracked_article_metadata"):
-        try:
-            article_for_analysis = enrich_tracked_article_metadata(article_slug)
-        except Exception:
-            logger.warning(
-                "Tracked article metadata enrichment failed during topic generation; falling back to stored article fields",
-                extra={"article_slug": article_slug},
-                exc_info=True,
+    if (
+        auto_enrich_analysis
+        and not _tracked_article_has_analysis(article_for_analysis)
+        and hasattr(generator, "generate_tracked_article_metadata")
+    ):
+        if not analysis_already_attempted:
+            try:
+                article_for_analysis = enrich_tracked_article_metadata(article_slug)
+            except Exception as exc:
+                logger.warning(
+                    "Tracked article metadata enrichment failed during topic generation; stopping before topic generation",
+                    extra={"article_slug": article_slug},
+                    exc_info=True,
+                )
+                _raise_creative_upstream_failure("参考文章分析", exc)
+        if not _tracked_article_has_analysis(article_for_analysis):
+            raise HTTPException(
+                status_code=_CREATIVE_UPSTREAM_FAILURE_STATUS_CODE,
+                detail="参考文章分析失败：AI 返回的分析合同不完整，已停止生成选题。请重试分析。",
             )
 
     with _get_connection() as connection:
@@ -5383,6 +5544,7 @@ def generate_topic_from_tracked_article(article_slug: str) -> TopicItem:
             "analysis_progression_drive": article_for_analysis.analysis_progression_drive,
             "analysis_share_reason": article_for_analysis.analysis_share_reason,
             "analysis_do_not_turn_into": article_for_analysis.analysis_do_not_turn_into,
+            "analysis_content_pillars": article_for_analysis.analysis_content_pillars,
             "tags": article_for_analysis.tags,
             "tone_profile": tone_profile.model_dump(),
         }
@@ -5601,6 +5763,7 @@ def _get_project_context(project_slug: str) -> sqlite3.Row:
                 ta.analysis_progression_drive AS reference_article_analysis_progression_drive,
                 ta.analysis_share_reason AS reference_article_analysis_share_reason,
                 ta.analysis_do_not_turn_into AS reference_article_analysis_do_not_turn_into,
+                ta.analysis_content_pillars AS reference_article_analysis_content_pillars,
                 ta.tags AS reference_article_tags,
                 CASE
                     WHEN t.source_type = 'trend' THEN tr.title
@@ -5646,6 +5809,7 @@ def _build_reference_article_payload(
         except json.JSONDecodeError:
             tags = []
 
+    project_keys = set(project.keys())
     resolved_analysis_structure_mode = resolve_tracked_article_structure_mode(
         body_markdown=str(project["reference_article_body_markdown"] or ""),
         summary=str(project["reference_article_summary"] or ""),
@@ -5655,7 +5819,23 @@ def _build_reference_article_payload(
         analysis_core_conflict=str(project["reference_article_analysis_core_conflict"] or ""),
         analysis_emotional_exit=str(project["reference_article_analysis_emotional_exit"] or ""),
         analysis_opening_pattern=str(project["reference_article_analysis_opening_pattern"] or ""),
+        analysis_hook_trigger=(
+            str(project["reference_article_analysis_hook_trigger"] or "")
+            if "reference_article_analysis_hook_trigger" in project_keys
+            else ""
+        ),
+        analysis_progression_drive=(
+            str(project["reference_article_analysis_progression_drive"] or "")
+            if "reference_article_analysis_progression_drive" in project_keys
+            else ""
+        ),
+        analysis_share_reason=(
+            str(project["reference_article_analysis_share_reason"] or "")
+            if "reference_article_analysis_share_reason" in project_keys
+            else ""
+        ),
         analysis_do_not_turn_into=str(project["reference_article_analysis_do_not_turn_into"] or ""),
+        trust_complete_analysis_contract=True,
     )
 
     payload.update(
@@ -5671,7 +5851,27 @@ def _build_reference_article_payload(
             "reference_article_analysis_emotional_exit": str(project["reference_article_analysis_emotional_exit"] or ""),
             "reference_article_analysis_structure_mode": resolved_analysis_structure_mode,
             "reference_article_analysis_opening_pattern": str(project["reference_article_analysis_opening_pattern"] or ""),
+            "reference_article_analysis_hook_trigger": (
+                str(project["reference_article_analysis_hook_trigger"] or "")
+                if "reference_article_analysis_hook_trigger" in project_keys
+                else ""
+            ),
+            "reference_article_analysis_progression_drive": (
+                str(project["reference_article_analysis_progression_drive"] or "")
+                if "reference_article_analysis_progression_drive" in project_keys
+                else ""
+            ),
+            "reference_article_analysis_share_reason": (
+                str(project["reference_article_analysis_share_reason"] or "")
+                if "reference_article_analysis_share_reason" in project_keys
+                else ""
+            ),
             "reference_article_analysis_do_not_turn_into": str(project["reference_article_analysis_do_not_turn_into"] or ""),
+            "reference_article_analysis_content_pillars": _normalize_analysis_content_pillars(
+                project["reference_article_analysis_content_pillars"]
+                if "reference_article_analysis_content_pillars" in project_keys
+                else []
+            ),
             "reference_article_tags": tags,
         }
     )
@@ -5740,6 +5940,22 @@ def _build_local_tracked_article_fallback_payload(
         if current in (None, "", [], {}):
             fallback_payload[key] = value
 
+    analysis_aliases = {
+        "analysis_theme": "reference_article_analysis_theme",
+        "analysis_core_conflict": "reference_article_analysis_core_conflict",
+        "analysis_emotional_exit": "reference_article_analysis_emotional_exit",
+        "analysis_structure_mode": "reference_article_analysis_structure_mode",
+        "analysis_opening_pattern": "reference_article_analysis_opening_pattern",
+        "analysis_hook_trigger": "reference_article_analysis_hook_trigger",
+        "analysis_progression_drive": "reference_article_analysis_progression_drive",
+        "analysis_share_reason": "reference_article_analysis_share_reason",
+        "analysis_do_not_turn_into": "reference_article_analysis_do_not_turn_into",
+        "analysis_content_pillars": "reference_article_analysis_content_pillars",
+    }
+    for local_key, reference_key in analysis_aliases.items():
+        if fallback_payload.get(local_key) in (None, "", [], {}):
+            fallback_payload[local_key] = fallback_payload.get(reference_key, "")
+
     fallback_payload.setdefault("article_title", str(project["reference_article_title"] or ""))
     fallback_payload.setdefault("summary", str(project["reference_article_summary"] or ""))
     fallback_payload.setdefault("structure_notes", str(project["reference_article_structure_notes"] or ""))
@@ -5770,12 +5986,48 @@ def _build_strategy_bundle_payload(
     problem_brief: ProblemBriefItem | None,
     strategy_card: StrategyCardItem | None,
     benchmarks: list[BenchmarkReferenceItem],
+    project: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "problem_brief": problem_brief.model_dump() if problem_brief and strategy_card else None,
         "strategy_card": strategy_card.model_dump() if strategy_card else None,
         "benchmarks": [benchmark.model_dump() for benchmark in benchmarks] if strategy_card else None,
     }
+    if project is not None:
+        def project_text(key: str) -> str:
+            try:
+                value = project[key]
+            except (KeyError, IndexError, TypeError):
+                return ""
+            return str(value or "").strip()
+
+        def project_list(key: str) -> list[str]:
+            try:
+                value = project[key]
+            except (KeyError, IndexError, TypeError):
+                return []
+            return _normalize_analysis_content_pillars(value)
+
+        payload.update(
+            {
+                "source_type": project_text("source_type"),
+                "topic_title": project_text("topic_title"),
+                "topic_angle": project_text("topic_angle"),
+                "reference_analysis_contract": {
+                    "structure_mode": project_text("reference_article_analysis_structure_mode"),
+                    "theme": project_text("reference_article_analysis_theme"),
+                    "core_conflict": project_text("reference_article_analysis_core_conflict"),
+                    "emotional_exit": project_text("reference_article_analysis_emotional_exit"),
+                    "opening_pattern": project_text("reference_article_analysis_opening_pattern"),
+                    "hook_trigger": project_text("reference_article_analysis_hook_trigger"),
+                    "progression_drive": project_text("reference_article_analysis_progression_drive"),
+                    "share_reason": project_text("reference_article_analysis_share_reason"),
+                    "do_not_turn_into": project_text("reference_article_analysis_do_not_turn_into"),
+                    "content_pillars": project_list("reference_article_analysis_content_pillars"),
+                },
+            }
+        )
+    return payload
 
 
 def _hydrate_problem_brief_row(row: sqlite3.Row) -> ProblemBriefItem:
@@ -6602,6 +6854,7 @@ def generate_strategy_package(project_slug: str) -> StrategyPackageResult:
                 problem_brief_version=problem_brief_version,
                 strategy_version=strategy_version,
                 created_at=created_at,
+                trust_complete_analysis_contract=True,
             )
 
             connection.execute(
@@ -7525,23 +7778,23 @@ def _generate_outline_with_transient_recovery(
         if not allow_retry:
             raise
         logger.warning(
-            "Tracked article outline transient failure for project %s; retrying with compact recovery prompt: %s",
+            "Tracked article outline transient failure for project %s; retrying the same prompt: %s",
             project["slug"],
             exc,
         )
-        recovery_payload = _build_outline_timeout_recovery_payload(
+        retry_payload = _build_outline_same_prompt_retry_payload(
             project=project,
             ai_payload=ai_payload,
         )
         try:
-            return generator.generate_outline(recovery_payload)
-        except Exception as recovery_exc:
+            return generator.generate_outline(retry_payload)
+        except Exception as retry_exc:
             if not _allow_local_creative_fallbacks():
-                _raise_creative_upstream_failure("大纲生成", recovery_exc)
+                _raise_creative_upstream_failure("大纲生成", retry_exc)
             logger.warning(
-                "Tracked article outline recovery failed for project %s; using local outline fallback: %s",
+                "Tracked article outline same-prompt retry failed for project %s; using local outline fallback: %s",
                 project["slug"],
-                recovery_exc,
+                retry_exc,
             )
             fallback_payload = _build_local_tracked_article_fallback_payload(
                 project=project,
@@ -7550,15 +7803,15 @@ def _generate_outline_with_transient_recovery(
             return _build_local_tracked_article_outline_fallback(fallback_payload)
 
 
-def _build_outline_timeout_recovery_payload(
+def _build_outline_same_prompt_retry_payload(
     *,
     project: sqlite3.Row,
     ai_payload: Mapping[str, object],
 ) -> dict[str, object]:
-    recovery_payload = dict(ai_payload)
-    recovery_payload["source_type"] = str(project["source_type"])
-    recovery_payload["outline_timeout_recovery_mode"] = True
-    return recovery_payload
+    retry_payload = dict(ai_payload)
+    retry_payload["source_type"] = str(project["source_type"])
+    retry_payload["same_prompt_retry_mode"] = True
+    return retry_payload
 
 
 def restore_outline_version(project_slug: str, version: int) -> OutlineItem:
@@ -7790,6 +8043,7 @@ def _generate_draft(
                 problem_brief=problem_brief,
                 strategy_card=strategy_card,
                 benchmarks=benchmarks,
+                project=project,
             )
             outline_row = connection.execute(
                 """
@@ -7830,6 +8084,7 @@ def _generate_draft(
                 polish_instruction=polish_instruction,
             )
             generator = get_ai_generator()
+            quality_retry_budget = _new_creative_quality_retry_budget()
             draft_payload: dict[str, object] = {
                 "trend_title": project["trend_title"],
                 "topic_title": project["topic_title"],
@@ -7888,6 +8143,7 @@ def _generate_draft(
                         strategy_bundle_payload=strategy_bundle_payload,
                         polish_instruction=polish_instruction,
                         generator=generator,
+                        retry_budget=quality_retry_budget,
                         title=current_title,
                         body_markdown=current_body_markdown,
                     )
@@ -7939,6 +8195,7 @@ def _generate_draft(
                     strategy_bundle_payload=strategy_bundle_payload,
                     reference_article_payload=reference_article_payload,
                     generator=generator,
+                    retry_budget=quality_retry_budget,
                     source_draft_title=str(latest_draft_row["title"]),
                     source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
                     candidate_title=title,
@@ -7953,6 +8210,7 @@ def _generate_draft(
                     strategy_bundle_payload=strategy_bundle_payload,
                     reference_article_payload=reference_article_payload,
                     generator=generator,
+                    retry_budget=quality_retry_budget,
                     source_draft_title=str(latest_draft_row["title"]),
                     source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
                     candidate_title=title,
@@ -7967,6 +8225,7 @@ def _generate_draft(
                     strategy_bundle_payload=strategy_bundle_payload,
                     reference_article_payload=reference_article_payload,
                     generator=generator,
+                    retry_budget=quality_retry_budget,
                     source_draft_title=str(latest_draft_row["title"]),
                     source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
                     candidate_title=title,
@@ -7981,6 +8240,7 @@ def _generate_draft(
                     strategy_bundle_payload=strategy_bundle_payload,
                     reference_article_payload=reference_article_payload,
                     generator=generator,
+                    retry_budget=quality_retry_budget,
                     source_draft_title=str(latest_draft_row["title"]),
                     source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
                     candidate_title=title,
@@ -7995,6 +8255,7 @@ def _generate_draft(
                     strategy_bundle_payload=strategy_bundle_payload,
                     reference_article_payload=reference_article_payload,
                     generator=generator,
+                    retry_budget=quality_retry_budget,
                     source_draft_title=str(latest_draft_row["title"]),
                     source_draft_body_markdown=str(latest_draft_row["body_markdown"]),
                     candidate_title=title,
@@ -8011,6 +8272,7 @@ def _generate_draft(
                     strategy_bundle_payload=strategy_bundle_payload,
                     polish_instruction=polish_instruction,
                     generator=generator,
+                    retry_budget=quality_retry_budget,
                     title=title,
                     body_markdown=body_markdown,
                 )
@@ -8107,9 +8369,7 @@ def _generate_initial_draft_candidates(
     generator,
     draft_payload: dict[str, object],
 ) -> list[tuple[str, str]]:
-    is_tracked_article = str(project["source_type"]) == "tracked_article"
     is_polish_mode = bool(draft_payload.get("polish_instruction"))
-    uses_custom_base_url = bool(getattr(generator, "uses_custom_base_url", False))
     strategy_first_draft_mode = _should_use_tracked_article_strategy_first_draft_mode(
         draft_payload,
         is_polish_mode=is_polish_mode,
@@ -8118,211 +8378,78 @@ def _generate_initial_draft_candidates(
         draft_payload = dict(draft_payload)
         draft_payload["strategy_first_draft_mode"] = True
 
-    if strategy_first_draft_mode and is_tracked_article and not is_polish_mode and uses_custom_base_url:
-        try:
-            initial_result = generator.generate_draft(draft_payload)
-        except _OUTLINE_TRANSIENT_PROVIDER_ERRORS as exc:
-            logger.warning(
-                "Strategy-first draft transient failure for project %s; retrying with timeout recovery prompt: %s",
-                project["slug"],
-                exc,
-            )
-            recovery_payload = _build_draft_timeout_recovery_payload(
-                project=project,
-                draft_payload=draft_payload,
-            )
-            try:
-                initial_result = generator.generate_draft(recovery_payload)
-            except Exception as recovery_exc:
-                if not _allow_local_creative_fallbacks():
-                    _raise_creative_upstream_failure("正文生成", recovery_exc)
-                logger.warning(
-                    "Strategy-first timeout recovery draft branch failed for project %s; using local draft fallback: %s",
-                    project["slug"],
-                    recovery_exc,
-                )
-                fallback_payload = _build_local_tracked_article_fallback_payload(
-                    project=project,
-                    payload=draft_payload,
-                )
-                fallback_title, fallback_body_markdown = _build_local_tracked_article_draft_fallback(
-                    fallback_payload
-                )
-                initial_result = {
-                    "title": fallback_title,
-                    "body_markdown": fallback_body_markdown,
-                }
-        return [
-            (
-                str(initial_result["title"]),
-                str(initial_result["body_markdown"]),
-            )
-        ]
-
-    if not is_tracked_article or is_polish_mode or not uses_custom_base_url:
-        initial_result = generator.generate_draft(draft_payload)
-        return [
-            (
-                str(initial_result["title"]),
-                str(initial_result["body_markdown"]),
-            )
-        ]
-
-    strategy_card = draft_payload.get("strategy_card")
-    compact_allowed_modes = {"scene_first_progression", "pressure_interface_direct"}
-    if isinstance(strategy_card, Mapping):
-        expected_mode = _resolve_tracked_article_expected_selection_mode(draft_payload)
-        if expected_mode and expected_mode not in compact_allowed_modes:
-            try:
-                initial_result = generator.generate_draft(draft_payload)
-            except _OUTLINE_TRANSIENT_PROVIDER_ERRORS as exc:
-                logger.warning(
-                    "Tracked article draft transient failure for project %s; retrying with timeout recovery prompt: %s",
-                    project["slug"],
-                    exc,
-                )
-                recovery_payload = _build_draft_timeout_recovery_payload(
-                    project=project,
-                    draft_payload=draft_payload,
-                )
-                try:
-                    initial_result = generator.generate_draft(recovery_payload)
-                except Exception as recovery_exc:
-                    if not _allow_local_creative_fallbacks():
-                        _raise_creative_upstream_failure("正文生成", recovery_exc)
-                    logger.warning(
-                        "Tracked article timeout recovery draft branch failed for project %s; using local draft fallback: %s",
-                        project["slug"],
-                        recovery_exc,
-                    )
-                    fallback_payload = _build_local_tracked_article_fallback_payload(
-                        project=project,
-                        payload=draft_payload,
-                    )
-                    fallback_title, fallback_body_markdown = _build_local_tracked_article_draft_fallback(
-                        fallback_payload
-                    )
-                    initial_result = {
-                        "title": fallback_title,
-                        "body_markdown": fallback_body_markdown,
-                    }
-            return [
-                (
-                    str(initial_result["title"]),
-                    str(initial_result["body_markdown"]),
-                )
-            ]
-
-    compact_payload = dict(draft_payload)
-    compact_payload["compact_strategy_mode"] = True
-
     try:
-        compact_result = generator.generate_draft(compact_payload)
-    except Exception as exc:
+        initial_result = generator.generate_draft(draft_payload)
+    except _OUTLINE_TRANSIENT_PROVIDER_ERRORS as exc:
         logger.warning(
-            "Compact strategy draft branch failed for project %s: %s",
+            "Tracked article draft transient failure for project %s; retrying the same prompt: %s",
             project["slug"],
             exc,
         )
-        recovery_payload = _build_draft_timeout_recovery_payload(
+        retry_payload = _build_draft_same_prompt_retry_payload(
             project=project,
             draft_payload=draft_payload,
         )
         try:
-            recovery_result = generator.generate_draft(recovery_payload)
-        except Exception as recovery_exc:
+            initial_result = generator.generate_draft(retry_payload)
+        except Exception as retry_exc:
             logger.warning(
-                "Timeout recovery draft branch failed for project %s: %s",
+                "Same-prompt draft retry failed for project %s: %s",
                 project["slug"],
-                recovery_exc,
+                retry_exc,
             )
             if not _allow_local_creative_fallbacks():
-                if isinstance(recovery_exc, _OUTLINE_TRANSIENT_PROVIDER_ERRORS):
-                    _raise_creative_upstream_failure("正文生成", recovery_exc)
+                if isinstance(retry_exc, _OUTLINE_TRANSIENT_PROVIDER_ERRORS):
+                    _raise_creative_upstream_failure("正文生成", retry_exc)
                 raise
-            full_fallback_payload = dict(draft_payload)
-            full_fallback_payload["full_fallback_single_attempt_mode"] = True
-            initial_result = generator.generate_draft(full_fallback_payload)
-            return [
-                (
-                    str(initial_result["title"]),
-                    str(initial_result["body_markdown"]),
-                )
-            ]
-        return [
-            (
-                str(recovery_result["title"]),
-                str(recovery_result["body_markdown"]),
+            fallback_payload = _build_local_tracked_article_fallback_payload(
+                project=project,
+                payload=draft_payload,
             )
-        ]
+            fallback_title, fallback_body_markdown = _build_local_tracked_article_draft_fallback(
+                fallback_payload
+            )
+            initial_result = {
+                "title": fallback_title,
+                "body_markdown": fallback_body_markdown,
+            }
 
-    compact_title = str(compact_result["title"])
-    compact_body_markdown = str(compact_result["body_markdown"])
-    candidates = [(compact_title, compact_body_markdown)]
-
-    compact_summary = evaluate_ai_flavor_risk(
-        title=compact_title,
-        body_markdown=compact_body_markdown,
-    )
-    if compact_summary.level == "低" and compact_summary.score <= 18:
-        if not _looks_like_over_smoothed_tracked_article_candidate(compact_body_markdown):
-            return candidates
-    if _looks_like_tracked_article_fragment_chain_candidate(compact_body_markdown):
-        return candidates
-    if not _allow_extra_quality_candidate_generation():
-        return candidates
-
-    try:
-        full_comparison_payload = dict(draft_payload)
-        full_comparison_payload["full_fallback_single_attempt_mode"] = True
-        initial_result = generator.generate_draft(full_comparison_payload)
-    except Exception as exc:
-        logger.warning(
-            "Full strategy draft branch failed for project %s: %s",
-            project["slug"],
-            exc,
-        )
-        return candidates
-
-    candidates.append(
+    return [
         (
             str(initial_result["title"]),
             str(initial_result["body_markdown"]),
         )
-    )
-    return candidates
+    ]
 
 
-def _build_draft_timeout_recovery_payload(
+def _build_draft_same_prompt_retry_payload(
     *,
     project: sqlite3.Row,
     draft_payload: Mapping[str, object],
 ) -> dict[str, object]:
-    recovery_payload = dict(draft_payload)
-    for key in ("benchmarks", "reference_article_hidden", "compact_strategy_mode", "strategy_first_draft_mode"):
-        recovery_payload.pop(key, None)
-    recovery_payload["timeout_recovery_mode"] = True
-    return recovery_payload
+    """Retry a transient upstream failure without dropping the adopted strategy."""
+    retry_payload = dict(draft_payload)
+    retry_payload["source_type"] = str(project["source_type"])
+    retry_payload["same_prompt_retry_mode"] = True
+    return retry_payload
 
 
-def _build_assets_timeout_recovery_payload(
+def _build_assets_same_prompt_retry_payload(
     *,
     assets_payload: Mapping[str, object],
 ) -> dict[str, object]:
-    recovery_payload = dict(assets_payload)
-    recovery_payload.pop("benchmarks", None)
-    recovery_payload["assets_timeout_recovery_mode"] = True
-    return recovery_payload
+    retry_payload = dict(assets_payload)
+    retry_payload["same_prompt_retry_mode"] = True
+    return retry_payload
 
 
-def _build_publish_timeout_recovery_payload(
+def _build_publish_same_prompt_retry_payload(
     *,
     publish_payload: Mapping[str, object],
 ) -> dict[str, object]:
-    recovery_payload = dict(publish_payload)
-    recovery_payload.pop("benchmarks", None)
-    recovery_payload["publish_timeout_recovery_mode"] = True
-    return recovery_payload
+    retry_payload = dict(publish_payload)
+    retry_payload["same_prompt_retry_mode"] = True
+    return retry_payload
 
 
 def _build_nested_draft_retry_payload(
@@ -8354,7 +8481,11 @@ def _extract_local_draft_outline_points(outline_body: str) -> list[str]:
     return points
 
 
-def _extract_local_fallback_corpus(payload: Mapping[str, object]) -> str:
+def _extract_local_fallback_corpus(
+    payload: Mapping[str, object],
+    *,
+    include_analysis: bool = True,
+) -> str:
     fields: list[str] = [
         str(payload.get("topic_title") or "").strip(),
         str(payload.get("topic_angle") or "").strip(),
@@ -8368,6 +8499,29 @@ def _extract_local_fallback_corpus(payload: Mapping[str, object]) -> str:
         str(payload.get("reference_article_structure_notes") or "").strip(),
         str(payload.get("reference_article_body_markdown") or "").strip(),
     ]
+    if include_analysis:
+        fields.extend(
+            [
+                str(payload.get("analysis_theme") or "").strip(),
+                str(payload.get("analysis_core_conflict") or "").strip(),
+                str(payload.get("analysis_emotional_exit") or "").strip(),
+                str(payload.get("analysis_structure_mode") or "").strip(),
+                str(payload.get("analysis_opening_pattern") or "").strip(),
+                str(payload.get("analysis_hook_trigger") or "").strip(),
+                str(payload.get("analysis_progression_drive") or "").strip(),
+                str(payload.get("analysis_share_reason") or "").strip(),
+                str(payload.get("analysis_do_not_turn_into") or "").strip(),
+                str(payload.get("reference_article_analysis_theme") or "").strip(),
+                str(payload.get("reference_article_analysis_core_conflict") or "").strip(),
+                str(payload.get("reference_article_analysis_emotional_exit") or "").strip(),
+                str(payload.get("reference_article_analysis_structure_mode") or "").strip(),
+                str(payload.get("reference_article_analysis_opening_pattern") or "").strip(),
+                str(payload.get("reference_article_analysis_hook_trigger") or "").strip(),
+                str(payload.get("reference_article_analysis_progression_drive") or "").strip(),
+                str(payload.get("reference_article_analysis_share_reason") or "").strip(),
+                str(payload.get("reference_article_analysis_do_not_turn_into") or "").strip(),
+            ]
+        )
     problem_brief = payload.get("problem_brief")
     if isinstance(problem_brief, Mapping):
         for key in (
@@ -8412,6 +8566,75 @@ def _extract_local_fallback_corpus(payload: Mapping[str, object]) -> str:
     return " ".join(item for item in fields if item)
 
 
+def _merge_local_creative_context(
+    payload: Mapping[str, object] | None,
+    *,
+    strategy_context: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Carry one strategy snapshot through every local fallback stage."""
+    merged = dict(payload or {})
+    if not strategy_context:
+        return merged
+    for key, value in strategy_context.items():
+        if value in (None, "", [], {}):
+            continue
+        current = merged.get(key)
+        if current in (None, "", [], {}):
+            merged[key] = value
+    return merged
+
+
+def _build_local_creative_strategy_context(
+    *,
+    project: Mapping[str, object],
+    problem_brief: object | None = None,
+    strategy_card: object | None = None,
+) -> dict[str, object]:
+    context: dict[str, object] = {}
+    for key in (
+        "reference_article_title",
+        "reference_article_summary",
+        "reference_article_structure_notes",
+        "reference_article_body_markdown",
+        "reference_article_analysis_theme",
+        "reference_article_analysis_core_conflict",
+        "reference_article_analysis_emotional_exit",
+        "reference_article_analysis_structure_mode",
+        "reference_article_analysis_opening_pattern",
+        "reference_article_analysis_hook_trigger",
+        "reference_article_analysis_progression_drive",
+        "reference_article_analysis_share_reason",
+        "reference_article_analysis_do_not_turn_into",
+        "reference_article_analysis_content_pillars",
+    ):
+        try:
+            value = project[key]
+        except (KeyError, IndexError, TypeError):
+            value = None
+        if value not in (None, ""):
+            context[key] = value
+    if problem_brief is not None and hasattr(problem_brief, "model_dump"):
+        context["problem_brief"] = problem_brief.model_dump()
+    if strategy_card is not None and hasattr(strategy_card, "model_dump"):
+        context["strategy_card"] = strategy_card.model_dump()
+    aliases = {
+        "analysis_theme": "reference_article_analysis_theme",
+        "analysis_core_conflict": "reference_article_analysis_core_conflict",
+        "analysis_emotional_exit": "reference_article_analysis_emotional_exit",
+        "analysis_structure_mode": "reference_article_analysis_structure_mode",
+        "analysis_opening_pattern": "reference_article_analysis_opening_pattern",
+        "analysis_hook_trigger": "reference_article_analysis_hook_trigger",
+        "analysis_progression_drive": "reference_article_analysis_progression_drive",
+        "analysis_share_reason": "reference_article_analysis_share_reason",
+        "analysis_do_not_turn_into": "reference_article_analysis_do_not_turn_into",
+        "analysis_content_pillars": "reference_article_analysis_content_pillars",
+    }
+    for local_key, source_key in aliases.items():
+        if source_key in context and context[source_key] not in (None, ""):
+            context[local_key] = context[source_key]
+    return context
+
+
 def _extract_local_reference_corpus(payload: Mapping[str, object]) -> str:
     fields: list[str] = [
         str(payload.get("article_title") or "").strip(),
@@ -8422,6 +8645,28 @@ def _extract_local_reference_corpus(payload: Mapping[str, object]) -> str:
         str(payload.get("reference_article_summary") or "").strip(),
         str(payload.get("reference_article_structure_notes") or "").strip(),
         str(payload.get("reference_article_body_markdown") or "").strip(),
+        str(payload.get("analysis_theme") or "").strip(),
+        str(payload.get("analysis_core_conflict") or "").strip(),
+        str(payload.get("analysis_emotional_exit") or "").strip(),
+        str(payload.get("analysis_structure_mode") or "").strip(),
+        str(payload.get("analysis_opening_pattern") or "").strip(),
+        str(payload.get("analysis_hook_trigger") or "").strip(),
+        str(payload.get("analysis_progression_drive") or "").strip(),
+        str(payload.get("analysis_share_reason") or "").strip(),
+        str(payload.get("analysis_do_not_turn_into") or "").strip(),
+        " ".join(_normalize_analysis_content_pillars(payload.get("analysis_content_pillars"))),
+        str(payload.get("reference_article_analysis_theme") or "").strip(),
+        str(payload.get("reference_article_analysis_core_conflict") or "").strip(),
+        str(payload.get("reference_article_analysis_emotional_exit") or "").strip(),
+        str(payload.get("reference_article_analysis_structure_mode") or "").strip(),
+        str(payload.get("reference_article_analysis_opening_pattern") or "").strip(),
+        str(payload.get("reference_article_analysis_hook_trigger") or "").strip(),
+        str(payload.get("reference_article_analysis_progression_drive") or "").strip(),
+        str(payload.get("reference_article_analysis_share_reason") or "").strip(),
+        str(payload.get("reference_article_analysis_do_not_turn_into") or "").strip(),
+        " ".join(
+            _normalize_analysis_content_pillars(payload.get("reference_article_analysis_content_pillars"))
+        ),
     ]
     for key in ("tags", "reference_article_tags"):
         value = payload.get(key)
@@ -8509,6 +8754,11 @@ def _pick_local_seeded_pair_variant(payload: Mapping[str, object], options: tupl
 
 def _pick_local_self_reliance_title(payload: Mapping[str, object], lane: str = "external") -> str:
     options_by_lane: dict[str, tuple[str, ...]] = {
+        "self_compassion": (
+            "迟迟等不来的温柔，先由自己给自己",
+            "你就是那个，自己最需要的人",
+            "把小时候缺的那份温柔，慢慢补给自己",
+        ),
         "inward": (
             "越难的时候，越要把日子过出顺序",
             "向内有力量，向外才有选择",
@@ -8533,6 +8783,27 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
     if not corpus:
         return ""
 
+    if mode == "everyday_warmth_return":
+        if any(
+            token in corpus
+            for token in ("人活着", "为了什么", "简单快乐", "家人安康", "知己二三", "四季平安", "知足最幸福")
+        ):
+            return _pick_local_seeded_text_variant(
+                payload,
+                (
+                    "人走过一些事以后，才会承认，最想守住的不是排场，是那些简单却没丢的日子。",
+                    "年轻时总觉得幸福还在下一站，后来才明白，家人平安、知己还在，已经是很大的福气。",
+                ),
+            )
+        if any(token in corpus for token in ("改变世界", "做大事", "大房子", "大名声", "人间烟火", "一碗热汤")):
+            return _pick_local_seeded_text_variant(
+                payload,
+                (
+                    "走过半生以后，很多人会把幸福从大事请回一顿饭、一次散步和身边的人。",
+                    "年轻时总想把人生过得轰轰烈烈，后来才发现，真正让人踏实的，常常是日子里那点烟火气。",
+                ),
+            )
+
     if mode == "inner_settlement":
         if _uses_local_inner_settlement_stage_restart_variant(payload):
             return _pick_local_seeded_text_variant(
@@ -8547,8 +8818,9 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "心总往外悬着的时候，热闹也像临时借住。先把自己安顿下来，日子才会落稳。",
-                    "外面的风景再热闹，心里若没有归处，人还是会觉得漂。",
+                    "心总往外悬着的时候，热闹也很难真正让人安稳。先把自己安顿下来，日子才会落稳。",
+                    "一个人真正安静下来，不是外面没有声音，而是心里终于有了可以回去的地方。",
+                    "心里有了归处，外面的风景才不再需要替你证明什么。",
                 ),
             )
         if any(token in corpus for token in ("心若不安", "此心安处", "一餐一饮", "一呼一吸", "静待花开")):
@@ -8585,14 +8857,34 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
                     "你明明也有想法，可轮到自己时，还是习惯先说一句“算了，也行”。",
                 ),
             )
+        if not _has_local_self_worth_luxury_profile(payload) and any(
+            token in corpus for token in ("爱自己的程度", "人必自爱", "把自己养贵", "不自爱", "贱卖给不值得")
+        ):
+            return _pick_local_seeded_text_variant(
+                payload,
+                (
+                    "很多关系里的委屈，都是从一个人先把自己放轻开始的。",
+                    "你总怕失去别人时，最容易先把自己的感受和标准放到后面。",
+                ),
+            )
 
     if mode == "supportive_appreciation":
+        if _has_local_supportive_warmth_lead_profile(payload):
+            return _pick_local_seeded_text_variant(
+                payload,
+                (
+                    "有些人总是先把温暖递出去，哪怕自己也有委屈，还是舍不得让身边的人难堪。",
+                    "他收到一点好，就会想办法再还回去一点；这份温柔不张扬，却一直在日常里有回声。",
+                    "愿意把别人照亮的人，心里也有自己的风雨，只是他总习惯先把暖意留给身边的人。",
+                ),
+            )
         if any(token in corpus for token in ("并不傻", "拎得清", "心里比谁都拎得清", "不去计较")):
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。",
-                    "消息里那句玩笑其实有点刺，他看了一会儿，最后只回了个轻一点的语气。",
+                    "心软的人有自己的判断，只是不愿把一段关系只交给一时的情绪。",
+                    "愿意把话放轻的人，往往听见了刺，也已经把情分和分寸都想过了。",
+                    "有些人不急着争辩，是因为知道真正重要的从来不只是当场输赢。",
                 ),
             )
         if any(token in corpus for token in ("时有暴雨", "无尽暴雨", "去拥抱你", "四季平凡", "身边有你")):
@@ -8603,18 +8895,52 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
                     "很多柔软都不是天生迟钝，而是明明看得清，还是愿意给在乎的人多留一点暖意。",
                 ),
             )
-
-    if mode == "self_reliance_inward_support":
-        if _uses_local_self_reliance_shared_burden_variant(payload) or any(
-            token in corpus for token in ("向内求", "自救自渡", "自己熬过寒冬", "负重前行", "只有靠自己", "没人可找", "大家都在忙", "先把自己稳住", "日子接回来", "向外等")
-        ):
+        if _has_local_supportive_warmth_profile(payload):
             return _pick_local_seeded_text_variant(
                 payload,
                 (
-                    "电话拨出去之前，你先把桌上的单子理了一遍。",
-                    "事情一多的时候，先把眼前能确定的一件事抓住。",
+                    "有些人总是先把温暖递出去，哪怕自己也有委屈，还是舍不得让身边的人难堪。",
+                    "他收到一点好，就会想办法再还回去一点；这份温柔不张扬，却一直在日常里有回声。",
                 ),
             )
+
+    if mode == "relationship_aftercare" and any(
+        token in corpus for token in ("吵架", "争吵", "冷暴力", "妥协", "继续走下去", "修复")
+    ):
+        return _pick_local_seeded_text_variant(
+            payload,
+            (
+                "吵架真正难收场的地方，常常在声音停下以后，两个人都把想说的话留在了心里。",
+                "一场争执过去以后，关系会不会变远，常常看谁愿意先把输赢放下。",
+                "好的关系也会有刺，难得的是刺出来以后，仍有人愿意把话说清楚。",
+            ),
+        )
+
+    if mode == "trust_boundary" and any(
+        token in corpus for token in ("信任", "谎言", "隐瞒", "坦诚", "说到做到", "辜负")
+    ):
+        return _pick_local_seeded_text_variant(
+            payload,
+            (
+                "真正让人不安的，往往不是事情本身，而是后来才发现，自己听到的并不完整。",
+                "有些关系不是突然变远的，只是你开始对一句话反复确认。",
+                "信任最珍贵的地方，是它让两个人不用反复猜，也敢把真实交到彼此手里。",
+            ),
+        )
+
+    if mode == "self_reliance_inward_support":
+        if _uses_local_self_compassion_variant(payload):
+            return _pick_local_seeded_text_variant(
+                payload,
+                (
+                    "小时候没被好好安慰过的人，长大以后常常先学会把自己的需要收起来。",
+                    "那个小时候想被耐心听完的孩子，后来一直住在成年人的心里。",
+                ),
+            )
+        if _uses_local_self_reliance_shared_burden_variant(payload) or any(
+            token in corpus for token in ("向内求", "自救自渡", "自己熬过寒冬", "负重前行", "只有靠自己", "没人可找", "大家都在忙", "先把自己稳住", "日子接回来", "向外等")
+        ):
+            return _pick_local_self_reliance_reference_opening(payload)
 
     if mode == "emotional_engine_direct":
         if _uses_local_emotional_regret_forward_variant(payload):
@@ -8785,7 +9111,7 @@ def _has_local_pressure_interface_direct_focus(payload: Mapping[str, object]) ->
     if _infer_tracked_article_pressure_guard(payload) == "internal_pressure":
         return True
 
-    corpus = _extract_local_fallback_corpus(payload)
+    corpus = _extract_local_fallback_corpus(payload, include_analysis=False)
     if not corpus:
         return False
     pressure_hits = sum(
@@ -8825,7 +9151,8 @@ def _has_local_pressure_interface_direct_focus(payload: Mapping[str, object]) ->
 
 
 def _looks_like_local_responsibility_shelter_payload(payload: Mapping[str, object]) -> bool:
-    corpus = _extract_local_fallback_corpus(payload)
+    # Analysis explains how to write; it must not reclassify an otherwise unknown source.
+    corpus = _extract_local_fallback_corpus(payload, include_analysis=False)
     if not corpus:
         return False
     if _has_local_pressure_interface_direct_focus(payload):
@@ -9331,6 +9658,28 @@ def _has_local_supportive_warmth_profile(payload: Mapping[str, object]) -> bool:
     )
 
 
+def _has_local_supportive_warmth_lead_profile(payload: Mapping[str, object]) -> bool:
+    """Keep a strong warmth thesis ahead of secondary cues like discernment."""
+    corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
+    return any(
+        token in corpus
+        for token in (
+            "燃烧自己",
+            "照亮别人",
+            "你对他好",
+            "给他温暖",
+            "回馈给你更多",
+            "更多的温暖",
+            "穿过无尽暴雨",
+            "去拥抱你",
+            "四季平凡",
+            "身边有你",
+            "收到过好意",
+            "把收到的好",
+        )
+    )
+
+
 def _has_local_supportive_apology_profile(payload: Mapping[str, object]) -> bool:
     corpus = _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
     return any(
@@ -9408,6 +9757,21 @@ def _build_local_supportive_appreciation_paragraphs(
             "心软的人最难得的地方，是看清以后仍愿意善待。这样的温柔不是随手给谁的，它背后有判断，也有很深的情分。",
             "如果你身边有这样的人，请牵紧他的手。别只在需要时想起他的好，也在平常日子里多问一句、多做一次，让他知道自己的真心没有落空。",
             "人这一生，能遇见愿意包容你、陪你穿过风雨的人，是很大的福气。愿这份心软有人懂，也愿这份情分一直有来有往。",
+        ]
+    if _has_local_supportive_warmth_lead_profile(payload):
+        opening = intro.strip() if intro and intro.strip() and not stale_intro else "有些人总是先把温暖递出去，哪怕自己也有委屈，还是舍不得让身边的人难堪。"
+        return [
+            opening,
+            "你对他好一点，他总想再多回你一点；你给他一份暖意，他会悄悄记住，下一次再把这份好放回日常。",
+            "他记得一顿饭里的照顾，也记得别人随口说过的难处；下一次见面时，总会替你多想一步。",
+            "这样的人有自己的脾气，只是比起争个输赢，他更愿意把情分留在两个人之间。",
+            "他知道谁是真心，也知道自己的温柔不能随便交给谁。看清以后仍愿意善待，才是这份心软最难得的地方。",
+            "这份温柔很少挂在嘴边，却会落在具体的小事里：多留一把椅子，记住你的习惯，愿意在你需要时陪一会儿。",
+            "可温柔也需要回应。一个人不停地给，关系就会慢慢失去平衡；有人认真接住，暖意才会继续往前走。",
+            "真正珍惜他的人，也会在他累的时候问一句，不让他的体贴只剩下单向的付出。",
+            "温柔有人接住，关系才会从一次次小事里长出安心。",
+            "如果你身边有这样的人，别只享受他总是记得。也请在平常日子里多回一次、多问一句，让他知道递出去的好没有落空。",
+            "好的关系，是两个人都愿意为彼此留一盏灯，让温柔在来回之间继续亮着。",
         ]
     if _has_local_supportive_discernment_profile(payload):
         opening = intro.strip() if intro and intro.strip() and not stale_intro else "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。"
@@ -9487,7 +9851,7 @@ def _build_local_supportive_appreciation_paragraphs(
         ]
 
     return [
-        "你给他带一份早餐，他会记得你不吃葱；你替他挡过一次雨，他下次出门，总会在包里多放一把伞。",
+        intro,
         "这样的人很少把“我记得”挂在嘴边，却会把别人给过的好，悄悄放进下一次见面里。",
         "你随口说最近睡不好，过几天他还会问一句；你说工作忙得顾不上吃饭，他路过便利店，会顺手把热牛奶放到你桌边。",
         "他回报一份好，常常不挑隆重的时机。多留一把椅子，多记一个忌口，走到楼下时替你把门扶住，都是他把情分放在日常里的方式。",
@@ -9919,7 +10283,8 @@ def _resolve_local_fallback_mode(payload: Mapping[str, object]) -> str:
         or payload.get("reference_article_title")
         or ""
     ).strip()
-    corpus = _extract_local_fallback_corpus(payload)
+    # Analysis explains how to write; it must not reclassify an otherwise unknown source.
+    corpus = _extract_local_fallback_corpus(payload, include_analysis=False)
     if _payload_looks_like_scene_first_progression(payload):
         return "scene_first_progression"
     if (
@@ -10049,28 +10414,39 @@ def _resolve_local_fallback_mode(payload: Mapping[str, object]) -> str:
         return "everyday_warmth_return"
     if _uses_local_response_priority_time_priority_variant(payload):
         return "response_priority"
-    if any(
-        token in f"{title} {corpus}"
-        for token in (
-            "没时间",
-            "时间在哪儿",
-            "时间分配",
-            "碎片时间",
-            "回应顺序",
-            "回应优先级",
-            "排在前面",
-            "放在心上",
-            "被看见",
-            "评论",
-            "点赞",
-            "追问",
-            "补问",
-            "言外之意",
-            "读懂",
-            "轻互动",
-            "回消息",
-            "回一条消息",
-        )
+    response_text = f"{title} {corpus}"
+    response_anchor_tokens = (
+        "没时间",
+        "时间在哪儿",
+        "时间分配",
+        "碎片时间",
+        "回应顺序",
+        "回应优先级",
+        "评论",
+        "点赞",
+        "追问",
+        "补问",
+        "言外之意",
+        "读懂",
+        "轻互动",
+        "回消息",
+        "回一条消息",
+    )
+    response_context_tokens = (
+        "回应",
+        "回复",
+        "消息",
+        "回电话",
+        "红灯30秒",
+        "等红绿灯",
+        "优先",
+        "顺序",
+        "被看见",
+        "放在心上",
+    )
+    if any(token in response_text for token in response_anchor_tokens) or (
+        any(token in response_text for token in response_context_tokens)
+        and any(token in response_text for token in ("在乎", "在意", "时间", "回应", "回复", "消息"))
     ):
         return "response_priority"
     if any(
@@ -10181,6 +10557,253 @@ def _looks_like_stale_local_mode_opening(mode: str, text: str) -> bool:
         )
         return any(marker in normalized for marker in stale_pressure_markers)
     return False
+
+
+def _reference_scene_sentence_score(sentence: str) -> int:
+    """Rank source sentences by how much real-world material they carry."""
+    normalized = sentence.strip()
+    if len(normalized) < 12 or len(normalized) > 120:
+        return -100
+    concrete_tokens = (
+        "电话",
+        "留言区",
+        "视频",
+        "孩子",
+        "男孩",
+        "女孩",
+        "妈妈",
+        "父母",
+        "爷爷",
+        "奶奶",
+        "朋友",
+        "听友",
+        "家人",
+        "老婆",
+        "女儿",
+        "儿子",
+        "海边",
+        "洗衣机",
+        "饭",
+        "灯",
+        "学校",
+        "医院",
+        "账单",
+        "裙子",
+        "垃圾桶",
+        "阳台",
+        "公园",
+        "泳池",
+        "车站",
+        "街上",
+        "门口",
+        "桌上",
+        "手机",
+    )
+    action_tokens = (
+        "看到",
+        "遇见",
+        "撞见",
+        "说",
+        "问",
+        "陪",
+        "给",
+        "等",
+        "追着",
+        "坐",
+        "走",
+        "吃",
+        "回",
+        "打",
+        "写",
+        "站",
+        "蹲",
+        "换",
+        "送",
+    )
+    abstract_tokens = (
+        "人生",
+        "幸福是一种",
+        "不求大富大贵",
+        "我们总",
+        "年轻的时候",
+        "年岁渐长",
+        "幸福是什么",
+        "最大的幸福莫过于",
+        "终其一生",
+        "都是简单日子里的幸福",
+        "都是最真实的幸福",
+        "有一盏灯为你而留",
+        "有家可回",
+        "最珍贵的不过是",
+    )
+    scene_anchor_tokens = (
+        "傍晚",
+        "夜里",
+        "下班",
+        "门口",
+        "饭桌",
+        "厨房",
+        "电话",
+        "视频",
+        "留言区",
+        "海边",
+        "洗衣机",
+        "校门口",
+        "公园",
+        "泳池",
+        "垃圾桶",
+        "阳台",
+        "街头",
+        "车站",
+        "宴席",
+        "医院",
+        "手机",
+    )
+    score = sum(2 for token in concrete_tokens if token in normalized)
+    score += sum(1 for token in action_tokens if token in normalized)
+    if "：" in normalized or ":" in normalized:
+        score += 2
+    if any(token in normalized for token in ("一个", "一名", "一位", "那天", "前几天", "有一天")):
+        score += 2
+    if any(token in normalized for token in abstract_tokens):
+        score -= 5
+    if not any(token in normalized for token in scene_anchor_tokens):
+        score -= 6
+    if normalized.startswith(("相信你", "有没有", "其实", "人生", "我们总", "很多时候")):
+        score -= 6
+    return score
+
+
+def _rewrite_local_reference_scene_sentence(sentence: str) -> str:
+    """Turn a source attribution into a compact, non-verbatim scene lead."""
+    normalized = sentence.strip(" \t\r\n-—•")
+    if not normalized:
+        return ""
+    wish_match = re.match(
+        r"^听友[^，。；]{0,14}说，(?:他|她)的心愿是[：:](.+)$",
+        normalized,
+    )
+    if wish_match:
+        wish = wish_match.group(1).strip()
+        wish = wish.replace("女儿能考上理想的大学", "孩子能考上理想的大学")
+        wish = wish.replace("要和家人去海边旅游一次", "一家人去趟海边")
+        wish = wish.replace("还要给老婆换一台全自动的洗衣机", "再给爱人换一台省心的洗衣机")
+        return _ensure_sentence_end(f"一位听友列出的愿望很普通：{wish}")
+
+    video_match = re.match(r"^(?:前几天|前阵子)[，,]?看到一条[^：:]{0,30}[：:](.+)$", normalized)
+    if video_match:
+        return _ensure_sentence_end(f"视频里，{video_match.group(1).strip()}")
+
+    if "灯火阑珊的街头" in normalized and "擦肩的背影" in normalized:
+        return "街头一个像他的背影晃过去，你还是会下意识多看一眼。"
+
+    normalized = re.sub(r"^(?:听到|看到)一个故事[：:]", "", normalized)
+    normalized = re.sub(r"^(?:前几天|前阵子)[，,]?在[^，。；]{0,24}[，,]?看到", "画面里看到", normalized)
+    return _ensure_sentence_end(normalized)
+
+
+def _extract_local_reference_scene_sentences(payload: Mapping[str, object]) -> list[str]:
+    candidates = (
+        str(payload.get("reference_article_body_markdown") or "").strip(),
+        str(payload.get("body_markdown") or "").strip(),
+    )
+    for candidate in candidates:
+        cleaned = _clean_local_fallback_instruction_phrase(candidate)
+        if not cleaned:
+            continue
+        sentences = [
+            sentence.strip(" \t\r\n-—•")
+            for sentence in re.findall(r"[^。！？!?；;\n]+[。！？!?；;]?", cleaned)
+            if sentence.strip(" \t\r\n-—•")
+        ]
+        ranked = [
+            (index, sentence, _reference_scene_sentence_score(sentence))
+            for index, sentence in enumerate(sentences[:24])
+            if (
+                not _looks_like_local_fallback_instruction_fragment(sentence)
+                or _reference_scene_sentence_score(sentence) >= 10
+            )
+            and not _looks_like_local_fallback_strategy_scaffold(sentence)
+            and not extract_generic_reflective_openers(sentence)
+        ]
+        ranked = [item for item in ranked if item[2] >= 5]
+        if ranked:
+            ranked.sort(key=lambda item: (-item[2], item[0]))
+            return [ranked[0][1]]
+    return []
+
+
+def _resolve_local_reference_scene_opening(payload: Mapping[str, object]) -> str:
+    """Use an analyzed scene first, then infer one from concrete source details."""
+    opening_pattern = str(
+        payload.get("analysis_opening_pattern")
+        or payload.get("reference_article_analysis_opening_pattern")
+        or ""
+    ).strip()
+    has_explicit_scene_contract = bool(
+        opening_pattern
+        and any(
+            marker in opening_pattern
+            for marker in ("生活场景", "现实场景", "现场", "动作", "偶遇", "生活接口")
+        )
+    )
+    for key in ("reference_article_body_markdown", "body_markdown"):
+        raw = _clean_local_fallback_instruction_phrase(str(payload.get(key) or "").strip())
+        if not raw:
+            continue
+        sentences = [
+            sentence.strip(" \t\r\n-—•")
+            for sentence in re.findall(r"[^。！？!?；;\n]+[。！？!?；;]?", raw)
+            if sentence.strip(" \t\r\n-—•")
+        ]
+        sentence_candidates = sentences[:5] if has_explicit_scene_contract else []
+        for sentence in sentence_candidates:
+            if len(sentence) < 12 or len(sentence) > 100:
+                continue
+            if _looks_like_local_fallback_instruction_fragment(sentence):
+                continue
+            if _looks_like_local_fallback_strategy_scaffold(sentence):
+                continue
+            if extract_generic_reflective_openers(sentence):
+                continue
+            if sentence.startswith(("相信你", "有没有", "其实", "人生", "我们总", "很多时候")):
+                continue
+            if not any(
+                marker in sentence
+                for marker in (
+                    "傍晚",
+                    "清晨",
+                    "晚上",
+                    "那天",
+                    "今天",
+                    "他",
+                    "她",
+                    "阿婆",
+                    "孩子",
+                    "父母",
+                    "朋友",
+                    "电话",
+                    "饭桌",
+                    "裙子",
+                    "泳池",
+                    "车站",
+                    "街上",
+                    "门口",
+                    "桌上",
+                    "手里",
+                    "照片",
+                    "红灯",
+                )
+            ):
+                continue
+            return _ensure_sentence_end(sentence)
+    if not has_explicit_scene_contract:
+        inferred = _extract_local_reference_scene_sentences(payload)
+        if inferred:
+            return _rewrite_local_reference_scene_sentence(inferred[0])
+    return ""
+
+
 def _resolve_local_generic_opening(
     *,
     payload: Mapping[str, object],
@@ -10196,6 +10819,7 @@ def _resolve_local_generic_opening(
             [
                 str(strategy_card.get("hook_trigger") or "").strip(),
                 str(strategy_card.get("packaging_hook") or "").strip(),
+                str(strategy_card.get("opening_move") or "").strip(),
             ]
         )
     candidates.extend(
@@ -10255,6 +10879,13 @@ def _resolve_local_generic_opening(
         ):
             continue
         return _ensure_sentence_end(cleaned)
+    source_scene_opening = (
+        ""
+        if mode == "resilience_reconstruction"
+        else _resolve_local_reference_scene_opening(payload)
+    )
+    if source_scene_opening:
+        return source_scene_opening
     if mode_reference_opening:
         return _ensure_sentence_end(mode_reference_opening)
     resilience_opening = (
@@ -10262,6 +10893,32 @@ def _resolve_local_generic_opening(
         if _has_local_resilience_pool_profile(payload)
         else "训练没做完的那天，你坐在原地缓了一会儿；第二天，还是重新站回了起点。"
     )
+    if _extract_local_reference_corpus(payload):
+        contextual_mode_openings: dict[str, tuple[str, ...]] = {
+            "inner_settlement": (
+                "很多时候，心安不是事情都顺了，而是你不再催自己立刻把一切想明白。",
+                "人把自己安顿好以后，外面的声音还在，却不再每一句都要回头解释。",
+                "生活没有要求你今天解决所有问题，先把心放回眼前，路才会重新看得清。",
+            ),
+            "supportive_appreciation": (
+                "真正的温柔不是没有判断，而是看清以后，仍然愿意把关系往暖处带。",
+                "一个人愿意体谅你，不代表他什么都没看见，而是他把情分看得比一时的锋利更重。",
+                "被认真对待过的人，才知道温柔不是软弱，而是一种有分寸的选择。",
+            ),
+            "relationship_aftercare": (
+                "关系里的裂缝，常常不是争吵本身留下的，而是争吵以后再也没人愿意把话说完。",
+                "一段关系能不能继续，不只看有没有争执，也看争执之后还有没有人愿意回来。",
+                "真正让关系变好的，不是永远不冲突，而是冲突以后仍愿意把彼此放回心上。",
+            ),
+            "trust_boundary": (
+                "信任不是一句漂亮话，它藏在每一次坦诚、交代和说到做到里。",
+                "关系走得稳不稳，往往不在热烈的时候，而在细节需要交代时有没有躲开。",
+                "愿意放心把心交出来的人，值得你用清楚的回答和稳定的行动去回应。",
+            ),
+        }
+        contextual_opening_options = contextual_mode_openings.get(mode)
+        if contextual_opening_options:
+            return _pick_local_seeded_text_variant(payload, contextual_opening_options)
     mode_openings = {
         "everyday_warmth_return": "有些晚上，推开家门闻到饭香，人才忽然不想再和谁比较了。",
         "inner_settlement": "忙完一天回到家，把鞋摆好，给自己倒杯水；没有答案也没关系，心先有地方安静下来。",
@@ -10825,6 +11482,115 @@ def _uses_local_self_reliance_shared_burden_variant(payload: Mapping[str, object
     return strong_hits >= 2 or (strong_hits >= 1 and support_hits >= 2)
 
 
+def _uses_local_self_compassion_variant(payload: Mapping[str, object]) -> bool:
+    corpus = " ".join(
+        part
+        for part in (
+            _extract_local_reference_corpus(payload),
+            _extract_local_fallback_corpus(payload),
+        )
+        if part
+    )
+    if not corpus:
+        return False
+    anchor_hits = sum(
+        1
+        for token in (
+            "小时候",
+            "童年",
+            "没被安慰",
+            "没人安慰",
+            "没人倾听",
+            "自己给自己",
+            "自己安慰自己",
+            "温柔对待自己",
+            "做那个大人",
+            "做那个朋友",
+            "最需要的人",
+            "把自己放在心上",
+        )
+        if token in corpus
+    )
+    thesis_hits = sum(
+        1
+        for token in (
+            "童年缺失的补偿",
+            "迟迟等不来的东西",
+            "成年人最顶级的自爱",
+            "自己动手生火",
+            "你就是那个",
+            "去做你小时候需要的那个人",
+        )
+        if token in corpus
+    )
+    return anchor_hits >= 3 and (thesis_hits >= 1 or "自己给自己" in corpus)
+
+
+def _resolve_local_self_reliance_scene_family(payload: Mapping[str, object]) -> str:
+    """Choose a self-reliance opening from concrete material in the reference."""
+    corpus = " ".join(
+        part
+        for part in (
+            _extract_local_reference_corpus(payload),
+            _extract_local_fallback_corpus(payload),
+        )
+        if part
+    )
+    if any(token in corpus for token in ("电话", "来电", "接电话", "手机响", "手机一亮", "打电话", "拨出去")):
+        return "phone"
+    if any(token in corpus for token in ("倾诉", "商量", "朋友", "安慰", "哭诉", "找人")):
+        return "companionship"
+    if any(token in corpus for token in ("工作", "上班", "领导", "同事", "项目", "会议", "邮件", "绩效", "岗位")):
+        return "work"
+    return "neutral"
+
+
+def _pick_local_self_reliance_reference_opening(payload: Mapping[str, object]) -> str:
+    options_by_family = {
+        "phone": (
+            "电话拨出去之前，你先把桌上的单子理了一遍。",
+            "电话拿起来又放下时，你先把手边能处理的事理出顺序。",
+        ),
+        "companionship": (
+            "想找人商量时，你先把事情写成几行，先把最要紧的一件理清。",
+            "朋友各自忙着的时候，你先把最要紧的一件落下去，再去找愿意分担的人说清。",
+        ),
+        "work": (
+            "工作一多，你先把今天必须完成的一项圈出来。",
+            "事情同时压过来时，你先把最紧要的一件放到眼前。",
+        ),
+        "neutral": (
+            "事情一多的时候，先把眼前能确定的一件事抓住。",
+            "心里乱成一团时，先喝一口水，把下一步落到一个具体动作上。",
+        ),
+    }
+    family = _resolve_local_self_reliance_scene_family(payload)
+    return _pick_local_seeded_text_variant(payload, options_by_family[family])
+
+
+def _pick_local_self_reliance_action_paragraph(payload: Mapping[str, object]) -> str:
+    options_by_family = {
+        "phone": (
+            "电话拿起来又放下时，你没有继续在原地打转。先回一封必须回的邮件，又把明早要确认的时间写在便签上。",
+            "电话暂时没人接时，你先把能处理的那件事写下来，等心里有了顺序，再去联系愿意分担的人。",
+        ),
+        "companionship": (
+            "想找人商量时，你先把事情写成几行，先把最要紧的一件理清，再慢慢说给愿意听的人。",
+            "朋友各自忙着的时候，你先把最要紧的一件落下去，再去找愿意分担的人把话说清。",
+        ),
+        "work": (
+            "工作一多，你先把今天必须完成的一项圈出来。事情不会立刻变少，但不会再一起压在心上。",
+            "会议和待办同时压过来时，你先处理最紧要的一件，剩下的按顺序往后排。",
+        ),
+        "neutral": (
+            "事情一多的时候，先把眼前能确定的一件事抓住。",
+            "心里乱成一团时，先喝一口水，把下一步落到一个具体动作上。",
+        ),
+    }
+    family = _resolve_local_self_reliance_scene_family(payload)
+    return _pick_local_seeded_text_variant(payload, options_by_family[family])
+
+
 def _uses_local_inner_settlement_bedtime_variant(payload: Mapping[str, object]) -> bool:
     corpus = " ".join(
         part
@@ -11357,8 +12123,13 @@ def _build_local_mode_shaped_generic_paragraphs(
 ) -> list[str]:
     if mode == "everyday_warmth_return":
         if payload and _uses_local_everyday_warmth_simple_happiness_variant(payload):
+            opening = (
+                intro
+                if _extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload)
+                else f"{intro}鞋还没换好，厨房里有人探头说：“回来啦？先洗手。”这句话不响，却把一天的奔波接住了一半。"
+            )
             return [
-                f"{intro}鞋还没换好，厨房里有人探头说：“回来啦？先洗手。”这句话不响，却把一天的奔波接住了一半。",
+                opening,
                 "年轻时很容易把幸福想得很满。钱要再多一点，房子要再大一点，认识的人要再广一点，才觉得日子算往上走。",
                 "可走着走着，人会慢慢换一套算法。身体少点毛病，家里少点挂心，饭点有人等，话到嘴边有人愿意听，心就会踏实下来。",
                 "下班路过菜市场，买两把青菜、一条鱼，回家听见锅铲碰到锅边的声音，那种安心不需要发朋友圈，也不需要谁来证明。",
@@ -11370,8 +12141,13 @@ def _build_local_mode_shaped_generic_paragraphs(
                 "所以别总觉得自己拥有得不够多。家里人平安，知己还在，一日三餐能安稳吃完，已经是走过半生后最想守住的踏实。",
                 "往后，把心放宽一点，把日子过实一点。能珍惜眼前的人，能守好平淡的饭香和灯光，日子就有了值得回味的地方。",
             ]
+        opening = (
+            intro
+            if payload and (_extract_local_reference_corpus(payload) or _extract_local_fallback_corpus(payload))
+            else f"{intro}鞋还没换好，厨房里有人探头说：“回来啦？先洗手。”这句话不响，却像把一天的风尘轻轻拍了拍。"
+        )
         return [
-            f"{intro}鞋还没换好，厨房里有人探头说：“回来啦？先洗手。”这句话不响，却像把一天的风尘轻轻拍了拍。",
+            opening,
             "年轻时总觉得幸福要有很大的样子：账户数字再漂亮一点，房子再大一点，朋友圈再热闹一点。",
             "可人走到后来，常常会被很小的事劝住：父母电话里一句“别太累”，朋友饭桌上一句“你先说完”，孩子回头喊你一声，心就落了地。",
             "有个朋友前阵子说，他最开心的一天，没有升职，也没有买什么贵东西，只是下班早了半小时，陪父母去菜市场买了一把青菜。",
@@ -11515,6 +12291,17 @@ def _build_local_mode_shaped_generic_paragraphs(
             "输赢放到一边，屋里的冷气才有机会慢慢回暖。真正想继续走下去的人，会回来把话说完，把情绪接住，也把那份失望一点点接回去。",
         ]
     if mode == "self_reliance_inward_support":
+        if payload and _uses_local_self_compassion_variant(payload):
+            return [
+                intro,
+                "小时候摔了跤，哭着跑回家，盼来的却是一句“有什么好哭的”。长大以后受了委屈，想找个人说说，翻遍通讯录，又不知道该打给谁。",
+                "于是人慢慢学会了把期待往回收：难过时说没事，需要时说算了，明明很想被抱一抱，嘴上却先说自己不需要。可被压下去的渴望不会凭空消失，它会变成不安全感，也会让人一边想靠近，一边觉得自己不配被好好对待。",
+                "等别人把童年缺的那份温柔补回来，当然很好，可这件事太被动，也太容易落空。真正的自爱，是你终于愿意先站到自己这一边。",
+                "你小时候需要一个温柔、耐心、愿意蹲下来听你说话的大人，那就从现在开始，别再用责备和催促对待自己。你难过时需要一个不急着评判的朋友，那就允许自己哭一会儿，不必每次都把坚强演得很完整。",
+                "那些迟迟等不来的理解、安慰和保护，可以先由自己给自己。你可以承认自己仍然需要被安慰，也可以先把这份照顾送回自己手里：我的感受值得被听见，我的需要也值得被照顾。",
+                "当你开始把自己放回心里，别人给不给回应，就不再决定你的价值；有人来爱你，你能接住；一时没人赶来，你也不会把自己丢在原地。",
+                "记住，你就是那个，你最需要的人。先把自己照顾好，再带着这份稳稳的爱，去遇见真正懂得珍惜你的人。",
+            ]
         stale_markers = (
             "外面的帮扶",
             "没人能立刻搭把手",
@@ -11564,7 +12351,7 @@ def _build_local_mode_shaped_generic_paragraphs(
             point_four = "求助不丢人，自救也不丢人"
         return [
             _compose_local_followup(intro, point_one),
-            "电话拿起来又放下时，你没有继续在原地打转。先回了一封必须回的邮件，又把明早要确认的时间写在便签上。",
+            _pick_local_self_reliance_action_paragraph(payload or {}),
             "人就是在这样的动作里慢慢回稳的。喝一口水，把灯打开，把最要紧的一件事放到眼前。",
             _compose_local_followup(point_two, "有人马上帮你当然很好；一时等不到，也不代表你只能停在那里。"),
             "顺序理出来，心里的慌就会退一点；手边能做的事落下去，外面的帮助来了，也更容易接得住。",
@@ -11636,6 +12423,38 @@ def _build_local_mode_shaped_generic_paragraphs(
             "被认真听完一次，很多悬着的情绪就会自己落下来。你不必把每句话说得漂亮，也不用先证明自己的难受够不够重要。",
             "好的关系不需要时时在线。你真正需要开口的时候，对方愿意在场；你把真心交出去的时候，他也舍得认真接住。",
         ]
+
+    writing_form = _resolve_local_generic_writing_form(payload or {}, mode)
+    if writing_form == "scene_progression":
+        return [
+            intro,
+            f"{_ensure_sentence_end(point_one)}当时看起来只是一个停顿，后来才知道，真正改变方向的，往往就是这一下。",
+            f"事情继续往前走，{_ensure_sentence_end(point_two)}可现场留下的那点反应，没有跟着散掉。",
+            _compose_local_followup(
+                "等你回头看，才会发现那一刻已经把后面的路分开了。",
+                reframe,
+            ),
+            _compose_local_followup(point_three, consequence),
+            _compose_local_followup(point_four, closing),
+        ]
+    if writing_form == "contrast_reframe":
+        return [
+            intro,
+            bridge,
+            f"表面上，{_ensure_sentence_end(point_one)}真正需要重新看的，却是{_ensure_sentence_end(point_two)}",
+            _compose_local_followup(reframe, point_three),
+            _compose_local_followup(consequence, point_four),
+            closing,
+        ]
+    if writing_form == "fragment_chain":
+        return [
+            intro,
+            f"有时，{_ensure_sentence_end(point_one)}",
+            f"换到另一处日常，{_ensure_sentence_end(point_two)}",
+            f"再往后看，{_ensure_sentence_end(point_three)}",
+            _compose_local_followup(reframe, consequence),
+            _compose_local_followup(point_four, closing),
+        ]
     return [
         intro,
         bridge,
@@ -11644,6 +12463,38 @@ def _build_local_mode_shaped_generic_paragraphs(
         _compose_local_followup(point_three, consequence),
         _compose_local_followup(point_four, closing),
     ]
+
+
+def _resolve_local_generic_writing_form(payload: Mapping[str, object], mode: str) -> str:
+    """Choose a fallback composition from the analyzed movement, not a global shell."""
+    strategy_card = payload.get("strategy_card")
+    fields = [
+        str(payload.get("analysis_opening_pattern") or "").strip(),
+        str(payload.get("reference_article_analysis_opening_pattern") or "").strip(),
+        str(payload.get("analysis_progression_drive") or "").strip(),
+        str(payload.get("reference_article_analysis_progression_drive") or "").strip(),
+    ]
+    if isinstance(strategy_card, Mapping):
+        fields.extend(
+            [
+                str(strategy_card.get("opening_move") or "").strip(),
+                str(strategy_card.get("progression_drive") or "").strip(),
+            ]
+        )
+    contract_text = " ".join(field for field in fields if field)
+    if any(token in contract_text for token in ("连续现场", "动作", "停顿", "当场", "现场变化")):
+        return "scene_progression"
+    if any(token in contract_text for token in ("比较", "标准", "坐标", "误认", "重新排序", "反差")):
+        return "contrast_reframe"
+    if any(token in contract_text for token in ("碎片", "不同现实接口", "彼此照见", "并列", "回声")):
+        return "fragment_chain"
+    if mode == "trust_boundary":
+        return "scene_progression"
+    if mode == "supportive_appreciation":
+        return "fragment_chain"
+    if mode == "fragment_chain_observation":
+        return "fragment_chain"
+    return ""
 
 def _build_local_responsibility_shelter_draft(payload: Mapping[str, object]) -> tuple[str, str]:
     outline = payload.get("outline")
@@ -11751,14 +12602,55 @@ def _build_local_source_scene_draft_fallback(payload: Mapping[str, object]) -> t
         return title, "把眼前的日子过实一点，很多答案会在细节里慢慢显出来。"
 
     paragraphs = [_ensure_sentence_end(sentence) for sentence in sentences[:3]]
-    paragraphs.extend(
-        [
+    source_compact = {
+        re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", sentence)
+        for sentence in sentences
+    }
+    analysis_paragraphs: list[str] = []
+    for key in ("analysis_theme", "analysis_core_conflict", "topic_angle"):
+        candidate = _clean_local_fallback_instruction_phrase(str(payload.get(key) or "").strip())
+        if (
+            not candidate
+            or len(candidate) < 8
+            or _looks_like_local_fallback_instruction_fragment(candidate)
+            or _looks_like_local_fallback_strategy_scaffold(candidate)
+        ):
+            continue
+        candidate_compact = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", candidate)
+        if (
+            candidate_compact in source_compact
+            or any(anchor and (anchor in candidate_compact or candidate_compact in anchor) for anchor in source_compact)
+            or candidate in analysis_paragraphs
+        ):
+            continue
+        analysis_paragraphs.append(_ensure_sentence_end(candidate))
+
+    closing_seed = ""
+    emotional_exit = str(payload.get("analysis_emotional_exit") or "").strip()
+    if (
+        emotional_exit
+        and not _looks_like_local_fallback_instruction_fragment(emotional_exit)
+        and not _looks_like_local_fallback_strategy_scaffold(emotional_exit)
+    ):
+        closing_seed = emotional_exit
+    elif len(sentences) > 3:
+        closing_seed = sentences[-1]
+    if closing_seed:
+        closing_seed = _ensure_sentence_end(closing_seed)
+    if analysis_paragraphs:
+        middle_paragraphs = ["".join(analysis_paragraphs[:2])]
+    else:
+        middle_paragraphs = [
             "这样的场景看起来很小，却常常把一个人的日子照得很清楚。真正有分量的，未必是轰轰烈烈的大事，也可能是某个傍晚、某个动作，和当时没有被说出口的那点心情。",
             "人走到生活里面，才会知道什么值得留下。不是每件事都要立刻得出结论，有些感受先被认真对待，日子就已经往前走了一步。",
             "把眼前的人和事认真对待，把该做的小事做好，很多原本模糊的答案会在下一次回头时变得清楚。",
-            "菜市场门口的人已经各自走远了，水还在地上闪着。你提起袋子，脚步也跟着慢下来，知道今天不用急着把所有事说完。",
         ]
+    closing_paragraph = (
+        f"等你再回头看，{closing_seed}眼前的日子不用急着证明什么，能把每一步走稳，就是在把生活过好。"
+        if closing_seed
+        else "人和事会各自走远，留下的那点心意却不会立刻消失。今天不用急着把所有事说完，先把眼前这一步走好。"
     )
+    paragraphs.extend([*middle_paragraphs, closing_paragraph])
     return title, "\n\n".join(paragraphs)
 
 
@@ -11866,9 +12758,11 @@ def _finalize_initial_draft_candidate(
     strategy_bundle_payload: dict[str, object],
     polish_instruction: str | None,
     generator,
+    retry_budget: _CreativeQualityRetryBudget | None = None,
     title: str,
     body_markdown: str,
 ) -> _InitialDraftCandidateResult:
+    retry_budget = retry_budget or _new_creative_quality_retry_budget()
     def _finish(body: str, current_title: str) -> _InitialDraftCandidateResult:
         reference_source_markdown = _get_project_reference_source_markdown(project)
         normalized_title = _normalize_responsibility_shelter_draft_title(
@@ -11918,6 +12812,7 @@ def _finalize_initial_draft_candidate(
             strategy_bundle_payload=strategy_bundle_payload,
             reference_article_payload=reference_article_payload,
             generator=generator,
+            retry_budget=retry_budget,
         )
         finalized_body_markdown, finalized_title = _maybe_retry_draft_for_positive_payoff(
             project=project,
@@ -11928,20 +12823,13 @@ def _finalize_initial_draft_candidate(
             strategy_bundle_payload=strategy_bundle_payload,
             reference_article_payload=reference_article_payload,
             generator=generator,
+            retry_budget=retry_budget,
             candidate_title=finalized_title,
             candidate_body_markdown=finalized_body_markdown,
         )
-        finalized_body_markdown, finalized_title = _maybe_compress_draft_output(
-            project_slug=project_slug,
-            tone_profile=tone_profile,
-            title=finalized_title,
-            body_markdown=finalized_body_markdown,
-            project=project,
-            outline_row=outline_row,
-            review_comment=review_comment,
-            reference_article_payload=reference_article_payload,
-            generator=generator,
-        )
+        # Keep one length-cleanup request per draft. The quality pass already
+        # receives the active tone profile and target length; running compression
+        # again after it only adds latency and token cost.
         if str(project["source_type"]) == "tracked_article":
             finalized_body_markdown, finalized_title = _prefer_less_smoothed_tracked_article_variant(
                 preferred_title=finalized_title,
@@ -11970,24 +12858,25 @@ def _maybe_retry_draft_for_positive_payoff(
     strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
+    retry_budget: _CreativeQualityRetryBudget | None = None,
     candidate_title: str,
     candidate_body_markdown: str,
 ) -> tuple[str, str]:
+    retry_budget = retry_budget or _new_creative_quality_retry_budget()
     current_title = candidate_title
     current_markdown = candidate_body_markdown
     target_word_count = tone_profile.target_word_count
 
-    for _ in range(_creative_quality_retry_max_attempts()):
-        if not _should_retry_for_positive_payoff(
-            strategy_bundle_payload=strategy_bundle_payload,
-            candidate_markdown=current_markdown,
-            target_word_count=target_word_count,
-        ):
-            return current_markdown, current_title
+    if not _should_retry_for_positive_payoff(
+        strategy_bundle_payload=strategy_bundle_payload,
+        candidate_markdown=current_markdown,
+        target_word_count=target_word_count,
+    ) or not retry_budget.acquire():
+        return current_markdown, current_title
 
-        retry_result = generator.generate_draft(
-            _build_nested_draft_retry_payload(
-                {
+    retry_result = generator.generate_draft(
+        _build_nested_draft_retry_payload(
+            {
                 "trend_title": project["trend_title"],
                 "topic_title": project["topic_title"],
                 "topic_angle": project["topic_angle"],
@@ -12015,22 +12904,22 @@ def _maybe_retry_draft_for_positive_payoff(
                 **strategy_bundle_payload,
                 **reference_article_payload,
                 },
-                generator=generator,
-            )
+            generator=generator,
         )
-        retried_title = str(retry_result["title"])
-        retried_markdown = str(retry_result["body_markdown"])
-        if _positive_payoff_candidate_rank(
-            strategy_bundle_payload=strategy_bundle_payload,
-            candidate_markdown=retried_markdown,
-            target_word_count=target_word_count,
-        ) < _positive_payoff_candidate_rank(
-            strategy_bundle_payload=strategy_bundle_payload,
-            candidate_markdown=current_markdown,
-            target_word_count=target_word_count,
-        ):
-            current_title = retried_title
-            current_markdown = retried_markdown
+    )
+    retried_title = str(retry_result["title"])
+    retried_markdown = str(retry_result["body_markdown"])
+    if _positive_payoff_candidate_rank(
+        strategy_bundle_payload=strategy_bundle_payload,
+        candidate_markdown=retried_markdown,
+        target_word_count=target_word_count,
+    ) < _positive_payoff_candidate_rank(
+        strategy_bundle_payload=strategy_bundle_payload,
+        candidate_markdown=current_markdown,
+        target_word_count=target_word_count,
+    ):
+        current_title = retried_title
+        current_markdown = retried_markdown
 
     return current_markdown, current_title
 
@@ -12752,7 +13641,62 @@ def _get_strategy_resonance_targets(
     positive_direction = str(strategy_card.get("positive_direction") or "").strip()
     quotable_line_goal = str(strategy_card.get("quotable_line_goal") or "").strip()
     packaging_focus = str(strategy_card.get("packaging_focus") or "").strip()
+    if _has_complete_strategy_bundle_analysis_contract(strategy_bundle_payload):
+        contract = strategy_bundle_payload.get("reference_analysis_contract")
+        contract_payload = {
+            "source_type": str(strategy_bundle_payload.get("source_type") or ""),
+            "topic_title": str(strategy_bundle_payload.get("topic_title") or ""),
+            "topic_angle": str(strategy_bundle_payload.get("topic_angle") or ""),
+        }
+        if isinstance(contract, Mapping):
+            contract_payload.update(
+                {
+                    "analysis_structure_mode": str(contract.get("structure_mode") or ""),
+                    "analysis_theme": str(contract.get("theme") or ""),
+                    "analysis_core_conflict": str(contract.get("core_conflict") or ""),
+                    "analysis_emotional_exit": str(contract.get("emotional_exit") or ""),
+                    "analysis_opening_pattern": str(contract.get("opening_pattern") or ""),
+                    "analysis_hook_trigger": str(contract.get("hook_trigger") or ""),
+                    "analysis_progression_drive": str(contract.get("progression_drive") or ""),
+                    "analysis_share_reason": str(contract.get("share_reason") or ""),
+                    "analysis_do_not_turn_into": str(contract.get("do_not_turn_into") or ""),
+                    "analysis_content_pillars": _normalize_analysis_content_pillars(
+                        contract.get("content_pillars")
+                    ),
+                }
+            )
+        execution_surface = build_complete_contract_execution_surface(contract_payload)
+        if execution_surface:
+            quotable_line_goal = str(
+                execution_surface.get("quotable_line_goal")
+                or quotable_line_goal
+            ).strip()
+            packaging_focus = str(
+                execution_surface.get("packaging_focus")
+                or packaging_focus
+            ).strip()
     return structure_mode, emotional_value_goal, positive_direction, quotable_line_goal, packaging_focus
+
+
+def _has_complete_strategy_bundle_analysis_contract(
+    strategy_bundle_payload: Mapping[str, object],
+) -> bool:
+    if str(strategy_bundle_payload.get("source_type") or "").strip() != "tracked_article":
+        return False
+    contract = strategy_bundle_payload.get("reference_analysis_contract")
+    if not isinstance(contract, Mapping):
+        return False
+    return has_complete_tracked_article_analysis_contract(
+        analysis_structure_mode_hint=str(contract.get("structure_mode") or ""),
+        analysis_theme=str(contract.get("theme") or ""),
+        analysis_core_conflict=str(contract.get("core_conflict") or ""),
+        analysis_emotional_exit=str(contract.get("emotional_exit") or ""),
+        analysis_opening_pattern=str(contract.get("opening_pattern") or ""),
+        analysis_hook_trigger=str(contract.get("hook_trigger") or ""),
+        analysis_progression_drive=str(contract.get("progression_drive") or ""),
+        analysis_share_reason=str(contract.get("share_reason") or ""),
+        analysis_do_not_turn_into=str(contract.get("do_not_turn_into") or ""),
+    )
 
 
 def _get_strategy_contract_targets(strategy_bundle_payload: Mapping[str, object]) -> dict[str, object]:
@@ -12786,6 +13730,44 @@ def _get_strategy_contract_targets(strategy_bundle_payload: Mapping[str, object]
         if isinstance(quotable_line_seeds_value, list)
         else []
     )
+    packaging_hook = str(strategy_card.get("packaging_hook") or "").strip()
+    if _has_complete_strategy_bundle_analysis_contract(strategy_bundle_payload):
+        contract = strategy_bundle_payload.get("reference_analysis_contract")
+        contract_payload = {
+            "source_type": str(strategy_bundle_payload.get("source_type") or ""),
+            "topic_title": str(strategy_bundle_payload.get("topic_title") or ""),
+            "topic_angle": str(strategy_bundle_payload.get("topic_angle") or ""),
+        }
+        if isinstance(contract, Mapping):
+            contract_payload.update(
+                {
+                    "analysis_structure_mode": str(contract.get("structure_mode") or ""),
+                    "analysis_theme": str(contract.get("theme") or ""),
+                    "analysis_core_conflict": str(contract.get("core_conflict") or ""),
+                    "analysis_emotional_exit": str(contract.get("emotional_exit") or ""),
+                    "analysis_opening_pattern": str(contract.get("opening_pattern") or ""),
+                    "analysis_hook_trigger": str(contract.get("hook_trigger") or ""),
+                    "analysis_progression_drive": str(contract.get("progression_drive") or ""),
+                    "analysis_share_reason": str(contract.get("share_reason") or ""),
+                    "analysis_do_not_turn_into": str(contract.get("do_not_turn_into") or ""),
+                    "analysis_content_pillars": _normalize_analysis_content_pillars(
+                        contract.get("content_pillars")
+                    ),
+                }
+            )
+        execution_surface = build_complete_contract_execution_surface(contract_payload)
+        if execution_surface:
+            scene_anchor_requirements = [
+                str(item).strip()
+                for item in execution_surface.get("scene_anchor_requirements", [])
+                if str(item).strip()
+            ]
+            quotable_line_seeds = [
+                str(item).strip()
+                for item in execution_surface.get("quotable_line_seeds", [])
+                if str(item).strip()
+            ]
+            packaging_hook = str(execution_surface.get("packaging_hook") or packaging_hook).strip()
     return {
         "theme_axis": str(problem_brief.get("theme_axis") or "").strip(),
         "anti_drift_axis": str(problem_brief.get("anti_drift_axis") or "").strip(),
@@ -12793,7 +13775,7 @@ def _get_strategy_contract_targets(strategy_bundle_payload: Mapping[str, object]
         "scene_anchor_requirements": scene_anchor_requirements,
         "realism_texture_goal": str(strategy_card.get("realism_texture_goal") or "").strip(),
         "quotable_line_seeds": quotable_line_seeds,
-        "packaging_hook": str(strategy_card.get("packaging_hook") or "").strip(),
+        "packaging_hook": packaging_hook,
     }
 
 
@@ -14545,13 +15527,14 @@ def _build_local_assets_fallback(
     topic_angle: str,
     draft_title: str,
     draft_body_markdown: str,
+    strategy_context: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    focus_payload = {
+    focus_payload = _merge_local_creative_context({
         "source_type": "tracked_article",
         "topic_title": topic_title,
         "topic_angle": topic_angle,
         "body_markdown": draft_body_markdown,
-    }
+    }, strategy_context=strategy_context)
     first_sentence = ""
     for paragraph in _extract_non_heading_paragraphs(draft_body_markdown):
         sentences = _split_block_sentences(paragraph)
@@ -14796,6 +15779,7 @@ def _build_local_publish_package_fallback(
     draft_title: str,
     draft_body_markdown: str,
     assets: AssetItem,
+    strategy_context: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     def _rebuild_distinct_body_line(*excluded: str) -> str:
         excluded_values = {item.strip() for item in excluded if item and item.strip()}
@@ -14816,7 +15800,7 @@ def _build_local_publish_package_fallback(
                 break
         return "".join(picked).strip()
 
-    focus_payload = {
+    focus_payload = _merge_local_creative_context({
         "source_type": "tracked_article",
         "topic_title": draft_title,
         "body_markdown": draft_body_markdown,
@@ -14825,7 +15809,7 @@ def _build_local_publish_package_fallback(
         "social_teaser_options": list(assets.social_teaser_options),
         "title_options": list(assets.title_options),
         "recommended_title": assets.recommended_title,
-    }
+    }, strategy_context=strategy_context)
     title_options = _dedupe_safe_packaging_text_options(
         [assets.recommended_title, *assets.title_options, draft_title],
         fallback_title=draft_title,
@@ -14938,8 +15922,23 @@ def _build_local_publish_package_fallback(
                 publish_lead = "翻到年初那页计划时，先别急着给这半年判输。有些目标还空着，但你认真扛过的日子、遇见的温暖和重新调整的勇气，都不该被轻轻抹掉。"
                 abstract = "这半年没有完全照着计划走，也不代表你白走了一程。没完成的清单可以慢慢补，错过的人和事可以慢慢安放。把眼前事做好，把身边人珍惜好，后面的日子还会有新的答案。"
             elif _uses_local_inner_settlement_homecoming_variant(focus_payload):
-                publish_lead = "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。眼前这个普通的日子稳下来，心也会慢慢跟着落地。"
-                abstract = "心安会落在很小的动作里：把一顿饭吃热，把一句话说慢，把今天过清楚。外面的风停不停由不得你，屋里的灯，却可以由你亲手打开。"
+                publish_lead, abstract = _pick_local_seeded_pair_variant(
+                    focus_payload,
+                    (
+                        (
+                            "心里终于有了归处，外面的声音还在，已经不必每一句都拿来惊动自己。",
+                            "真正的心安，不是世界突然安静，而是你知道怎样把自己带回当下。先把今天过清楚，明天自然会有明天的答案。",
+                        ),
+                        (
+                            "你不再急着向外面讨一个确定的答案，心就慢慢从纷扰里退回来，重新有了安放自己的地方。",
+                            "人一旦不再把全部心力交给未知，普通的一餐一饮也会重新有重量。把自己安顿好，就是在给生活留出转晴的机会。",
+                        ),
+                        (
+                            "有些夜晚不需要想通什么，能让心从悬着的地方落下来，就已经是在照顾自己。",
+                            "心安不是把所有问题一次解决，而是先允许今天只是今天。你把脚下站稳，很多路就会慢慢显出来。",
+                        ),
+                    ),
+                )
             elif any(token in draft_body_markdown for token in ("已经过去的事", "还没发生的事", "提前在心里演很多遍", "很多答案不会今晚就来")):
                 publish_lead = "不用把所有事都在今晚想通，有些情绪也不必立刻处理干净。先把今天过完，人就会慢慢松下来。"
                 abstract = "已经过去的先放一放，还没发生的也先别追着跑。把饭吃好，把灯关好，心就会一点点回到眼前。"
@@ -14990,9 +15989,27 @@ def _build_local_publish_package_fallback(
             if _has_local_supportive_misread_profile(focus_payload):
                 publish_lead = "她把饭菜重新热好，仍然愿意把这段关系往暖处带。心软的人把情分看得很重，这份温柔也值得被认真接住。"
                 abstract = "她愿意给关系留余地，是因为在乎。真正珍惜她的人，也会把答应过的改变做到，让这份温柔一直有来有往。"
+            elif _has_local_supportive_warmth_lead_profile(focus_payload):
+                publish_lead = "愿意把温暖递给别人的人，也值得有人回过头来照顾他的感受。"
+                abstract = "他总把收到的好放进下一次见面里，把一份温柔继续传下去。可真正好的关系，不是一个人不停地给，而是这份暖意有人认真接住，也有人愿意回赠。"
             elif _has_local_supportive_discernment_profile(focus_payload):
-                publish_lead = "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。看得清，还愿意把场面接住，这份心软更该被珍惜。"
-                abstract = "心软有分寸，退让也有判断。他愿意给关系留一点暖意，心里装着的是情分，也是分寸。若你身边有这样的人，请记得好好接住他的温柔。"
+                publish_lead, abstract = _pick_local_seeded_pair_variant(
+                    focus_payload,
+                    (
+                        (
+                            "真正的心软，不是听不见刺，而是听见以后，仍愿意先看这段关系值不值得留。",
+                            "他看得清，也有自己的分寸；愿意把话放轻，是因为在乎，不是因为谁都可以随意越界。这样的温柔，值得被认真回应。",
+                        ),
+                        (
+                            "有些人把话咽回去，不是没感觉，而是已经把情分、分寸和自己的难受都想过一遍。",
+                            "心软从来不是没有判断。愿意给关系留余地，是珍惜；懂得把尊重还回来，才是真正接住了这份温柔。",
+                        ),
+                        (
+                            "愿意体谅你的人，往往比谁都知道自己受了什么委屈，只是没有把一时的锋利放在关系前面。",
+                            "别把一个人的包容当成没有底线。看清以后仍然选择善待，是很重的情分，也需要同样认真地被珍惜。",
+                        ),
+                    ),
+                )
             elif any(token in draft_body_markdown for token in ("歉意", "道歉", "原谅", "真心道了歉", "把歉意说出口")):
                 publish_lead = "那句“对不起”说完，她沉默了一会儿，还是把水杯往你这边推了推。刚才的话确实伤到了她，可这段关系在她心里，比当下那口气更重要，所以她愿意再把话接起来。"
                 abstract = "道歉最有分量的部分，往往发生在下一次：你记得她为什么难过，也真的把那件事做得不一样。温柔被认真接住，才会一直是温柔。"
@@ -15000,8 +16017,19 @@ def _build_local_publish_package_fallback(
                 publish_lead = "你给过的每一点好，他都没有随手放过。你说不吃什么、最近哪里难，他记在心上，下一次见面就替你多想一步。"
                 abstract = "有些人的温柔不在漂亮话里，而在一把备用的伞、一杯记得少糖的咖啡和一句隔了几天还会问起的近况里。收到过好意，也愿意把它继续传下去，日子就会越过越暖。"
             else:
-                publish_lead = "饭桌上的气氛刚有点僵，她先夹了一筷子菜，问了句：“还吃吗？”她也会难受，只是舍不得让在乎的人一直隔着一口气。"
-                abstract = "肯先把话接回来的人，已经把关系放在了输赢前面。别让这份主动总是一个人的习惯；你也往前走一步，很多误会就能停在今晚。"
+                publish_lead, abstract = _pick_local_seeded_pair_variant(
+                    focus_payload,
+                    (
+                        (
+                            "她不是没有情绪，只是每次关系快要变冷时，还是愿意先把话接回来。",
+                            "肯把关系放在输赢前面的人，值得被认真对待。别让主动永远只是她一个人的习惯，你也往前一步，温柔才不会变成消耗。",
+                        ),
+                        (
+                            "有些人总先替别人留台阶，却很少有人回头问一句：你刚才是不是也难受？",
+                            "体谅不是无条件退让。真正好的关系，会让温柔有来有往，也让每一次和好都带着改变。",
+                        ),
+                    ),
+                )
         elif mode == "trust_boundary":
             publish_lead, abstract = _resolve_trust_boundary_publish_copy()
         elif mode == "self_worth_rebuild":
@@ -15014,8 +16042,23 @@ def _build_local_publish_package_fallback(
         elif mode == "trust_boundary" or _has_local_trust_boundary_focus(focus_payload):
             publish_lead, abstract = _resolve_trust_boundary_publish_copy()
         elif mode == "relationship_aftercare":
-            publish_lead = "门关上以后，谁都没再说话。过了一会儿，他把热水放到你手边，低声问：“刚才让你难受了吗？”"
-            abstract = "争吵不会因为一句话马上消失，可那杯热水、那句追问，会让人知道今晚还有机会好好收场。把歉意说清，把下次要改的地方记住，两个人都肯往前一步，伤口就不会只剩下伤口。"
+            publish_lead, abstract = _pick_local_seeded_pair_variant(
+                focus_payload,
+                (
+                    (
+                        "一场争执过去以后，真正重要的不是谁赢了，而是谁还愿意把没说完的话接着说下去。",
+                        "好的关系不是永远没有冲突，而是情绪退潮以后，仍有人愿意把歉意说清，把下次要改的地方记住。两个人都往前一步，伤口才有机会变成理解。",
+                    ),
+                    (
+                        "有些关系不是吵散的，是吵完以后谁都不肯先回来，最后把沉默过成了距离。",
+                        "愿意在冷静后重新开口，不是低头认输，而是把这段关系放在当下的输赢之前。能修复，才是真正在乎。",
+                    ),
+                    (
+                        "争吵并不可怕，可怕的是问题过去了，彼此的感受却再也没人愿意照看。",
+                        "把话说开，把情绪接住，把承诺落实到下一次相处里，关系才会越过争执，重新回到愿意并肩的位置。",
+                    ),
+                ),
+            )
         elif mode == "resilience_reconstruction":
             if _has_local_resilience_pool_profile(focus_payload):
                 publish_lead = "她重新下水的那一天，命运给过的缺口还在，疼也还在。可每多划一下，身体就多记住一点力量，人生也被她一点点练回自己手里。"
@@ -15082,8 +16125,8 @@ def _build_local_publish_package_fallback(
                 intro_options = _dedupe_nonempty_text_options(
                     [
                         publish_lead,
-                        "把鞋摆好，给自己倒杯水，普通的一天也能重新落稳。",
-                        "外面的风停不停由不得你，屋里的灯可以由你亲手打开。",
+                        "心里有了归处，普通的一天也能重新落稳。",
+                        "先把自己安顿好，外面的声音就不必句句都来惊动你。",
                         *intro_options,
                     ]
                 )
@@ -15153,10 +16196,15 @@ def _build_local_publish_package_fallback(
                     "心软的人，看清以后仍愿意把情分放在前面。",
                     "她愿意给关系留余地，也值得被同样认真地珍惜。",
                 ]
+            elif _has_local_supportive_warmth_lead_profile(focus_payload):
+                supportive_intro_options = [
+                    "收到过好意，还愿意把它继续传下去的人，值得被好好对待。",
+                    "温柔不是一个人的燃烧，而是两个人都愿意为彼此留一盏灯。",
+                ]
             elif _has_local_supportive_discernment_profile(focus_payload):
                 supportive_intro_options = [
-                    "看得清，还愿意把场面接住的人，最该被认真珍惜。",
-                    "心软不是迟钝，是明白以后还愿意留一点暖意。",
+                    "看得清，还愿意把关系往暖处带的人，最该被认真珍惜。",
+                    "心软不是迟钝，是明白以后仍然有自己的分寸。",
                 ]
             elif any(token in draft_body_markdown for token in ("歉意", "道歉", "原谅", "真心道了歉", "把歉意说出口")):
                 supportive_intro_options = [
@@ -15170,8 +16218,8 @@ def _build_local_publish_package_fallback(
                 ]
             else:
                 supportive_intro_options = [
-                    "肯先把话接回来的人，已经把关系放在了输赢前面。",
-                    "你也往前走一步，很多误会就能停在今晚。",
+                    "愿意先把关系放回心上的人，已经把在乎放在了输赢前面。",
+                    "温柔有来有往，才不会慢慢变成一个人的消耗。",
                 ]
             intro_options = _dedupe_nonempty_text_options([publish_lead, *supportive_intro_options, *intro_options])
         elif mode == "self_worth_rebuild":
@@ -15272,6 +16320,15 @@ def _build_local_publish_package_fallback(
 
     lead_text = publish_lead.strip()
     title_text = publish_title.strip()
+    social_teaser_text = assets.social_teaser.strip()
+    if lead_text and social_teaser_text and lead_text == social_teaser_text:
+        rebuilt_lead = _rebuild_distinct_body_line(lead_text, title_text, draft_title.strip())
+        if rebuilt_lead and rebuilt_lead not in {lead_text, title_text, draft_title.strip()}:
+            # Keep the teaser's concrete scene as the lead anchor while adding
+            # one fresh sentence so generic fallback packaging does not erase
+            # the source-specific entry point just to avoid duplication.
+            publish_lead = f"{lead_text}{rebuilt_lead}"
+            lead_text = publish_lead
     if lead_text and lead_text in {title_text, draft_title.strip()}:
         rebuilt_lead = _rebuild_distinct_body_line(lead_text, title_text, draft_title.strip())
         if rebuilt_lead and rebuilt_lead not in {lead_text, title_text}:
@@ -16020,6 +17077,11 @@ def _repair_repeated_phrase_typo_residue(*, title: str, body_markdown: str) -> s
         "对方方不方便": "对方不方便",
         "是是不是": "是不是",
         "自己你": "自己",
+        # Models occasionally repeat the object after a verb phrase, e.g.
+        # "把事情接住事". Keep this list narrow so natural reduplication is
+        # left untouched.
+        "接住事儿": "接住",
+        "接住事": "接住",
     }
     cleaned = body_markdown
     for typo, replacement in replacements.items():
@@ -19532,11 +20594,13 @@ def _maybe_retry_polish_for_structure_drift(
     strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
+    retry_budget: _CreativeQualityRetryBudget | None = None,
     source_draft_title: str,
     source_draft_body_markdown: str,
     candidate_title: str,
     candidate_body_markdown: str,
 ) -> tuple[str, str]:
+    retry_budget = retry_budget or _new_creative_quality_retry_budget()
     if not polish_instruction:
         return candidate_body_markdown, candidate_title
 
@@ -19545,6 +20609,8 @@ def _maybe_retry_polish_for_structure_drift(
         candidate_markdown=candidate_body_markdown,
     )
     if not missing_headings:
+        return candidate_body_markdown, candidate_title
+    if not retry_budget.acquire():
         return candidate_body_markdown, candidate_title
 
     retry_result = generator.generate_draft(
@@ -19591,11 +20657,13 @@ def _maybe_retry_polish_for_over_smoothing(
     strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
+    retry_budget: _CreativeQualityRetryBudget | None = None,
     source_draft_title: str,
     source_draft_body_markdown: str,
     candidate_title: str,
     candidate_body_markdown: str,
 ) -> tuple[str, str]:
+    retry_budget = retry_budget or _new_creative_quality_retry_budget()
     if not polish_instruction:
         return candidate_body_markdown, candidate_title
 
@@ -19610,6 +20678,8 @@ def _maybe_retry_polish_for_over_smoothing(
         candidate_markdown=candidate_body_markdown,
     )
     if not excessive_openers:
+        return candidate_body_markdown, candidate_title
+    if not retry_budget.acquire():
         return candidate_body_markdown, candidate_title
 
     retry_result = generator.generate_draft(
@@ -19673,11 +20743,13 @@ def _maybe_retry_polish_for_article_shell_cleanup(
     strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
+    retry_budget: _CreativeQualityRetryBudget | None = None,
     source_draft_title: str,
     source_draft_body_markdown: str,
     candidate_title: str,
     candidate_body_markdown: str,
 ) -> tuple[str, str]:
+    retry_budget = retry_budget or _new_creative_quality_retry_budget()
     if not polish_instruction or str(project["source_type"]) != "tracked_article":
         return candidate_body_markdown, candidate_title
 
@@ -19686,6 +20758,8 @@ def _maybe_retry_polish_for_article_shell_cleanup(
         candidate_title=candidate_title,
         candidate_markdown=candidate_body_markdown,
     ):
+        return candidate_body_markdown, candidate_title
+    if not retry_budget.acquire():
         return candidate_body_markdown, candidate_title
 
     retry_result = generator.generate_draft(
@@ -19737,11 +20811,13 @@ def _maybe_retry_polish_for_remaining_ai_flavor(
     strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
+    retry_budget: _CreativeQualityRetryBudget | None = None,
     source_draft_title: str,
     source_draft_body_markdown: str,
     candidate_title: str,
     candidate_body_markdown: str,
 ) -> tuple[str, str]:
+    retry_budget = retry_budget or _new_creative_quality_retry_budget()
     if not polish_instruction:
         return candidate_body_markdown, candidate_title
 
@@ -19757,6 +20833,8 @@ def _maybe_retry_polish_for_remaining_ai_flavor(
         candidate_title=candidate_title,
         candidate_markdown=candidate_body_markdown,
     ):
+        return candidate_body_markdown, candidate_title
+    if not retry_budget.acquire():
         return candidate_body_markdown, candidate_title
 
     retry_result = generator.generate_draft(
@@ -19821,11 +20899,13 @@ def _maybe_retry_polish_for_final_ai_flavor_cleanup(
     strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
+    retry_budget: _CreativeQualityRetryBudget | None = None,
     source_draft_title: str,
     source_draft_body_markdown: str,
     candidate_title: str,
     candidate_body_markdown: str,
 ) -> tuple[str, str]:
+    retry_budget = retry_budget or _new_creative_quality_retry_budget()
     if not polish_instruction:
         return candidate_body_markdown, candidate_title
 
@@ -19843,6 +20923,8 @@ def _maybe_retry_polish_for_final_ai_flavor_cleanup(
             candidate_title=current_title,
             candidate_markdown=current_markdown,
         ):
+            break
+        if not retry_budget.acquire():
             break
 
         retry_result = generator.generate_draft(
@@ -19970,7 +21052,9 @@ def _maybe_auto_polish_ai_flavor_draft_output(
     strategy_bundle_payload: dict[str, object],
     reference_article_payload: dict[str, object],
     generator,
+    retry_budget: _CreativeQualityRetryBudget | None = None,
 ) -> tuple[str, str]:
+    retry_budget = retry_budget or _new_creative_quality_retry_budget()
     if review_comment or polish_instruction:
         return body_markdown, title
 
@@ -20071,7 +21155,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
     ):
         return best_markdown, best_title
 
-    if _creative_quality_retry_max_attempts() <= 0:
+    if retry_budget.remaining <= 0:
         return best_markdown, best_title
 
     retried_body_markdown, retried_title = _maybe_retry_polish_for_structure_drift(
@@ -20083,6 +21167,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         strategy_bundle_payload=strategy_bundle_payload,
         reference_article_payload=reference_article_payload,
         generator=generator,
+        retry_budget=retry_budget,
         source_draft_title=title,
         source_draft_body_markdown=body_markdown,
         candidate_title=working_title,
@@ -20097,6 +21182,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         strategy_bundle_payload=strategy_bundle_payload,
         reference_article_payload=reference_article_payload,
         generator=generator,
+        retry_budget=retry_budget,
         source_draft_title=title,
         source_draft_body_markdown=body_markdown,
         candidate_title=retried_title,
@@ -20111,6 +21197,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         strategy_bundle_payload=strategy_bundle_payload,
         reference_article_payload=reference_article_payload,
         generator=generator,
+        retry_budget=retry_budget,
         source_draft_title=tracked_shell_source_title,
         source_draft_body_markdown=tracked_shell_source_markdown,
         candidate_title=retried_title,
@@ -20125,6 +21212,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         strategy_bundle_payload=strategy_bundle_payload,
         reference_article_payload=reference_article_payload,
         generator=generator,
+        retry_budget=retry_budget,
         source_draft_title=title,
         source_draft_body_markdown=body_markdown,
         candidate_title=retried_title,
@@ -20139,6 +21227,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         strategy_bundle_payload=strategy_bundle_payload,
         reference_article_payload=reference_article_payload,
         generator=generator,
+        retry_budget=retry_budget,
         source_draft_title=title,
         source_draft_body_markdown=body_markdown,
         candidate_title=retried_title,
@@ -21097,6 +22186,11 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                     topic_angle=str(project["topic_angle"]),
                     draft_title=str(draft_row["title"]),
                     draft_body_markdown=str(draft_row["body_markdown"]),
+                    strategy_context=_build_local_creative_strategy_context(
+                        project=project,
+                        problem_brief=problem_brief,
+                        strategy_card=strategy_card,
+                    ),
                 )
 
             if (
@@ -21109,24 +22203,24 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                     ai_result = generator.generate_assets(assets_payload)
                 except _OUTLINE_TRANSIENT_PROVIDER_ERRORS as exc:
                     logger.warning(
-                        "Tracked article assets transient failure for project %s; retrying with compact packaging prompt: %s",
+                        "Tracked article assets transient failure for project %s; retrying the same prompt: %s",
                         project_slug,
                         exc,
                     )
-                    recovery_payload = _build_assets_timeout_recovery_payload(
+                    retry_payload = _build_assets_same_prompt_retry_payload(
                         assets_payload=assets_payload,
                     )
                     try:
-                        ai_result = generator.generate_assets(recovery_payload)
-                    except Exception as recovery_exc:
+                        ai_result = generator.generate_assets(retry_payload)
+                    except Exception as retry_exc:
                         if not _allow_local_creative_fallbacks():
-                            if isinstance(recovery_exc, _OUTLINE_TRANSIENT_PROVIDER_ERRORS):
-                                _raise_creative_upstream_failure("素材文案生成", recovery_exc)
+                            if isinstance(retry_exc, _OUTLINE_TRANSIENT_PROVIDER_ERRORS):
+                                _raise_creative_upstream_failure("素材文案生成", retry_exc)
                             raise
                         logger.warning(
-                            "Tracked article assets recovery failed for project %s; using local assets fallback: %s",
+                            "Tracked article assets same-prompt retry failed for project %s; using local assets fallback: %s",
                             project_slug,
-                            recovery_exc,
+                            retry_exc,
                         )
                         ai_result = _build_current_local_assets_fallback()
                         used_local_assets_fallback = True
@@ -21147,14 +22241,14 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                     if not bool(getattr(generator, "uses_custom_base_url", False)):
                         raise
                     logger.warning(
-                        "Assets transient failure for project %s; retrying with compact packaging prompt: %s",
+                        "Assets transient failure for project %s; retrying the same prompt: %s",
                         project_slug,
                         exc,
                     )
-                    recovery_payload = _build_assets_timeout_recovery_payload(
+                    retry_payload = _build_assets_same_prompt_retry_payload(
                         assets_payload=assets_payload,
                     )
-                    ai_result = generator.generate_assets(recovery_payload)
+                    ai_result = generator.generate_assets(retry_payload)
             ai_result = _sanitize_assets_packaging_result(ai_result)
             if (
                 _creative_quality_retry_max_attempts() > 0
@@ -21607,14 +22701,14 @@ def _create_publish_package(
                     ai_result = generator.generate_publish_package(publish_payload)
                 except (APITimeoutError, APIConnectionError, openai.InternalServerError) as exc:
                     logger.warning(
-                        "Tracked article publish package transient failure for project %s; retrying with compact publish prompt: %s",
+                        "Tracked article publish package transient failure for project %s; retrying the same prompt: %s",
                         project_slug,
                         exc,
                     )
-                    recovery_payload = _build_publish_timeout_recovery_payload(
+                    retry_payload = _build_publish_same_prompt_retry_payload(
                         publish_payload=publish_payload,
                     )
-                    ai_result = generator.generate_publish_package(recovery_payload)
+                    ai_result = generator.generate_publish_package(retry_payload)
             else:
                 ai_result = generator.generate_publish_package(publish_payload)
             ai_result = _sanitize_publish_packaging_result(
@@ -21674,6 +22768,11 @@ def _create_publish_package(
                 draft_title=draft_title,
                 draft_body_markdown=draft_body_markdown,
                 assets=assets,
+                strategy_context=_build_local_creative_strategy_context(
+                    project=project,
+                    problem_brief=problem_brief,
+                    strategy_card=strategy_card,
+                ),
             )
     if str(project["source_type"]) == "tracked_article":
         ai_result = _rewrite_tracked_article_danger_result_fields(

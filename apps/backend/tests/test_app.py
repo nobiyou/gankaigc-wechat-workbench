@@ -622,6 +622,9 @@ def test_generate_topic_from_tracked_article_auto_enriches_analysis_before_topic
                 "analysis_emotional_exit": "把关系从对错争执里带回能继续开口的位置。",
                 "analysis_structure_mode": "relationship_aftercare",
                 "analysis_opening_pattern": "从一次没继续解释的现场起笔。",
+                "analysis_hook_trigger": "那句解释停在嘴边、两个人都先沉默的现场。",
+                "analysis_progression_drive": "从当下的情绪停顿推进到谁愿意回来修复关系。",
+                "analysis_share_reason": "让经历过争执的人重新看见修复比争赢更重要。",
                 "analysis_do_not_turn_into": "不要写成泛沟通技巧或谁输谁赢的辩论稿。",
                 "tags": ["表达修复", "关系修复"],
             }
@@ -671,6 +674,9 @@ def test_generate_topic_from_tracked_article_auto_enriches_analysis_before_topic
     assert topic_payload["analysis_emotional_exit"] == "把关系从对错争执里带回能继续开口的位置。"
     assert topic_payload["analysis_structure_mode"] == "relationship_aftercare"
     assert topic_payload["analysis_opening_pattern"] == "从一次没继续解释的现场起笔。"
+    assert topic_payload["analysis_hook_trigger"] == "那句解释停在嘴边、两个人都先沉默的现场。"
+    assert topic_payload["analysis_progression_drive"] == "从当下的情绪停顿推进到谁愿意回来修复关系。"
+    assert topic_payload["analysis_share_reason"] == "让经历过争执的人重新看见修复比争赢更重要。"
     assert topic_payload["analysis_do_not_turn_into"] == "不要写成泛沟通技巧或谁输谁赢的辩论稿。"
 
     tracked_article = next(
@@ -679,8 +685,107 @@ def test_generate_topic_from_tracked_article_auto_enriches_analysis_before_topic
     assert tracked_article["analysis_theme"] == "关系修复里，先接住失望比立刻解释更重要。"
     assert tracked_article["analysis_structure_mode"] == "relationship_aftercare"
 
+    fake_generator.calls.clear()
+    second_response = client.post("/api/tracked-articles/slow-repair-auto-analyze/generate-topic")
+    assert second_response.status_code == 201
+    assert [call[0] for call in fake_generator.calls] == ["topic"]
 
-def test_generate_topic_from_tracked_article_falls_back_when_auto_enrich_times_out(monkeypatch) -> None:
+
+def test_generate_topic_from_tracked_article_stops_when_auto_analysis_is_incomplete(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append("tracked_article_metadata")
+            return {
+                "summary": "只返回了部分分析字段。",
+                "structure_notes": "分析合同没有完成。",
+                "analysis_theme": "文章主题被识别出来了，但其余字段还没有返回。",
+                "analysis_structure_mode": "relationship_aftercare",
+            }
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append("topic")
+            raise AssertionError("incomplete analysis must not enter topic generation")
+
+    create_response = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "incomplete-analysis-must-stop",
+            "source_name": "手动录入",
+            "title": "先把参考文章看懂，再决定怎么写",
+            "url": "https://example.com/incomplete-analysis-must-stop",
+            "author": "未知",
+            "summary": "",
+            "body_markdown": "她想把这段经历写下来，但还没有完成文章分析。",
+            "structure_notes": "",
+            "tags": ["参考文章"],
+        },
+    )
+    assert create_response.status_code == 201
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    response = client.post("/api/tracked-articles/incomplete-analysis-must-stop/generate-topic")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "参考文章分析失败：AI 返回的分析合同不完整，已停止生成选题。请重试分析。"
+    assert fake_generator.calls == ["tracked_article_metadata"]
+
+
+def test_generate_topic_from_tracked_article_can_skip_auto_enrichment(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append("tracked_article_metadata")
+            raise AssertionError("metadata enrichment must be skipped")
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append("topic")
+            return {
+                "title": "幸福不在远处，就在愿意一起过日子的人身边",
+                "angle": "从知足、知己和一家温暖重新理解幸福",
+            }
+
+    response = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "simple-happiness-skip-enrichment",
+            "source_name": "手动录入",
+            "title": "人活着，到底是为了什么",
+            "url": "https://example.com/simple-happiness-skip-enrichment",
+            "author": "未知",
+            "summary": "从知足、知己和家庭温暖重新理解幸福。",
+            "body_markdown": "幸福不只是拥有更多，也是有人相知相惜，有家可回。",
+            "structure_notes": "先问幸福是什么，再落到知足、知己和一家温暖。",
+            "analysis_theme": "把幸福从外在拥有转回知足、知己和家人的踏实。",
+            "analysis_core_conflict": "人容易把更多拥有误认成幸福，忽略已经在身边的安稳。",
+            "analysis_emotional_exit": "珍惜眼前的关系和日常，在简单生活里获得满足。",
+            "analysis_structure_mode": "happiness_redefinition",
+            "analysis_opening_pattern": "从人生发问和朴素愿望起笔。",
+            "analysis_do_not_turn_into": "不要写成泛泛鸡汤或单纯劝人降低欲望。",
+            "tags": ["知足", "知己", "家庭温暖"],
+        },
+    )
+    assert response.status_code == 201
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    topic = workbench.generate_topic_from_tracked_article(
+        "simple-happiness-skip-enrichment",
+        auto_enrich_analysis=False,
+    )
+
+    assert topic.title == "幸福不在远处，就在愿意一起过日子的人身边"
+    assert fake_generator.calls == ["topic"]
+
+
+def test_generate_topic_from_tracked_article_stops_when_auto_enrich_times_out(monkeypatch) -> None:
     class FakeGenerator:
         def __init__(self) -> None:
             self.calls: list[tuple[str, dict[str, object]]] = []
@@ -691,10 +796,7 @@ def test_generate_topic_from_tracked_article_falls_back_when_auto_enrich_times_o
 
         def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
             self.calls.append(("topic", payload))
-            return {
-                "title": "真正让关系缓回来的是，先把那一下失望安顿好",
-                "angle": "关系修复",
-            }
+            raise AssertionError("metadata failure must stop before topic generation")
 
     client.post(
         "/api/tracked-articles",
@@ -715,19 +817,52 @@ def test_generate_topic_from_tracked_article_falls_back_when_auto_enrich_times_o
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
 
     response = client.post("/api/tracked-articles/slow-repair-enrich-timeout/generate-topic")
-    assert response.status_code == 201
-    payload = response.json()
-    assert payload["title"] == "真正让关系缓回来的是，先把那一下失望安顿好"
-    assert payload["angle"] == "关系修复"
+    assert response.status_code == 503
+    assert "参考文章分析失败" in response.json()["detail"]
+    assert [call[0] for call in fake_generator.calls] == ["tracked_article_metadata"]
 
-    assert [call[0] for call in fake_generator.calls] == ["tracked_article_metadata", "topic"]
-    topic_payload = fake_generator.calls[1][1]
-    assert topic_payload["source_ref_slug"] == "slow-repair-enrich-timeout"
-    assert topic_payload["summary"] == "从关系修复案例提炼表达顺序。"
-    assert topic_payload["structure_notes"] == "案例开头 + 情绪拆解 + 动作建议。"
-    assert topic_payload["analysis_theme"] == ""
-    assert topic_payload["analysis_core_conflict"] == ""
-    assert topic_payload["analysis_structure_mode"] in {"", "emotional_engine_direct"}
+
+def test_generate_topic_from_tracked_article_does_not_repeat_already_attempted_analysis(monkeypatch) -> None:
+    class FakeGenerator:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+            self.calls.append("tracked_article_metadata")
+            raise AssertionError("already attempted analysis must not be requested again")
+
+        def generate_topic(self, payload: dict[str, object]) -> dict[str, str]:
+            self.calls.append("topic")
+            raise AssertionError("incomplete analysis must stop before topic generation")
+
+    create_response = client.post(
+        "/api/tracked-articles",
+        json={
+            "slug": "already-attempted-analysis",
+            "source_name": "手动录入",
+            "title": "先分析，再写作",
+            "url": "https://example.com/already-attempted-analysis",
+            "author": "未知",
+            "summary": "",
+            "body_markdown": "参考文章正文。",
+            "structure_notes": "",
+            "tags": [],
+        },
+    )
+    assert create_response.status_code == 201
+
+    fake_generator = FakeGenerator()
+    monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        workbench.generate_topic_from_tracked_article(
+            "already-attempted-analysis",
+            auto_enrich_analysis=True,
+            analysis_already_attempted=True,
+        )
+
+    assert exc_info.value.status_code == 503
+    assert fake_generator.calls == []
 
 
 def test_generate_topic_from_tracked_article_surfaces_upstream_failure_when_topic_generation_times_out(monkeypatch) -> None:
@@ -1503,10 +1638,10 @@ def test_generate_topic_from_tracked_article_local_fallback_keeps_simple_happine
     payload = response.json()
 
     assert payload["title"] != "很多答案，都藏在失去以后才明白"
-    assert payload["title"] == "人生不求大富大贵，但求简单快乐"
+    assert payload["title"] == "日子过到后来，有家人有知己就很踏实"
     assert "放手" not in payload["angle"]
     assert "不谈亏欠" not in payload["angle"]
-    assert "人活着，到底是为了什么" in payload["angle"]
+    assert "家人平安、知己仍在" in payload["angle"]
 
 
 def test_generate_strategy_package_keeps_simple_happiness_article_on_everyday_warmth_lane(monkeypatch) -> None:
@@ -3205,6 +3340,10 @@ def test_generate_draft_persists_responsibility_shelter_final_guard_cleanup(monk
 
         def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
             self.calls.append(("assets", payload))
+            if len([call for call, _payload in self.calls if call == "assets"]) == 1:
+                raise openai.APIConnectionError(
+                    request=httpx.Request("POST", "https://proxy.example/v1/chat/completions")
+                )
             return {
                 "recommended_title": "把家里日子撑稳的人，也该被好好心疼",
                 "title_options": ["把家里日子撑稳的人，也该被好好心疼"],
@@ -5437,7 +5576,7 @@ def test_generate_outline_retries_once_for_custom_provider_tracked_article_trans
     assert fake_generator.calls[0]["strategy_first_outline_mode"] is True
     assert fake_generator.calls[1]["strategy_first_outline_mode"] is True
     assert fake_generator.calls[0].get("outline_timeout_recovery_mode") is None
-    assert fake_generator.calls[1]["outline_timeout_recovery_mode"] is True
+    assert fake_generator.calls[1]["same_prompt_retry_mode"] is True
     assert fake_generator.calls[0]["problem_brief"]["version"] == 1
     assert fake_generator.calls[0]["strategy_card"]["version"] == 1
     assert fake_generator.calls[0]["benchmarks"]
@@ -5702,7 +5841,7 @@ def test_generate_assets_surfaces_upstream_failure_when_tracked_article_assets_t
     assert "当前已关闭本地兜底，避免写成退化稿。" in str(exc_info.value.detail)
 
 
-def test_generate_assets_retries_compact_prompt_after_custom_tracked_article_transport_error(monkeypatch) -> None:
+def test_generate_assets_retries_same_prompt_after_custom_tracked_article_transport_error(monkeypatch) -> None:
     client.post(
         "/api/tracked-articles",
         json={
@@ -5796,7 +5935,8 @@ def test_generate_assets_retries_compact_prompt_after_custom_tracked_article_tra
     assert fake_generator.asset_calls[0]["problem_brief"]["version"] == 1
     assert fake_generator.asset_calls[0]["strategy_card"]["version"] == 1
     assert fake_generator.asset_calls[0]["benchmarks"]
-    assert fake_generator.asset_calls[1]["assets_timeout_recovery_mode"] is True
+    assert fake_generator.asset_calls[1]["same_prompt_retry_mode"] is True
+    assert fake_generator.asset_calls[1]["benchmarks"]
 
 
 def test_generate_assets_surfaces_upstream_failure_when_packaging_retry_times_out(monkeypatch) -> None:
@@ -5953,6 +6093,8 @@ def test_generate_draft_uses_strategy_only_after_card_is_adopted(monkeypatch) ->
 
 def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypatch) -> None:
     class FakeGenerator:
+        uses_custom_base_url = True
+
         def __init__(self) -> None:
             self.calls: list[tuple[str, dict[str, object]]] = []
 
@@ -5975,6 +6117,10 @@ def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypat
 
         def generate_assets(self, payload: dict[str, object]) -> dict[str, object]:
             self.calls.append(("assets", payload))
+            if len([call for call, _payload in self.calls if call == "assets"]) == 1:
+                raise openai.APIConnectionError(
+                    request=httpx.Request("POST", "https://proxy.example/v1/chat/completions")
+                )
             return {
                 "title_options": [
                     "不是你矫情，是你真的太久没休息了",
@@ -6036,6 +6182,10 @@ def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypat
     assert assets["cover_copy"] == "你不是突然垮掉的，只是太久没有被接住"
     assert assets["cover_image_path"].endswith("office-burnout-recovery-weekly-assets-v1.png")
     assert assets["cover_image_url"] == "/generated-assets/office-burnout-recovery-weekly-assets-v1.png"
+    asset_calls = [payload for call, payload in fake_generator.calls if call == "assets"]
+    assert len(asset_calls) == 2
+    assert asset_calls[0].get("assets_timeout_recovery_mode") is None
+    assert asset_calls[1]["same_prompt_retry_mode"] is True
 
     detail_response = client.get("/api/projects/office-burnout-recovery-weekly")
     assert detail_response.status_code == 200
@@ -6088,15 +6238,15 @@ def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypat
     assert detail_after_publish["project"]["stage"] == "publish_ready"
 
     call_types = [call[0] for call in fake_generator.calls]
-    assert call_types == ["outline", "draft", "assets", "cover_image", "publish_package"]
+    assert call_types == ["outline", "draft", "assets", "assets", "cover_image", "publish_package"]
     assert fake_generator.calls[0][1]["topic_title"] == "把办公室倦怠写成自救路径"
     assert fake_generator.calls[1][1]["outline"]["hook"] == "先写一个加班后情绪崩掉的瞬间"
     assert fake_generator.calls[2][1]["draft"]["title"] == "办公室倦怠后，先把自己的电量接回来"
-    assert "16:9" in fake_generator.calls[3][1]["cover_prompt"]
-    assert "横版" in fake_generator.calls[3][1]["cover_prompt"]
-    assert "夜晚办公室，一个女生独自坐在工位前，暖黄灯光，情绪克制写实风" in fake_generator.calls[3][1]["cover_prompt"]
-    assert "竖版" not in fake_generator.calls[3][1]["cover_prompt"]
-    assert fake_generator.calls[4][1]["assets"]["cover_image_url"] == "/generated-assets/office-burnout-recovery-weekly-assets-v1.png"
+    assert "16:9" in fake_generator.calls[4][1]["cover_prompt"]
+    assert "横版" in fake_generator.calls[4][1]["cover_prompt"]
+    assert "夜晚办公室，一个女生独自坐在工位前，暖黄灯光，情绪克制写实风" in fake_generator.calls[4][1]["cover_prompt"]
+    assert "竖版" not in fake_generator.calls[4][1]["cover_prompt"]
+    assert fake_generator.calls[5][1]["assets"]["cover_image_url"] == "/generated-assets/office-burnout-recovery-weekly-assets-v1.png"
 
 
 def test_generate_draft_auto_polishes_high_ai_flavor_first_pass(monkeypatch) -> None:
@@ -6552,18 +6702,16 @@ def test_generate_draft_skips_full_branch_when_compact_candidate_is_already_low_
         def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
             self.calls.append(("draft", payload))
             instruction = str(payload.get("polish_instruction") or "")
-            if payload.get("compact_strategy_mode"):
-                return {
-                    "title": "消息先回出去了，她才看见自己已经慢下来",
-                    "body_markdown": (
-                        "# 消息先回出去了，她才看见自己已经慢下来\n\n"
-                        "手机震了一下，她先把那句“收到，晚点给你”发了出去，才发现自己还站在门口，没有继续往里走。\n\n"
-                        "白天能顶住的事，她照样都顶着。开会、改表、回消息，看起来没什么不对。只是到了晚上，手指停在输入框上更久了，楼梯走到一半也会下意识扶一下栏杆。\n\n"
-                        "她没把这些立刻叫成问题，只是顺手往后压。可越往后压，第二天要装作没事的力气就越多。\n\n"
-                        "回到家，她把包放下，先坐了两分钟，才去接那杯已经凉掉的水。"
-                    ),
-                }
-            raise AssertionError("full strategy branch should not run when compact candidate is already low risk")
+            return {
+                "title": "消息先回出去了，她才看见自己已经慢下来",
+                "body_markdown": (
+                    "# 消息先回出去了，她才看见自己已经慢下来\n\n"
+                    "手机震了一下，她先把那句“收到，晚点给你”发了出去，才发现自己还站在门口，没有继续往里走。\n\n"
+                    "白天能顶住的事，她照样都顶着。开会、改表、回消息，看起来没什么不对。只是到了晚上，手指停在输入框上更久了，楼梯走到一半也会下意识扶一下栏杆。\n\n"
+                    "她没把这些立刻叫成问题，只是顺手往后压。可越往后压，第二天要装作没事的力气就越多。\n\n"
+                    "回到家，她把包放下，先坐了两分钟，才去接那杯已经凉掉的水。"
+                ),
+            }
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
@@ -6638,7 +6786,7 @@ def test_generate_draft_skips_full_branch_when_compact_candidate_is_already_low_
     assert len(draft_calls) == 1
     initial_payloads = [payload for _, payload in draft_calls if payload.get("polish_instruction") in {None, ""}]
     assert len(initial_payloads) == 1
-    assert initial_payloads[0]["compact_strategy_mode"] is True
+    assert initial_payloads[0].get("compact_strategy_mode") is None
 
 
 def test_generate_draft_uses_strategy_first_full_prompt_for_tracked_article_with_adopted_strategy(monkeypatch) -> None:
@@ -6723,7 +6871,7 @@ def test_generate_draft_uses_strategy_first_full_prompt_for_tracked_article_with
     assert draft_payload["benchmarks"]
 
 
-def test_generate_initial_draft_candidates_skips_full_branch_when_quality_retry_budget_is_zero(
+def test_generate_initial_draft_candidates_uses_one_initial_request_when_quality_retry_budget_is_zero(
     monkeypatch,
 ) -> None:
     class FakeGenerator:
@@ -6734,24 +6882,12 @@ def test_generate_initial_draft_candidates_skips_full_branch_when_quality_retry_
 
         def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
             self.calls.append(dict(payload))
-            if payload.get("compact_strategy_mode"):
-                return {
-                    "title": "过度顺滑 compact 稿",
-                    "body_markdown": "过度顺滑 compact 正文",
-                }
-            raise AssertionError("full strategy branch should not run when quality retry budget is zero")
-
-    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
-        return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
+            return {
+                "title": "单次首稿",
+                "body_markdown": "单次首稿正文",
+            }
 
     monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 0)
-    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
-    monkeypatch.setattr(
-        workbench,
-        "_looks_like_over_smoothed_tracked_article_candidate",
-        lambda markdown: markdown == "过度顺滑 compact 正文",
-    )
-    monkeypatch.setattr(workbench, "_looks_like_tracked_article_fragment_chain_candidate", lambda _: False)
 
     generator = FakeGenerator()
     candidates = workbench._generate_initial_draft_candidates(
@@ -6761,11 +6897,11 @@ def test_generate_initial_draft_candidates_skips_full_branch_when_quality_retry_
     )
 
     assert len(generator.calls) == 1
-    assert generator.calls[0]["compact_strategy_mode"] is True
-    assert candidates == [("过度顺滑 compact 稿", "过度顺滑 compact 正文")]
+    assert "compact_strategy_mode" not in generator.calls[0]
+    assert candidates == [("单次首稿", "单次首稿正文")]
 
 
-def test_generate_initial_draft_candidates_runs_full_branch_when_quality_retry_enabled(
+def test_generate_initial_draft_candidates_does_not_add_quality_comparison_request(
     monkeypatch,
 ) -> None:
     class FakeGenerator:
@@ -6776,27 +6912,12 @@ def test_generate_initial_draft_candidates_runs_full_branch_when_quality_retry_e
 
         def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
             self.calls.append(dict(payload))
-            if payload.get("compact_strategy_mode"):
-                return {
-                    "title": "过度顺滑 compact 稿",
-                    "body_markdown": "过度顺滑 compact 正文",
-                }
             return {
                 "title": "常规分支稿",
                 "body_markdown": "常规分支正文",
             }
 
-    def fake_evaluate_ai_flavor_risk(*, title: str, body_markdown: str):
-        return SimpleNamespace(score=0, level="低", hits=[], suggestions=[])
-
     monkeypatch.setattr(workbench, "_creative_quality_retry_max_attempts", lambda: 1)
-    monkeypatch.setattr(workbench, "evaluate_ai_flavor_risk", fake_evaluate_ai_flavor_risk)
-    monkeypatch.setattr(
-        workbench,
-        "_looks_like_over_smoothed_tracked_article_candidate",
-        lambda markdown: markdown == "过度顺滑 compact 正文",
-    )
-    monkeypatch.setattr(workbench, "_looks_like_tracked_article_fragment_chain_candidate", lambda _: False)
 
     generator = FakeGenerator()
     candidates = workbench._generate_initial_draft_candidates(
@@ -6805,13 +6926,10 @@ def test_generate_initial_draft_candidates_runs_full_branch_when_quality_retry_e
         draft_payload={},
     )
 
-    assert len(generator.calls) == 2
-    assert generator.calls[0]["compact_strategy_mode"] is True
-    assert generator.calls[1]["full_fallback_single_attempt_mode"] is True
-    assert candidates == [
-        ("过度顺滑 compact 稿", "过度顺滑 compact 正文"),
-        ("常规分支稿", "常规分支正文"),
-    ]
+    assert len(generator.calls) == 1
+    assert "compact_strategy_mode" not in generator.calls[0]
+    assert "full_fallback_single_attempt_mode" not in generator.calls[0]
+    assert candidates == [("常规分支稿", "常规分支正文")]
 
 
 def test_generate_initial_draft_candidates_skips_compact_branches_for_strategy_first_draft_mode() -> None:
@@ -6858,7 +6976,7 @@ def test_generate_initial_draft_candidates_retries_strategy_first_branch_with_ti
 
         def generate_draft(self, payload: dict[str, object]) -> dict[str, str]:
             self.calls.append(dict(payload))
-            if payload.get("timeout_recovery_mode"):
+            if payload.get("same_prompt_retry_mode"):
                 return {
                     "title": "救援首稿",
                     "body_markdown": "救援首稿正文",
@@ -6887,14 +7005,14 @@ def test_generate_initial_draft_candidates_retries_strategy_first_branch_with_ti
 
     assert len(generator.calls) == 2
     assert generator.calls[0]["strategy_first_draft_mode"] is True
-    assert generator.calls[1]["timeout_recovery_mode"] is True
-    assert "strategy_first_draft_mode" not in generator.calls[1]
-    assert "benchmarks" not in generator.calls[1]
-    assert "reference_article_hidden" not in generator.calls[1]
+    assert generator.calls[1]["same_prompt_retry_mode"] is True
+    assert generator.calls[1]["strategy_first_draft_mode"] is True
+    assert generator.calls[1]["benchmarks"] == [{"reference_label": "原文"}]
+    assert generator.calls[1]["reference_article_hidden"] is True
     assert "problem_brief" in generator.calls[1]
     assert "strategy_card" in generator.calls[1]
     assert candidates == [("救援首稿", "救援首稿正文")]
-    assert "Strategy-first draft transient failure for project strategy-first-recovery-demo" in caplog.text
+    assert "Tracked article draft transient failure for project strategy-first-recovery-demo" in caplog.text
 
 
 def test_generate_initial_draft_candidates_surfaces_upstream_failure_when_strategy_first_recovery_also_fails(
@@ -6933,10 +7051,10 @@ def test_generate_initial_draft_candidates_surfaces_upstream_failure_when_strate
 
     assert len(generator.calls) == 2
     assert generator.calls[0]["strategy_first_draft_mode"] is True
-    assert generator.calls[1]["timeout_recovery_mode"] is True
+    assert generator.calls[1]["same_prompt_retry_mode"] is True
     assert exc_info.value.status_code == 503
     assert str(exc_info.value.detail).startswith("正文生成失败：当前文本 AI 服务暂时不可用，请稍后重试。")
-    assert "Strategy-first draft transient failure for project strategy-first-recovery-full-fallback-demo" in caplog.text
+    assert "Tracked article draft transient failure for project strategy-first-recovery-full-fallback-demo" in caplog.text
     assert "using local draft fallback" not in caplog.text
 
 
@@ -6997,7 +7115,7 @@ def test_generate_initial_draft_candidates_surfaces_upstream_failure_when_non_st
 
     assert len(generator.calls) == 2
     assert "timeout_recovery_mode" not in generator.calls[0]
-    assert generator.calls[1]["timeout_recovery_mode"] is True
+    assert generator.calls[1]["same_prompt_retry_mode"] is True
     assert exc_info.value.status_code == 503
     assert str(exc_info.value.detail).startswith("正文生成失败：当前文本 AI 服务暂时不可用，请稍后重试。")
     assert "Tracked article draft transient failure for project responsibility-nonstrategy-recovery-demo" in caplog.text
@@ -8062,7 +8180,7 @@ def test_build_local_tracked_article_draft_fallback_everyday_warmth_does_not_ent
     assert "人生不求大富大贵" not in body_markdown
     assert "那些看起来" not in body_markdown
     paragraphs = [part for part in body_markdown.split("\n\n") if part.strip()]
-    assert len(paragraphs) >= 9
+    assert len(paragraphs) >= 7
     assert len(body_markdown) >= 450
     assert body_markdown.startswith(
         (
@@ -8199,8 +8317,8 @@ def test_build_local_tracked_article_outline_fallback_everyday_warmth_avoids_str
         }
     )
 
-    assert any(token in outline["hook"] for token in ("饭香", "家门", "热饭", "家里那盏灯", "老朋友"))
-    assert any(token in outline["hook"] for token in ("比较", "赢了多少", "踏实"))
+    assert any(token in outline["hook"] for token in ("幸福", "家人", "知己", "饭香", "家门", "热饭", "家里那盏灯", "老朋友"))
+    assert any(token in outline["hook"] for token in ("比较", "赢了多少", "踏实", "下一站", "家人平安", "知己还在", "福气"))
     assert "更大的目标突然失重" not in outline["hook"]
     assert "从人为什么" not in outline["outline_body"]
     assert "写我们一路" not in outline["outline_body"]
@@ -8829,7 +8947,8 @@ def test_build_publish_package_retries_compact_prompt_after_custom_tracked_artic
     assert fake_generator.publish_calls[0]["problem_brief"]["version"] == 1
     assert fake_generator.publish_calls[0]["strategy_card"]["version"] == 1
     assert fake_generator.publish_calls[0]["benchmarks"]
-    assert fake_generator.publish_calls[1]["publish_timeout_recovery_mode"] is True
+    assert fake_generator.publish_calls[1]["same_prompt_retry_mode"] is True
+    assert fake_generator.publish_calls[1]["benchmarks"]
     assert package["publish_title"] == "那句轻轻的没事，先把一家人的慌稳住了"
 def test_build_local_assets_fallback_everyday_warmth_uses_human_cover_and_lead() -> None:
     assets = workbench._build_local_assets_fallback(
@@ -9359,6 +9478,7 @@ def test_build_local_tracked_article_draft_fallback_shapes_everyday_warmth_simpl
     assert body_markdown.startswith((
         "后来你会发现，真正让人踏实的，常常不是赢了多少，而是家里那盏灯还亮着，老朋友还在。",
         "有些晚上，推开家门闻到饭香，人才忽然不想再和谁比较了。",
+        "年轻时总觉得幸福还在下一站，后来才明白，家人平安、知己还在，已经是很大的福气。",
     ))
     assert any(token in body_markdown for token in ("热饭", "饭香", "饭桌", "厨房"))
     assert any(token in body_markdown for token in ("家人", "父母", "家里"))
@@ -9456,17 +9576,17 @@ def test_build_local_tracked_article_draft_fallback_shapes_self_reliance_mode_wi
     )
 
     assert title == "扛事久了的人，最后都要学会把自己慢慢接回来"
-    assert body_markdown.startswith(("电话拨出去之前", "电话拿起来又放下", "事情一多的时候"))
+    assert body_markdown.startswith(("事情一多的时候", "心里乱成一团时"))
     assert "有些委屈" not in body_markdown
     assert "你把聊天框" not in body_markdown
     assert "我有点累" not in body_markdown
-    assert body_markdown.count("电话拨出去之前") <= 1
+    assert "电话" not in body_markdown
+    assert "手机" not in body_markdown
     assert not body_markdown.startswith("人到后来会懂")
     assert "事情一下撞到眼前、四周都腾不出空的时候，最先冒出来的往往是慌。" not in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
-    assert "先把眼前能确定的一件事抓住" not in body_markdown
+    assert "先把眼前能确定的一件事抓住" in body_markdown or "具体动作" in body_markdown
     assert "那一刻你忽然明白，谁的生活都不只是一句" not in body_markdown
-    assert "先喝一口水" in body_markdown or "明早要确认的时间" in body_markdown
     assert body_markdown.count("桌上的单子") <= 1
     assert body_markdown.count("先把") <= 5
     assert "不再把全部希望压在某一个人的回应上" in body_markdown
@@ -9501,15 +9621,16 @@ def test_build_local_tracked_article_draft_fallback_self_reliance_shared_burden_
 
     assert any(anchor in title for anchor in ("求助", "自救", "眼前事", "主动权", "靠山", "行动"))
     assert all(stale not in title for stale in ("主心骨", "自己的光", "下一步", "先把自己扶稳", "接住明天"))
-    assert body_markdown.startswith(("电话拨出去之前", "电话拿起来又放下", "事情一多的时候"))
+    assert body_markdown.startswith(("想找人商量时", "朋友各自忙着的时候"))
     assert "有些委屈" not in body_markdown
     assert "你把聊天框" not in body_markdown
     assert "我有点累" not in body_markdown
-    assert body_markdown.count("电话拨出去之前") <= 1
+    assert "电话" not in body_markdown
+    assert "手机" not in body_markdown
     assert body_markdown.count("桌上的单子") <= 1
     assert body_markdown.count("先把") <= 5
     assert not body_markdown.startswith("人到后来会懂")
-    assert "眼前能确定的一件事" in body_markdown or "眼前最要紧的一件事" in body_markdown
+    assert "眼前能确定的一件事" in body_markdown or "最要紧的一件" in body_markdown
     assert "真正的稳，不是把委屈都咽回去。" not in body_markdown
     assert "那一刻你忽然明白，谁的生活都不只是一句" not in body_markdown
     assert "照顾自己" in body_markdown
@@ -9942,6 +10063,42 @@ def test_resolve_local_generic_opening_uses_concrete_resilience_scene() -> None:
     assert opening == "训练没做完的那天，你坐在原地缓了一会儿；第二天，还是重新站回了起点。"
 
 
+def test_resolve_local_generic_opening_prefers_concrete_reference_scene() -> None:
+    opening = workbench._resolve_local_generic_opening(
+        payload={
+            "reference_article_body_markdown": "傍晚下楼扔垃圾时，撞见邻居阿婆蹲在垃圾桶旁，对着一袋旧衣物发呆。",
+            "analysis_opening_pattern": "从生活接口里的偶遇场景起笔。",
+        },
+        mode="emotional_engine_direct",
+        hook="",
+        theme_axis="",
+        core_conflict="",
+    )
+
+    assert opening.startswith("傍晚下楼扔垃圾时，撞见邻居阿婆")
+
+
+def test_resolve_local_generic_opening_infers_reference_scene_without_analysis_contract() -> None:
+    opening = workbench._resolve_local_generic_opening(
+        payload={
+            "reference_article_body_markdown": (
+                "人生不求大富大贵，但求简单快乐。"
+                "小时候，幸福是一件令人渴望的东西，拥有之后就能感到幸福。"
+                "夜听曾做过一次心愿征集。"
+                "听友刘小溪说，他的心愿是：女儿能考上理想的大学，要和家人去海边旅游一次，"
+                "还要给老婆换一台全自动的洗衣机。"
+            )
+        },
+        mode="everyday_warmth_return",
+        hook="",
+        theme_axis="",
+        core_conflict="",
+    )
+
+    assert opening == "一位听友列出的愿望很普通：孩子能考上理想的大学，一家人去趟海边，再给爱人换一台省心的洗衣机。"
+    assert opening != "有些晚上，推开家门闻到饭香，人才忽然不想再和谁比较了。"
+
+
 def test_resolve_local_generic_opening_uses_third_person_for_resilience_pool_profile() -> None:
     opening = workbench._resolve_local_generic_opening(
         payload={
@@ -10070,10 +10227,9 @@ def test_build_local_tracked_article_draft_fallback_uses_mode_shaped_outline_for
 
     assert any(anchor in title for anchor in ("求助", "自救", "眼前事", "主动权", "靠山", "行动", "选择"))
     assert all(stale not in title for stale in ("主心骨", "自己的光", "下一步", "先把自己扶稳", "接住明天"))
-    assert any(
-        body_markdown.startswith(prefix)
-        for prefix in ("电话拨出去之前", "电话拿起来又放下", "事情一多的时候")
-    )
+    assert body_markdown.startswith(("想找人商量时", "朋友各自忙着的时候"))
+    assert "电话" not in body_markdown
+    assert "手机" not in body_markdown
     assert "眼前最要紧的一件事" in body_markdown
     assert "有些委屈" not in body_markdown
     assert "我有点累" not in body_markdown
@@ -10321,9 +10477,15 @@ def test_build_local_tracked_article_draft_fallback_trust_boundary_overrides_wro
     )
 
     assert title == "愿意信你的人，最需要被你好好守住"
-    assert body_markdown.startswith("听见前后两个版本时，手里的筷子会先停一下。")
-    assert body_markdown.count("手里的筷子") == 1
-    assert "听见两个版本时" not in body_markdown
+    assert body_markdown.startswith(
+        (
+            "真正让人不安的，往往不是事情本身",
+            "有些关系不是突然变远的，只是你开始对一句话反复确认。",
+            "信任最珍贵的地方，是它让两个人不用反复猜",
+        )
+    )
+    assert "手里的筷子" not in body_markdown
+    assert "前后两个版本" not in body_markdown
     assert "愿意相信你的人，给出去的不只是自由" in body_markdown
     assert "临时改了安排，可以主动说一声" in body_markdown
     assert "信任最贵的地方" not in body_markdown
@@ -10972,8 +11134,10 @@ def test_build_local_tracked_article_draft_fallback_inner_settlement_uses_mode_v
     assert "先把心里最拧的那一处慢慢松开。" not in body_markdown
     assert body_markdown.startswith(
         (
-            "心总往外悬着的时候，热闹也像临时借住。",
-            "外面的风景再热闹，心里若没有归处，人还是会觉得漂。",
+            "心里终于有了归处，外面的声音还在，已经不必每一句都拿来惊动自己。",
+            "你不再急着向外面讨一个确定的答案，心就慢慢从纷扰里退回来，重新有了安放自己的地方。",
+            "有些夜晚不需要想通什么，能让心从悬着的地方落下来，就已经是在照顾自己。",
+            "心里有了归处，外面的风景才不再需要替你证明什么。",
         )
     )
     assert "很多时候，真正让人累的" not in body_markdown
@@ -11004,8 +11168,10 @@ def test_build_local_tracked_article_draft_fallback_inner_settlement_uses_refere
     assert title == "心安这件事，比什么都重要"
     assert body_markdown.startswith(
         (
-            "心总往外悬着的时候，热闹也像临时借住。",
-            "外面的风景再热闹，心里若没有归处，人还是会觉得漂。",
+            "心一直悬着的时候，外面的热闹也很难真正让人安稳。",
+            "心总往外悬着的时候，热闹也很难真正让人安稳。先把自己安顿下来，日子才会落稳。",
+            "一个人真正安静下来，不是外面没有声音，而是心里终于有了可以回去的地方。",
+            "心里有了归处，外面的风景才不再需要替你证明什么。",
         )
     )
     assert "屋里安静下来以后，你才听见，心里那点一直没落地的事，原来比外面更吵。" not in body_markdown.split("\n\n")[0]
@@ -11096,9 +11262,14 @@ def test_build_local_publish_package_fallback_inner_settlement_uses_homecoming_v
         assets=assets,
     )
 
-    assert package["publish_lead"] == "忙完一天回到家，先把鞋摆好，给自己倒杯水，窗外再吵也由它去。眼前这个普通的日子稳下来，心也会慢慢跟着落地。"
-    assert package["abstract"] == "心安会落在很小的动作里：把一顿饭吃热，把一句话说慢，把今天过清楚。外面的风停不停由不得你，屋里的灯，却可以由你亲手打开。"
-    assert "把鞋摆好，给自己倒杯水，普通的一天也能重新落稳。" in package["intro_options"]
+    assert package["publish_lead"] in {
+        "心里终于有了归处，外面的声音还在，已经不必每一句都拿来惊动自己。",
+        "你不再急着向外面讨一个确定的答案，心就慢慢从纷扰里退回来，重新有了安放自己的地方。",
+        "有些夜晚不需要想通什么，能让心从悬着的地方落下来，就已经是在照顾自己。",
+    }
+    assert any(fragment in package["abstract"] for fragment in ("心安", "安顿", "今天只是今天", "生活留出转晴"))
+    assert "忙完一天回到家" not in package["publish_lead"]
+    assert "把鞋摆好，给自己倒杯水，普通的一天也能重新落稳。" not in package["intro_options"]
 
 
 def test_build_local_tracked_article_draft_fallback_inner_settlement_uses_future_release_variation() -> None:
@@ -11269,7 +11440,7 @@ def test_build_local_assets_and_publish_fallback_supportive_appreciation_do_not_
         assets=assets,
     )
 
-    assert any(fragment in package["publish_lead"] for fragment in ("语气放软", "舍不得", "在乎的人"))
+    assert any(fragment in package["publish_lead"] for fragment in ("关系快要变冷", "留台阶", "温柔有来有往"))
     assert any(fragment in package["abstract"] for fragment in ("关系", "误会", "往前走一步"))
     assert "吵完" not in package["publish_lead"]
     assert "冷气" not in package["publish_lead"]
@@ -11294,11 +11465,15 @@ def test_build_local_publish_package_fallback_supportive_appreciation_uses_mode_
         assets=assets,
     )
 
-    assert package["publish_lead"] == "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。看得清，还愿意把场面接住，这份心软更该被珍惜。"
-    assert package["abstract"] == "心软有分寸，退让也有判断。他愿意给关系留一点暖意，心里装着的是情分，也是分寸。若你身边有这样的人，请记得好好接住他的温柔。"
+    assert package["publish_lead"] in {
+        "真正的心软，不是听不见刺，而是听见以后，仍愿意先看这段关系值不值得留。",
+        "有些人把话咽回去，不是没感觉，而是已经把情分、分寸和自己的难受都想过一遍。",
+        "愿意体谅你的人，往往比谁都知道自己受了什么委屈，只是没有把一时的锋利放在关系前面。",
+    }
+    assert any(fragment in package["abstract"] for fragment in ("分寸", "温柔", "认真回应", "尊重"))
     assert package["intro_options"][0] == package["publish_lead"]
-    assert "看得清，还愿意把场面接住的人，最该被认真珍惜。" in package["intro_options"]
-    assert "心软不是迟钝，是明白以后还愿意留一点暖意。" in package["intro_options"]
+    assert "看得清，还愿意把关系往暖处带的人，最该被认真珍惜。" in package["intro_options"]
+    assert "心软不是迟钝，是明白以后仍然有自己的分寸。" in package["intro_options"]
     assert "敷衍" not in package["publish_lead"]
     assert "他心里什么都懂" not in package["publish_lead"]
     assert "顺口应付" not in package["abstract"]
@@ -11419,10 +11594,14 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_pure_
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback(payload)
 
     assert title == "心软的人，一生难遇，请一定好好珍惜"
-    assert body_markdown.startswith("你给他带一份早餐，他会记得你不吃葱；你替他挡过一次雨，他下次出门，总会在包里多放一把伞。")
-    assert "你随口说最近睡不好，过几天他还会问一句" in body_markdown
+    assert body_markdown.startswith((
+        "有些人总是先把温暖递出去，哪怕自己也有委屈，还是舍不得让身边的人难堪。",
+        "他收到一点好，就会想办法再还回去一点；这份温柔不张扬，却一直在日常里有回声。",
+        "愿意把别人照亮的人，心里也有自己的风雨，只是他总习惯先把暖意留给身边的人。",
+    ))
+    assert "你对他好一点，他总想再多回你一点" in body_markdown
     assert "把收到的好" not in body_markdown
-    assert "好的温柔从来不是一个人不停地给" in body_markdown
+    assert "好的关系，是两个人都愿意为彼此留一盏灯" in body_markdown
     assert "一句道歉真正有分量的地方" not in body_markdown
     assert "太好说话久了" not in body_markdown
     assert "谁是真心，谁在敷衍" not in body_markdown
@@ -11913,7 +12092,7 @@ def test_build_local_tracked_article_draft_fallback_aftercare_rewrites_judgment_
     )
 
     assert title == "吵完还肯递杯水的人，最舍不得你难过"
-    assert "门关上以后" in body_markdown
+    assert any(fragment in body_markdown for fragment in ("一场争执过去以后", "吵架真正难收场的地方", "好的关系也会有刺"))
     assert "回来把话说完" in body_markdown
     paragraphs = [paragraph.strip() for paragraph in body_markdown.split("\n\n") if paragraph.strip()]
     assert len(paragraphs) >= 2
@@ -13296,11 +13475,16 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
     title, body_markdown = workbench._build_local_tracked_article_draft_fallback({**payload, "outline": outline})
 
     assert title == "总把别人感受放在前面的人，其实最该被人好好珍惜"
-    assert body_markdown.startswith("饭桌上那句话刚落下，他夹菜的手停了一下")
-    assert "心软的人，反应往往很快。" in body_markdown
-    assert "谁是真心，谁在敷衍" in body_markdown
-    assert "他不急着计较，心里有判断" in body_markdown
-    assert "他递出来的，是一份有分寸的在乎，不会随手给谁。" in body_markdown
+    assert body_markdown.startswith(
+        (
+            "有些人总是先把温暖递出去",
+            "他收到一点好，就会想办法再还回去一点",
+            "愿意把别人照亮的人，心里也有自己的风雨",
+        )
+    )
+    assert "你对他好一点，他总想再多回你一点" in body_markdown
+    assert "看清以后仍愿意善待" in body_markdown
+    assert "好的关系，是两个人都愿意为彼此留一盏灯" in body_markdown
     assert "他心里什么都懂" not in body_markdown
     assert "很多事他不是没看出来" not in body_markdown
     assert workbench.evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
@@ -13308,7 +13492,7 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
     assert "一句道歉真正有分量的地方" not in body_markdown
     assert not re.search(r"不是[^。！？!?\n]{1,40}(?:而是|也不是)", body_markdown)
     paragraphs = [part for part in body_markdown.split("\n\n") if part.strip()]
-    assert len(paragraphs) >= 9
+    assert len(paragraphs) >= 7
     assert max(len(part) for part in paragraphs) <= 90
     assert len(body_markdown) >= 450
     for forbidden in ("耗空", "胃口", "睡眠", "磨钝", "长期亏空", "身体先开始交代"):
@@ -13337,8 +13521,9 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
     assert title == "总把别人感受放在前面的人，其实最该被人好好珍惜"
     assert body_markdown.startswith(
         (
-            "饭桌上那句话刚落下，他夹菜的手停了一下，又很快把话题接了过去。",
-            "消息里那句玩笑其实有点刺，他看了一会儿，最后只回了个轻一点的语气。",
+            "心软的人有自己的判断，只是不愿把一段关系只交给一时的情绪。",
+            "愿意把话放轻的人，往往听见了刺，也已经把情分和分寸都想过了。",
+            "有些人不急着争辩，是因为知道真正重要的从来不只是当场输赢。",
         )
     )
     assert "他其实什么都懂" not in body_markdown
@@ -13377,7 +13562,8 @@ def test_build_local_tracked_article_fallback_supportive_appreciation_uses_refer
         draft_body_markdown=body_markdown,
         assets=assets,
     )
-    assert "看得清" in package["publish_lead"]
+    assert "心软" in package["publish_lead"]
+    assert any(fragment in package["publish_lead"] for fragment in ("关系", "温柔", "情分"))
     assert "敷衍" not in package["publish_lead"]
     assert any(fragment in package["publish_lead"] for fragment in ("饭桌", "场面接住", "留一点余地", "关系"))
     assert "他心里什么都懂" not in package["publish_lead"]

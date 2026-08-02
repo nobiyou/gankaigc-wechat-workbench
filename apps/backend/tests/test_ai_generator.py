@@ -15,6 +15,9 @@ from app.services.ai_generator import (
     PublishPackageGenerationResult,
     TrackedArticleMetadataGenerationResult,
     TopicGenerationResult,
+    begin_request_telemetry,
+    clear_request_telemetry,
+    get_request_telemetry,
     get_ai_config_summary,
     run_ai_config_check,
     run_ai_image_config_check,
@@ -52,6 +55,24 @@ def test_outline_generation_result_accepts_outline_body_list() -> None:
     )
 
     assert result.outline_body == "1. 电话这头\n2. 家里的灯"
+
+
+def test_request_telemetry_counts_requests_by_stage_and_clears() -> None:
+    begin_request_telemetry()
+    try:
+        ai_generator_module._record_request("topic")
+        ai_generator_module._record_request("topic")
+        ai_generator_module._record_request("draft")
+
+        assert get_request_telemetry() == {
+            "total": 3,
+            "topic": 2,
+            "draft": 1,
+        }
+    finally:
+        clear_request_telemetry()
+
+    assert get_request_telemetry() == {"total": 0}
 
 
 def test_normalize_draft_generation_result_removes_leaked_field_labels() -> None:
@@ -749,7 +770,7 @@ def test_parse_response_chat_json_fallback_retries_on_transient_connection_error
     assert chat_calls["count"] == 3
 
 
-def test_parse_response_chat_json_fallback_grants_extra_transport_recovery_for_custom_base_url(monkeypatch) -> None:
+def test_parse_response_chat_json_fallback_honors_default_budget_for_custom_base_url(monkeypatch) -> None:
     generator = build_custom_base_url_generator()
     parse_calls = {"count": 0}
     chat_calls = {"count": 0}
@@ -768,7 +789,7 @@ def test_parse_response_chat_json_fallback_grants_extra_transport_recovery_for_c
     class FakeChatCompletions:
         def create(self, **kwargs):
             chat_calls["count"] += 1
-            if chat_calls["count"] <= 3:
+            if chat_calls["count"] <= 2:
                 raise openai.APIConnectionError(
                     request=httpx.Request("POST", "https://proxy.example/v1/chat/completions")
                 )
@@ -818,7 +839,7 @@ def test_parse_response_chat_json_fallback_grants_extra_transport_recovery_for_c
         "body_markdown": "# 标题\n\n正文",
     }
     assert parse_calls["count"] == 1
-    assert chat_calls["count"] == 4
+    assert chat_calls["count"] == 3
 
 
 def test_parse_response_chat_json_fallback_respects_explicit_attempt_budget_for_custom_base_url(monkeypatch) -> None:
@@ -1006,7 +1027,7 @@ def test_custom_base_url_recovery_honors_configured_timeout_and_retry_budget() -
     assert generator._resolve_draft_max_attempts(
         {"timeout_recovery_mode": True, "source_type": "tracked_article"}
     ) == 1
-    assert generator._resolve_topic_max_attempts({"source_type": "tracked_article"}) == 1
+    assert generator._resolve_topic_max_attempts({"source_type": "tracked_article"}) == 2
     assert generator._resolve_tracked_article_metadata_max_attempts({"body_markdown": "x"}) == 1
 
 def test_generate_outline_timeout_recovery_mode_uses_plain_chat_json_without_extra_body(monkeypatch) -> None:
@@ -1595,6 +1616,12 @@ def test_generate_draft_uses_configured_timeout_for_compact_or_full_fallback_pay
     assert captured == [(60, 1), (60, 1), (None, None)]
 
 
+def test_custom_tracked_article_draft_uses_one_generator_attempt_before_workbench_retry() -> None:
+    generator = build_custom_base_url_generator()
+
+    assert generator._resolve_draft_max_attempts({"source_type": "tracked_article"}) == 1
+
+
 def test_parse_response_uses_output_text_json_without_chat_fallback(monkeypatch) -> None:
     generator = build_generator()
 
@@ -2014,7 +2041,7 @@ def test_generate_draft_keeps_responses_parse_first_for_custom_base_url(monkeypa
     assert chat_calls["count"] == 0
 
 
-def test_generate_draft_falls_back_after_internal_server_error_on_custom_base_url(monkeypatch) -> None:
+def test_generate_draft_falls_back_after_connection_error_on_custom_base_url(monkeypatch) -> None:
     generator = build_custom_base_url_generator()
     parse_calls = {"count": 0}
     chat_calls = {"count": 0}
@@ -2029,11 +2056,7 @@ def test_generate_draft_falls_back_after_internal_server_error_on_custom_base_ur
     class FakeResponses:
         def parse(self, **kwargs):
             parse_calls["count"] += 1
-            raise openai.InternalServerError(
-                "Upstream request failed",
-                response=response,
-                body={"error": {"message": "Upstream request failed"}},
-            )
+            raise openai.APIConnectionError(request=request)
 
     class FakeChatCompletions:
         def create(self, **kwargs):
@@ -2090,6 +2113,47 @@ def test_generate_draft_falls_back_after_internal_server_error_on_custom_base_ur
     assert captured["response_format"] == {"type": "json_object"}
 
 
+def test_parse_response_retries_same_protocol_for_custom_base_url_5xx(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    parse_calls = {"count": 0}
+    request = httpx.Request("POST", "https://proxy.example/v1/responses")
+    response = httpx.Response(
+        502,
+        request=request,
+        json={"error": {"message": "Upstream request failed"}},
+    )
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            parse_calls["count"] += 1
+            raise openai.InternalServerError(
+                "Upstream request failed",
+                response=response,
+                body={"error": {"message": "Upstream request failed"}},
+            )
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            raise AssertionError("a custom-base 5xx must not switch to chat JSON")
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+    monkeypatch.setattr(ai_generator_module.time, "sleep", lambda *_args: None)
+
+    with pytest.raises(openai.InternalServerError):
+        generator._parse_response(
+            instructions="instructions",
+            prompt="prompt",
+            response_format=DraftGenerationResult,
+            max_attempts_override=2,
+        )
+
+    assert parse_calls["count"] == 2
+
+
 def test_generate_topic_keeps_responses_parse_first_for_custom_base_url(monkeypatch) -> None:
     generator = build_custom_base_url_generator()
     parse_calls = {"count": 0}
@@ -2133,7 +2197,7 @@ def test_generate_topic_keeps_responses_parse_first_for_custom_base_url(monkeypa
     assert parse_calls["count"] == 1
 
 
-def test_generate_topic_retries_responses_parse_after_internal_server_error_on_custom_base_url(monkeypatch) -> None:
+def test_generate_topic_falls_back_after_connection_error_on_custom_base_url(monkeypatch) -> None:
     generator = build_custom_base_url_generator()
     parse_calls = {"count": 0}
     chat_calls = {"count": 0}
@@ -2148,11 +2212,7 @@ def test_generate_topic_retries_responses_parse_after_internal_server_error_on_c
     class FakeResponses:
         def parse(self, **kwargs):
             parse_calls["count"] += 1
-            raise openai.InternalServerError(
-                "Upstream access forbidden, please contact administrator",
-                response=response,
-                body={"error": {"message": "Upstream access forbidden, please contact administrator"}},
-            )
+            raise openai.APIConnectionError(request=request)
 
     class FakeChatCompletions:
         def create(self, **kwargs):
@@ -2263,6 +2323,7 @@ def test_generate_topic_uses_chat_json_fast_path_for_tracked_article_on_custom_b
         enforce_custom_base_url_retry_floor: bool = True,
         include_custom_base_url_extra_body: bool = True,
         include_response_format: bool = True,
+        retry_on_output_error: bool = True,
     ):
         captured["instructions"] = instructions
         captured["prompt"] = prompt
@@ -2271,6 +2332,7 @@ def test_generate_topic_uses_chat_json_fast_path_for_tracked_article_on_custom_b
         captured["max_attempts"] = max_attempts
         captured["enforce_custom_base_url_retry_floor"] = enforce_custom_base_url_retry_floor
         captured["include_custom_base_url_extra_body"] = include_custom_base_url_extra_body
+        captured["retry_on_output_error"] = retry_on_output_error
         return TopicGenerationResult(
             title="先把那句压回去的话说清楚",
             angle="从参考文章提炼新的现实入口",
@@ -2302,13 +2364,146 @@ def test_generate_topic_uses_chat_json_fast_path_for_tracked_article_on_custom_b
     }
     assert captured["response_format"] is TopicGenerationResult
     assert captured["timeout_seconds"] == 60.0
-    assert captured["max_attempts"] == 1
+    assert captured["max_attempts"] == 2
     assert captured["enforce_custom_base_url_retry_floor"] is False
     assert captured["include_custom_base_url_extra_body"] is False
+    assert captured["retry_on_output_error"] is False
     assert "基于参考文章提炼出一个可直接立项的女性情感成长类原创选题" in str(captured["instructions"])
 
 
-def test_generate_outline_falls_back_after_internal_server_error_on_custom_base_url(monkeypatch) -> None:
+def test_generate_tracked_article_topic_retries_one_transient_upstream_error(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    chat_calls = {"count": 0}
+    request = httpx.Request("POST", "https://proxy.example/v1/chat/completions")
+    response = httpx.Response(502, request=request, json={"error": {"message": "upstream_error"}})
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            if chat_calls["count"] == 1:
+                raise openai.InternalServerError(
+                    "upstream_error",
+                    response=response,
+                    body={"error": {"message": "upstream_error"}},
+                )
+
+            class FakeMessage:
+                content = '{"title": "先把眼前的事说清楚", "angle": "从当前处境进入"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+    monkeypatch.setattr(ai_generator_module.time, "sleep", lambda *_args: None)
+
+    result = generator.generate_topic(
+        {
+            "source_type": "tracked_article",
+            "source_ref_slug": "reference-article",
+            "source_name": "",
+            "author": "",
+            "article_title": "参考文章",
+            "summary": "",
+            "structure_notes": "",
+            "tags": [],
+            "body_markdown": "正文",
+        }
+    )
+
+    assert result == {"title": "先把眼前的事说清楚", "angle": "从当前处境进入"}
+    assert chat_calls["count"] == 2
+
+
+def test_generate_tracked_article_topic_stops_after_two_transient_upstream_errors(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    chat_calls = {"count": 0}
+    request = httpx.Request("POST", "https://proxy.example/v1/chat/completions")
+    response = httpx.Response(503, request=request, json={"error": {"message": "temporarily unavailable"}})
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+            raise openai.InternalServerError(
+                "temporarily unavailable",
+                response=response,
+                body={"error": {"message": "temporarily unavailable"}},
+            )
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+    monkeypatch.setattr(ai_generator_module.time, "sleep", lambda *_args: None)
+
+    with pytest.raises(openai.InternalServerError):
+        generator.generate_topic(
+            {
+                "source_type": "tracked_article",
+                "source_ref_slug": "reference-article",
+                "source_name": "",
+                "author": "",
+                "article_title": "参考文章",
+                "summary": "",
+                "structure_notes": "",
+                "tags": [],
+                "body_markdown": "正文",
+            }
+        )
+
+    assert chat_calls["count"] == 2
+
+
+def test_generate_tracked_article_topic_does_not_retry_invalid_json(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    chat_calls = {"count": 0}
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            chat_calls["count"] += 1
+
+            class FakeMessage:
+                content = '{"title": "缺少 angle"}'
+
+            class FakeChoice:
+                message = FakeMessage()
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    monkeypatch.setattr(generator._client, "chat", FakeChat())
+
+    with pytest.raises(ValueError):
+        generator.generate_topic(
+            {
+                "source_type": "tracked_article",
+                "source_ref_slug": "reference-article",
+                "source_name": "",
+                "author": "",
+                "article_title": "参考文章",
+                "summary": "",
+                "structure_notes": "",
+                "tags": [],
+                "body_markdown": "正文",
+            }
+        )
+
+    assert chat_calls["count"] == 1
+
+
+def test_generate_outline_falls_back_after_connection_error_on_custom_base_url(monkeypatch) -> None:
     generator = build_custom_base_url_generator()
     parse_calls = {"count": 0}
     chat_calls = {"count": 0}
@@ -2323,11 +2518,7 @@ def test_generate_outline_falls_back_after_internal_server_error_on_custom_base_
     class FakeResponses:
         def parse(self, **kwargs):
             parse_calls["count"] += 1
-            raise openai.InternalServerError(
-                "Upstream request failed",
-                response=response,
-                body={"error": {"message": "Upstream request failed"}},
-            )
+            raise openai.APIConnectionError(request=request)
 
     class FakeChatCompletions:
         def create(self, **kwargs):

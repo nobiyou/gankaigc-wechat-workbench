@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "run_originality_case.py"
@@ -56,6 +58,258 @@ def test_to_detector_text_strips_markdown_surface() -> None:
     text = script._to_detector_text("# 标题\n\n**加粗** [链接](https://example.com)\n> 引用")
 
     assert text == "标题 加粗 链接 引用"
+
+
+def test_request_budget_accounts_for_one_topic_retry() -> None:
+    script = _load_run_originality_case_module()
+
+    budget = script._build_request_budget(
+        include_assets_publish=False,
+        skip_metadata=True,
+        reuse_topic=False,
+    )
+
+    assert budget["topic"] == 2
+
+
+def test_request_budget_accounts_for_one_outline_retry() -> None:
+    script = _load_run_originality_case_module()
+
+    budget = script._build_request_budget(
+        include_assets_publish=False,
+        skip_metadata=True,
+        reuse_topic=True,
+    )
+
+    assert budget["outline"] == 2
+
+
+def test_infer_title_uses_first_complete_sentence_for_plain_text_source() -> None:
+    script = _load_run_originality_case_module()
+
+    assert script._infer_title("人活着，到底是为了什么？有一个最打动我的回答。", "fallback") == "人活着，到底是为了什么"
+
+
+def test_reuse_bundle_identity_allows_title_variation_when_body_hash_matches() -> None:
+    script = _load_run_originality_case_module()
+    source_title = "人活着，到底是为了什么"
+    source_markdown = "人活着，到底是为了什么？有一个最打动我的回答。"
+    identity = script._build_source_identity(
+        source_title=source_title,
+        source_markdown=source_markdown,
+    )
+
+    result = script._validate_reuse_bundle_identity(
+        reuse_bundle_payload={
+            "source_title": "人活着，到底是为了什么",
+            "source_identity": {
+                "title": "人活着，到底是为了什么",
+                "body_sha256": identity["body_sha256"],
+            },
+        },
+        source_title="人活着，到底是为了什么？有一个最打动我的回答",
+        source_markdown=source_markdown,
+        bundle_json_path="matching-result.json",
+    )
+
+    assert result is not None
+    assert result["validated"] is True
+    assert result["title_match"] is False
+    assert result["title_match_overridden_by_body_hash"] is True
+    assert result["body_hash_match"] is True
+
+
+def test_reuse_bundle_identity_rejects_different_source_title() -> None:
+    script = _load_run_originality_case_module()
+
+    with pytest.raises(ValueError, match="source_title 与当前文章不一致"):
+        script._validate_reuse_bundle_identity(
+            reuse_bundle_payload={
+                "source_title": "另一篇文章",
+                "source_identity": {
+                    "title": "另一篇文章",
+                    "body_sha256": "",
+                },
+            },
+            source_title="当前文章",
+            source_markdown="正文",
+            bundle_json_path="old-result.json",
+        )
+
+
+def test_reuse_bundle_identity_rejects_different_source_body_hash() -> None:
+    script = _load_run_originality_case_module()
+    source_markdown = "第一段正文"
+    source_identity = script._build_source_identity(
+        source_title="当前文章",
+        source_markdown=source_markdown,
+    )
+
+    with pytest.raises(ValueError, match="source body hash 与当前文章不一致"):
+        script._validate_reuse_bundle_identity(
+            reuse_bundle_payload={
+                "source_identity": {
+                    "title": "当前文章",
+                    "body_sha256": "0" * 64,
+                },
+            },
+            source_title="当前文章",
+            source_markdown=source_markdown,
+            bundle_json_path="old-result.json",
+        )
+
+    assert source_identity["body_sha256"] != "0" * 64
+
+
+def test_reuse_bundle_identity_accepts_legacy_analysis_with_matching_source_identity() -> None:
+    script = _load_run_originality_case_module()
+    source_markdown = "当前文章正文"
+    source_identity = script._build_source_identity(
+        source_title="当前文章",
+        source_markdown=source_markdown,
+    )
+
+    result = script._validate_reuse_bundle_identity(
+        reuse_bundle_payload={
+            "source_identity": source_identity,
+            "tracked_article": {
+                "analysis_theme": "当前文章的主题",
+            },
+        },
+        source_title="当前文章",
+        source_markdown=source_markdown,
+        bundle_json_path="legacy-analysis-result.json",
+    )
+
+    assert result is not None
+    assert result["validated"] is True
+    assert result["analysis_provenance_source"] == "source_identity_legacy"
+
+
+def test_reuse_bundle_identity_rejects_legacy_analysis_without_body_hash() -> None:
+    script = _load_run_originality_case_module()
+
+    with pytest.raises(ValueError, match="分析合同缺少 analysis_source_identity"):
+        script._validate_reuse_bundle_identity(
+            reuse_bundle_payload={
+                "source_identity": {
+                    "title": "当前文章",
+                    "body_sha256": "",
+                },
+                "tracked_article": {
+                    "analysis_theme": "旧文章的主题",
+                },
+            },
+            source_title="当前文章",
+            source_markdown="正文",
+            bundle_json_path="legacy-analysis-result.json",
+        )
+
+
+def test_reuse_bundle_identity_rejects_analysis_provenance_for_different_body() -> None:
+    script = _load_run_originality_case_module()
+    source_markdown = "当前文章正文"
+    source_identity = script._build_source_identity(
+        source_title="当前文章",
+        source_markdown=source_markdown,
+    )
+    old_identity = script._build_source_identity(
+        source_title="旧文章",
+        source_markdown="旧文章正文",
+    )
+
+    with pytest.raises(ValueError, match="分析合同的正文 hash 与当前文章不一致"):
+        script._validate_reuse_bundle_identity(
+            reuse_bundle_payload={
+                "source_identity": source_identity,
+                "analysis_source_identity": old_identity,
+                "tracked_article": {
+                    "analysis_theme": "旧文章的主题",
+                },
+            },
+            source_title="当前文章",
+            source_markdown=source_markdown,
+            bundle_json_path="stale-analysis-result.json",
+        )
+
+
+def test_reuse_bundle_identity_accepts_analysis_with_matching_provenance() -> None:
+    script = _load_run_originality_case_module()
+    source_markdown = "当前文章正文"
+    source_identity = script._build_source_identity(
+        source_title="当前文章",
+        source_markdown=source_markdown,
+    )
+
+    result = script._validate_reuse_bundle_identity(
+        reuse_bundle_payload={
+            "source_identity": source_identity,
+            "analysis_source_identity": source_identity,
+            "tracked_article": {
+                "analysis_theme": "当前文章的主题",
+            },
+        },
+        source_title="当前文章",
+        source_markdown=source_markdown,
+        bundle_json_path="matching-analysis-result.json",
+    )
+
+    assert result is not None
+    assert result["validated"] is True
+    assert result["analysis_contract_checked"] is True
+
+
+def test_reuse_bundle_only_skips_metadata_when_analysis_contract_is_complete() -> None:
+    script = _load_run_originality_case_module()
+    args = script._build_parser().parse_args([])
+
+    partial_bundle = {
+        "tracked_article": {
+            "analysis_theme": "只完成了主题字段",
+        }
+    }
+    complete_bundle = {
+        "tracked_article": {
+            **{field: field for field in script._TRACKED_ARTICLE_ANALYSIS_FIELDS},
+            "analysis_content_pillars": ["第一层内容", "第二层内容"],
+        }
+    }
+    legacy_complete_bundle = {
+        "tracked_article": {field: field for field in script._TRACKED_ARTICLE_ANALYSIS_FIELDS}
+    }
+
+    assert script._should_skip_tracked_article_enrichment(
+        args=args,
+        reuse_bundle_payload=partial_bundle,
+    ) is False
+    assert script._should_skip_tracked_article_enrichment(
+        args=args,
+        reuse_bundle_payload=complete_bundle,
+    ) is True
+    assert script._should_skip_tracked_article_enrichment(
+        args=args,
+        reuse_bundle_payload=legacy_complete_bundle,
+    ) is False
+
+
+def test_reuse_bundle_identity_accepts_legacy_title_only_bundle() -> None:
+    script = _load_run_originality_case_module()
+
+    result = script._validate_reuse_bundle_identity(
+        reuse_bundle_payload={
+            "source_title": "当前文章",
+            "topic": {"title": "当前文章"},
+        },
+        source_title="当前文章",
+        source_markdown="正文",
+        bundle_json_path="legacy-result.json",
+    )
+
+    assert result is not None
+    assert result["validated"] is True
+    assert result["analysis_contract_checked"] is False
+    assert result["body_hash_checked"] is False
+    assert result["body_hash_match"] is None
 
 
 def test_build_tracked_article_seed_sanitizes_reused_responsibility_metadata() -> None:
@@ -2090,11 +2344,9 @@ def test_export_prompts_only_mode_writes_prompt_bundles(tmp_path: Path) -> None:
 
     assert "创作策略包（执行摘要）" in outline_payload["prompt"]
     assert "创作策略包（执行摘要）" in draft_payload["prompt"]
-    assert "写前约束：" in draft_payload["prompt"]
-    assert "拉开距离检查：" in draft_payload["prompt"]
-    assert "写作执行：" in draft_payload["prompt"]
-    assert "返回前自检：" in draft_payload["prompt"]
-    assert "输出前必须做一次静默自检" in draft_payload["instructions"]
+    assert "主题锚点卡：" in draft_payload["prompt"]
+    assert "执行顺序：" in draft_payload["prompt"]
+    assert "当前任务是参考文章策略稿的首稿阶段" in draft_payload["instructions"]
 
 
 def test_extract_reuse_topic_seed_falls_back_to_compare_bundle_titles() -> None:
@@ -2209,17 +2461,23 @@ def test_export_prompts_only_mode_uses_compare_bundle_fallback_seed(tmp_path: Pa
     assert "别把日子过反了" in result["topic_seed"]["angle"]
 
 
-def test_export_prompts_only_mode_skips_metadata_enrichment_when_reuse_bundle_has_tracked_article(
+def test_export_prompts_only_mode_skips_metadata_enrichment_when_reuse_bundle_has_complete_analysis(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     script = _load_run_originality_case_module()
     source_file = tmp_path / "source.md"
     source_file.write_text("# 别把日子过反了\n\n很多重要的事，就是这样被顺手往后放。", encoding="utf-8")
+    source_identity = script._build_source_identity(
+        source_title="别把日子过反了",
+        source_markdown=source_file.read_text(encoding="utf-8"),
+    )
     reuse_bundle = tmp_path / "reuse-result.json"
     reuse_bundle.write_text(
         json.dumps(
             {
+                "source_identity": source_identity,
+                "analysis_source_identity": source_identity,
                 "topic": {
                     "title": "别把日子过反了",
                     "angle": "从身体、关系和生活排序被不断往后放的处境切入，直接写清推迟的代价。",
@@ -2228,6 +2486,8 @@ def test_export_prompts_only_mode_skips_metadata_enrichment_when_reuse_bundle_ha
                     "summary": "围绕长期推迟导致生活排序失衡的参考文章。",
                     "structure_notes": "以短小节推进身体、关系和幸福排序。",
                     "tags": ["生活排序", "推迟"],
+                    **{field: field for field in script._TRACKED_ARTICLE_ANALYSIS_FIELDS},
+                    "analysis_content_pillars": ["第一层内容", "第二层内容"],
                 },
             },
             ensure_ascii=False,
@@ -2294,7 +2554,7 @@ def test_best_effort_enrich_tracked_article_records_warning_and_keeps_seed_paylo
     def fail_enrich(_slug: str):
         raise RuntimeError("502 upstream access forbidden")
 
-    script._best_effort_enrich_tracked_article(
+    attempted = script._best_effort_enrich_tracked_article(
         article_slug="article-demo",
         article_payload=FakeArticle(),
         enrich_tracked_article_metadata=fail_enrich,
@@ -2302,6 +2562,7 @@ def test_best_effort_enrich_tracked_article_records_warning_and_keeps_seed_paylo
         partial=partial,
     )
 
+    assert attempted is True
     assert partial["tracked_article"]["slug"] == "article-demo"
     assert partial["tracked_article"]["title"] == "幸福是什么"
     assert partial["warnings"] == [
@@ -2353,7 +2614,7 @@ def test_best_effort_enrich_tracked_article_uses_enriched_payload_without_warnin
 
     partial: dict[str, object] = {}
 
-    script._best_effort_enrich_tracked_article(
+    attempted = script._best_effort_enrich_tracked_article(
         article_slug="article-demo",
         article_payload=FakeArticle(),
         enrich_tracked_article_metadata=lambda _slug: FakeEnriched(),
@@ -2361,6 +2622,7 @@ def test_best_effort_enrich_tracked_article_uses_enriched_payload_without_warnin
         partial=partial,
     )
 
+    assert attempted is True
     assert partial["tracked_article"]["author"] == "晚舟"
     assert partial["tracked_article"]["summary"] == "补齐摘要"
     assert "warnings" not in partial

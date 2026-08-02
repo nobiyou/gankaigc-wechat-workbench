@@ -17,6 +17,7 @@ _TRACKED_ARTICLE_STRUCTURE_MODES = {
     "fragment_chain_observation",
     "pressure_interface_direct",
     "everyday_warmth_return",
+    "responsibility_shelter",
     "inner_settlement",
     "self_worth_rebuild",
     "self_reliance_inward_support",
@@ -44,7 +45,11 @@ class AnalysisFirstContract:
     core_conflict: str = ""
     emotional_exit: str = ""
     opening_pattern: str = ""
+    hook_trigger: str = ""
+    progression_drive: str = ""
+    share_reason: str = ""
     do_not_turn_into: str = ""
+    content_pillars: tuple[str, ...] = ()
 
 
 _REFERENCE_HOME_RETURN_KEYWORDS = (
@@ -389,6 +394,28 @@ _SELF_RELIANCE_INWARD_SUPPORT_THESIS_MARKERS = (
     "试着向上爬",
     "能够自救自渡",
 )
+_SELF_RELIANCE_SELF_COMPASSION_KEYWORDS = (
+    "小时候",
+    "童年",
+    "没被安慰",
+    "没人安慰",
+    "没人倾听",
+    "自己给自己",
+    "自己安慰自己",
+    "温柔对待自己",
+    "做那个大人",
+    "做那个朋友",
+    "最需要的人",
+    "把自己放在心上",
+)
+_SELF_RELIANCE_SELF_COMPASSION_THESIS_MARKERS = (
+    "童年缺失的补偿",
+    "迟迟等不来的东西",
+    "成年人最顶级的自爱",
+    "自己动手生火",
+    "你就是那个",
+    "去做你小时候需要的那个人",
+)
 _SELF_WORTH_REBUILD_KEYWORDS = (
     "爱自己",
     "自爱",
@@ -468,6 +495,126 @@ def normalize_structure_mode_hint(value: str | None) -> str:
     return ""
 
 
+def _is_usable_analysis_emotional_exit(value: str) -> bool:
+    """Reject an exit that only tells the reader what to stop doing."""
+    normalized = _normalize_strategy_contract_text(value)
+    if not normalized:
+        return False
+    has_stop_marker = any(marker in normalized for marker in _ANALYSIS_EXIT_STOP_MARKERS)
+    if not has_stop_marker:
+        return True
+    return any(marker in normalized for marker in _ANALYSIS_EXIT_RETURN_MARKERS)
+
+
+def has_complete_tracked_article_analysis_contract(
+    *,
+    analysis_structure_mode_hint: str = "",
+    analysis_theme: str = "",
+    analysis_core_conflict: str = "",
+    analysis_emotional_exit: str = "",
+    analysis_opening_pattern: str = "",
+    analysis_hook_trigger: str = "",
+    analysis_progression_drive: str = "",
+    analysis_share_reason: str = "",
+    analysis_do_not_turn_into: str = "",
+) -> bool:
+    """Return whether a tracked reference has a usable non-generic contract."""
+    normalized_mode = normalize_structure_mode_hint(analysis_structure_mode_hint)
+    if not normalized_mode or normalized_mode == "emotional_engine_direct":
+        return False
+    return all(
+        _normalize_strategy_contract_text(value)
+        for value in (
+            analysis_theme,
+            analysis_core_conflict,
+            analysis_opening_pattern,
+            analysis_hook_trigger,
+            analysis_progression_drive,
+            analysis_share_reason,
+            analysis_do_not_turn_into,
+        )
+    ) and _is_usable_analysis_emotional_exit(analysis_emotional_exit)
+
+
+def _has_analysis_contract_scaffold_without_exit(
+    *,
+    analysis_theme: str,
+    analysis_core_conflict: str,
+    analysis_opening_pattern: str,
+    analysis_hook_trigger: str,
+    analysis_progression_drive: str,
+    analysis_share_reason: str,
+    analysis_do_not_turn_into: str,
+) -> bool:
+    return all(
+        _normalize_strategy_contract_text(value)
+        for value in (
+            analysis_theme,
+            analysis_core_conflict,
+            analysis_opening_pattern,
+            analysis_hook_trigger,
+            analysis_progression_drive,
+            analysis_share_reason,
+            analysis_do_not_turn_into,
+        )
+    )
+
+
+def _topic_surface_overlaps_reference(candidate: str, reference_body_markdown: str) -> bool:
+    compact_candidate = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", candidate)
+    compact_reference = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", reference_body_markdown)
+    if len(compact_candidate) < 6 or not compact_reference:
+        return False
+    if compact_candidate in compact_reference:
+        return True
+    if len(compact_candidate) >= 5 and any(
+        compact_candidate[index : index + 5] in compact_reference
+        for index in range(len(compact_candidate) - 4)
+    ):
+        return True
+    shingles = {compact_candidate[index : index + 4] for index in range(len(compact_candidate) - 3)}
+    shared = sum(1 for shingle in shingles if shingle in compact_reference)
+    return len(shingles) >= 2 and shared / len(shingles) >= 0.55
+
+
+def _extract_topic_owned_entry(topic_title: str, topic_angle: str) -> str:
+    for raw_value in (topic_angle, topic_title):
+        value = _normalize_strategy_contract_text(raw_value)
+        if not value:
+            continue
+        match = re.search(
+            r"(?:从|围绕|抓住|落到|先写|先从)([^，。；;]{4,48}?)(?:切入|写起|展开|说起|落笔|开始)",
+            value,
+        )
+        if match:
+            entry = match.group(1).strip(" ，,：:；;")
+        else:
+            entry = re.split(r"[，。；;：:]", value, maxsplit=1)[0].strip(" ，,：:；;")
+        entry = re.sub(r"^(?:这篇|本文|文章|新稿)(?:要|从|围绕)?", "", entry).strip(" ，,：:；;")
+        if len(re.sub(r"\s+", "", entry)) >= 6:
+            return entry[:48].rstrip("，,；;。")
+    return ""
+
+
+def build_complete_contract_scene_anchor_requirements(
+    *,
+    topic_title: str,
+    topic_angle: str,
+    reference_body_markdown: str = "",
+) -> list[str]:
+    """Build downstream scene anchors from the new topic, never from the source hook."""
+    entry = _extract_topic_owned_entry(topic_title, topic_angle)
+    if entry and not _topic_surface_overlaps_reference(entry, reference_body_markdown):
+        return [
+            f"新选题现实入口：{entry}；先让这个动作、物件、场所或选择发生。",
+            "入口之后出现一次可见变化、关系反馈或当场选择，让主题从事实里长出来。",
+        ]
+    return [
+        "从当前选题标题和角度中另选一处独有的动作、物件、场所或选择作为新入口。",
+        "入口之后出现一次可见变化、关系反馈或当场选择，让主题从事实里长出来。",
+    ]
+
+
 def _is_everyday_warmth_family_mode(structure_mode: str) -> bool:
     return structure_mode in {"everyday_warmth_return", "responsibility_shelter"}
 
@@ -489,9 +636,44 @@ def resolve_tracked_article_structure_mode(
     analysis_core_conflict: str = "",
     analysis_emotional_exit: str = "",
     analysis_opening_pattern: str = "",
+    analysis_hook_trigger: str = "",
+    analysis_progression_drive: str = "",
+    analysis_share_reason: str = "",
     analysis_do_not_turn_into: str = "",
+    analysis_content_pillars: list[str] | tuple[str, ...] = (),
+    trust_complete_analysis_contract: bool = False,
 ) -> str:
     normalized_hint = normalize_structure_mode_hint(analysis_structure_mode_hint)
+    if trust_complete_analysis_contract and has_complete_tracked_article_analysis_contract(
+        analysis_structure_mode_hint=normalized_hint,
+        analysis_theme=analysis_theme,
+        analysis_core_conflict=analysis_core_conflict,
+        analysis_emotional_exit=analysis_emotional_exit,
+        analysis_opening_pattern=analysis_opening_pattern,
+        analysis_hook_trigger=analysis_hook_trigger,
+        analysis_progression_drive=analysis_progression_drive,
+        analysis_share_reason=analysis_share_reason,
+        analysis_do_not_turn_into=analysis_do_not_turn_into,
+    ):
+        return normalized_hint
+    if (
+        trust_complete_analysis_contract
+        and normalized_hint
+        and normalized_hint != "emotional_engine_direct"
+        and _has_analysis_contract_scaffold_without_exit(
+            analysis_theme=analysis_theme,
+            analysis_core_conflict=analysis_core_conflict,
+            analysis_opening_pattern=analysis_opening_pattern,
+            analysis_hook_trigger=analysis_hook_trigger,
+            analysis_progression_drive=analysis_progression_drive,
+            analysis_share_reason=analysis_share_reason,
+            analysis_do_not_turn_into=analysis_do_not_turn_into,
+        )
+    ):
+        # A malformed emotional exit should not erase an otherwise coherent
+        # article mode. The mode supplies its own positive fallback while the
+        # invalid exit is intentionally dropped from the strategy contract.
+        return normalized_hint
     synthetic_angle = " ".join(
         part.strip()
         for part in (
@@ -499,6 +681,7 @@ def resolve_tracked_article_structure_mode(
             analysis_core_conflict,
             analysis_emotional_exit,
             analysis_opening_pattern,
+            " ".join(str(item).strip() for item in analysis_content_pillars if str(item).strip()),
         )
         if part and part.strip()
     )
@@ -1395,6 +1578,57 @@ _RESILIENCE_RECONSTRUCTION_THESIS_MARKERS = (
 )
 _SUPPORTIVE_HEALTHY_BODY_MARKERS = ("健康的身体", "爱你的家人", "三两好友", "一碗热饭")
 
+_ANALYSIS_EXIT_STOP_MARKERS = (
+    "别等",
+    "不要等",
+    "别再等",
+    "离开",
+    "远离",
+    "断联",
+    "不值得",
+    "算了",
+    "放下",
+    "看清",
+    "不再",
+    "不爱",
+    "冷落",
+    "被忽略",
+    "受伤",
+)
+
+_ANALYSIS_EXIT_RETURN_MARKERS = (
+    "继续",
+    "向前",
+    "重新",
+    "新生活",
+    "未来",
+    "希望",
+    "期待",
+    "成长",
+    "力量",
+    "勇气",
+    "温暖",
+    "安稳",
+    "心安",
+    "从容",
+    "珍惜",
+    "爱自己",
+    "照顾自己",
+    "留给",
+    "回应",
+    "在乎",
+    "回到自己",
+    "回到生活",
+    "奔赴",
+    "拥抱",
+    "自在",
+    "平静",
+    "幸福",
+    "平安",
+    "热爱",
+    "有底气",
+)
+
 
 def _read_project_value(project: Mapping[str, object], key: str, default: str = "") -> str:
     try:
@@ -1404,6 +1638,663 @@ def _read_project_value(project: Mapping[str, object], key: str, default: str = 
     if value is None:
         return default
     return str(value)
+
+
+def _read_project_list(project: Mapping[str, object], key: str) -> tuple[str, ...]:
+    try:
+        value = project[key]
+    except (KeyError, IndexError, TypeError):
+        return ()
+    if not isinstance(value, (list, tuple)):
+        return ()
+    result: list[str] = []
+    for item in value:
+        text = re.sub(r"\s+", " ", str(item or "")).strip(" \t\r\n-•")
+        if text and text not in result:
+            result.append(text)
+    return tuple(result[:4])
+
+
+_COMPLETE_CONTRACT_REFERENCE_SHELL_CUES = (
+    "旧衣", "碎花裙", "栀子花", "游园会", "旧相册", "聊天记录", "垃圾桶",
+    "饭桌", "晚饭", "热汤", "夜灯", "一盏灯", "电话", "短信", "消息",
+    "朋友圈", "手机", "评论", "点赞", "红灯", "孩子", "父母", "爷爷",
+    "奶奶", "孙女", "放学", "会议室", "账单", "补习费用", "缴费窗口",
+    "车祸", "右臂", "右腿", "手术台", "泳池", "游泳", "训练", "肩伤",
+    "背痛", "伤口", "旧裙", "旧物", "门口",
+)
+
+
+def _complete_contract_function_fallback(
+    *,
+    structure_mode: str,
+    field: str,
+    theme: str,
+    core_conflict: str,
+    emotional_exit: str,
+) -> str:
+    mode = structure_mode or "fragment_chain_observation"
+    responsibility = mode == "everyday_warmth_return" and any(
+        marker in " ".join((theme, core_conflict, emotional_exit))
+        for marker in ("责任", "家里", "安稳", "托住", "一家")
+    )
+    if responsibility:
+        mode = "responsibility_shelter"
+
+    projections: dict[str, dict[str, str]] = {
+        "everyday_warmth_return": {
+            "opening_pattern": "从外在标准突然失重、普通生活重新显出分量的现实瞬间切入",
+            "hook_trigger": "让一个普通选择或生活反馈先改写幸福的坐标",
+            "progression_drive": "先写人为什么把幸福押在更大的拥有上，再用陪伴、知己或安稳的现实回声把坐标改回来",
+            "share_reason": "让正在向外比较的人重新看见眼前生活本来就有的分量",
+        },
+        "responsibility_shelter": {
+            "opening_pattern": "从责任链上一个必须先处理的现实决定或家庭安排切入",
+            "hook_trigger": "让人物先把家里的顺序理清，责任的分量从当场选择里显出来",
+            "progression_drive": "先写责任怎样改变眼前的安排，再让这些认真如何慢慢落成家人的踏实显形",
+            "share_reason": "让正在为家里操心的人看见，认真安排生活本身就是一种爱",
+        },
+        "inner_settlement": {
+            "opening_pattern": "从外界事情已经过去、心却还没有真正归位的现实时刻切入",
+            "hook_trigger": "让那颗迟迟没有落地的心先被看见，而不是先替它下结论",
+            "progression_drive": "从心为什么一直悬着推进到怎样在眼前的日常里重新找到安顿",
+            "share_reason": "让读者感到自己不必强行看开，也可以慢慢回到今天",
+        },
+        "self_worth_rebuild": {
+            "opening_pattern": "从一次习惯性退让让自己失去分量的现实选择切入",
+            "hook_trigger": "让边界被放低的代价先显出来，再看见人怎样重新立住标准",
+            "progression_drive": "从将就和示好为什么会改写自己的位置推进到尊重、边界和分量重新归位",
+            "share_reason": "让总在关系里把自己放轻的人，得到一次把分量收回来的确认",
+        },
+        "self_reliance_inward_support": {
+            "opening_pattern": "从外部支持暂时没有及时到位时，一个人处理下一步的现实动作切入",
+            "hook_trigger": "让主动判断和继续行动先发生，而不是让等待救赎占满开头",
+            "progression_drive": "从支撑不足带来的迟疑推进到冷静判断、具体行动和恢复力逐步回到自己手里",
+            "share_reason": "让正在独自处理难处的人看见，求助与自我支撑可以同时成立",
+        },
+        "response_priority": {
+            "opening_pattern": "从表层互动与真正被理解之间的一处落差切入",
+            "hook_trigger": "让回应的质量而不是回应的数量承担被在乎的判断",
+            "progression_drive": "从表面回应为什么不等于关心推进到被听见、被理解和双向投入的分量",
+            "share_reason": "让读者重新分辨热闹回应和真正进入自己处境的在乎",
+        },
+        "trust_boundary": {
+            "opening_pattern": "从一处信任被隐瞒划开、又需要靠事实重新验证的关系瞬间切入",
+            "hook_trigger": "让信任的裂缝和坦诚的选择先通过事实显形",
+            "progression_drive": "从隐瞒怎样改变安全感推进到坦诚、交代和说到做到怎样重新托住关系",
+            "share_reason": "让珍惜信任的人看见，可靠不是一句保证，而是持续兑现",
+        },
+        "supportive_appreciation": {
+            "opening_pattern": "从柔软被误读或被认真回应的一处关系现场切入",
+            "hook_trigger": "让温柔里的清醒和分寸先通过一个具体回应显出来",
+            "progression_drive": "从柔软为什么容易被当成理所当然推进到真正的珍惜如何变成回应",
+            "share_reason": "让愿意体谅别人的人被看见，也提醒身边的人认真回应这份柔软",
+        },
+        "relationship_aftercare": {
+            "opening_pattern": "从冲突过后留下的一个空白、动作或回避切入",
+            "hook_trigger": "让有没有人回来处理后果先成为关系的现场问题",
+            "progression_drive": "从争执后的沉默如何留下代价推进到修复、沟通和继续走下去是否真实发生",
+            "share_reason": "让经历过争执的人看清，关系的分量也在冲突之后的行动里",
+        },
+        "resilience_reconstruction": {
+            "opening_pattern": "从重复训练、反复校正或必须承担的现实代价切入",
+            "hook_trigger": "让继续行动先成为事实，而不是先抬高成励志口号",
+            "progression_drive": "从限制和代价怎样逼人重来推进到行动如何一点点重建主动权并拒绝被定义",
+            "share_reason": "让身处困境的人看见，人生的宽度可以在一次次重来里被重新练出来",
+        },
+        "emotional_engine_direct": {
+            "opening_pattern": "从一个被长期误认的愿望、执念或价值判断切入",
+            "hook_trigger": "让误认先被点破，再给读者看见新的选择空间",
+            "progression_drive": "从人为什么迟迟不肯松手推进到重新辨认所得、失去和下一步的关系",
+            "share_reason": "让正在和遗憾较劲的人获得一条不否定过去、也能继续往前的路",
+        },
+        "scene_first_progression": {
+            "opening_pattern": "从一个连续现场里的动作、停顿或没说出口的选择切入",
+            "hook_trigger": "让现场里的那处卡顿先发生，判断晚一点再出现",
+            "progression_drive": "沿着现场变化、当场反应和后续余波推进，让主题从人物选择里自己浮出来",
+            "share_reason": "让经历过类似现场的人在一个动作或停顿里认出自己",
+        },
+        "pressure_interface_direct": {
+            "opening_pattern": "从某个现实代价已经开始发生的接口切入",
+            "hook_trigger": "让后果先于道理出现，迫使人物重新看见被推迟的事情",
+            "progression_drive": "从代价怎样累积推进到顺序、判断和生活选择重新被调整",
+            "share_reason": "让读者在具体后果里看见自己该重新安排的那件事",
+        },
+        "fragment_chain_observation": {
+            "opening_pattern": "从一个能让主题落地的现实碎片切入，再让相邻碎片彼此照见",
+            "hook_trigger": "让一个局部细节先留下疑问，不急着把答案说满",
+            "progression_drive": "通过不同现实接口的回声逐步拼出同一种误判或代价，再回到正向选择",
+            "share_reason": "让读者在几个不完全相同的碎片里认出自己的共同处境",
+        },
+    }
+    fallback = projections.get(mode, projections["fragment_chain_observation"])
+    return fallback.get(field, "沿当前主题的现实变化推进，不预设固定外壳")
+
+
+def _complete_contract_execution_profile(structure_mode: str) -> dict[str, object]:
+    """Give each analysis mode a distinct production job beyond its topic label."""
+    profiles: dict[str, dict[str, object]] = {
+        "everyday_warmth_return": {
+            "observed_phenomenon": "外在标准突然失重，普通生活重新显出分量",
+            "packaging_hook": "一个普通日子重新校准幸福坐标的瞬间",
+            "packaging_focus": "从向外比较转回眼前已经拥有的生活分量",
+            "realism_texture_goal": "让判断落在生活回声和关系分量上，不把简单幸福写成成就反转",
+            "writing_texture_notes": [
+                "先让幸福标准在现实里发生偏移，再写普通生活怎样把它校回来。",
+                "让温暖来自已经拥有的关系和日常，不靠突然拔高。",
+            ],
+            "recomposition_recipe": [
+                "先呈现外在标准或比较带来的失重。",
+                "再用当前选题自己的生活回声改写幸福的坐标。",
+                "最后落到知足、陪伴或平安的具体分量。",
+            ],
+            "divergence_axes": [
+                "不把普通幸福写成泛泛的成功学反转。",
+                "中段要完成一次幸福标准的重新排序，而不是堆叠温暖细节。",
+                "结尾保留生活本身的余温，不替读者喊口号。",
+            ],
+            "execution_checklist": [
+                "开头是否先呈现幸福坐标的偏移。",
+                "中段是否让眼前生活真正改变了判断。",
+                "结尾是否留下可被感受到的知足和分量。",
+            ],
+        },
+        "responsibility_shelter": {
+            "observed_phenomenon": "责任落在一个必须先处理的家庭安排或照料细节上",
+            "packaging_hook": "一项责任如何在日常里显出被护住的分量",
+            "packaging_focus": "从承担的具体选择写到家人因此获得的踏实",
+            "realism_texture_goal": "让责任通过取舍、安排和后果显形，不把它写成苦难陈列",
+            "writing_texture_notes": [
+                "先写一个必须处理的选择，再让责任的重量从后果里长出来。",
+                "中段写安排如何改变家人的日常，少用抽象的牺牲判断。",
+            ],
+            "recomposition_recipe": [
+                "先落到责任链上的一个当场选择。",
+                "再写这个选择如何牵动家人的顺序和日常。",
+                "最后让认真安排生活落成一种可被感知的安稳。",
+            ],
+            "divergence_axes": [
+                "不把责任统一写成成年人硬撑或苦难励志。",
+                "中段必须出现责任改变选择、关系或日常顺序的具体后果。",
+                "结尾不借固定灯光、热汤或回话收束，服从本文自己的安稳出口。",
+            ],
+            "execution_checklist": [
+                "开头是否落在责任带来的具体取舍。",
+                "中段是否写出责任如何改变家人的生活。",
+                "结尾是否把安稳落到本篇自己的事实回声。",
+            ],
+        },
+        "inner_settlement": {
+            "observed_phenomenon": "外界事情已经过去，心却还停在没有安放的位置",
+            "packaging_hook": "一个迟迟没有归位的心绪如何回到今天",
+            "packaging_focus": "从心里的悬置转到日常重新有了轻重",
+            "realism_texture_goal": "把心绪放回轻动作、停顿和日常余波，不写成抽象心理诊断",
+            "writing_texture_notes": [
+                "先让心里的悬置被看见，不急着替它解释或判定。",
+                "后半篇用一个当下动作让人慢慢回到今天。",
+            ],
+            "recomposition_recipe": [
+                "先写心为什么还停在过去或未发生之中。",
+                "再写一个现实动作怎样让人重新有了轻重。",
+                "最后回到不强求立刻想通、但愿意继续生活。",
+            ],
+            "divergence_axes": [
+                "不把心安写成一句把事看淡的总括结论。",
+                "中段必须有从悬置到落地的过程变化。",
+                "结尾留在今天的生活，不转成关系等待或身体警报。",
+            ],
+            "execution_checklist": [
+                "开头是否先呈现心没有归位的现场。",
+                "中段是否写出从悬着到落地的变化。",
+                "结尾是否回到一个能继续做下去的日常动作。",
+            ],
+        },
+        "self_worth_rebuild": {
+            "observed_phenomenon": "一次习惯性退让让人当场失去自己的分量",
+            "packaging_hook": "一次不再顺手答应的选择如何把分量拿回来",
+            "packaging_focus": "从将就的代价写到标准和边界重新归位",
+            "realism_texture_goal": "让自我价值通过选择、拒绝和关系反馈显形，不写成口号式自爱",
+            "writing_texture_notes": [
+                "先让一次退让的代价显出来，再写标准为什么值得守住。",
+                "把自我尊重写成当场选择，不写成高位训诫。",
+            ],
+            "recomposition_recipe": [
+                "先落到一次本来可以继续将就的选择。",
+                "再写退让如何慢慢改变自己的位置。",
+                "最后让边界、标准和体面回到具体行动里。",
+            ],
+            "divergence_axes": [
+                "不把自爱写成抬高门槛后远离所有关系。",
+                "中段要写清楚一次选择如何改变关系反馈或自我感受。",
+                "结尾落在有分寸的主动权，不落成清醒宣判。",
+            ],
+            "execution_checklist": [
+                "开头是否呈现退让带来的真实代价。",
+                "中段是否让边界从选择里长出来。",
+                "结尾是否把分量落回自己能执行的标准。",
+            ],
+        },
+        "self_reliance_inward_support": {
+            "observed_phenomenon": "外部支持暂时没有到位，一个人必须决定下一步",
+            "packaging_hook": "没人替你接手时，主动权如何一点点回到手里",
+            "packaging_focus": "从支撑不足的迟疑转到具体判断和自我托住",
+            "realism_texture_goal": "让自我支撑通过判断、行动和恢复节奏显形，不歌颂孤军奋战",
+            "writing_texture_notes": [
+                "先写没有人立刻接手时的真实迟疑，再写下一步怎样被做出来。",
+                "允许求助存在，同时把能掌握的部分还给自己。",
+            ],
+            "recomposition_recipe": [
+                "先呈现支持缺口带来的停顿。",
+                "再拆出一个自己能够判断和完成的下一步。",
+                "最后把勇气落在可持续的自我支撑上。",
+            ],
+            "divergence_axes": [
+                "不把向内求写成拒绝所有帮助。",
+                "中段必须有从等待到行动的具体转折。",
+                "结尾落在自救自渡的能力，不把人推回孤立无援。",
+            ],
+            "execution_checklist": [
+                "开头是否出现支持缺口和下一步选择。",
+                "中段是否写出行动如何恢复主动权。",
+                "结尾是否同时保留求助和自我支撑的空间。",
+            ],
+        },
+        "response_priority": {
+            "observed_phenomenon": "表层互动与真正被理解之间出现一处落差",
+            "packaging_hook": "一个人有没有真正停下来，如何被一处细节看见",
+            "packaging_focus": "从路过式回应转到注意力、理解和双向投入",
+            "realism_texture_goal": "让关心通过停留、追问和后续行动显形，不写成回应速度排名",
+            "writing_texture_notes": [
+                "先写表面的热闹和真正的落差，再让被理解的分量自己出现。",
+                "少用关系判词，多写注意力怎样落到一个人的处境里。",
+            ],
+            "recomposition_recipe": [
+                "先呈现看似有回应、实际没有被接住的落差。",
+                "再写一次真正的停留或理解如何改变情绪。",
+                "最后回到双向在乎，而不是给关系排位。",
+            ],
+            "divergence_axes": [
+                "不把关心简化成回得快、回得多或谁更优先。",
+                "中段必须出现理解带来的情绪变化。",
+                "结尾留在双向在乎，不收成别再等人的清醒判词。",
+            ],
+            "execution_checklist": [
+                "开头是否先呈现回应质量的落差。",
+                "中段是否写出被理解后发生的变化。",
+                "结尾是否把心力带回真正愿意停留的人。",
+            ],
+        },
+        "trust_boundary": {
+            "observed_phenomenon": "一次隐瞒让原本放心的关系出现事实落差",
+            "packaging_hook": "信任裂开后，什么样的事实才能让人重新放心",
+            "packaging_focus": "从隐瞒造成的不安转到坦诚、交代和兑现",
+            "realism_texture_goal": "让信任通过事实、时间和持续兑现显形，不停留在道德宣判",
+            "writing_texture_notes": [
+                "先写放心被打断的那一刻，再写重新相信需要哪些事实。",
+                "让坦诚通过持续兑现成立，不用一句道歉替代修复。",
+            ],
+            "recomposition_recipe": [
+                "先落到一次隐瞒改变安全感的事实。",
+                "再写关系如何在交代、验证和兑现中重新建立秩序。",
+                "最后回到守护赤诚，而不是重复惩罚辜负。",
+            ],
+            "divergence_axes": [
+                "不把信任写成单次原谅或一次道歉就能归零。",
+                "中段要写出事实如何承担修复成本。",
+                "结尾落在可靠的持续行动，不落成关系审判。",
+            ],
+            "execution_checklist": [
+                "开头是否让信任的事实落差先发生。",
+                "中段是否写出重新放心需要的行动。",
+                "结尾是否把珍惜落到持续可靠。",
+            ],
+        },
+        "supportive_appreciation": {
+            "observed_phenomenon": "柔软被误读为理所当然，或被一次认真回应重新照亮",
+            "packaging_hook": "一个愿意包容的人，最需要被怎样认真对待",
+            "packaging_focus": "从柔软的付出转到被看见、被珍惜和有分寸的回应",
+            "realism_texture_goal": "让温柔通过回应和边界显形，不把心软写成无条件承受",
+            "writing_texture_notes": [
+                "先写柔软怎样被误读，再写真正的珍惜如何回应它。",
+                "保留温度，也给这份温柔留出被尊重的边界。",
+            ],
+            "recomposition_recipe": [
+                "先呈现一个人反复让步或包容的关系现场。",
+                "再写这份柔软被认真接住时产生的变化。",
+                "最后把珍惜落到牵紧、回应和分寸。",
+            ],
+            "divergence_axes": [
+                "不把心软归结成傻或好欺负。",
+                "中段必须区分包容、边界和被珍惜。",
+                "结尾落在双向回应，不落成单方面牺牲。",
+            ],
+            "execution_checklist": [
+                "开头是否让柔软的关系现场先出现。",
+                "中段是否写出被珍惜带来的回声。",
+                "结尾是否保留温柔和边界的同时成立。",
+            ],
+        },
+        "relationship_aftercare": {
+            "observed_phenomenon": "争执结束后，真正的问题停在有没有人回来处理后果",
+            "packaging_hook": "争执之后，什么动作决定关系还能不能继续",
+            "packaging_focus": "从冲突留下的空白转到回来、沟通和修复",
+            "realism_texture_goal": "让关系分量通过争执后的行动和变化显形，不把吵架写成输赢",
+            "writing_texture_notes": [
+                "先写争执过后的停顿和余波，再写有人回来处理什么。",
+                "让修复发生在具体沟通里，不用一句爱你替代行动。",
+            ],
+            "recomposition_recipe": [
+                "先留下冲突过后的一个空白或关系动作。",
+                "再写双方怎样把问题重新放回桌面。",
+                "最后落到愿意继续走下去的实际改变。",
+            ],
+            "divergence_axes": [
+                "不把吵架本身当成爱情试金石。",
+                "中段要出现冲突后的真实修复动作。",
+                "结尾落在继续相处的条件，不写成永远不争吵。",
+            ],
+            "execution_checklist": [
+                "开头是否落在争执后的余波。",
+                "中段是否让修复动作真正发生。",
+                "结尾是否说明继续走下去需要什么。",
+            ],
+        },
+        "resilience_reconstruction": {
+            "observed_phenomenon": "限制和代价反复出现，行动却一次次被重新练出来",
+            "packaging_hook": "一次次重来如何把人生的主动权练回来",
+            "packaging_focus": "从限制和代价转到训练、重建和不被定义",
+            "realism_texture_goal": "让韧性通过重复动作、调整和进步显形，不靠苦难口号托举",
+            "writing_texture_notes": [
+                "先写重复和不顺利，再让变化从一次次调整里被看见。",
+                "把力量放在持续行动里，不把人物神化成没有疼痛的人。",
+            ],
+            "recomposition_recipe": [
+                "先落到限制带来的具体动作代价。",
+                "再写反复训练如何打开新的可能。",
+                "最后回到不被定义、继续向前的主动权。",
+            ],
+            "divergence_axes": [
+                "不把韧性写成苦难越大越值得歌颂。",
+                "中段必须有行动、调整和能力变化。",
+                "结尾落在主体性重建，不停在励志金句。",
+            ],
+            "execution_checklist": [
+                "开头是否先出现限制和行动代价。",
+                "中段是否写出重复如何带来能力变化。",
+                "结尾是否回到不被定义的主动选择。",
+            ],
+        },
+        "emotional_engine_direct": {
+            "observed_phenomenon": "一个长期相信的愿望、执念或判断开始被现实重新衡量",
+            "packaging_hook": "看清一件事以后，怎样把力气重新放回未来",
+            "packaging_focus": "从误认和拉扯转到不否定过去的继续前行",
+            "realism_texture_goal": "让释怀从现实认知和选择变化里长出来，不写成一句劝放下",
+            "writing_texture_notes": [
+                "先把那个一直被相信的判断写具体，再让现实轻轻改写它。",
+                "不急着否定过去，让下一步选择承担情绪出口。",
+            ],
+            "recomposition_recipe": [
+                "先呈现愿望、执念或判断如何占住了人。",
+                "再写现实怎样让人重新辨认所得与失去。",
+                "最后给出不否定过去也能继续往前的选择。",
+            ],
+            "divergence_axes": [
+                "不把释怀压成遗忘、清醒或立刻翻篇。",
+                "中段要有认知被现实改写的过程。",
+                "结尾保留过去的价值，同时把人送回未来。",
+            ],
+            "execution_checklist": [
+                "开头是否先呈现被误认的愿望或判断。",
+                "中段是否写出重新辨认的过程。",
+                "结尾是否留下可以继续生活的选择。",
+            ],
+        },
+        "scene_first_progression": {
+            "observed_phenomenon": "连续现场中的一个动作、停顿或选择改变了原本的走向",
+            "packaging_hook": "一个现场停顿之后，事情真正改变了什么",
+            "packaging_focus": "从动作和反应推进到主题自己浮出水面",
+            "realism_texture_goal": "让主题从现场顺序、人物反应和后续余波里浮出，不先替读者总结",
+            "writing_texture_notes": [
+                "先把现场写完整，判断晚一点出现。",
+                "用人物的反应和后续余波完成情绪转折。",
+            ],
+            "recomposition_recipe": [
+                "先连续写一个动作、停顿或选择。",
+                "再让现场反馈改变人物对事情的理解。",
+                "最后从余波里自然收出主题。",
+            ],
+            "divergence_axes": [
+                "不先用总括判断替代现场。",
+                "中段要保留行动与反馈之间的因果。",
+                "结尾从余波收束，不补万能祝福。",
+            ],
+            "execution_checklist": [
+                "开头是否真正让现场先发生。",
+                "中段是否保留动作到反馈的因果。",
+                "结尾是否让主题从余波里自然出现。",
+            ],
+        },
+        "pressure_interface_direct": {
+            "observed_phenomenon": "被推迟的事情已经开始显出具体代价",
+            "packaging_hook": "一个被往后放的选择，何时开始向生活追债",
+            "packaging_focus": "从代价显形转到顺序、判断和生活重新被安排",
+            "realism_texture_goal": "让压力通过现实代价和生活排序显形，不写成身体恐吓或自我消耗诊断",
+            "writing_texture_notes": [
+                "先让被推迟的事情出现后果，再追问它为什么总被放到后面。",
+                "后半篇给出重新排序的现实动作，不停在提醒。",
+            ],
+            "recomposition_recipe": [
+                "先呈现一个被推迟的事情开始产生代价。",
+                "再拆开顺序、判断和生活负荷怎样累积。",
+                "最后落到一个能够真正执行的重新安排。",
+            ],
+            "divergence_axes": [
+                "不把压力写成单一身体症状清单。",
+                "中段必须说明代价如何一步步形成。",
+                "结尾落在生活排序和照顾自己的行动。",
+            ],
+            "execution_checklist": [
+                "开头是否让现实代价先于道理出现。",
+                "中段是否写清代价的形成链。",
+                "结尾是否给出重新排序的落点。",
+            ],
+        },
+        "fragment_chain_observation": {
+            "observed_phenomenon": "几个不完全相同的生活碎片逐渐照见同一种误判",
+            "packaging_hook": "几个不同现场如何拼出同一个被忽略的真相",
+            "packaging_focus": "从碎片之间的回声转到主题判断和正向选择",
+            "realism_texture_goal": "让不同碎片彼此照见但不重复同一场景，避免整齐排列的例子",
+            "writing_texture_notes": [
+                "让每个碎片各自成立，再让它们在后半篇互相照见。",
+                "不同场景承担不同论证职责，不用同一种情绪反复铺陈。",
+            ],
+            "recomposition_recipe": [
+                "先用一个现实碎片留下问题。",
+                "再用不同处境补出问题的另一面。",
+                "最后把几个碎片收拢到一个可执行的正向选择。",
+            ],
+            "divergence_axes": [
+                "不把不同案例写成同一段话换几个名词。",
+                "中段要让每个碎片承担不同的推进职责。",
+                "结尾从共同处境收出选择，不写成案例总评。",
+            ],
+            "execution_checklist": [
+                "开头是否先让一个碎片留下疑问。",
+                "中段不同碎片是否各自推进了一层。",
+                "结尾是否把共同处境带回正向选择。",
+            ],
+        },
+    }
+    return profiles.get(structure_mode, profiles["fragment_chain_observation"])
+
+
+def _project_complete_contract_function(
+    value: str,
+    *,
+    field: str,
+    structure_mode: str,
+    theme: str,
+    core_conflict: str,
+    emotional_exit: str,
+    reference_body_markdown: str,
+) -> str:
+    normalized = _normalize_strategy_contract_text(value)
+    fallback = _complete_contract_function_fallback(
+        structure_mode=structure_mode,
+        field=field,
+        theme=theme,
+        core_conflict=core_conflict,
+        emotional_exit=emotional_exit,
+    )
+    if not normalized:
+        return fallback
+    if any(marker in normalized for marker in ("原文", "参考文章", "文中原句", "照着")):
+        return fallback
+    if any(marker in normalized for marker in _COMPLETE_CONTRACT_REFERENCE_SHELL_CUES):
+        return fallback
+    # Opening and hook fields are the highest-risk carriers of source scenes.
+    # Keep their job, not their scene wording, even when the upstream body is
+    # unavailable or too short for overlap detection to be meaningful.
+    if field in {"opening_pattern", "hook_trigger"} and re.search(
+        r"(?:从|围绕|抓住|落到|先从).{3,36}(?:切入|写起|起笔|展开|说起|开始|停顿)",
+        normalized,
+    ):
+        return fallback
+    if field == "hook_trigger" and re.search(
+        r"(?:旧|一件|一张|一条|一只|一盏|某个|那句|那场).{2,16}(?:上|里|中|被|让|使|递|放|停|回)",
+        normalized,
+    ):
+        return fallback
+    if reference_body_markdown and _topic_surface_overlaps_reference(normalized, reference_body_markdown):
+        return fallback
+    return normalized
+
+
+def build_complete_contract_execution_surface(project: Mapping[str, object]) -> dict[str, object]:
+    """Project source analysis into topic-specific functions safe for production prompts."""
+    if _read_project_value(project, "source_type") != "tracked_article":
+        return {}
+
+    structure_mode = normalize_structure_mode_hint(
+        _read_project_value(
+            project,
+            "analysis_structure_mode",
+            _read_project_value(project, "reference_article_analysis_structure_mode"),
+        )
+    )
+    contract = _build_analysis_first_contract(
+        reference_analysis_theme=_read_project_value(project, "analysis_theme", _read_project_value(project, "reference_article_analysis_theme")),
+        reference_analysis_core_conflict=_read_project_value(project, "analysis_core_conflict", _read_project_value(project, "reference_article_analysis_core_conflict")),
+        reference_analysis_emotional_exit=_read_project_value(project, "analysis_emotional_exit", _read_project_value(project, "reference_article_analysis_emotional_exit")),
+        reference_analysis_opening_pattern=_read_project_value(project, "analysis_opening_pattern", _read_project_value(project, "reference_article_analysis_opening_pattern")),
+        reference_analysis_hook_trigger=_read_project_value(project, "analysis_hook_trigger", _read_project_value(project, "reference_article_analysis_hook_trigger")),
+        reference_analysis_progression_drive=_read_project_value(project, "analysis_progression_drive", _read_project_value(project, "reference_article_analysis_progression_drive")),
+        reference_analysis_share_reason=_read_project_value(project, "analysis_share_reason", _read_project_value(project, "reference_article_analysis_share_reason")),
+        reference_analysis_do_not_turn_into=_read_project_value(project, "analysis_do_not_turn_into", _read_project_value(project, "reference_article_analysis_do_not_turn_into")),
+        reference_analysis_content_pillars=(
+            _read_project_list(project, "analysis_content_pillars")
+            or _read_project_list(project, "reference_article_analysis_content_pillars")
+        ),
+    )
+    if not has_complete_tracked_article_analysis_contract(
+        analysis_structure_mode_hint=structure_mode,
+        analysis_theme=contract.theme,
+        analysis_core_conflict=contract.core_conflict,
+        analysis_emotional_exit=contract.emotional_exit,
+        analysis_opening_pattern=contract.opening_pattern,
+        analysis_hook_trigger=contract.hook_trigger,
+        analysis_progression_drive=contract.progression_drive,
+        analysis_share_reason=contract.share_reason,
+        analysis_do_not_turn_into=contract.do_not_turn_into,
+    ):
+        return {}
+
+    topic_title = _read_project_value(project, "topic_title")
+    topic_angle = _read_project_value(project, "topic_angle")
+    reference_body_markdown = _read_project_value(
+        project,
+        "reference_article_body_markdown",
+        _read_project_value(project, "body_markdown"),
+    )
+
+    def projected(field: str, value: str) -> str:
+        return _project_complete_contract_function(
+            value,
+            field=field,
+            structure_mode=structure_mode,
+            theme=contract.theme,
+            core_conflict=contract.core_conflict,
+            emotional_exit=contract.emotional_exit,
+            reference_body_markdown=reference_body_markdown,
+        )
+
+    opening_pattern = projected("opening_pattern", contract.opening_pattern)
+    hook_trigger = projected("hook_trigger", contract.hook_trigger)
+    progression_drive = projected("progression_drive", contract.progression_drive)
+    share_reason = projected("share_reason", contract.share_reason)
+    execution_profile = _complete_contract_execution_profile(structure_mode)
+    return {
+        "observed_phenomenon": str(
+            execution_profile.get("observed_phenomenon")
+            or "让一处属于当前选题的现实入口先发生"
+        ),
+        "opening_pattern": opening_pattern,
+        "hook_trigger": hook_trigger,
+        "progression_drive": progression_drive,
+        "share_reason": share_reason,
+        "packaging_hook": str(
+            execution_profile.get("packaging_hook")
+            or "正文已经成立的当前选题入口"
+        ),
+        "packaging_focus": str(
+            execution_profile.get("packaging_focus")
+            or "当前选题入口与主题回报之间的连接"
+        ),
+        "quotable_line_goal": f"保留一句从当前选题入口和主题回报里长出来的短句，最后服务于{contract.emotional_exit}。",
+        "quotable_line_seeds": [hook_trigger, contract.core_conflict, contract.emotional_exit],
+        "opening_move": opening_pattern,
+        "writing_texture_notes": list(
+            execution_profile.get("writing_texture_notes")
+            or ["先让当前选题的现实功能发生，再让主题判断长出来。"]
+        ),
+        "realism_texture_goal": str(
+            execution_profile.get("realism_texture_goal")
+            or "让主题矛盾通过当前选题入口的动作、选择和后果显形"
+        ),
+        "scene_anchor_requirements": build_complete_contract_scene_anchor_requirements(
+            topic_title=topic_title,
+            topic_angle=topic_angle,
+            reference_body_markdown=reference_body_markdown,
+        ),
+        "recomposition_recipe": list(
+            execution_profile.get("recomposition_recipe")
+            or [
+                "只借参考文的叙事功能，另建当前选题自己的现实入口。",
+                "沿当前选题自己的现实变化推进，不补进其他固定赛道。",
+                f"把情绪回报落到{contract.emotional_exit}。",
+            ]
+        ),
+        "divergence_axes": list(
+            execution_profile.get("divergence_axes")
+            or [
+                "不沿用参考文章的标题骨架、现成判断句和段落顺序。",
+                "把原文具体外壳换成当前选题自己的动作、选择或现实反馈。",
+                f"结尾回到{contract.emotional_exit}，不改成其他主题的祝福或宣判。",
+            ]
+        ),
+        "execution_checklist": list(
+            execution_profile.get("execution_checklist")
+            or [
+                "开头是否真正落在当前选题自己的现实入口。",
+                "中段是否完成了本篇独有的现实变化，而不是平铺观点。",
+                f"结尾是否把读者带到{contract.emotional_exit}。",
+            ]
+        ),
+        "theme": contract.theme,
+        "core_conflict": contract.core_conflict,
+        "emotional_exit": contract.emotional_exit,
+        "content_pillars": list(contract.content_pillars),
+    }
 
 
 def _count_keyword_hits(text: str, keywords: tuple[str, ...]) -> int:
@@ -1416,6 +2307,7 @@ def build_strategy_package(
     problem_brief_version: int,
     strategy_version: int,
     created_at: str,
+    trust_complete_analysis_contract: bool = False,
 ) -> StrategyPackageResult:
     topic_title = _read_project_value(project, "topic_title")
     topic_angle = _read_project_value(project, "topic_angle")
@@ -1435,6 +2327,10 @@ def build_strategy_package(
     reference_analysis_progression_drive = _read_project_value(project, "reference_article_analysis_progression_drive")
     reference_analysis_share_reason = _read_project_value(project, "reference_article_analysis_share_reason")
     reference_analysis_do_not_turn_into = _read_project_value(project, "reference_article_analysis_do_not_turn_into")
+    reference_analysis_content_pillars = _read_project_list(
+        project,
+        "reference_article_analysis_content_pillars",
+    )
     reference_analysis_structure_mode = normalize_structure_mode_hint(
         _read_project_value(project, "reference_article_analysis_structure_mode")
     )
@@ -1448,22 +2344,65 @@ def build_strategy_package(
         reference_analysis_core_conflict=reference_analysis_core_conflict,
         reference_analysis_emotional_exit=reference_analysis_emotional_exit,
         reference_analysis_opening_pattern=reference_analysis_opening_pattern,
+        reference_analysis_hook_trigger=reference_analysis_hook_trigger,
+        reference_analysis_progression_drive=reference_analysis_progression_drive,
+        reference_analysis_share_reason=reference_analysis_share_reason,
         reference_analysis_do_not_turn_into=reference_analysis_do_not_turn_into,
+        reference_analysis_content_pillars=reference_analysis_content_pillars,
+    )
+    # Do not let a negative-only metadata exit override the mode-specific
+    # positive direction below. The raw field is still stored on the article;
+    # strategy generation uses the validated contract as its creative input.
+    reference_analysis_emotional_exit = analysis_contract.emotional_exit
+    analysis_contract_is_complete = source_mode == "tracked_article" and trust_complete_analysis_contract and has_complete_tracked_article_analysis_contract(
+        analysis_structure_mode_hint=reference_analysis_structure_mode,
+        analysis_theme=reference_analysis_theme,
+        analysis_core_conflict=reference_analysis_core_conflict,
+        analysis_emotional_exit=reference_analysis_emotional_exit,
+        analysis_opening_pattern=reference_analysis_opening_pattern,
+        analysis_hook_trigger=reference_analysis_hook_trigger,
+        analysis_progression_drive=reference_analysis_progression_drive,
+        analysis_share_reason=reference_analysis_share_reason,
+        analysis_do_not_turn_into=reference_analysis_do_not_turn_into,
+    )
+    complete_contract_surface = (
+        build_complete_contract_execution_surface(project)
+        if analysis_contract_is_complete
+        else {}
     )
     pressure_reference_cues = _extract_pressure_reference_cues(reference_body_markdown)
     primary_pressure_cue = _compact_pressure_reference_cue(pressure_reference_cues[0]) if pressure_reference_cues else ""
     secondary_pressure_cue = _compact_pressure_reference_cue(pressure_reference_cues[1]) if len(pressure_reference_cues) > 1 else ""
     tracked_article_scene = _extract_reference_scene(reference_body_markdown)
     reference_shell_signals = _extract_reference_shell_signals(reference_body_markdown)
-    structure_mode = _build_structure_mode(
-        source_mode=source_mode,
-        topic_angle=topic_angle,
-        tracked_article_scene=tracked_article_scene,
-        reference_body_markdown=reference_body_markdown,
-        reference_summary=reference_detection_summary,
-        reference_structure_notes=reference_structure_notes,
-        reference_analysis_structure_mode=reference_analysis_structure_mode,
-    )
+    if analysis_contract_is_complete:
+        structure_mode = reference_analysis_structure_mode
+    elif (
+        reference_analysis_structure_mode
+        and reference_analysis_structure_mode != "emotional_engine_direct"
+        and _has_analysis_contract_scaffold_without_exit(
+            analysis_theme=reference_analysis_theme,
+            analysis_core_conflict=reference_analysis_core_conflict,
+            analysis_opening_pattern=reference_analysis_opening_pattern,
+            analysis_hook_trigger=reference_analysis_hook_trigger,
+            analysis_progression_drive=reference_analysis_progression_drive,
+            analysis_share_reason=reference_analysis_share_reason,
+            analysis_do_not_turn_into=reference_analysis_do_not_turn_into,
+        )
+    ):
+        # Keep a coherent upstream mode when only the emotional exit failed
+        # validation; otherwise the generic classifier can invent a new topic.
+        structure_mode = reference_analysis_structure_mode
+    else:
+        structure_mode = _build_structure_mode(
+            source_mode=source_mode,
+            topic_angle=topic_angle,
+            tracked_article_scene=tracked_article_scene,
+            reference_body_markdown=reference_body_markdown,
+            reference_summary=reference_detection_summary,
+            reference_structure_notes=reference_structure_notes,
+            reference_analysis_structure_mode=reference_analysis_structure_mode,
+        )
     response_priority_followup_variant = structure_mode == "response_priority" and _uses_response_priority_followup_variant(
         topic_title,
         topic_angle,
@@ -1530,20 +2469,15 @@ def build_strategy_package(
         if everyday_warmth_variant:
             everyday_warmth_profile = _build_everyday_warmth_profile(variant=everyday_warmth_variant)
         if everyday_warmth_variant == "responsibility_shelter":
-            analysis_contract = _sanitize_responsibility_shelter_analysis_contract(analysis_contract)
-            reference_analysis_theme = analysis_contract.theme
-            reference_analysis_core_conflict = analysis_contract.core_conflict
-            reference_analysis_emotional_exit = analysis_contract.emotional_exit
-            reference_analysis_opening_pattern = analysis_contract.opening_pattern
-            reference_analysis_hook_trigger = _sanitize_responsibility_shelter_contract_text(
-                reference_analysis_hook_trigger
-            )
-            reference_analysis_progression_drive = _sanitize_responsibility_shelter_contract_text(
-                reference_analysis_progression_drive
-            )
-            reference_analysis_share_reason = _sanitize_responsibility_shelter_contract_text(
-                reference_analysis_share_reason
-            )
+            if not analysis_contract_is_complete:
+                analysis_contract = _sanitize_responsibility_shelter_analysis_contract(analysis_contract)
+                reference_analysis_theme = analysis_contract.theme
+                reference_analysis_core_conflict = analysis_contract.core_conflict
+                reference_analysis_emotional_exit = analysis_contract.emotional_exit
+                reference_analysis_opening_pattern = analysis_contract.opening_pattern
+                reference_analysis_hook_trigger = analysis_contract.hook_trigger
+                reference_analysis_progression_drive = analysis_contract.progression_drive
+                reference_analysis_share_reason = analysis_contract.share_reason
     if structure_mode == "supportive_appreciation":
         supportive_profile = _build_supportive_appreciation_profile()
     if structure_mode == "self_worth_rebuild":
@@ -1591,9 +2525,13 @@ def build_strategy_package(
         )
         if emotional_release_variant != "generic":
             emotional_release_profile = _build_emotional_release_profile(variant=emotional_release_variant)
-    effective_structure_mode = _resolve_effective_structure_mode(
-        structure_mode=structure_mode,
-        everyday_warmth_variant=everyday_warmth_variant,
+    effective_structure_mode = (
+        structure_mode
+        if analysis_contract_is_complete
+        else _resolve_effective_structure_mode(
+            structure_mode=structure_mode,
+            everyday_warmth_variant=everyday_warmth_variant,
+        )
     )
     reader_situation = _build_reader_situation(
         topic_title,
@@ -1862,6 +2800,75 @@ def build_strategy_package(
     opening_move = _enrich_opening_move_with_analysis_contract(opening_move, contract=analysis_contract)
     body_shift = _enrich_body_shift_with_analysis_contract(body_shift, contract=analysis_contract)
     ending_move = _enrich_ending_move_with_analysis_contract(ending_move, contract=analysis_contract)
+    if analysis_contract_is_complete:
+        complete_entry = str(
+            complete_contract_surface.get("hook_trigger")
+            or "当前选题自己的现实入口"
+        )
+        complete_progression = str(
+            complete_contract_surface.get("progression_drive")
+            or "由当前选题现实入口带出一次可见变化，再沿主题矛盾走向情绪出口"
+        )
+        complete_share_reason = str(
+            complete_contract_surface.get("share_reason")
+            or "让读者在当前选题的现实变化里认出自己，并得到一层正向回收"
+        )
+        safe_contract_core_conflict = (
+            analysis_contract.core_conflict
+            if not _topic_surface_overlaps_reference(
+                analysis_contract.core_conflict,
+                reference_body_markdown,
+            )
+            else "当前主题的核心矛盾"
+        )
+        observed_phenomenon = str(
+            complete_contract_surface.get("observed_phenomenon")
+            or "让一处属于当前选题的现实入口先发生"
+        )
+        reader_situation = f"读者会在当前选题的现实入口里认出{safe_contract_core_conflict}。"
+        core_conflict = safe_contract_core_conflict
+        constraints = [
+            "只服从分析合同的主题、核心矛盾、情绪出口和偏题边界。",
+            "另建现实入口，不复用原文具体物件、动作、人物、时间或对话。",
+            "不套固定开头、冲突、收束或未经合同支持的副主题。",
+        ]
+        unknowns = []
+        everyday_warmth_variant = ""
+        inner_settlement_variant = ""
+        response_priority_followup_variant = False
+        normalized_topic_angle = topic_angle or normalized_topic_angle
+        writing_goal = (
+            f"围绕{analysis_contract.theme}写清{safe_contract_core_conflict}，"
+            f"最后把读者带到{analysis_contract.emotional_exit}。"
+        )
+        point_of_view = f"围绕{analysis_contract.theme}推进，不离开{safe_contract_core_conflict}。"
+        conflict_frame = safe_contract_core_conflict
+        emotional_path = analysis_contract.emotional_exit
+        opening_move = str(
+            complete_contract_surface.get("opening_pattern")
+            or "另建一个能承担原文起笔功能的新现实入口，不复用原文对象。"
+        )
+        body_shift = complete_progression
+        ending_move = analysis_contract.emotional_exit
+        hook_trigger = complete_entry
+        progression_drive = complete_progression
+        share_reason = complete_share_reason
+        packaging_focus = str(
+            complete_contract_surface.get("packaging_focus")
+            or f"标题、导语和封面都围绕{analysis_contract.theme}，先抓{complete_entry}，再服务于{analysis_contract.emotional_exit}"
+        )
+        packaging_hook = str(
+            complete_contract_surface.get("packaging_hook")
+            or "正文已经成立的当前选题入口"
+        )
+        feedback_entry = (
+            f"读者会先在{complete_entry}里认出自己，"
+            f"再因为{complete_share_reason}愿意把文章转给身边的人。"
+        )
+        problem_explanation = (
+            f"这篇文章要把{safe_contract_core_conflict}讲具体，"
+            f"并说明为什么最后应该走向{analysis_contract.emotional_exit}。"
+        )
     problem_statement_markdown = _build_problem_statement_markdown(
         topic_title=topic_title,
         normalized_topic_angle=normalized_topic_angle,
@@ -1881,6 +2888,7 @@ def build_strategy_package(
         tracked_article_scene=tracked_article_scene,
         everyday_warmth_variant=everyday_warmth_variant,
         inner_settlement_variant=inner_settlement_variant,
+        analysis_contract_is_complete=analysis_contract_is_complete,
     )
     emotional_value_goal = _build_emotional_value_goal(
         structure_mode=structure_mode,
@@ -2001,6 +3009,107 @@ def build_strategy_package(
         progression_drive = scene_first_profile.get("progression_drive", progression_drive)
         share_reason = scene_first_profile.get("share_reason", share_reason)
         packaging_hook = scene_first_profile.get("packaging_hook", packaging_hook)
+    if analysis_contract_is_complete:
+        hook_trigger = complete_entry
+        progression_drive = complete_progression
+        share_reason = complete_share_reason
+        opening_move = str(
+            complete_contract_surface.get("opening_pattern")
+            or complete_contract_surface.get("opening_move")
+            or opening_move
+        )
+        body_shift = str(
+            complete_contract_surface.get("progression_drive")
+            or body_shift
+        )
+        ending_move = str(
+            complete_contract_surface.get("emotional_exit")
+            or analysis_contract.emotional_exit
+            or ending_move
+        )
+        packaging_hook = str(
+            complete_contract_surface.get("packaging_hook")
+            or "正文已经成立的当前选题入口"
+        )
+        emotional_value_goal = analysis_contract.emotional_exit
+        theme_axis = analysis_contract.theme
+        anti_drift_axis = analysis_contract.do_not_turn_into
+        positive_direction = analysis_contract.emotional_exit
+        scene_anchor_requirements = build_complete_contract_scene_anchor_requirements(
+            topic_title=topic_title,
+            topic_angle=topic_angle,
+            reference_body_markdown=reference_body_markdown,
+        )
+        quotable_line_goal = str(
+            complete_contract_surface.get("quotable_line_goal")
+            or f"保留一句从当前选题入口和主题回报里长出来的短句，最后服务于{analysis_contract.emotional_exit}。"
+        )
+        packaging_focus = str(
+            complete_contract_surface.get("packaging_focus")
+            or "当前选题入口与主题回报之间的连接"
+        )
+        realism_texture_goal = str(
+            complete_contract_surface.get("realism_texture_goal")
+            or "让主题矛盾通过当前选题入口的动作、选择和后果显形"
+        )
+        safe_core_conflict_seed = (
+            analysis_contract.core_conflict
+            if not _topic_surface_overlaps_reference(
+                analysis_contract.core_conflict,
+                reference_body_markdown,
+            )
+            else "当前主题的核心矛盾"
+        )
+        quotable_line_seeds = [
+            str(complete_contract_surface.get("hook_trigger") or "当前选题入口").strip(),
+            safe_core_conflict_seed,
+            analysis_contract.emotional_exit,
+            complete_share_reason,
+        ]
+        writing_texture_notes = [
+            str(item)
+            for item in complete_contract_surface.get("writing_texture_notes", [])
+            if str(item).strip()
+        ] or [
+            "先让当前选题的现实功能发生，再让主题判断长出来。",
+            "沿着本篇自己的变化推进，短句从后果和选择中长出来。",
+        ]
+        recomposition_recipe = [
+            str(item)
+            for item in complete_contract_surface.get("recomposition_recipe", [])
+            if str(item).strip()
+        ]
+        divergence_axes = [
+            str(item)
+            for item in complete_contract_surface.get("divergence_axes", [])
+            if str(item).strip()
+        ] or [
+            "不沿用参考文章的标题骨架、现成判断句和段落顺序。",
+            "围绕新选题另找现实细节，不复刻原文场景。",
+            f"结尾只能回到{analysis_contract.emotional_exit}，不能改成其他主题的祝福或宣判。",
+        ]
+        execution_checklist = [
+            str(item)
+            for item in complete_contract_surface.get("execution_checklist", [])
+            if str(item).strip()
+        ] or [
+            "开头是否真正落在新选题自己的现实入口。",
+            "中段是否完成当前选题自己的现实变化，而不是平铺观点。",
+            f"结尾是否把读者带到{analysis_contract.emotional_exit}。",
+        ]
+        benchmark_borrow_focus = (
+            f"只借{analysis_contract.theme}里的观察路径和推进职责，不借原文措辞、场景和段落次序。"
+        )
+        benchmark_avoid_focus = f"不得写成{analysis_contract.do_not_turn_into}"
+        benchmark_summary = (
+            f"以{analysis_contract.theme}为唯一主题锚点，重组现实入口和表达，不复制参考文的外壳。"
+        )
+        expression_constraints = [
+            "不要用口号式收尾。",
+            "不要复用不是A而是B的对称判断句。",
+            "不要沿用参考文章的开头对象、推进顺序和结尾判断。",
+            f"不要把文章写成{analysis_contract.do_not_turn_into}。",
+        ]
     strategy_markdown = _build_strategy_markdown(
         topic_title=topic_title,
         normalized_topic_angle=normalized_topic_angle,
@@ -2041,6 +3150,7 @@ def build_strategy_package(
         benchmark_avoid_focus=benchmark_avoid_focus,
         tracked_article_scene=tracked_article_scene,
         reference_shell_signals=reference_shell_signals,
+        analysis_contract_is_complete=analysis_contract_is_complete,
     )
     clarified_problem = _build_clarified_problem(
         topic_title=topic_title,
@@ -2061,6 +3171,11 @@ def build_strategy_package(
         clarified_problem = everyday_warmth_profile.get("clarified_problem", clarified_problem)
     if emotional_release_profile:
         clarified_problem = emotional_release_profile.get("clarified_problem", clarified_problem)
+    if analysis_contract_is_complete:
+        clarified_problem = (
+            f"{analysis_contract.theme}的核心不是套用某个固定模式，"
+            f"而是把{analysis_contract.core_conflict}写具体，最后落到{analysis_contract.emotional_exit}。"
+        )
 
     problem_brief = ProblemBriefItem(
         project_slug=project_slug,
@@ -2089,7 +3204,11 @@ def build_strategy_package(
             project_slug=project_slug,
             strategy_version=strategy_version,
             reference_kind=_resolve_reference_kind(source_mode),
-            reference_label=_resolve_reference_label(project, source_mode),
+            reference_label=(
+                "上游分析合同"
+                if analysis_contract_is_complete
+                else _resolve_reference_label(project, source_mode)
+            ),
             reference_pointer=_read_project_value(project, "source_ref_slug", project_slug) or project_slug,
             borrow_focus=benchmark_borrow_focus,
             avoid_focus=benchmark_avoid_focus,
@@ -2620,7 +3739,13 @@ def _sanitize_responsibility_shelter_analysis_contract(contract: AnalysisFirstCo
         core_conflict=_sanitize_responsibility_shelter_contract_text(contract.core_conflict),
         emotional_exit=_sanitize_responsibility_shelter_contract_text(contract.emotional_exit),
         opening_pattern=_sanitize_responsibility_shelter_contract_text(contract.opening_pattern),
+        hook_trigger=_sanitize_responsibility_shelter_contract_text(contract.hook_trigger),
+        progression_drive=_sanitize_responsibility_shelter_contract_text(contract.progression_drive),
+        share_reason=_sanitize_responsibility_shelter_contract_text(contract.share_reason),
         do_not_turn_into=_sanitize_responsibility_shelter_contract_text(contract.do_not_turn_into),
+        content_pillars=tuple(
+            _sanitize_responsibility_shelter_contract_list(list(contract.content_pillars))
+        ),
     )
 
 
@@ -2698,14 +3823,29 @@ def _build_analysis_first_contract(
     reference_analysis_core_conflict: str,
     reference_analysis_emotional_exit: str,
     reference_analysis_opening_pattern: str,
+    reference_analysis_hook_trigger: str,
+    reference_analysis_progression_drive: str,
+    reference_analysis_share_reason: str,
     reference_analysis_do_not_turn_into: str,
+    reference_analysis_content_pillars: tuple[str, ...] = (),
 ) -> AnalysisFirstContract:
+    emotional_exit = _normalize_strategy_contract_text(reference_analysis_emotional_exit)
+    if not _is_usable_analysis_emotional_exit(emotional_exit):
+        emotional_exit = ""
     return AnalysisFirstContract(
         theme=_normalize_strategy_contract_text(reference_analysis_theme),
         core_conflict=_normalize_strategy_contract_text(reference_analysis_core_conflict),
-        emotional_exit=_normalize_strategy_contract_text(reference_analysis_emotional_exit),
+        emotional_exit=emotional_exit,
         opening_pattern=_normalize_strategy_contract_text(reference_analysis_opening_pattern),
+        hook_trigger=_normalize_strategy_contract_text(reference_analysis_hook_trigger),
+        progression_drive=_normalize_strategy_contract_text(reference_analysis_progression_drive),
+        share_reason=_normalize_strategy_contract_text(reference_analysis_share_reason),
         do_not_turn_into=_normalize_strategy_contract_text(reference_analysis_do_not_turn_into),
+        content_pillars=tuple(
+            normalized
+            for item in reference_analysis_content_pillars
+            if (normalized := _normalize_strategy_contract_text(item))
+        ),
     )
 
 
@@ -3323,6 +4463,10 @@ def _has_everyday_warmth_return_reference(*parts: str) -> bool:
     return (achievement_hits >= 2 and daily_hits >= 3 and thesis_hits >= 1) or (
         simple_happiness_hits >= 3 and daily_hits >= 4 and thesis_hits >= 1
     ) or (
+        simple_happiness_hits >= 2
+        and daily_hits >= 2
+        and any(token in corpus for token in ("人生苦短", "幸福", "知足", "简单快乐"))
+    ) or (
         responsibility_hits >= 5 and daily_hits >= 2 and responsibility_marker_hits >= 1
     ) or (
         responsibility_hits >= 4 and daily_hits >= 2 and responsibility_marker_hits >= 2
@@ -3351,9 +4495,16 @@ def _has_self_reliance_inward_support_reference(*parts: str) -> bool:
         return False
     support_hits = _count_keyword_hits(corpus, _SELF_RELIANCE_INWARD_SUPPORT_KEYWORDS)
     thesis_hits = _count_keyword_hits(corpus, _SELF_RELIANCE_INWARD_SUPPORT_THESIS_MARKERS)
+    self_compassion_hits = _count_keyword_hits(corpus, _SELF_RELIANCE_SELF_COMPASSION_KEYWORDS)
+    self_compassion_thesis_hits = _count_keyword_hits(corpus, _SELF_RELIANCE_SELF_COMPASSION_THESIS_MARKERS)
     hard_pressure_hits = _count_keyword_hits(corpus, _PRESSURE_REFERENCE_HARD_SIGNALS)
     relationship_hits = _count_keyword_hits(corpus, _RELATIONSHIP_AFTERCARE_RELATIONSHIP_KEYWORDS)
     return (
+        self_compassion_hits >= 3
+        and (self_compassion_thesis_hits >= 1 or support_hits >= 2 or "自己给自己" in corpus)
+        and hard_pressure_hits == 0
+        and relationship_hits <= 4
+    ) or (
         support_hits >= 5
         and thesis_hits >= 1
         and hard_pressure_hits == 0
@@ -3503,8 +4654,11 @@ def _has_response_priority_reference(*parts: str) -> bool:
     hard_pressure_hits = _count_keyword_hits(corpus, _PRESSURE_REFERENCE_HARD_SIGNALS)
     classic_branch = time_hits >= 3 and priority_hits >= 2 and thesis_hits >= 1
     followup_branch = interaction_hits >= 3 and followup_hits >= 3 and (care_hits >= 1 or priority_hits >= 1)
+    compact_time_branch = time_hits >= 2 and (priority_hits >= 1 or interaction_hits >= 1) and (
+        thesis_hits >= 1 or care_hits >= 1
+    )
     return (
-        (classic_branch or followup_branch)
+        (classic_branch or followup_branch or compact_time_branch)
         and exclusion_hits <= 2
         and hard_pressure_hits == 0
     )
@@ -6210,6 +7364,7 @@ def _build_problem_statement_markdown(
     tracked_article_scene: str,
     everyday_warmth_variant: str = "",
     inner_settlement_variant: str = "",
+    analysis_contract_is_complete: bool = False,
 ) -> str:
     lines = [
         "# 问题说明书",
@@ -6243,23 +7398,33 @@ def _build_problem_statement_markdown(
         ]
     )
     if source_mode == "tracked_article":
-        reference_summary_for_strategy = _build_reference_summary_for_strategy(
-            structure_mode=structure_mode,
-            reference_summary=reference_summary,
-            everyday_warmth_variant=everyday_warmth_variant,
-            inner_settlement_variant=inner_settlement_variant,
-        )
-        lines.extend(
-            [
-                "",
-                "## 参考材料只承担什么作用",
-                f"- 来源：{reference_source_name or '手动录入'}",
-                f"- 原文标题：{reference_title or '无'}",
-                f"- 原文摘要线索：{reference_summary_for_strategy or '无'}",
-                "- 可借的情绪线索：只借原文的压力类型、价值转向和情绪发动机，不借可识别的现成场景或家庭动作。",
-                "- 参考材料只用于确认赛道、冲突和读者处境，不得沿用原标题骨架、段落顺序、论断次序和结尾动作。",
-            ]
-        )
+        if analysis_contract_is_complete:
+            lines.extend(
+                [
+                    "",
+                    "## 参考材料只承担什么作用",
+                    "- 上游分析合同已完成；当前产物只保留主题、核心矛盾、情绪出口和结构职责。",
+                    "- 不把原文标题、摘要、具体入口、正文片段或可识别外壳带入后续创作。",
+                ]
+            )
+        else:
+            reference_summary_for_strategy = _build_reference_summary_for_strategy(
+                structure_mode=structure_mode,
+                reference_summary=reference_summary,
+                everyday_warmth_variant=everyday_warmth_variant,
+                inner_settlement_variant=inner_settlement_variant,
+            )
+            lines.extend(
+                [
+                    "",
+                    "## 参考材料只承担什么作用",
+                    f"- 来源：{reference_source_name or '手动录入'}",
+                    f"- 原文标题：{reference_title or '无'}",
+                    f"- 原文摘要线索：{reference_summary_for_strategy or '无'}",
+                    "- 可借的情绪线索：只借原文的压力类型、价值转向和情绪发动机，不借可识别的现成场景或家庭动作。",
+                    "- 参考材料只用于确认赛道、冲突和读者处境，不得沿用原标题骨架、段落顺序、论断次序和结尾动作。",
+                ]
+            )
     else:
         lines.extend(
             [
@@ -6313,6 +7478,7 @@ def _build_strategy_markdown(
     benchmark_avoid_focus: str,
     tracked_article_scene: str,
     reference_shell_signals: list[str],
+    analysis_contract_is_complete: bool = False,
 ) -> str:
     structure_label, structure_execution = _describe_structure_mode(
         structure_mode,
@@ -6436,21 +7602,31 @@ def _build_strategy_markdown(
     for item in execution_checklist:
         lines.append(f"- {item}")
     if source_mode == "tracked_article":
-        lines.extend(
-            [
-                "",
-                "## 参考文章消化说明",
-                f"- 来源账号：{reference_source_name or '手动录入'}",
-                f"- 参考标题：{reference_title or '无'}",
-                "- 可借的原文情绪线索：只借原文的压力类型、价值转向和情绪发动机，不借可识别的现成场景或家庭动作。",
-                "- 必须主动拉开距离的维度：标题骨架、开头入口、中段顺序、结尾落点。",
-            ]
-        )
-        if reference_shell_signals:
-            lines.append(
-                "- 这篇参考文自带的高风险外壳也不能复用："
-                + " / ".join(_build_reference_shell_divergence_axes(reference_shell_signals)[:3])
+        if analysis_contract_is_complete:
+            lines.extend(
+                [
+                    "",
+                    "## 参考文章消化说明",
+                    "- 上游分析合同已完成；这里只保留主题、矛盾、情绪出口和结构职责。",
+                    "- 不把原文标题、摘要、场景、正文片段或高风险外壳写入策略卡。",
+                ]
             )
+        else:
+            lines.extend(
+                [
+                    "",
+                    "## 参考文章消化说明",
+                    f"- 来源账号：{reference_source_name or '手动录入'}",
+                    f"- 参考标题：{reference_title or '无'}",
+                    "- 可借的原文情绪线索：只借原文的压力类型、价值转向和情绪发动机，不借可识别的现成场景或家庭动作。",
+                    "- 必须主动拉开距离的维度：标题骨架、开头入口、中段顺序、结尾落点。",
+                ]
+            )
+            if reference_shell_signals:
+                lines.append(
+                    "- 这篇参考文自带的高风险外壳也不能复用："
+                    + " / ".join(_build_reference_shell_divergence_axes(reference_shell_signals)[:3])
+                )
     if normalized_topic_angle and normalized_topic_angle != "未显式提供":
         lines.extend(
             [

@@ -21,6 +21,7 @@ class TrackedArticleItem(BaseModel):
     analysis_progression_drive: str = ""
     analysis_share_reason: str = ""
     analysis_do_not_turn_into: str = ""
+    analysis_content_pillars: list[str] = []
     created_at: str | None = None
     tags: list[str]
 

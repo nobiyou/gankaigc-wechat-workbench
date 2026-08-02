@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from contextvars import ContextVar
 from collections.abc import Mapping
 from functools import lru_cache
 import httpx
@@ -87,9 +88,56 @@ class TrackedArticleMetadataGenerationResult(BaseModel):
     analysis_progression_drive: str = ""
     analysis_share_reason: str = ""
     analysis_do_not_turn_into: str = ""
+    analysis_content_pillars: list[str] = []
 
 
 ResponseModelT = TypeVar("ResponseModelT", bound=BaseModel)
+
+
+_REQUEST_TELEMETRY: ContextVar[dict[str, int] | None] = ContextVar(
+    "ai_request_telemetry",
+    default=None,
+)
+
+
+def begin_request_telemetry() -> dict[str, int]:
+    telemetry = {"total": 0}
+    _REQUEST_TELEMETRY.set(telemetry)
+    return telemetry
+
+
+def get_request_telemetry() -> dict[str, int]:
+    telemetry = _REQUEST_TELEMETRY.get()
+    return dict(telemetry) if telemetry is not None else {"total": 0}
+
+
+def clear_request_telemetry() -> None:
+    _REQUEST_TELEMETRY.set(None)
+
+
+def _record_request(stage: str) -> None:
+    telemetry = _REQUEST_TELEMETRY.get()
+    if telemetry is None:
+        return
+    normalized_stage = stage.strip() or "unknown"
+    telemetry["total"] = telemetry.get("total", 0) + 1
+    telemetry[normalized_stage] = telemetry.get(normalized_stage, 0) + 1
+
+
+def _request_stage(response_format: type[BaseModel], *, payload: Mapping[str, object] | None = None) -> str:
+    if payload is not None:
+        explicit = str(payload.get("request_stage") or "").strip()
+        if explicit:
+            return explicit
+    stage_by_type = {
+        TrackedArticleMetadataGenerationResult: "metadata",
+        TopicGenerationResult: "topic",
+        OutlineGenerationResult: "outline",
+        DraftGenerationResult: "draft",
+        AssetGenerationResult: "assets",
+        PublishPackageGenerationResult: "publish_package",
+    }
+    return stage_by_type.get(response_format, "text")
 logger = logging.getLogger(__name__)
 
 
@@ -274,9 +322,10 @@ class OpenAIWorkbenchGenerator:
                 prompt=prompt_template.prompt,
                 response_format=TopicGenerationResult,
                 timeout_seconds=timeout_seconds_override or self._resolve_text_request_timeout(TopicGenerationResult),
-                max_attempts=max_attempts_override or 1,
+                max_attempts=max_attempts_override or 2,
                 enforce_custom_base_url_retry_floor=False,
                 include_custom_base_url_extra_body=False,
+                retry_on_output_error=False,
             )
         else:
             result = self._parse_response(
@@ -481,6 +530,7 @@ class OpenAIWorkbenchGenerator:
             try:
                 image_client = route["client"]
                 attempts_consumed += 1
+                _record_request("cover_image")
                 response = image_client.images.generate(**request_kwargs)
             except openai.BadRequestError as exc:
                 unsupported_keys = _extract_unrecognized_image_request_keys(exc)
@@ -576,6 +626,7 @@ class OpenAIWorkbenchGenerator:
         response_format: type[ResponseModelT],
         timeout_seconds_override: float | None = None,
         max_attempts_override: int | None = None,
+        request_stage: str | None = None,
     ) -> ResponseModelT:
         timeout_seconds = timeout_seconds_override or self._resolve_text_request_timeout(response_format)
         max_attempts = max_attempts_override or 3
@@ -588,6 +639,7 @@ class OpenAIWorkbenchGenerator:
                 timeout_seconds=timeout_seconds,
                 max_attempts=max_attempts,
                 enforce_custom_base_url_retry_floor=enforce_custom_base_url_retry_floor,
+                request_stage=request_stage or _request_stage(response_format),
             )
 
         request_kwargs: dict[str, object] = {
@@ -604,6 +656,7 @@ class OpenAIWorkbenchGenerator:
         for attempt in range(max_attempts):
             chat_json_fallback_started = False
             try:
+                _record_request(request_stage or _request_stage(response_format))
                 response = self._client.responses.parse(**request_kwargs)
                 parsed = response.output_parsed
                 if parsed is not None:
@@ -713,7 +766,10 @@ class OpenAIWorkbenchGenerator:
             return False
         if not self._supports_custom_base_url_chat_json(response_format):
             return False
-        return isinstance(error, (openai.InternalServerError, openai.APIConnectionError))
+        # A provider 5xx means the upstream request failed, not that the
+        # Responses protocol is unsupported. Retrying through chat here would
+        # duplicate a long prompt and can change the generated result.
+        return isinstance(error, openai.APIConnectionError)
 
     def _supports_custom_base_url_chat_json(self, response_format: type[ResponseModelT]) -> bool:
         return response_format in {
@@ -756,7 +812,9 @@ class OpenAIWorkbenchGenerator:
 
     def _resolve_topic_max_attempts(self, payload: dict[str, object]) -> int | None:
         if self._uses_custom_base_url and str(payload.get("source_type") or "") == "tracked_article":
-            return 1
+            # The topic request is lightweight, but a proxy 502/503 should not
+            # turn a transient upstream outage into an immediate workflow 503.
+            return 2
         return None
 
     def _resolve_draft_timeout_override(self, payload: dict[str, object]) -> float | None:
@@ -782,6 +840,10 @@ class OpenAIWorkbenchGenerator:
         if bool(payload.get("timeout_recovery_mode")):
             if self._uses_custom_base_url and str(payload.get("source_type") or "") == "tracked_article":
                 return 1
+            return 1
+        if self._uses_custom_base_url and str(payload.get("source_type") or "") == "tracked_article":
+            # Workbench owns the single same-prompt retry. Keep this layer to
+            # one request so transient failures do not multiply across layers.
             return 1
         if any(
             bool(payload.get(flag))
@@ -870,6 +932,8 @@ class OpenAIWorkbenchGenerator:
         enforce_custom_base_url_retry_floor: bool = True,
         include_custom_base_url_extra_body: bool = True,
         include_response_format: bool = True,
+        request_stage: str | None = None,
+        retry_on_output_error: bool = True,
     ) -> ResponseModelT:
         system_content = instructions
         if include_response_format:
@@ -893,10 +957,13 @@ class OpenAIWorkbenchGenerator:
         last_error: Exception | None = None
         effective_max_attempts = max_attempts
         if self._uses_custom_base_url and enforce_custom_base_url_retry_floor:
-            effective_max_attempts = max(max_attempts, 4)
+            # Do not silently expand a caller's retry budget on a long prompt.
+            # The stage resolver owns the budget; this layer only executes it.
+            effective_max_attempts = max(1, max_attempts)
 
         for attempt in range(effective_max_attempts):
             try:
+                _record_request(request_stage or _request_stage(response_format))
                 response = self._client.chat.completions.create(**request_kwargs)
             except (APITimeoutError, openai.InternalServerError, openai.APIConnectionError, openai.RateLimitError) as exc:
                 last_error = exc
@@ -906,11 +973,15 @@ class OpenAIWorkbenchGenerator:
             output_text = response.choices[0].message.content
             if not output_text:
                 last_error = RuntimeError("OpenAI chat fallback returned no output")
+                if not retry_on_output_error:
+                    raise last_error
             else:
                 try:
                     return response_format.model_validate(json.loads(output_text))
                 except (JSONDecodeError, ValidationError) as exc:
                     last_error = exc
+                    if not retry_on_output_error:
+                        raise
             if attempt < effective_max_attempts - 1:
                 time.sleep(0.5 + attempt * 0.5)
 
@@ -937,6 +1008,7 @@ class OpenAIWorkbenchGenerator:
         last_error: Exception | None = None
         for attempt in range(max_attempts):
             try:
+                _record_request("draft")
                 response = self._client.chat.completions.create(**request_kwargs)
             except (APITimeoutError, openai.InternalServerError, openai.APIConnectionError, openai.RateLimitError) as exc:
                 last_error = exc

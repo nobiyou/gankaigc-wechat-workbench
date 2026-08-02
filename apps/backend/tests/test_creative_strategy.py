@@ -4,10 +4,107 @@ from app.services.creative_strategy import (
     _build_emotional_value_goal,
     _build_packaging_focus,
     _build_packaging_hook,
+    _is_usable_analysis_emotional_exit,
     _resolve_inner_settlement_variant,
+    build_complete_contract_execution_surface,
     build_strategy_package,
+    has_complete_tracked_article_analysis_contract,
     resolve_tracked_article_structure_mode,
 )
+
+
+def test_analysis_exit_rejects_negative_only_instruction() -> None:
+    assert _is_usable_analysis_emotional_exit("别等了，离开不值得的人。") is False
+    assert _is_usable_analysis_emotional_exit("放下过去，带着期待继续奔向新的生活。") is True
+
+
+def test_complete_analysis_contract_requires_a_forward_emotional_exit() -> None:
+    base = {
+        "analysis_structure_mode_hint": "response_priority",
+        "analysis_theme": "真正的在乎会在时间安排里显形。",
+        "analysis_core_conflict": "表面的热闹和真正的投入并不相同。",
+        "analysis_opening_pattern": "从一个日常互动切入。",
+        "analysis_hook_trigger": "一个细小的回应落差。",
+        "analysis_progression_drive": "由顺序落差推进到关系判断。",
+        "analysis_share_reason": "读者会在熟悉的等待里认出自己。",
+        "analysis_do_not_turn_into": "泛泛的关系控诉。",
+    }
+    assert has_complete_tracked_article_analysis_contract(
+        **base,
+        analysis_emotional_exit="别等了，离开不值得的人。",
+    ) is False
+    assert has_complete_tracked_article_analysis_contract(
+        **base,
+        analysis_emotional_exit="看清位置，也把时间留给真正愿意回应你的人。",
+    ) is True
+
+
+def test_complete_contract_execution_surface_preserves_content_pillars() -> None:
+    surface = build_complete_contract_execution_surface(
+        {
+            "source_type": "tracked_article",
+            "topic_title": "把幸福从远方搬回日常",
+            "topic_angle": "从一次家庭安排切入，写幸福标准怎样重新排序。",
+            "reference_article_body_markdown": "身体安稳、知己可靠、家里有爱。",
+            "reference_article_analysis_structure_mode": "everyday_warmth_return",
+            "reference_article_analysis_theme": "幸福在经历之后重新有了分量。",
+            "reference_article_analysis_core_conflict": "外在拥有和真实安稳之间存在落差。",
+            "reference_article_analysis_emotional_exit": "珍惜眼前的平安和爱。",
+            "reference_article_analysis_opening_pattern": "从一个现实安排切入。",
+            "reference_article_analysis_hook_trigger": "一次家庭安排让人停下来。",
+            "reference_article_analysis_progression_drive": "从标准变化推进到关系和日常。",
+            "reference_article_analysis_share_reason": "让人重新看见平凡生活的分量。",
+            "reference_article_analysis_do_not_turn_into": "不要写成反成功学口号。",
+            "reference_article_analysis_content_pillars": [
+                "幸福标准从外在拥有转向知足",
+                "知己关系比泛泛社交更有分量",
+                "家人的平安和日常温度构成归处",
+            ],
+        }
+    )
+
+    assert surface["content_pillars"] == [
+        "幸福标准从外在拥有转向知足",
+        "知己关系比泛泛社交更有分量",
+        "家人的平安和日常温度构成归处",
+    ]
+
+
+def test_strategy_package_does_not_propagate_negative_only_analysis_exit() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "negative-exit-contract",
+            "topic_title": "别把时间交给总让你等的人",
+            "topic_angle": "从一次次等不到回应的日常切入，写清关系里的投入如何显出位置。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "什么是没时间",
+            "reference_article_summary": "文章讨论时间安排如何显出一个人把谁放在心上。",
+            "reference_article_structure_notes": "先从时间落差切入，再写在乎如何通过行动显形。",
+            "reference_article_body_markdown": "等不到回应的人，最后学会把时间留给自己。",
+            "reference_article_analysis_theme": "真正的在乎会在时间安排里显形。",
+            "reference_article_analysis_core_conflict": "表面的忙碌和实际的投入并不相同。",
+            "reference_article_analysis_emotional_exit": "别等了，离开不值得的人。",
+            "reference_article_analysis_structure_mode": "response_priority",
+            "reference_article_analysis_opening_pattern": "从一个日常互动切入。",
+            "reference_article_analysis_hook_trigger": "一个细小的回应落差。",
+            "reference_article_analysis_progression_drive": "由顺序落差推进到关系判断。",
+            "reference_article_analysis_share_reason": "读者会在熟悉的等待里认出自己。",
+            "reference_article_analysis_do_not_turn_into": "泛泛的关系控诉。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-08-02T00:00:00Z",
+        trust_complete_analysis_contract=True,
+    )
+
+    assert result.strategy_card.positive_direction
+    assert "别等了" not in result.strategy_card.positive_direction
+    assert "离开不值得" not in result.strategy_card.positive_direction
+    assert any(
+        marker in result.strategy_card.positive_direction
+        for marker in ("认清位置", "重新分配", "留给自己")
+    )
 
 
 def test_build_strategy_package_supports_manual_original_idea_source() -> None:
@@ -172,6 +269,223 @@ def test_resolve_tracked_article_structure_mode_keeps_response_priority_when_ana
     assert resolved == "response_priority"
 
 
+def test_resolve_tracked_article_structure_mode_can_trust_complete_analysis_contract() -> None:
+    body_markdown = (
+        "一句谎言，一次隐瞒，那个叫信任的东西就裂了一道缝。\n\n"
+        "真正长久的关系，靠坦诚和说到做到。"
+    )
+    contract = {
+        "analysis_structure_mode_hint": "self_worth_rebuild",
+        "analysis_theme": "文章真正讨论的是：人总在关系里先把自己放轻，后来怎样重新尊重自己。",
+        "analysis_core_conflict": "越怕失去，越容易把边界和标准让出去。",
+        "analysis_emotional_exit": "把精力收回自己，守住边界，重新确认自己的分量。",
+        "analysis_opening_pattern": "从一次明明不舒服却还是说都可以的现实接口起笔。",
+        "analysis_hook_trigger": "那句明明不舒服却还是说出口的都可以。",
+        "analysis_progression_drive": "从一次次退让如何变成习惯推进到边界回收。",
+        "analysis_share_reason": "让总在关系里把自己放轻的人重新看见自己的分量。",
+        "analysis_do_not_turn_into": "不要写成信任裂缝或关系修复稿。",
+    }
+
+    assert (
+        resolve_tracked_article_structure_mode(
+            body_markdown=body_markdown,
+            **contract,
+        )
+        == "trust_boundary"
+    )
+    assert (
+        resolve_tracked_article_structure_mode(
+            body_markdown=body_markdown,
+            trust_complete_analysis_contract=True,
+            **contract,
+        )
+        == "self_worth_rebuild"
+    )
+
+
+def test_build_strategy_package_can_use_complete_analysis_contract_as_production_authority() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "complete-analysis-contract-authority",
+            "topic_title": "请先好好对待自己",
+            "topic_angle": "从关系里的委屈和退让切入。",
+            "source_type": "tracked_article",
+            "trend_title": "参考文章 / 手动录入",
+            "reference_article_title": "请先好好对待自己",
+            "reference_article_summary": "文章真正讨论的是重新尊重自己。",
+            "reference_article_structure_notes": "先写自我轻放，再写边界和标准回归。",
+            "reference_article_body_markdown": "一句谎言，一次隐瞒，那个叫信任的东西就裂了一道缝。真正长久的关系，靠坦诚和说到做到。",
+            "reference_article_analysis_structure_mode": "self_worth_rebuild",
+            "reference_article_analysis_theme": "文章真正讨论的是：人总在关系里先把自己放轻，后来怎样重新尊重自己。",
+            "reference_article_analysis_core_conflict": "越怕失去，越容易把边界和标准让出去。",
+            "reference_article_analysis_emotional_exit": "把精力收回自己，守住边界，重新确认自己的分量。",
+            "reference_article_analysis_opening_pattern": "从一次明明不舒服却还是说都可以的现实接口起笔。",
+            "reference_article_analysis_hook_trigger": "那句明明不舒服却还是说出口的都可以。",
+            "reference_article_analysis_progression_drive": "从一次次退让如何变成习惯推进到边界回收。",
+            "reference_article_analysis_share_reason": "让总在关系里把自己放轻的人重新看见自己的分量。",
+            "reference_article_analysis_do_not_turn_into": "不要写成信任裂缝或关系修复稿。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-08-01T00:00:00Z",
+        trust_complete_analysis_contract=True,
+    )
+
+    assert result.strategy_card.structure_mode == "self_worth_rebuild"
+    assert result.problem_brief.core_conflict == "越怕失去，越容易把边界和标准让出去"
+    assert "一次习惯性退让" in result.strategy_card.opening_move
+    assert "那句明明不舒服却还是说出口的都可以" == result.strategy_card.hook_trigger
+    assert "一次次退让" in result.strategy_card.progression_drive
+    assert result.strategy_card.ending_move == "把精力收回自己，守住边界，重新确认自己的分量"
+    assert "总在关系里把自己放轻" in result.strategy_card.share_reason
+
+
+def test_complete_analysis_contract_does_not_store_reference_shell_in_strategy_artifacts() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "complete-contract-artifact-isolation",
+            "topic_title": "把自己的分量拿回来",
+            "topic_angle": "从一次具体的边界选择切入。",
+            "source_type": "tracked_article",
+            "trend_title": "参考文章 / 手动录入",
+            "reference_article_title": "旧搪瓷饭盒和那场没有去成的游园会",
+            "reference_article_summary": "旧摘要里写了那条碎花裙和反复回想。",
+            "reference_article_structure_notes": "从旧物起笔，最后催人放下。",
+            "reference_article_body_markdown": "旧搪瓷饭盒被放在桌边，旁边还有一条碎花裙。",
+            "reference_article_analysis_structure_mode": "self_worth_rebuild",
+            "reference_article_analysis_theme": "关系里总把自己放轻的人，怎样重新尊重自己。",
+            "reference_article_analysis_core_conflict": "害怕失去让人一次次压低感受和边界。",
+            "reference_article_analysis_emotional_exit": "把精力收回自己，按自己的标准生活。",
+            "reference_article_analysis_opening_pattern": "从旧搪瓷饭盒被放回桌边的动作切入。",
+            "reference_article_analysis_hook_trigger": "旧搪瓷饭盒上的磨痕让人停了一下。",
+            "reference_article_analysis_progression_drive": "沿着旧搪瓷饭盒被放回桌边的动作推进到边界和标准回收。",
+            "reference_article_analysis_share_reason": "让总在迁就里想起旧搪瓷饭盒的人重新确认分量。",
+            "reference_article_analysis_do_not_turn_into": "不要写成旧物怀旧或泛泛放下稿。",
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-08-01T00:00:00Z",
+        trust_complete_analysis_contract=True,
+    )
+
+    artifacts = "\n".join(
+        [
+            result.problem_brief.problem_statement_markdown,
+            result.strategy_card.strategy_markdown,
+            result.benchmarks[0].reference_label,
+        ]
+    )
+    assert "旧搪瓷饭盒" not in artifacts
+    assert "碎花裙" not in artifacts
+    assert "旧摘要" not in artifacts
+    assert result.benchmarks[0].reference_label == "上游分析合同"
+    assert "上游分析合同已完成" in artifacts
+
+
+def test_complete_analysis_contract_does_not_reuse_structure_profile_copy_fields() -> None:
+    def build(slug: str, mode: str, theme: str, conflict: str, emotional_exit: str, opening: str, hook: str, progression: str, share: str, avoid: str):
+        return build_strategy_package(
+            project={
+                "slug": slug,
+                "topic_title": theme,
+                "topic_angle": theme,
+                "source_type": "tracked_article",
+                "trend_title": "参考文章 / 手动录入",
+                "reference_article_title": theme,
+                "reference_article_summary": theme,
+                "reference_article_structure_notes": opening,
+                "reference_article_body_markdown": opening,
+                "reference_article_analysis_structure_mode": mode,
+                "reference_article_analysis_theme": theme,
+                "reference_article_analysis_core_conflict": conflict,
+                "reference_article_analysis_emotional_exit": emotional_exit,
+                "reference_article_analysis_opening_pattern": opening,
+                "reference_article_analysis_hook_trigger": hook,
+                "reference_article_analysis_progression_drive": progression,
+                "reference_article_analysis_share_reason": share,
+                "reference_article_analysis_do_not_turn_into": avoid,
+            },
+            problem_brief_version=1,
+            strategy_version=1,
+            created_at="2026-08-01T00:00:00Z",
+            trust_complete_analysis_contract=True,
+        )
+
+    happiness = build(
+        "complete-happiness-contract",
+        "everyday_warmth_return",
+        "幸福不在更多拥有，而在家人平安、知己还在",
+        "把快乐押在外在拥有上，却忽略了身边已经有的安稳",
+        "重新看见平凡日子里的知足和珍贵",
+        "从一顿家常饭没有特别，却让人停下来切入",
+        "饭桌上那句不用解释的关心",
+        "从外在追逐推到家人知己与平安的重新排序",
+        "让总在向外比较的人想起自己已有的生活",
+        "成功学",
+    )
+    boundaries = build(
+        "complete-boundary-contract",
+        "self_worth_rebuild",
+        "关系里总说都可以的人，怎样把自己的分量拿回来",
+        "害怕失去让人一次次压低感受和边界",
+        "把时间精力收回自己，按自己的标准生活",
+        "从一次明明不舒服却仍说都可以切入",
+        "那句都可以背后的不舒服",
+        "从顺手退让推到边界和标准回收",
+        "让总在迁就里放轻自己的人重新确认分量",
+        "关系修复套路",
+    )
+
+    assert happiness.strategy_card.scene_anchor_requirements != boundaries.strategy_card.scene_anchor_requirements
+    assert happiness.strategy_card.quotable_line_seeds != boundaries.strategy_card.quotable_line_seeds
+    assert happiness.strategy_card.recomposition_recipe != boundaries.strategy_card.recomposition_recipe
+    assert happiness.strategy_card.writing_texture_notes != boundaries.strategy_card.writing_texture_notes
+    assert happiness.problem_brief.theme_axis == "幸福不在更多拥有，而在家人平安、知己还在"
+    assert boundaries.problem_brief.theme_axis == "关系里总说都可以的人，怎样把自己的分量拿回来"
+    assert "自我价值" not in " ".join(happiness.strategy_card.expression_constraints)
+    assert "知足和珍贵" in " ".join(happiness.strategy_card.quotable_line_seeds)
+    assert "边界" in " ".join(boundaries.strategy_card.quotable_line_seeds)
+
+
+def test_complete_contract_execution_surface_separates_topic_jobs_and_drops_reference_shell() -> None:
+    base = {
+        "source_type": "tracked_article",
+        "topic_title": "把自己的分量拿回来",
+        "topic_angle": "从一次具体的边界选择切入。",
+        "reference_article_body_markdown": "旧搪瓷饭盒被放在桌边，旁边还有一条碎花裙。",
+        "reference_article_analysis_theme": "关系里总把自己放轻的人，怎样重新尊重自己。",
+        "reference_article_analysis_core_conflict": "害怕失去让人一次次压低感受和边界。",
+        "reference_article_analysis_emotional_exit": "把精力收回自己，按自己的标准生活。",
+        "reference_article_analysis_opening_pattern": "从旧搪瓷饭盒被放回桌边的动作切入。",
+        "reference_article_analysis_hook_trigger": "旧搪瓷饭盒上的磨痕让人停了一下。",
+        "reference_article_analysis_progression_drive": "沿着旧搪瓷饭盒被放回桌边的动作推进到边界和标准回收。",
+        "reference_article_analysis_share_reason": "让总在迁就里想起旧搪瓷饭盒的人重新确认分量。",
+        "reference_article_analysis_do_not_turn_into": "不要写成旧物怀旧或泛泛放下稿。",
+    }
+    boundary_surface = build_complete_contract_execution_surface(
+        {**base, "reference_article_analysis_structure_mode": "self_worth_rebuild"}
+    )
+    happiness_surface = build_complete_contract_execution_surface(
+        {
+            **base,
+            "reference_article_analysis_structure_mode": "everyday_warmth_return",
+            "reference_article_analysis_theme": "幸福不在更多拥有，而在眼前生活重新有分量。",
+            "reference_article_analysis_core_conflict": "人容易把幸福押在结果上，忽略已经拥有的日常。",
+            "reference_article_analysis_emotional_exit": "重新看见平凡日子里的知足和珍贵。",
+        }
+    )
+
+    boundary_text = " ".join(str(value) for value in boundary_surface.values())
+    happiness_text = " ".join(str(value) for value in happiness_surface.values())
+    assert "旧搪瓷饭盒" not in boundary_text
+    assert "碎花裙" not in boundary_text
+    assert boundary_surface["packaging_focus"] != happiness_surface["packaging_focus"]
+    assert boundary_surface["recomposition_recipe"] != happiness_surface["recomposition_recipe"]
+    assert boundary_surface["execution_checklist"] != happiness_surface["execution_checklist"]
+    assert "边界" in boundary_text
+    assert "幸福" in happiness_text
+
+
 def test_resolve_tracked_article_structure_mode_prefers_response_priority_for_comment_followup_article() -> None:
     body_markdown = (
         "朋友圈里，是给你点赞的人更在意你，还是给你评论的人更在意你？\n\n"
@@ -263,6 +577,28 @@ def test_resolve_tracked_article_structure_mode_prefers_everyday_warmth_return_f
     )
 
     assert resolved == "everyday_warmth_return"
+
+
+def test_resolve_tracked_article_structure_mode_recognizes_compact_reference_signals() -> None:
+    response_priority = resolve_tracked_article_structure_mode(
+        article_title="什么是没时间",
+        body_markdown="红灯30秒也能回一条消息。忙不是借口，真正的在乎会体现在时间和顺序里。",
+        summary="文章讨论一个人是否把你放在心上。",
+    )
+    simple_happiness = resolve_tracked_article_structure_mode(
+        article_title="简单快乐就好",
+        body_markdown="人生苦短，只求家人安康、知己二三、四季平安。幸福不在拥有更多，而在知足。",
+        summary="幸福常常就在平凡日常里。",
+    )
+    self_compassion = resolve_tracked_article_structure_mode(
+        article_title="你就是那个最需要的人",
+        body_markdown="小时候没人安慰，长大后迟迟等不来的理解，可以自己给自己。做那个大人、朋友和爱人，把自己放在心上。",
+        summary="文章写童年缺口如何通过自我安慰和自我照顾慢慢补回来。",
+    )
+
+    assert response_priority == "response_priority"
+    assert simple_happiness == "everyday_warmth_return"
+    assert self_compassion == "self_reliance_inward_support"
 
 
 def test_build_strategy_package_simple_happiness_uses_updated_everyday_angle() -> None:

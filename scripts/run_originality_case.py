@@ -21,6 +21,18 @@ BACKEND_ROOT = REPO_ROOT / "apps" / "backend"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "tmp" / "article-runs"
 RUNTIME_DB_TEMP_DIRNAME = "gankaigc-originality-case-db"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+_TRACKED_ARTICLE_ANALYSIS_FIELDS: tuple[str, ...] = (
+    "analysis_theme",
+    "analysis_core_conflict",
+    "analysis_emotional_exit",
+    "analysis_structure_mode",
+    "analysis_opening_pattern",
+    "analysis_hook_trigger",
+    "analysis_progression_drive",
+    "analysis_share_reason",
+    "analysis_do_not_turn_into",
+)
+_ANALYSIS_CONTENT_PILLARS_FIELD = "analysis_content_pillars"
 AI_OVERRIDE_ENV_FIELDS: tuple[tuple[str, str], ...] = (
     ("openai_api_key", "OPENAI_API_KEY"),
     ("openai_base_url", "OPENAI_BASE_URL"),
@@ -452,11 +464,226 @@ def _to_detector_text(markdown: str) -> str:
 
 def _infer_title(markdown: str, fallback: str) -> str:
     for line in markdown.splitlines():
-        candidate = line.strip().lstrip("#").strip()
+        raw_line = line.strip()
+        if not raw_line:
+            continue
+        has_heading_marker = raw_line.startswith("#")
+        candidate = raw_line.lstrip("#").strip()
         if candidate:
+            if not has_heading_marker:
+                first_sentence = re.split(r"[。！？!?]", candidate, maxsplit=1)[0].strip()
+                if 6 <= len(first_sentence) <= 48:
+                    return first_sentence
             return candidate[:48]
     compact = _compact_text(markdown)
     return compact[:48] or fallback
+
+
+def _build_source_identity(*, source_title: str, source_markdown: str) -> dict[str, Any]:
+    normalized_body = _compact_text(source_markdown)
+    return {
+        "title": _normalize_whitespace(source_title),
+        "body_sha256": hashlib.sha256(normalized_body.encode("utf-8")).hexdigest(),
+        "body_chars": len(normalized_body),
+    }
+
+
+def _extract_reuse_source_identity(
+    reuse_bundle_payload: Mapping[str, Any],
+) -> dict[str, str | int | None]:
+    identity = reuse_bundle_payload.get("source_identity")
+    if isinstance(identity, Mapping):
+        return {
+            "title": _normalize_whitespace(str(identity.get("title") or "")),
+            "body_sha256": str(identity.get("body_sha256") or "").strip() or None,
+            "body_chars": identity.get("body_chars") if isinstance(identity.get("body_chars"), int) else None,
+        }
+
+    tracked_article = reuse_bundle_payload.get("tracked_article")
+    tracked_title = ""
+    tracked_body = ""
+    if isinstance(tracked_article, Mapping):
+        tracked_title = _normalize_whitespace(str(tracked_article.get("title") or ""))
+        tracked_body = str(tracked_article.get("body_markdown") or "")
+
+    topic = reuse_bundle_payload.get("topic")
+    legacy_topic_title = str(topic.get("title") or "") if isinstance(topic, Mapping) else ""
+    source_title = _normalize_whitespace(
+        str(reuse_bundle_payload.get("source_title") or tracked_title or legacy_topic_title)
+    )
+    source_hash = (
+        str(
+            reuse_bundle_payload.get("source_body_sha256")
+            or reuse_bundle_payload.get("source_markdown_sha256")
+            or ""
+        ).strip()
+        or None
+    )
+    if not source_hash and tracked_body:
+        source_hash = hashlib.sha256(_compact_text(tracked_body).encode("utf-8")).hexdigest()
+    return {
+        "title": source_title,
+        "body_sha256": source_hash,
+        "body_chars": None,
+    }
+
+
+def _extract_reuse_analysis_source_identity(
+    reuse_bundle_payload: Mapping[str, Any],
+) -> dict[str, str | int | None] | None:
+    identity = reuse_bundle_payload.get("analysis_source_identity")
+    if not isinstance(identity, Mapping):
+        return None
+    return {
+        "title": _normalize_whitespace(str(identity.get("title") or "")),
+        "body_sha256": str(identity.get("body_sha256") or "").strip() or None,
+        "body_chars": identity.get("body_chars") if isinstance(identity.get("body_chars"), int) else None,
+    }
+
+
+def _reuse_bundle_has_analysis_contract(
+    reuse_bundle_payload: Mapping[str, Any],
+) -> bool:
+    candidates: list[Mapping[str, Any]] = [reuse_bundle_payload]
+    tracked_article = reuse_bundle_payload.get("tracked_article")
+    if isinstance(tracked_article, Mapping):
+        candidates.append(tracked_article)
+    return any(
+        bool(str(candidate.get(field) or "").strip())
+        for candidate in candidates
+        for field in _TRACKED_ARTICLE_ANALYSIS_FIELDS
+    )
+
+
+def _reuse_bundle_has_complete_analysis_contract(
+    reuse_bundle_payload: Mapping[str, Any] | None,
+) -> bool:
+    if not isinstance(reuse_bundle_payload, Mapping):
+        return False
+    candidates: list[Mapping[str, Any]] = [reuse_bundle_payload]
+    tracked_article = reuse_bundle_payload.get("tracked_article")
+    if isinstance(tracked_article, Mapping):
+        candidates.append(tracked_article)
+    for candidate in candidates:
+        if not all(bool(str(candidate.get(field) or "").strip()) for field in _TRACKED_ARTICLE_ANALYSIS_FIELDS):
+            continue
+        pillars = candidate.get(_ANALYSIS_CONTENT_PILLARS_FIELD)
+        if not isinstance(pillars, list) or len([item for item in pillars if str(item).strip()]) < 2:
+            continue
+        return True
+    return False
+
+
+def _validate_reuse_bundle_identity(
+    *,
+    reuse_bundle_payload: Mapping[str, Any] | None,
+    source_title: str,
+    source_markdown: str,
+    bundle_json_path: str | None,
+) -> dict[str, Any] | None:
+    if not isinstance(reuse_bundle_payload, Mapping):
+        return None
+
+    expected = _build_source_identity(source_title=source_title, source_markdown=source_markdown)
+    actual = _extract_reuse_source_identity(reuse_bundle_payload)
+    actual_title = str(actual.get("title") or "").strip()
+    actual_hash = str(actual.get("body_sha256") or "").strip()
+    if not actual_title:
+        raise ValueError(
+            "拒绝复用 bundle：缺少 source_title/source_identity，无法确认它属于当前参考文章。"
+            f" 请重新导出与当前输入匹配的 bundle：{bundle_json_path or '<memory>'}"
+        )
+    title_matches = actual_title == expected["title"]
+    hash_matches = bool(actual_hash and actual_hash == expected["body_sha256"])
+    if not title_matches and not hash_matches:
+        raise ValueError(
+            "拒绝复用 bundle：source_title 与当前文章不一致。"
+            f" 当前={expected['title']!r}，bundle={actual_title!r}，文件={bundle_json_path or '<memory>'}"
+        )
+    if actual_hash and not hash_matches:
+        raise ValueError(
+            "拒绝复用 bundle：source body hash 与当前文章不一致，避免主题分析污染。"
+            f" 当前={expected['body_sha256']}，bundle={actual_hash}，文件={bundle_json_path or '<memory>'}"
+        )
+
+    analysis_provenance_source = "analysis_source_identity"
+    if _reuse_bundle_has_analysis_contract(reuse_bundle_payload):
+        analysis_identity = _extract_reuse_analysis_source_identity(reuse_bundle_payload)
+        if analysis_identity is None:
+            # Bundles written before analysis_source_identity was introduced
+            # already carry a source_identity. Reuse it only after the strict
+            # source title/hash checks above have passed.
+            analysis_identity = actual if actual_hash else None
+            analysis_provenance_source = "source_identity_legacy"
+            if analysis_identity is None:
+                raise ValueError(
+                    "拒绝复用 bundle：分析合同缺少 analysis_source_identity，且旧 bundle 没有正文 hash，"
+                    "无法确认它针对当前参考文章。"
+                    f" 请重新导出与当前输入匹配的 bundle：{bundle_json_path or '<memory>'}"
+                )
+        analysis_hash = str(analysis_identity.get("body_sha256") or "").strip()
+        if not analysis_hash:
+            raise ValueError(
+                "拒绝复用 bundle：analysis_source_identity 缺少正文 hash，无法复用分析合同。"
+                f" 请重新导出与当前输入匹配的 bundle：{bundle_json_path or '<memory>'}"
+            )
+        if analysis_hash != expected["body_sha256"]:
+            raise ValueError(
+                "拒绝复用 bundle：分析合同的正文 hash 与当前文章不一致，避免主题分析污染。"
+                f" 当前={expected['body_sha256']}，bundle={analysis_hash}，文件={bundle_json_path or '<memory>'}"
+            )
+    return {
+        "validated": True,
+        "analysis_contract_checked": _reuse_bundle_has_analysis_contract(reuse_bundle_payload),
+        "analysis_provenance_source": analysis_provenance_source if _reuse_bundle_has_analysis_contract(reuse_bundle_payload) else None,
+        "title_match": title_matches,
+        "title_match_overridden_by_body_hash": bool(not title_matches and hash_matches),
+        "body_hash_checked": bool(actual_hash),
+        "body_hash_match": hash_matches if actual_hash else None,
+        "expected": expected,
+        "bundle": actual,
+    }
+
+
+def _build_request_budget(
+    *,
+    include_assets_publish: bool,
+    skip_metadata: bool,
+    reuse_topic: bool = False,
+) -> dict[str, int]:
+    return {
+        "metadata": 0 if skip_metadata else 1,
+        # Tracked-article topic generation uses one initial request plus one
+        # same-protocol retry on custom text routes when the provider returns 5xx.
+        "topic": 0 if reuse_topic else 2,
+        "strategy": 0,
+        # Strategy-first tracked-article outlines make one same-prompt retry
+        # for a transient 5xx before surfacing the upstream failure.
+        "outline": 2,
+        # Default pipeline: initial draft + at most one length cleanup and one
+        # AI-flavor cleanup. Transport retries remain visible as overages.
+        "draft": 3,
+        "assets": 1 if include_assets_publish else 0,
+        "publish_package": 1 if include_assets_publish else 0,
+        "cover_image": 1 if include_assets_publish else 0,
+    }
+
+
+def _update_request_telemetry(
+    partial: dict[str, Any],
+    *,
+    telemetry: Mapping[str, int],
+    budget: Mapping[str, int],
+) -> None:
+    counts = {str(key): int(value) for key, value in telemetry.items()}
+    partial["request_budget"] = dict(budget)
+    partial["request_counts"] = counts
+    partial["request_budget_overages"] = {
+        stage: counts.get(stage, 0) - int(limit)
+        for stage, limit in budget.items()
+        if counts.get(stage, 0) > int(limit)
+    }
+    partial["request_budget_within_limit"] = not bool(partial["request_budget_overages"])
 
 
 def _build_overlap_report(
@@ -988,6 +1215,7 @@ def _build_tracked_article_seed(
         "analysis_progression_drive": "",
         "analysis_share_reason": "",
         "analysis_do_not_turn_into": "",
+        "analysis_content_pillars": [],
         "tags": [],
     }
     if not isinstance(reuse_bundle_payload, Mapping):
@@ -1002,17 +1230,7 @@ def _build_tracked_article_seed(
     structure_notes = str(tracked_article.get("structure_notes") or "").strip()
     tracked_source_name = str(tracked_article.get("source_name") or "").strip()
     tags = _normalize_string_list(tracked_article.get("tags"))
-    analysis_fields = (
-        "analysis_theme",
-        "analysis_core_conflict",
-        "analysis_emotional_exit",
-        "analysis_structure_mode",
-        "analysis_opening_pattern",
-        "analysis_hook_trigger",
-        "analysis_progression_drive",
-        "analysis_share_reason",
-        "analysis_do_not_turn_into",
-    )
+    analysis_fields = _TRACKED_ARTICLE_ANALYSIS_FIELDS
 
     if author:
         seed["author"] = author
@@ -1028,12 +1246,16 @@ def _build_tracked_article_seed(
         value = str(tracked_article.get(field) or "").strip()
         if value:
             seed[field] = value
+    content_pillars = _normalize_string_list(tracked_article.get(_ANALYSIS_CONTENT_PILLARS_FIELD))
+    if content_pillars:
+        seed[_ANALYSIS_CONTENT_PILLARS_FIELD] = content_pillars[:4]
     if callable(metadata_sanitizer):
         sanitized = metadata_sanitizer(
             {
                 "summary": seed.get("summary", ""),
                 "structure_notes": seed.get("structure_notes", ""),
                 **{field: seed.get(field, "") for field in analysis_fields},
+                _ANALYSIS_CONTENT_PILLARS_FIELD: seed.get(_ANALYSIS_CONTENT_PILLARS_FIELD, []),
                 "tags": seed.get("tags", []),
             },
             article_title=article_title,
@@ -1043,6 +1265,9 @@ def _build_tracked_article_seed(
         if isinstance(sanitized, Mapping):
             for field in ("summary", "structure_notes", *analysis_fields):
                 seed[field] = str(sanitized.get(field) or seed.get(field) or "").strip()
+            seed[_ANALYSIS_CONTENT_PILLARS_FIELD] = _normalize_string_list(
+                sanitized.get(_ANALYSIS_CONTENT_PILLARS_FIELD)
+            )[:4]
             sanitized_tags = _normalize_string_list(sanitized.get("tags"))
             if sanitized_tags:
                 seed["tags"] = sanitized_tags
@@ -1056,10 +1281,7 @@ def _should_skip_tracked_article_enrichment(
 ) -> bool:
     if getattr(args, "skip_enrich", False):
         return True
-    if not isinstance(reuse_bundle_payload, Mapping):
-        return False
-    tracked_article = reuse_bundle_payload.get("tracked_article")
-    return isinstance(tracked_article, Mapping)
+    return _reuse_bundle_has_complete_analysis_contract(reuse_bundle_payload)
 
 
 def _build_tracked_article_enrichment_warning(*, article_slug: str, exc: Exception) -> dict[str, object]:
@@ -1078,10 +1300,10 @@ def _best_effort_enrich_tracked_article(
     enrich_tracked_article_metadata: Any,
     should_skip: bool,
     partial: dict[str, Any],
-) -> None:
+) -> bool:
     if should_skip:
         partial["tracked_article"] = article_payload.model_dump()
-        return
+        return False
 
     try:
         enriched = enrich_tracked_article_metadata(article_slug)
@@ -1090,9 +1312,10 @@ def _best_effort_enrich_tracked_article(
         partial.setdefault("warnings", []).append(
             _build_tracked_article_enrichment_warning(article_slug=article_slug, exc=exc)
         )
-        return
+        return True
 
     partial["tracked_article"] = enriched.model_dump()
+    return True
 
 
 def _extract_reuse_strategy_card(
@@ -2641,7 +2864,12 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
     from app.schemas.projects import ProjectCreate
     from app.schemas.topics import TopicCreateFromTrend
     from app.schemas.tracked_articles import TrackedArticleCreate
-    from app.services.ai_generator import get_ai_config_summary
+    from app.services.ai_generator import (
+        begin_request_telemetry,
+        clear_request_telemetry,
+        get_ai_config_summary,
+        get_request_telemetry,
+    )
     from app.services.prompt_templates import build_draft_prompt, build_outline_prompt
     from app.services.workbench import (
         _rewrite_everyday_warmth_return_topic,
@@ -2674,6 +2902,12 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
     project_slug = f"{article_slug}-project"
     article_title = args.article_title or _infer_title(source_markdown, article_slug)
     reuse_bundle_payload = _load_reuse_bundle_payload(args.reuse_bundle_json)
+    reuse_identity = _validate_reuse_bundle_identity(
+        reuse_bundle_payload=reuse_bundle_payload,
+        source_title=article_title,
+        source_markdown=source_markdown,
+        bundle_json_path=args.reuse_bundle_json,
+    )
     tracked_article_seed = _build_tracked_article_seed(
         article_slug=article_slug,
         article_title=article_title,
@@ -2689,6 +2923,17 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         "status": "running",
         "input_file": str(input_path),
         "source_title": article_title,
+        "source_identity": _build_source_identity(
+            source_title=article_title,
+            source_markdown=source_markdown,
+        ),
+        "reuse_bundle_identity": reuse_identity,
+        "request_budget": _build_request_budget(
+            include_assets_publish=False,
+            skip_metadata=_should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload),
+            reuse_topic=bool(args.reuse_topic_from_bundle and _extract_reuse_topic_seed(reuse_bundle_payload)),
+        ),
+        "request_counts": {"total": 0},
         "artifacts": {
             "output_dir": str(output_dir),
             "db_path": str(bundle_db_path),
@@ -2701,6 +2946,7 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         },
         "ai_config": get_ai_config_summary().model_dump(),
     }
+    begin_request_telemetry()
     if args.probe_ai_routes:
         partial["ai_text_routes_probe"] = _probe_ai_text_routes()
         partial["ai_image_routes_probe"] = _probe_ai_image_routes()
@@ -2724,13 +2970,14 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         import_result = import_tracked_articles([article_payload], source_kind="manual")
         partial["import_result"] = import_result
 
-        _best_effort_enrich_tracked_article(
+        analysis_attempted = _best_effort_enrich_tracked_article(
             article_slug=article_slug,
             article_payload=article_payload,
             enrich_tracked_article_metadata=enrich_tracked_article_metadata,
             should_skip=_should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload),
             partial=partial,
         )
+        partial["analysis_source_identity"] = dict(partial["source_identity"])
 
         reuse_topic_seed = (
             _extract_reuse_topic_seed(reuse_bundle_payload)
@@ -2761,7 +3008,14 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
             )
             partial["topic_seed"] = reuse_topic_seed
         else:
-            topic = generate_topic_from_tracked_article(article_slug)
+            topic = generate_topic_from_tracked_article(
+                article_slug,
+                auto_enrich_analysis=not _should_skip_tracked_article_enrichment(
+                    args=args,
+                    reuse_bundle_payload=reuse_bundle_payload,
+                ),
+                analysis_already_attempted=analysis_attempted,
+            )
         partial["topic"] = topic.model_dump()
 
         project = create_project_from_topic(
@@ -2855,12 +3109,23 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
             "instructions_chars": len(draft_template.instructions),
             "prompt_chars": len(draft_template.prompt),
         }
+        _update_request_telemetry(
+            partial,
+            telemetry=get_request_telemetry(),
+            budget=partial["request_budget"],
+        )
         _sync_runtime_db_to_bundle(runtime_db_path=runtime_db_path, bundle_db_path=bundle_db_path)
         partial["status"] = "done"
         _write_json(result_path, partial)
+        clear_request_telemetry()
         _safe_print_json(partial)
         return 0
     except Exception as exc:  # pragma: no cover - exercised by live runs
+        _update_request_telemetry(
+            partial,
+            telemetry=get_request_telemetry(),
+            budget=partial["request_budget"],
+        )
         partial["status"] = "failed"
         partial["error"] = {"message": str(exc), "traceback": traceback.format_exc()}
         _persist_result_snapshot(
@@ -2870,6 +3135,7 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
             runtime_db_path=runtime_db_path,
             bundle_db_path=bundle_db_path,
         )
+        clear_request_telemetry()
         _safe_print_json(partial)
         return 1
 
@@ -2896,7 +3162,12 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
     from app.schemas.topics import TopicCreateFromTrend
     from app.schemas.tracked_articles import TrackedArticleCreate
     from app.services.ai_flavor import evaluate_ai_flavor_risk
-    from app.services.ai_generator import get_ai_config_summary
+    from app.services.ai_generator import (
+        begin_request_telemetry,
+        clear_request_telemetry,
+        get_ai_config_summary,
+        get_request_telemetry,
+    )
     from app.services.workbench import (
         _rewrite_everyday_warmth_return_topic,
         _rewrite_pressure_topic_angle,
@@ -2926,6 +3197,12 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
     project_slug = f"{article_slug}-project"
     article_title = args.article_title or _infer_title(source_markdown, article_slug)
     reuse_bundle_payload = _load_reuse_bundle_payload(args.reuse_bundle_json)
+    reuse_identity = _validate_reuse_bundle_identity(
+        reuse_bundle_payload=reuse_bundle_payload,
+        source_title=article_title,
+        source_markdown=source_markdown,
+        bundle_json_path=args.reuse_bundle_json,
+    )
     tracked_article_seed = _build_tracked_article_seed(
         article_slug=article_slug,
         article_title=article_title,
@@ -2941,6 +3218,17 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         "status": "running",
         "input_file": str(input_path),
         "source_title": article_title,
+        "source_identity": _build_source_identity(
+            source_title=article_title,
+            source_markdown=source_markdown,
+        ),
+        "reuse_bundle_identity": reuse_identity,
+        "request_budget": _build_request_budget(
+            include_assets_publish=args.include_assets_publish,
+            skip_metadata=_should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload),
+            reuse_topic=bool(args.reuse_topic_from_bundle and _extract_reuse_topic_seed(reuse_bundle_payload)),
+        ),
+        "request_counts": {"total": 0},
         "artifacts": {
             "output_dir": str(output_dir),
             "db_path": str(bundle_db_path),
@@ -2953,6 +3241,7 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         },
         "ai_config": get_ai_config_summary().model_dump(),
     }
+    begin_request_telemetry()
     if args.probe_ai_routes:
         partial["ai_text_routes_probe"] = _probe_ai_text_routes()
         partial["ai_image_routes_probe"] = _probe_ai_image_routes()
@@ -2982,13 +3271,14 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         import_result = import_tracked_articles([article_payload], source_kind="manual")
         partial["import_result"] = import_result
 
-        _best_effort_enrich_tracked_article(
+        analysis_attempted = _best_effort_enrich_tracked_article(
             article_slug=article_slug,
             article_payload=article_payload,
             enrich_tracked_article_metadata=enrich_tracked_article_metadata,
             should_skip=_should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload),
             partial=partial,
         )
+        partial["analysis_source_identity"] = dict(partial["source_identity"])
 
         reuse_topic_seed = (
             _extract_reuse_topic_seed(reuse_bundle_payload)
@@ -3019,7 +3309,14 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
             )
             partial["topic_seed"] = reuse_topic_seed
         else:
-            topic = generate_topic_from_tracked_article(article_slug)
+            topic = generate_topic_from_tracked_article(
+                article_slug,
+                auto_enrich_analysis=not _should_skip_tracked_article_enrichment(
+                    args=args,
+                    reuse_bundle_payload=reuse_bundle_payload,
+                ),
+                analysis_already_attempted=analysis_attempted,
+            )
         partial["topic"] = topic.model_dump()
         _persist_result_snapshot(
             result_path,
@@ -3130,6 +3427,11 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
                 bundle_db_path=bundle_db_path,
             )
         partial["status"] = "done"
+        _update_request_telemetry(
+            partial,
+            telemetry=get_request_telemetry(),
+            budget=partial["request_budget"],
+        )
         _persist_result_snapshot(
             result_path,
             partial,
@@ -3137,13 +3439,20 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
             runtime_db_path=runtime_db_path,
             bundle_db_path=bundle_db_path,
         )
+        clear_request_telemetry()
         _safe_print_json(partial)
         return 0
     except Exception as exc:  # pragma: no cover - exercised by live runs
         _sync_runtime_db_to_bundle(runtime_db_path=runtime_db_path, bundle_db_path=bundle_db_path)
+        _update_request_telemetry(
+            partial,
+            telemetry=get_request_telemetry(),
+            budget=partial["request_budget"],
+        )
         partial["status"] = "failed"
         partial["error"] = {"message": str(exc), "traceback": traceback.format_exc()}
         _write_json(result_path, partial)
+        clear_request_telemetry()
         _safe_print_json(partial)
         return 1
 
