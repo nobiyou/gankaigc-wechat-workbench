@@ -21,6 +21,13 @@ _COMMON_SHORT_FRAGMENTS = {
     "身边的人",
     "身边的人也",
     "也不会",
+    "各自的生活",
+    "没有发出",
+    "有些人",
+    "也不是",
+    "不一定",
+    "不一定要",
+    "的生活",
 }
 _GENERIC_SHORT_HAVE_FRAGMENT_RE = re.compile(r"^有些[\u4e00-\u9fff]{2,5}$")
 _GENERIC_SHORT_REFLECTIVE_FRAGMENTS = {

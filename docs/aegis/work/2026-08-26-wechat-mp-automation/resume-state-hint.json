@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-08-26-wechat-mp-automation",
+  "lastCheckpointRef": "docs/aegis/work/2026-08-26-wechat-mp-automation/todo-checkpoint-draft.json",
+  "resumeInstruction": "If resumed, reread this checkpoint, 10-intent.md, specs/005-wechat-mp-automation/tasks.md, and current git status before any edit",
+  "knownPartialWork": [
+    "TaskStartSnapshot and baseline readback",
+    "Automation storage, subscriptions, scheduling, and runner",
+    "Resumable orchestration, automatic approval, draft-only boundary, and provenance",
+    "Automation management UI and preview links",
+    "Fake orchestration, API, retry, and failure recovery tests",
+    "WeChat regression and frontend test/build verification"
+  ],
+  "mustReadBeforeContinuing": [
+    "docs/aegis/work/2026-08-26-wechat-mp-automation/10-intent.md",
+    "docs/aegis/work/2026-08-26-wechat-mp-automation/20-checkpoint.md",
+    "docs/aegis/work/2026-08-26-wechat-mp-automation/todo-checkpoint-draft.json"
+  ],
+  "unsafeToAssume": [
+    "Do not treat the six existing content-quality failures as resolved or attribute them to automation without new causal evidence"
+  ]
+}

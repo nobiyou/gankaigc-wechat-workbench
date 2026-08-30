@@ -19,6 +19,7 @@ export type WorkbenchActionKind =
   | "generate_creative_review_report"
   | "restore_publish_package"
   | "approve_publish_package"
+  | "publish_wechat_mp_draft"
   | "request_publish_revision"
   | "regenerate_from_review"
   | "record_project_retro";
@@ -41,6 +42,7 @@ const BACKGROUND_ACTION_KINDS = new Set<WorkbenchActionKind>([
   "regenerate_cover_image",
   "polish_and_build_publish_package",
   "build_publish_package",
+  "publish_wechat_mp_draft",
   "regenerate_from_review",
 ]);
 
@@ -100,6 +102,16 @@ function hasCurrentDraftDiagnosis(detail: ProjectDetail): boolean {
   );
 }
 
+function canPolishBeforePublish(detail: ProjectDetail): boolean {
+  if (!detail.draft) {
+    return false;
+  }
+  return (
+    detail.project.current_chain_state !== "missing_strategy" &&
+    detail.project.current_chain_state !== "strategy_ready"
+  );
+}
+
 function buildCreativeReportAction(detail: ProjectDetail): WorkbenchAction | null {
   if (!detail.draft && !detail.publish_package && !detail.strategy_card && !detail.diagnosis_report) {
     return null;
@@ -130,6 +142,15 @@ type BackgroundTaskCopy = {
 };
 
 export function getWorkbenchBackgroundTaskCopy(jobType?: string | null): BackgroundTaskCopy {
+  if (jobType === "publish_wechat_mp_draft") {
+    return {
+      submittedMessage: "已提交写入公众号草稿箱任务，正在复用当前扫码登录会话完成封面与正文提交。",
+      completedMessage: "公众号草稿已写入草稿箱，请打开公众号后台预览后再手动发布。",
+      failedMessage: "写入公众号草稿箱失败。请检查扫码会话、封面文件和公众号后台状态。",
+      progressMessage: "当前正在通过扫码登录会话写入公众号草稿箱，不会自动群发。",
+    };
+  }
+
   if (jobType === "build_publish_package") {
     return {
       submittedMessage: "已提交生成发布包任务，正在后台构建正文成品与发布清单。",
@@ -171,6 +192,17 @@ export function getWorkbenchBackgroundTaskCopy(jobType?: string | null): Backgro
     completedMessage: "按审核意见重生成已完成，Workbench 已刷新到最新链路状态。",
     failedMessage: "按审核意见重生成失败。",
     progressMessage: "当前正在按审核意见重生成初稿、素材和发布包。",
+  };
+}
+
+function buildWechatDraftAction(detail: ProjectDetail): WorkbenchAction | null {
+  const status = detail.publish_package?.wechat_mp_draft_status;
+  if (!detail.publish_package || status === "published" || status === "publishing") {
+    return null;
+  }
+  return {
+    kind: "publish_wechat_mp_draft",
+    label: status === "failed" ? "重试写入公众号草稿" : "写入公众号草稿箱",
   };
 }
 
@@ -390,9 +422,11 @@ export function buildWorkbenchActionPlan({
     }
 
     if (detail.project.current_chain_state === "published" && detail.publish_package?.status === "approved" && !detail.retro) {
+      const wechatDraftAction = buildWechatDraftAction(detail);
       return {
         primaryAction: { kind: "record_project_retro", label: "记录项目复盘" },
         secondaryActions: [
+          ...(wechatDraftAction ? [wechatDraftAction] : []),
           ...(creativeReportAction ? [creativeReportAction] : []),
           ...(historyEntryCount > 1 ? [{ kind: "restore_publish_package" as const, label: "基于历史版本重建发布包" }] : []),
         ],
@@ -404,9 +438,11 @@ export function buildWorkbenchActionPlan({
     }
 
     if (detail.project.current_chain_state === "published" && detail.publish_package?.status === "approved" && detail.retro) {
+      const wechatDraftAction = buildWechatDraftAction(detail);
       return {
         primaryAction: null,
         secondaryActions: [
+          ...(wechatDraftAction ? [wechatDraftAction] : []),
           ...(creativeReportAction ? [creativeReportAction] : []),
           ...(historyEntryCount > 1 ? [{ kind: "restore_publish_package" as const, label: "基于历史版本重建发布包" }] : []),
         ],
@@ -433,17 +469,18 @@ export function buildWorkbenchActionPlan({
     }
 
     const needsReferenceIsolation = hasReferenceIsolationRisk(detail);
+    const polishBeforePublishEnabled = canPolishBeforePublish(detail);
     return {
-      primaryAction: detail.draft
+      primaryAction: polishBeforePublishEnabled
         ? {
             kind: "polish_and_build_publish_package",
             label: needsReferenceIsolation
               ? detail.publish_package
                 ? "参考文隔离后重生成发布包"
                 : "参考文隔离后生成发布包"
-              : detail.publish_package
-                ? "原创增强后重生成发布包"
-                : "原创增强后生成发布包",
+                : detail.publish_package
+                  ? "原创增强后重生成发布包"
+                  : "原创增强后生成发布包",
           }
         : { kind: "build_publish_package", label: detail.publish_package ? "重新生成发布包" : "生成发布包" },
       secondaryActions: [
@@ -452,7 +489,7 @@ export function buildWorkbenchActionPlan({
         ...(historyEntryCount > 1 ? [{ kind: "restore_publish_package" as const, label: "基于历史版本重建发布包" }] : []),
       ],
       canRestoreHistory: historyEntryCount > 1,
-      showInstructionField: detail.draft != null,
+      showInstructionField: polishBeforePublishEnabled,
       showPublishReviewForm: false,
       showRetroForm: false,
     };

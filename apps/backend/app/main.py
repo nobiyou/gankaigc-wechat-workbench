@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import api_router
 from app.core.settings import settings
 from app.services.workbench import initialize_store
+from app.services.wechat_mp_automation import WechatMpAutomationScheduler
 
 Path(settings.generated_assets_dir).mkdir(parents=True, exist_ok=True)
 
@@ -15,7 +16,14 @@ Path(settings.generated_assets_dir).mkdir(parents=True, exist_ok=True)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_store()
-    yield
+    scheduler = WechatMpAutomationScheduler()
+    app.state.wechat_mp_automation_scheduler = scheduler
+    if settings.wechat_mp_automation_enabled:
+        scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.stop()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

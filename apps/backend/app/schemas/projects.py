@@ -20,6 +20,7 @@ class ProjectItem(BaseModel):
     owner: str
     preferred_tone_profile_id: int | None = None
     preferred_tone_profile_name: str | None = None
+    preferred_wechat_html_style_key: str | None = None
     domain_pack_key: str | None = None
     chain_status: str = "healthy"
     current_chain_state: str = "missing_outline"
@@ -37,12 +38,14 @@ class ProjectCreate(BaseModel):
     owner: str
     preferred_tone_profile_id: int | None = None
     domain_pack_key: str | None = None
+    preferred_wechat_html_style_key: str | None = None
 
 
 class ProjectStageUpdate(BaseModel):
     stage: str
     preferred_tone_profile_id: int | None = None
     domain_pack_key: str | None = None
+    preferred_wechat_html_style_key: str | None = None
 
 
 class BatchContinueProjectsRequest(BaseModel):
@@ -167,6 +170,8 @@ class PublishPackageItem(BaseModel):
     intro_options: list[str] = Field(default_factory=list)
     markdown_path: str
     markdown_url: str
+    html_path: str = ""
+    html_url: str = ""
     manifest_path: str
     manifest_url: str
     status: str
@@ -177,6 +182,16 @@ class PublishPackageItem(BaseModel):
     origin: str | None = None
     tone_profile_id: int | None = None
     tone_profile_name: str | None = None
+    wechat_html_style_key: str = "minimal"
+    wechat_html_style_name: str = "极简黑白"
+    wechat_html_style_source: str = "smart"
+    wechat_html_style_reason: str = ""
+    wechat_mp_draft_status: str = "not_published"
+    wechat_mp_draft_id: str | None = None
+    wechat_mp_draft_error: str | None = None
+    wechat_mp_draft_published_at: str | None = None
+    approval_provenance: str | None = None
+    wechat_mp_draft_provenance: str | None = None
 
 
 class PublishReviewAction(BaseModel):
@@ -202,6 +217,7 @@ class GenerateAssetsAction(BaseModel):
 class BuildPublishPackageAction(BaseModel):
     polish_before_generate: bool = False
     polish_instruction: str | None = None
+    wechat_html_style_key: str | None = None
 
 
 class ProjectRetroItem(BaseModel):

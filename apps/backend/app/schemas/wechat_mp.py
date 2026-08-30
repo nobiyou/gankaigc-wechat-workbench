@@ -20,6 +20,31 @@ class WechatMpAccountItem(BaseModel):
     signature: str | None = None
 
 
+class WxChannelAccountItem(BaseModel):
+    source: str = "wx_channel"
+    biz: str
+    nickname: str
+    avatar_url: str = ""
+    is_effective: bool = False
+    article_count: int = 0
+    archived_count: int = 0
+    last_sync_at: int = 0
+    sync_status: str = ""
+    sync_error: str = ""
+
+
+class WxChannelArticleItem(BaseModel):
+    article_id: str
+    account_biz: str
+    account_nickname: str = ""
+    title: str
+    link: str
+    author: str = ""
+    digest: str = ""
+    update_time: int = 0
+    cover_url: str = ""
+
+
 class WechatMpArticlePreviewItem(BaseModel):
     article_id: str
     account_fakeid: str

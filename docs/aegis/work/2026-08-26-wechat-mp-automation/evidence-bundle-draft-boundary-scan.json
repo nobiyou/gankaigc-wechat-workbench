@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "boundary-scan",
+  "type": "structural-validation",
+  "source": "git diff --check and rg boundary scan",
+  "summary": "Whitespace check passed. No new AppID/AppSecret credential path or final group-send call was introduced; automation remains draft-box-only. Existing publisher documentation and feature contract references to the boundary remain intentional.",
+  "verifier": "Codex"
+}

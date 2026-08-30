@@ -402,17 +402,26 @@ test("buildWorkbenchPreview returns publish preview with article, abstract, tags
 
   assert.equal(preview?.eyebrow, "Publish Preview");
   assert.equal(preview?.title, "越在乎的人，为什么越想在关系里反复确认");
-  assert.equal(preview?.blocks.length, 7);
-  assert.equal(preview?.blocks[0]?.kind, "markdown");
-  assert.equal(preview?.blocks[0]?.content.includes("# 标题"), true);
-  assert.equal(preview?.blocks[0]?.copyText, "# 标题\n\n第一段\n\n第二段");
-  assert.equal(preview?.blocks[1]?.content, "写给总在关系里反复确认、又不知道为什么停不下来的人。");
-  assert.equal(preview?.blocks[2]?.content, "有些反复确认，不是你想太多，而是你在关系里一直没有真正稳下来。");
-  assert.equal(preview?.blocks[3]?.kind, "markdown");
-  assert.equal(preview?.blocks[3]?.content.includes("1. 有些反复确认，不是你想太多"), true);
-  assert.equal(preview?.blocks[4]?.content, "关系 / 确认 / 女性成长");
-  assert.equal(preview?.blocks[5]?.kind, "markdown");
-  assert.equal(preview?.blocks[5]?.content.includes("1. 检查标题"), true);
+  assert.equal(preview?.blocks.length, 9);
+
+  const blocksByKey = new Map(preview?.blocks.map((block) => [block.key, block]));
+  const articleBlock = blocksByKey.get("article");
+  assert.equal(articleBlock?.kind, "markdown");
+  assert.equal(articleBlock?.content.includes("# 标题"), true);
+  assert.equal(articleBlock?.copyText, "# 标题\n\n第一段\n\n第二段");
+  assert.equal(blocksByKey.get("abstract")?.content, "写给总在关系里反复确认、又不知道为什么停不下来的人。");
+  assert.equal(
+    blocksByKey.get("publish-lead")?.content,
+    "有些反复确认，不是你想太多，而是你在关系里一直没有真正稳下来。",
+  );
+  assert.equal(blocksByKey.get("intro-options")?.kind, "markdown");
+  assert.equal(blocksByKey.get("intro-options")?.content.includes("1. 有些反复确认，不是你想太多"), true);
+  assert.equal(blocksByKey.get("tags")?.content, "关系 / 确认 / 女性成长");
+  assert.equal(blocksByKey.get("checklist")?.kind, "markdown");
+  assert.equal(blocksByKey.get("checklist")?.content.includes("1. 检查标题"), true);
+  assert.equal(blocksByKey.get("publish-cover-image")?.kind, "image");
+  assert.equal(blocksByKey.get("wechat-mp-draft-status")?.content.includes("尚未写入公众号草稿箱"), true);
+  assert.equal(blocksByKey.get("wechat-mp-draft-status")?.content.includes("不会自动群发"), true);
 });
 
 test("buildWorkbenchPreview renders persisted draft diagnosis for current draft", () => {
@@ -614,6 +623,54 @@ test("buildWorkbenchPreview returns publish fallback preview when publish packag
   assert.equal(preview?.blocks[2]?.label, "正文成品");
   assert.equal(preview?.blocks[3]?.label, "发布包状态");
   assert.equal(preview?.blocks[3]?.content.includes("发布包尚未生成"), true);
+});
+
+test("buildWorkbenchPreview shows the cover and WeChat draft-box status", () => {
+  const publishedPreview = buildWorkbenchPreview("publish", {
+    ...baseDetail,
+    publish_package: {
+      ...baseDetail.publish_package,
+      status: "approved",
+      wechat_mp_draft_status: "published",
+      wechat_mp_draft_id: "draft-123",
+      wechat_mp_draft_published_at: "2026-08-26T08:00:00Z",
+    },
+  });
+
+  const coverBlock = publishedPreview?.blocks.find((block) => block.key === "publish-cover-image");
+  const publishedStatusBlock = publishedPreview?.blocks.find((block) => block.key === "wechat-mp-draft-status");
+  assert.equal(coverBlock?.kind, "image");
+  assert.equal(coverBlock?.imageUrl, "http://localhost:8000/generated-assets/cover.png");
+  assert.equal(publishedStatusBlock?.content.includes("已写入公众号草稿箱"), true);
+  assert.equal(publishedStatusBlock?.content.includes("草稿 ID：draft-123"), true);
+  assert.equal(publishedStatusBlock?.content.includes("不会自动群发"), true);
+
+  const failedPreview = buildWorkbenchPreview("publish", {
+    ...baseDetail,
+    publish_package: {
+      ...baseDetail.publish_package,
+      status: "approved",
+      wechat_mp_draft_status: "failed",
+      wechat_mp_draft_error: "公众号登录已过期，请重新扫码登录",
+    },
+  });
+  const failedStatusBlock = failedPreview?.blocks.find((block) => block.key === "wechat-mp-draft-status");
+  assert.equal(failedStatusBlock?.content.includes("写入公众号草稿箱失败"), true);
+  assert.equal(failedStatusBlock?.content.includes("公众号登录已过期，请重新扫码登录"), true);
+});
+
+test("buildWorkbenchPreview uses the generated HTML article preview when available", () => {
+  const preview = buildWorkbenchPreview("publish", {
+    ...baseDetail,
+    publish_package: {
+      ...baseDetail.publish_package,
+      html_url: "/generated-assets/project-a-publish-v1.html",
+    },
+  });
+
+  const articleBlock = preview?.blocks.find((block) => block.key === "article");
+  assert.equal(articleBlock?.kind, "html");
+  assert.equal(articleBlock?.htmlUrl, "http://localhost:8000/generated-assets/project-a-publish-v1.html");
 });
 
 test("buildWorkbenchPreview renders topic preview with strategy package context", () => {

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "affectedLayers": [
+    "apps/backend/app/services/wechat_mp_client.py, apps/backend/app/services/workbench.py, apps/backend/app/services/wechat_mp_draft_publisher.py"
+  ],
+  "owners": [
+    "wechat_mp_automation service owns subscription, scheduling, cursor and orchestration; existing services retain fetch, content pipeline and draft adapter ownership"
+  ],
+  "invariants": [
+    "同一订阅同一文章不重复创建项目或写入草稿；自动化只进入草稿箱，不群发"
+  ],
+  "compatBoundary": "保留现有扫码会话、手动工作台链路、人工草稿发布入口和所有用户未提交改动",
+  "nonGoals": [
+    "Windows专属任务计划、多账号权限系统、公众号自动群发、无限重试"
+  ]
+}

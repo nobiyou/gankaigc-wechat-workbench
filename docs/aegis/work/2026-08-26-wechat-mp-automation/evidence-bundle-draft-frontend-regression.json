@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "frontend-regression",
+  "type": "test-build",
+  "source": "npm test and npm run build in apps/frontend",
+  "summary": "Frontend test suite passed and Vite production build passed with 83 transformed modules.",
+  "verifier": "Codex"
+}

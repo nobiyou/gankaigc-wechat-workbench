@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import md5
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
 
 import httpx
@@ -182,8 +182,54 @@ def _decode_wechat_script_escaped_text(value: str) -> str:
     return normalized
 
 
+def extract_wechat_article_body_markdown(html_text: str) -> tuple[str, str]:
+    """Extract the readable body from a WeChat article or RSS HTML fragment."""
+    parser = _WechatArticleBodyParser()
+    parser.feed(str(html_text or ""))
+    parser.close()
+    body_from_dom = parser.get_text()
+    if body_from_dom:
+        return body_from_dom, "dom"
+    match = re.search(r"content_noencode:\s*'((?:\\.|[^'])*)'", str(html_text or ""), re.DOTALL)
+    if not match:
+        return "", "missing"
+    body_from_script = _normalize_wechat_text(
+        _decode_wechat_script_escaped_text(match.group(1)),
+        preserve_paragraphs=True,
+    )
+    return body_from_script, "content_noencode" if body_from_script else "missing"
+
+
 WECHAT_MP_SESSION_REQUIRED_MESSAGE = "请先扫码登录公众号后台"
 WECHAT_MP_SESSION_EXPIRED_MESSAGE = "公众号登录已过期，请重新扫码登录"
+
+
+class WechatMpArticleFetchError(RuntimeError):
+    """微信文章列表接口返回业务失败时的可识别错误。"""
+
+    def __init__(
+        self,
+        *,
+        code: int,
+        err_msg: str = "",
+        detail: str | None = None,
+    ) -> None:
+        self.code = int(code)
+        self.err_msg = str(err_msg or "").strip()[:200]
+        if detail:
+            message = str(detail).strip()
+        elif self.code == 200013:
+            message = (
+                "微信后台拒绝读取文章列表（错误码 200013：freq control）；"
+                "文章列表接口当前受到频率或访问范围限制，无法可靠确认目标账号的最新文章。"
+                "请稍后低频重试；若目标账号不是当前扫码登录账号，请扫码登录目标账号或改用手动导入。"
+            )
+        else:
+            message = (
+                f"读取公众号文章列表失败（错误码 {self.code}："
+                f"{self.err_msg or '未知错误'}）"
+            )
+        super().__init__(message)
 
 
 class WechatMpSessionStore:
@@ -220,6 +266,13 @@ class WechatMpClient:
 
     def get_session_status(self) -> dict[str, object]:
         return self._refresh_logged_in_session_status_if_needed()
+
+    def get_cached_session_status(self) -> dict[str, object]:
+        """读取本地扫码会话，供不需要远端自检的后台流程使用。"""
+        session = self._session_store.load() or {}
+        if session.get("logged_in") and self._is_local_session_expired(str(session.get("expires_at") or "").strip()):
+            return self._expire_logged_in_session()
+        return self._session_store.status()
 
     def start_login_qrcode(self) -> dict[str, object]:
         pre_login_cookie = self._start_login_session()
@@ -352,6 +405,58 @@ class WechatMpClient:
             "status_message": None,
         }
 
+    def mark_session_expired(self) -> dict[str, object]:
+        """让内部写入协议在确认后台会话失效时复用统一的过期状态。"""
+        return self._expire_logged_in_session()
+
+    def get_authenticated_upload_context(self) -> dict[str, str]:
+        """读取后台图片上传需要的短期票据，仅供内部 adapter 使用。"""
+        session = self._require_logged_in_session()
+        cookie = str(session.get("cookie") or "").strip()
+        token = str(session.get("token") or "").strip()
+        response, profile = self._fetch_account_profile_response(cookie=cookie, token=token)
+        if self._is_login_redirect_response(response) or not profile.get("nickname"):
+            self._expire_logged_in_session()
+            raise RuntimeError(WECHAT_MP_SESSION_EXPIRED_MESSAGE)
+        return {
+            "ticket": str(profile.get("ticket") or "").strip(),
+            "ticket_id": str(profile.get("ticket_id") or profile.get("user_name") or "").strip(),
+            "svr_time": str(profile.get("svr_time") or "").strip(),
+        }
+
+    def _request_authenticated_response(
+        self,
+        *,
+        method: str,
+        endpoint: str,
+        query: Mapping[str, object] | None = None,
+        data: Mapping[str, object] | None = None,
+        files: Mapping[str, tuple[str, bytes, str]] | None = None,
+    ) -> httpx.Response:
+        """为扫码后台 adapter 提供带会话的原始请求能力，不暴露 Cookie/token。"""
+        session = self._require_logged_in_session()
+        token = str(session.get("token") or "").strip()
+        request_query = dict(query or {})
+        request_query.setdefault("token", token)
+        headers = self._build_headers()
+        try:
+            with httpx.Client(
+                timeout=settings.wechat_mp_request_timeout_seconds,
+                headers=headers,
+                follow_redirects=False,
+            ) as client:
+                response = client.request(
+                    method,
+                    endpoint,
+                    params=request_query,
+                    data=data,
+                    files=files,
+                )
+        except httpx.HTTPError:
+            raise
+        response.raise_for_status()
+        return response
+
     def search_accounts(self, *, keyword: str, begin: int, size: int) -> list[dict[str, object]]:
         token = self._require_token()
         payload = self._request_json(
@@ -393,15 +498,68 @@ class WechatMpClient:
                 "ajax": 1,
             },
         )
-        publish_page = json.loads(str(payload.get("publish_page") or "{}"))
+        base_resp = payload.get("base_resp")
+        if not isinstance(base_resp, Mapping):
+            raise WechatMpArticleFetchError(
+                code=-1,
+                detail="读取公众号文章列表失败：微信响应缺少 base_resp。",
+            )
+        try:
+            response_code = int(base_resp.get("ret") or 0)
+        except (TypeError, ValueError):
+            raise WechatMpArticleFetchError(
+                code=-1,
+                detail="读取公众号文章列表失败：微信响应包含无效错误码。",
+            ) from None
+        if response_code != 0:
+            raise WechatMpArticleFetchError(
+                code=response_code,
+                err_msg=str(base_resp.get("err_msg") or base_resp.get("errmsg") or ""),
+            )
+
+        publish_page_raw = payload.get("publish_page")
+        if not publish_page_raw:
+            raise WechatMpArticleFetchError(
+                code=0,
+                detail="读取公众号文章列表失败：微信响应缺少 publish_page。",
+            )
+        try:
+            publish_page = (
+                json.loads(str(publish_page_raw))
+                if not isinstance(publish_page_raw, Mapping)
+                else publish_page_raw
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raise WechatMpArticleFetchError(
+                code=0,
+                detail="读取公众号文章列表失败：微信返回的 publish_page 无法解析。",
+            ) from None
+        if not isinstance(publish_page, Mapping):
+            raise WechatMpArticleFetchError(
+                code=0,
+                detail="读取公众号文章列表失败：微信返回的 publish_page 格式无效。",
+            )
         publish_list = list(publish_page.get("publish_list") or [])
         previews: list[dict[str, object]] = []
         for publish_item in publish_list:
+            if not isinstance(publish_item, Mapping):
+                continue
             publish_info_raw = publish_item.get("publish_info")
             if not publish_info_raw:
                 continue
-            publish_info = json.loads(str(publish_info_raw))
+            try:
+                publish_info = (
+                    json.loads(str(publish_info_raw))
+                    if not isinstance(publish_info_raw, Mapping)
+                    else publish_info_raw
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not isinstance(publish_info, Mapping):
+                continue
             for article in list(publish_info.get("appmsgex") or []):
+                if not isinstance(article, Mapping):
+                    continue
                 previews.append(
                     {
                         "article_id": str(article.get("aid") or f"{article.get('appmsgid')}_{article.get('itemidx')}"),
@@ -469,16 +627,7 @@ class WechatMpClient:
         return body_markdown
 
     def _extract_article_body_markdown(self, html_text: str) -> tuple[str, str]:
-        parser = _WechatArticleBodyParser()
-        parser.feed(html_text)
-        parser.close()
-        body_from_dom = parser.get_text()
-        if body_from_dom:
-            return body_from_dom, "dom"
-        body_from_script = self._extract_article_body_from_embedded_script(html_text)
-        if body_from_script:
-            return body_from_script, "content_noencode"
-        return "", "missing"
+        return extract_wechat_article_body_markdown(html_text)
 
     def _extract_article_body_from_embedded_script(self, html_text: str) -> str:
         match = re.search(r"content_noencode:\s*'((?:\\.|[^'])*)'", html_text, re.DOTALL)
@@ -617,6 +766,10 @@ class WechatMpClient:
         return response, {
             "nickname": nickname,
             "avatar": avatar,
+            "ticket": self._match_page_value(html, "ticket"),
+            "ticket_id": self._match_page_value(html, "ticket_id"),
+            "user_name": self._match_page_value(html, "user_name"),
+            "svr_time": self._match_page_value(html, "svr_time"),
         }
 
     def _is_login_redirect_response(self, response: httpx.Response) -> bool:
@@ -635,6 +788,17 @@ class WechatMpClient:
         if value_end < 0:
             return ""
         return html[value_start:value_end]
+
+    def _match_page_value(self, html: str, field_name: str) -> str:
+        patterns = (
+            rf"(?:wx\.data|wx\.cgiData)\.{re.escape(field_name)}\s*[:=]\s*['\"]?([^'\",;\s}}]+)",
+            rf"['\"]{re.escape(field_name)}['\"]\s*:\s*['\"]?([^'\",;\s}}]+)",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, html)
+            if match:
+                return html.unescape(match.group(1)).strip()
+        return ""
 
     def _require_token(self) -> str:
         payload = self._require_logged_in_session()

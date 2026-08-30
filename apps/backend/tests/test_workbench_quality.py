@@ -1,4 +1,8 @@
 from types import SimpleNamespace
+import json
+
+from fastapi import HTTPException
+import pytest
 
 import app.services.workbench as workbench
 from app.services.ai_flavor import evaluate_ai_flavor_risk, extract_short_judgment_paragraphs
@@ -17,6 +21,8 @@ from app.services.workbench import (
     _finalize_initial_draft_candidate,
     _get_strategy_contract_targets,
     _get_strategy_resonance_targets,
+    _has_strategy_positive_landing,
+    _has_title_pain_point,
     _resolve_local_generic_mode_closing,
     _resolve_local_generic_writing_form,
     _resolve_local_fallback_mode,
@@ -28,6 +34,7 @@ from app.services.workbench import (
     _sanitize_responsibility_shelter_tracked_article_metadata,
     _has_unfinished_dialogue_sentence,
     _positive_payoff_candidate_rank,
+    _repair_packaging_title_fields,
     _repair_repeated_phrase_typo_residue,
     _sanitize_assets_packaging_result,
     _sanitize_responsibility_shelter_output_text,
@@ -60,6 +67,33 @@ def _strategy(*, structure_mode: str, positive_direction: str) -> dict[str, obje
     }
 
 
+def _complete_contract_strategy(*, structure_mode: str = "self_worth_rebuild") -> dict[str, object]:
+    payload = _strategy(
+        structure_mode=structure_mode,
+        positive_direction="让人重新拿回自己的选择，带着清醒把日子过好",
+    )
+    payload.update(
+        {
+            "source_type": "tracked_article",
+            "topic_title": "把选择拿回来",
+            "topic_angle": "从一次不再顺手答应的决定切入，写人怎样重新安排自己的生活",
+            "reference_analysis_contract": {
+                "structure_mode": structure_mode,
+                "theme": "人怎样从习惯性退让里重新拿回自己的选择",
+                "core_conflict": "害怕让别人失望，所以总把自己的决定放到最后",
+                "emotional_exit": "让人重新拿回自己的选择，带着清醒把日子过好",
+                "opening_pattern": "从一次不再顺手答应的决定切入",
+                "hook_trigger": "一个本来会脱口而出的答应被停了下来",
+                "progression_drive": "从退让带来的失重推进到选择权重新回到自己手里",
+                "share_reason": "让总在关系里把自己放轻的人重新确认自己的分量",
+                "do_not_turn_into": "不要写成关系回应排序稿",
+                "content_pillars": ["退让的代价", "选择权归位"],
+            },
+        }
+    )
+    return payload
+
+
 def test_reused_metadata_cannot_reclassify_a_simple_happiness_source_as_responsibility_shelter() -> None:
     metadata = {
         "summary": "长期扛压，暂时不能倒，辛苦没有白扛。",
@@ -83,6 +117,62 @@ def test_reused_metadata_cannot_reclassify_a_simple_happiness_source_as_responsi
     assert result["summary"] == metadata["summary"]
     assert result["analysis_theme"] == metadata["analysis_theme"]
     assert result["tags"] == metadata["tags"]
+
+
+def test_negative_phone_cover_constraints_do_not_create_a_phone_scene() -> None:
+    prompt = workbench._normalize_cover_prompt_layout(
+        "16:9横版，木桌和一只酒杯，无人物看手机，手机背面或侧面朝向镜头，"
+        "屏幕不朝向镜头，不展示可读内容，不出现聊天界面"
+    )
+    sanitized = workbench._sanitize_cover_prompt_for_reference_interface(
+        {"cover_prompt": prompt},
+        source_markdown="最后一片枯叶离开树枝，桌上放着一只酒杯。",
+    )
+
+    assert "普通单屏手机" not in prompt
+    assert "手机背面" not in str(sanitized["cover_prompt"])
+    assert "木桌" in str(sanitized["cover_prompt"])
+
+
+def test_follow_up_question_is_not_treated_as_a_chat_interface() -> None:
+    strategy = _strategy(
+        structure_mode="emotional_engine_direct",
+        positive_direction="停止反复索取回应，把生活重新还给自己",
+    )
+    strategy["strategy_card"]["packaging_focus"] = "围绕失约和等待落空写清关系的变化"
+
+    assert not workbench._has_unsupported_packaging_interface(
+        strategy_bundle_payload=strategy,
+        values=["回应总靠追问，继续等待只会让你留在原地。"],
+    )
+
+
+def test_complete_generation_contract_skips_legacy_shelter_result_rewrites() -> None:
+    source = "电话这头只能说一句：没事，有我。后来她在医院的缴费窗口前想起，苦难也不该被改写成轻飘飘的词。"
+    api_result = {
+        "publish_lead": "没事，有我。",
+        "intro_options": ["缴费窗口前，她想起那些苦难。"],
+    }
+
+    danger_result = workbench._rewrite_tracked_article_danger_result_fields(
+        source_markdown=source,
+        ai_result=api_result,
+        text_fields=("publish_lead",),
+        list_fields=("intro_options",),
+        analysis_contract_complete=True,
+    )
+    shelter_result = _sanitize_responsibility_shelter_result_fields(
+        ai_result=api_result,
+        title="原题",
+        body_markdown=source,
+        reference_source_markdown=source,
+        text_fields=("publish_lead",),
+        list_fields=("intro_options",),
+        analysis_contract_complete=True,
+    )
+
+    assert danger_result == api_result
+    assert shelter_result == api_result
 
 
 def test_creative_quality_retry_budget_caps_configured_attempts_to_one(monkeypatch) -> None:
@@ -123,6 +213,168 @@ def test_reference_payload_prefers_complete_analysis_contract_for_production() -
     assert payload["reference_article_analysis_hook_trigger"] == "那句明明不舒服却还是说出口的都可以。"
     assert payload["reference_article_analysis_progression_drive"] == "从一次次退让如何变成习惯推进到边界回收。"
     assert payload["reference_article_analysis_share_reason"] == "让总在关系里把自己放轻的人重新看见自己的分量。"
+
+
+def test_reference_payload_hides_source_details_without_dropping_analysis_contract() -> None:
+    payload = workbench._build_reference_article_payload(
+        {
+            "source_type": "tracked_article",
+            "reference_article_tags": "[\"关系\"]",
+            "reference_article_title": "请先好好对待自己",
+            "reference_article_author": "",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章真正讨论的是重新尊重自己。",
+            "reference_article_body_markdown": "一句谎言，一次隐瞒，那个叫信任的东西就裂了一道缝。",
+            "reference_article_structure_notes": "先写自我轻放，再写边界和标准回归。",
+            "reference_article_analysis_structure_mode": "self_worth_rebuild",
+            "reference_article_analysis_theme": "文章真正讨论的是：人总在关系里先把自己放轻，后来怎样重新尊重自己。",
+            "reference_article_analysis_core_conflict": "越怕失去，越容易把边界和标准让出去。",
+            "reference_article_analysis_emotional_exit": "把精力收回自己，守住边界，重新确认自己的分量。",
+            "reference_article_analysis_opening_pattern": "从一次明明不舒服却还是说都可以的现实接口起笔。",
+            "reference_article_analysis_hook_trigger": "那句明明不舒服却还是说出口的都可以。",
+            "reference_article_analysis_progression_drive": "从一次次退让如何变成习惯推进到边界回收。",
+            "reference_article_analysis_share_reason": "让总在关系里把自己放轻的人重新看见自己的分量。",
+            "reference_article_analysis_do_not_turn_into": "不要写成信任裂缝或关系修复稿。",
+            "reference_article_analysis_content_pillars": "[\"边界\", \"自我尊重\"]",
+            "reference_article_analysis_expression_profile": "[\"先落到现实动作\", \"收束到主动选择\"]",
+        },
+        hide_details=True,
+    )
+
+    assert payload["reference_article_hidden"] is True
+    assert payload["reference_article_analysis_structure_mode"] == "self_worth_rebuild"
+    assert payload["reference_article_analysis_theme"].startswith("文章真正讨论的是")
+    assert payload["reference_article_analysis_expression_profile"] == ["先落到现实动作", "收束到主动选择"]
+    assert all(
+        payload[key]
+        for key in (
+            "reference_article_analysis_theme",
+            "reference_article_analysis_core_conflict",
+            "reference_article_analysis_emotional_exit",
+            "reference_article_analysis_structure_mode",
+            "reference_article_analysis_opening_pattern",
+            "reference_article_analysis_hook_trigger",
+            "reference_article_analysis_progression_drive",
+            "reference_article_analysis_share_reason",
+            "reference_article_analysis_do_not_turn_into",
+            "reference_article_analysis_content_pillars",
+        )
+    )
+    assert "reference_article_body_markdown" not in payload
+    assert "reference_article_title" not in payload
+    assert "reference_article_summary" not in payload
+    assert "reference_article_tags" not in payload
+
+
+def test_reference_payload_hides_source_shell_from_complete_analysis_contract() -> None:
+    payload = workbench._build_reference_article_payload(
+        {
+            "source_type": "tracked_article",
+            "reference_article_tags": "[]",
+            "reference_article_title": "得不到的巧克力，可能是命运的保护",
+            "reference_article_author": "",
+            "reference_article_source_name": "手动录入",
+            "reference_article_summary": "文章借猫不能吃巧克力的寓言，讨论人如何接纳求不得。",
+            "reference_article_body_markdown": "猫看见巧克力却不能吃，主人把它收起来，是为了保护它。",
+            "reference_article_structure_notes": "开头用寓言制造反差，中段拆开比较和强求，结尾回到当下生活。",
+            "reference_article_analysis_structure_mode": "emotional_engine_direct",
+            "reference_article_analysis_theme": "文章真正讨论的是，人如何重新理解那些没有得到的东西，并从执着追问中回到当下可经营的生活。",
+            "reference_article_analysis_core_conflict": "读者把得不到等同于被亏待，文章试图拆开想要与适合、失去与惩罚之间的混淆。",
+            "reference_article_analysis_emotional_exit": "读者最终获得的是减少比较和追问后的行动感：接受结果，同时把时间投入身边的人、手里的日子和仍然可以经营的生活。",
+            "reference_article_analysis_opening_pattern": "从一个带有危险信息差的生活寓言切入，再把猫的困惑转译成人面对求不得时的心理状态。",
+            "reference_article_analysis_hook_trigger": "吃巧克力时，一旁的猫想要分食，却因不知道巧克力有毒而不理解拒绝。",
+            "reference_article_analysis_progression_drive": "靠看似想要、实则不合适的反转推进，再叠加比较带来的内耗、古典语句的判断和当下生活的具体落点。",
+            "reference_article_analysis_share_reason": "它适合转给正在失恋、落选或反复比较的人，用没有得到未必是损失的角度替对方解释一段难以消化的落空。",
+            "reference_article_analysis_do_not_turn_into": "不要把接纳写成宿命论或对现实问题的放弃。",
+            "reference_article_analysis_content_pillars": "[\"用猫和巧克力的寓言建立信息差：人会把无法理解的拒绝误认成命运亏待。\", \"从对他人拥有的比较和对结果的强求入手，指出反复追问会扩大内耗。\", \"借事来则应、事去不追的古典判断，将接纳解释为对时机和适配性的重新认识。\", \"结尾把抽象的释然落回吃饭、爱人和过好今天。\"]",
+            "reference_article_analysis_expression_profile": "[\"以寓言开场，随后转入第二人称劝诫。\", \"句段多用短句、反问和对举，制造判断转折。\", \"案例和生活比喻负责建立画面，古典引文提供价值判断。\", \"金句常采用因果反转，把抽象的失去改写成保护。\", \"结尾回收开头的猫与巧克力意象，同时转向具体日常。\"]",
+            "reference_article_analysis_status": "complete",
+        },
+        hide_details=True,
+    )
+
+    rendered = json.dumps(payload, ensure_ascii=False)
+    assert payload["reference_article_hidden"] is True
+    assert "猫与巧克力" not in rendered
+    assert "吃巧克力" not in rendered
+    assert "reference_article_body_markdown" not in payload
+
+
+def test_incomplete_reference_analysis_is_blocked_without_hiding_source_details() -> None:
+    project = {
+        "source_type": "tracked_article",
+        "reference_article_title": "参考文章",
+        "reference_article_author": "作者",
+        "reference_article_source_name": "手动录入",
+        "reference_article_summary": "摘要",
+        "reference_article_body_markdown": "原文必须在分析不完整时保留，不能继续生成正文。",
+        "reference_article_structure_notes": "结构备注",
+        "reference_article_tags": "[]",
+        "reference_article_analysis_status": "incomplete",
+        "reference_article_analysis_theme": "主题已经返回",
+        "reference_article_analysis_core_conflict": "核心矛盾已经返回",
+        "reference_article_analysis_emotional_exit": "情绪出口已经返回",
+        "reference_article_analysis_structure_mode": "scene_first_progression",
+        "reference_article_analysis_opening_pattern": "从一个现场切入",
+        "reference_article_analysis_hook_trigger": "现场中的停顿",
+        "reference_article_analysis_progression_drive": "沿着现场变化推进",
+        "reference_article_analysis_share_reason": "让读者重新看见自己",
+        "reference_article_analysis_do_not_turn_into": "不要写成固定模板",
+        "reference_article_analysis_content_pillars": ["现实入口"],
+        "reference_article_analysis_expression_profile": [
+            "先从现场停顿切入，再让判断从动作余波里出现",
+            "中段用现实选择承接主题，不平铺抽象观点",
+            "结尾回到下一步行动，不用统一祝福收束",
+        ],
+    }
+
+    payload = workbench._build_reference_article_payload(project, hide_details=True)
+
+    assert payload["reference_article_body_markdown"] == project["reference_article_body_markdown"]
+    assert "reference_article_hidden" not in payload
+    with pytest.raises(HTTPException) as exc_info:
+        workbench._ensure_reference_article_analysis_ready(project, stage_label="策略包生成")
+    assert exc_info.value.status_code == 409
+    assert "分析合同不完整" in str(exc_info.value.detail)
+
+
+def test_legacy_unanalysed_reference_and_complete_analysis_keep_their_compatibility_boundaries() -> None:
+    base_project = {
+        "source_type": "tracked_article",
+        "reference_article_body_markdown": "原文内容",
+        "reference_article_summary": "摘要",
+        "reference_article_structure_notes": "结构备注",
+        "reference_article_tags": "[]",
+        "reference_article_analysis_theme": "主题",
+        "reference_article_analysis_core_conflict": "矛盾",
+        "reference_article_analysis_emotional_exit": "出口",
+        "reference_article_analysis_structure_mode": "scene_first_progression",
+        "reference_article_analysis_opening_pattern": "从现场切入",
+        "reference_article_analysis_hook_trigger": "现场触发",
+        "reference_article_analysis_progression_drive": "沿现场推进",
+        "reference_article_analysis_share_reason": "值得分享",
+        "reference_article_analysis_do_not_turn_into": "不要模板化",
+        "reference_article_analysis_content_pillars": ["支柱一", "支柱二"],
+        "reference_article_analysis_expression_profile": [
+            "先从现场停顿切入，再让判断从动作余波里出现",
+            "中段用现实选择承接主题，不平铺抽象观点",
+            "结尾回到下一步行动，不用统一祝福收束",
+        ],
+    }
+
+    legacy_project = {
+        **base_project,
+        "reference_article_analysis_status": "unanalysed",
+        "reference_article_analysis_content_pillars": [],
+    }
+    workbench._ensure_reference_article_analysis_ready(legacy_project, stage_label="策略包生成")
+
+    complete_project = {**base_project, "reference_article_analysis_status": "complete"}
+    complete_payload = workbench._build_reference_article_payload(complete_project, hide_details=True)
+    workbench._ensure_reference_article_analysis_ready(complete_project, stage_label="策略包生成")
+
+    assert complete_payload["reference_article_hidden"] is True
+    assert "reference_article_body_markdown" not in complete_payload
 
 
 def test_quality_retry_targets_rebuild_scene_and_quote_targets_from_new_topic() -> None:
@@ -170,7 +422,7 @@ def test_quality_retry_targets_rebuild_scene_and_quote_targets_from_new_topic() 
     assert "周末整理阳台时" in scene_text
     assert "原文专属旧场景" not in quote_text
     assert "当前选题入口" in resonance[3]
-    assert "心里的悬置" in resonance[4]
+    assert "总想把一切想明白" in resonance[4]
 
 
 def test_local_tracked_article_chain_keeps_theme_specific_packaging_across_common_modes() -> None:
@@ -414,6 +666,10 @@ def test_local_fallback_payload_promotes_reference_analysis_to_local_aliases() -
         "reference_article_analysis_progression_drive": "从一个被留下的物件推进到人与人之间留住的体面。",
         "reference_article_analysis_share_reason": "让总在赶路的人想起，体面也可以被陌生人认真留下。",
         "reference_article_analysis_do_not_turn_into": "不要写成泛泛的人生安慰。",
+        "reference_article_analysis_expression_profile": [
+            "先让连续现场带路，再让判断从动作余波里出现。",
+            "结尾回到具体日常，不用统一祝福收束。",
+        ],
     }
 
     fallback_payload = _build_local_tracked_article_fallback_payload(
@@ -433,6 +689,16 @@ def test_local_fallback_payload_promotes_reference_analysis_to_local_aliases() -
     assert strategy_context["analysis_hook_trigger"] == project["reference_article_analysis_hook_trigger"]
     assert strategy_context["analysis_progression_drive"] == project["reference_article_analysis_progression_drive"]
     assert strategy_context["analysis_share_reason"] == project["reference_article_analysis_share_reason"]
+    assert strategy_context["analysis_expression_profile"] == project["reference_article_analysis_expression_profile"]
+    strategy_bundle = workbench._build_strategy_bundle_payload(
+        problem_brief=None,
+        strategy_card=None,
+        benchmarks=[],
+        project=project,
+    )
+    assert strategy_bundle["reference_analysis_contract"]["expression_profile"] == project[
+        "reference_article_analysis_expression_profile"
+    ]
     fallback_corpus = workbench._extract_local_fallback_corpus(fallback_payload)
     for field in (
         "analysis_hook_trigger",
@@ -440,6 +706,8 @@ def test_local_fallback_payload_promotes_reference_analysis_to_local_aliases() -
         "analysis_share_reason",
     ):
         assert fallback_payload[field] in fallback_corpus
+    for expression_line in project["reference_article_analysis_expression_profile"]:
+        assert expression_line in fallback_corpus
 
 
 def test_local_assets_and_publish_fallbacks_keep_strategy_context_when_draft_text_is_generic() -> None:
@@ -784,6 +1052,195 @@ def test_local_assets_do_not_promote_analysis_placeholder_to_social_teaser() -> 
     assert str(assets["social_teaser"]).strip()
 
 
+def test_complete_analysis_contract_uses_its_own_positive_exit_instead_of_mode_markers() -> None:
+    strategy = _complete_contract_strategy()
+    candidate = "\n\n".join(
+        [
+            "那天，她把已经打好的‘好’删掉，认真想了想自己的安排。",
+            "先把选择拿回来。",
+            "有些决定，不需要向所有人解释。今天的路，终于由自己来定。",
+        ]
+    )
+
+    assert _has_strategy_positive_landing(
+        structure_mode="self_worth_rebuild",
+        candidate_markdown=candidate,
+        strategy_bundle_payload=strategy,
+    )
+    assert not _should_retry_for_positive_payoff(
+        strategy_bundle_payload=strategy,
+        candidate_markdown=candidate,
+    )
+
+
+def test_complete_analysis_contract_does_not_reuse_mode_specific_drift_guards() -> None:
+    strategy = _complete_contract_strategy(structure_mode="self_worth_rebuild")
+    candidate = "\n\n".join(
+        [
+            "那天，她把已经打好的‘好’删掉，认真想了想自己的安排。",
+            "先把选择拿回来。",
+            "有些决定，不需要向所有人解释。今天的路，终于由自己来定。感谢相遇，不谈亏欠。",
+        ]
+    )
+
+    assert not _should_retry_for_positive_payoff(
+        strategy_bundle_payload=strategy,
+        candidate_markdown=candidate,
+    )
+
+
+def test_complete_analysis_contract_drives_packaging_quality_from_current_topic() -> None:
+    strategy = _complete_contract_strategy()
+
+    assert not _should_retry_assets_for_packaging(
+        strategy_bundle_payload=strategy,
+        ai_result={
+            "title_options": ["总在顺手答应以后，自己越来越累"],
+            "recommended_title": "总在顺手答应以后，自己越来越累",
+            "social_teaser": "不再顺手答应的那一刻，她终于把自己的安排放回了今天。",
+            "social_teaser_options": [],
+            "cover_copy": "先尊重自己的决定，日子才会重新有分量。",
+        },
+    )
+
+    assert _should_retry_assets_for_packaging(
+        strategy_bundle_payload=strategy,
+        ai_result={
+            "title_options": ["后来才懂，平淡最珍贵"],
+            "recommended_title": "后来才懂，平淡最珍贵",
+            "social_teaser": "愿你往后的日子越来越好。",
+            "social_teaser_options": [],
+            "cover_copy": "把一切交给时间，生活自会给你答案。",
+        },
+    )
+
+
+def test_complete_contract_packaging_accepts_concrete_pain_without_literal_abstract_hook() -> None:
+    strategy = _complete_contract_strategy(structure_mode="emotional_engine_direct")
+    conflict = "消息回得慢、态度偶尔冷淡时，读者急于从聊天记录中确认自己是否被爱。"
+    strategy["topic_title"] = "不再靠聊天记录判断爱：一段关系值不值得继续，要看持续行动"
+    strategy["topic_angle"] = "从消息回得慢时反复猜爱不爱切入，回到长期回应和冲突后的修复。"
+    strategy["problem_brief"].update(
+        {
+            "clarified_problem": conflict,
+            "core_conflict": conflict,
+            "emotional_value_goal": "停止反复追问和自我消耗，把判断放回持续行动。",
+        }
+    )
+    strategy["strategy_card"].update(
+        {
+            "reader_situation": conflict,
+            "conflict_frame": conflict,
+            "packaging_focus": f"{conflict} 看清长期回应、冲突处理和时间跨度。",
+            "packaging_hook": "一颗迟迟没有归位的心，怎样重新回到今天",
+        }
+    )
+    strategy["reference_analysis_contract"].update(
+        {
+            "core_conflict": conflict,
+            "emotional_exit": "停止反复追问和自我消耗，把判断放回持续行动。",
+        }
+    )
+
+    assets = {
+        "title_options": [
+            "别急着给一段关系下结论：别让一次冷淡，困住你反复求证的日子",
+            "总在聊天记录里找被爱的证据，只会让你越来越不敢提需要",
+        ],
+        "recommended_title": "别急着给一段关系下结论：别让一次冷淡，困住你反复求证的日子",
+        "social_teaser": "消息慢一点就反复翻聊天记录时，先看对方能否持续回应、修复和兑现。",
+        "social_teaser_options": [],
+        "cover_copy": "别急着追问，先看退热之后的行动",
+    }
+    publish_package = {
+        "publish_title": assets["recommended_title"],
+        "publish_lead": assets["social_teaser"],
+        "abstract": "别把所有判断押在一次冷淡上，拉长时间看持续行动。",
+        "intro_options": [],
+    }
+
+    assert not _should_retry_assets_for_packaging(strategy_bundle_payload=strategy, ai_result=assets)
+    assert not _should_retry_publish_package_for_packaging(
+        strategy_bundle_payload=strategy,
+        ai_result=publish_package,
+    )
+
+
+def test_complete_contract_keeps_adopted_packaging_hook_from_reference_hook() -> None:
+    strategy = _complete_contract_strategy()
+    strategy["strategy_card"]["packaging_hook"] = "没人替你接手时，主动权怎样一点点回到手里"
+    strategy["reference_analysis_contract"]["hook_trigger"] = "一滴雨落下后，沙漠菊花立刻发芽、开花、结果"
+    strategy["reference_article_body_markdown"] = "沙漠菊花在一滴雨后发芽、开花、结果。"
+
+    targets = _get_strategy_contract_targets(strategy)
+
+    assert targets["packaging_hook"] == "没人替你接手时，主动权怎样一点点回到手里"
+    assert "沙漠菊花" not in str(targets["packaging_hook"])
+
+
+def test_complete_analysis_contract_drives_publish_quality_from_current_topic() -> None:
+    strategy = _complete_contract_strategy()
+
+    assert not _should_retry_publish_package_for_packaging(
+        strategy_bundle_payload=strategy,
+        ai_result={
+            "publish_title": "总在顺手答应以后，自己越来越累",
+            "publish_lead": "不再顺手答应的那一刻，她终于把自己的安排放回了今天。",
+            "abstract": "先尊重自己的决定，日子才会重新有分量。",
+            "intro_options": ["把选择留给自己，也把生活重新安排好。"],
+        },
+    )
+
+    assert _should_retry_publish_package_for_packaging(
+        strategy_bundle_payload=strategy,
+        ai_result={
+            "publish_title": "后来才懂，平淡最珍贵",
+            "publish_lead": "愿你往后的日子越来越好。",
+            "abstract": "把一切交给时间，生活自会给你答案。",
+            "intro_options": [],
+        },
+    )
+
+
+def test_packaging_rejects_interaction_interface_not_supported_by_current_strategy() -> None:
+    strategy = _complete_contract_strategy()
+    body = "\n\n".join(
+        [
+            "她把漏水的水管处理好，坐在厨房地上缓了一会儿。",
+            "以前遇到难题，她总会先发消息给那个人；如今留下的，是先把眼前一件做完的习惯。",
+        ]
+    )
+
+    assert _should_retry_publish_package_for_packaging(
+        strategy_bundle_payload=strategy,
+        ai_result={
+            "publish_title": "他不再回应你的消息，可生活里的难题还要你一个人先处理",
+            "publish_lead": "事情处理完了，你才发现自己还是想把这一刻告诉他。",
+            "abstract": "有些人离开以后，留下的是继续生活的勇气。",
+            "intro_options": [],
+        },
+    )
+
+
+def test_packaging_allows_interaction_interface_when_current_strategy_owns_it() -> None:
+    strategy = _strategy(
+        structure_mode="self_worth_rebuild",
+        positive_direction="把表达需求和选择关系的权利拿回来",
+    )
+    strategy["topic_title"] = "消息说不出口时，把自己的需求放回关系里"
+    strategy["topic_angle"] = "从一次反复删改消息的停顿切入，写人怎样不再把需求压到最后。"
+    strategy["strategy_card"]["packaging_focus"] = "消息说不出口时的委屈和需求"
+
+    assert not _should_retry_publish_package_for_packaging(
+        strategy_bundle_payload=strategy,
+        ai_result={
+            "publish_title": "不敢提需求的人，最后总在消息框里委屈自己",
+            "publish_lead": "那句话删了又改，她终于决定把自己的感受说出来。",
+            "abstract": "关系里也该有表达需求的位置。",
+            "intro_options": [],
+        },
+    )
+
 def test_analysis_first_responsibility_opening_does_not_repeat_scene_entities() -> None:
     _title, body_markdown = _build_local_responsibility_shelter_draft(
         {
@@ -867,6 +1324,141 @@ def test_local_self_reliance_draft_avoids_cliche_and_slogan_finish() -> None:
     assert all("万能成长套话" not in hit for hit in summary.hits)
     assert all("结尾口号感" not in hit for hit in summary.hits)
     assert summary.score == 0
+
+
+def test_local_self_reliance_shared_burden_keeps_scene_and_action_distinct() -> None:
+    source = (
+        "心情不好想找朋友倾诉，却发现朋友也在担忧焦虑；工作遇到麻烦想商量，却发现身边的人也焦头烂额。"
+        "每个人都在负重前行，成年人要学会默默向内求，求自身的冷静沉淀和成长。"
+        "不要只等待救赎，自己也有能力向上爬，你早就长成足以扛事的大人，可以自救自渡。"
+    )
+    title, body_markdown = _build_local_tracked_article_draft_fallback(
+        {
+            "source_type": "tracked_article",
+            "article_title": "先把自己稳住，再把日子接回来",
+            "topic_title": "越难的时候，越要把日子过出顺序",
+            "topic_angle": "从想倾诉却发现每个人都在各自承压切入，写一个人如何先处理眼前的事，再清楚地向身边人表达需要。",
+            "reference_article_body_markdown": source,
+            "strategy_card": {"structure_mode": "self_reliance_inward_support"},
+        }
+    )
+
+    paragraphs = [paragraph.strip() for paragraph in body_markdown.split("\n\n") if paragraph.strip()]
+    assert title
+    assert len(paragraphs) >= 8
+    assert paragraphs[0] != paragraphs[1]
+    assert "朋友各自忙着的时候，你先把最要紧的一件落下去，再去找愿意分担的人说清。" in paragraphs[0]
+    assert "让愿意帮你的人知道从哪里接手" in paragraphs[1] or "把自己的需要讲明白" in paragraphs[1]
+    assert "需要分担时就把话说清" in body_markdown
+    assert "一时等不到" not in body_markdown
+    assert "没人立刻回应" not in body_markdown
+    assert "外面的帮助来了" not in body_markdown
+
+
+def test_local_emotional_endings_draft_keeps_acceptance_theme_in_the_body() -> None:
+    source = (
+        "成年人的关系，原本就是一段一段的。接纳离开，才是对这段关系最好的祝福。"
+        "真正的成熟，不是变得麻木，而是允许一切发生，也允许一切结束。"
+        "感谢相遇，不谈亏欠。带着这份从容与爱意，整理行囊，去拥抱下一场未知的山海。"
+    )
+    title, body_markdown = _build_local_tracked_article_draft_fallback(
+        {
+            "source_type": "tracked_article",
+            "article_title": "感谢相遇，不谈亏欠",
+            "topic_title": "有些相遇没能走到最后，却会悄悄成全后来的你",
+            "topic_angle": "从人为什么总把一段关系的结束理解成白费切入，写人怎样接纳离开，把留下来的温暖、眼界和勇气带到后面的生活。",
+            "reference_article_body_markdown": source,
+            "strategy_card": {"structure_mode": "emotional_engine_direct"},
+        }
+    )
+
+    assert title == "有些相遇没能走到最后，却会悄悄成全后来的你"
+    assert "允许一段关系结束" in body_markdown
+    assert "未知的山海" in body_markdown
+    assert "未来还给自己" in body_markdown
+    assert "饭吃热、灯关好、觉睡稳" not in body_markdown
+    assert "回消息" not in body_markdown
+
+
+def test_local_reflective_and_supportive_openings_avoid_contrast_slogans_across_seeds() -> None:
+    samples = [
+        (
+            "soft",
+            "有一种人心很软，也很重感情。不是傻，也不是好欺负，只是不想让身边的人受伤。遇到这样愿意包容你的人，一定要珍惜。",
+            "supportive_appreciation",
+        ),
+        (
+            "settlement",
+            "心若不安，到哪里都是流浪；心若不定，遇见谁都是过客。心不起微澜，纵使世界风起云涌，也能坦然面对。与内心和解，心有归处。",
+            "inner_settlement",
+        ),
+    ]
+
+    for article_title, source, expected_mode in samples:
+        base_payload = {
+            "source_type": "tracked_article",
+            "article_title": article_title,
+            "body_markdown": source,
+            "reference_article_body_markdown": source,
+        }
+        topic = _build_local_tracked_article_topic_fallback(base_payload)
+        topic_payload = {**base_payload, "topic_title": topic["title"], "topic_angle": topic["angle"]}
+        mode = _resolve_local_fallback_mode(topic_payload)
+        outline = _build_local_tracked_article_outline_fallback(
+            {**topic_payload, "strategy_card": {"structure_mode": mode}}
+        )
+        title, body_markdown = _build_local_tracked_article_draft_fallback(
+            {**topic_payload, "outline": outline, "strategy_card": {"structure_mode": mode}}
+        )
+
+        assert mode == expected_mode
+        assert evaluate_ai_flavor_risk(title=title, body_markdown=body_markdown).score == 0
+        assert not extract_not_ab_skeletons(body_markdown)
+
+
+def test_local_common_lanes_do_not_repeat_the_opening_in_the_next_paragraph() -> None:
+    samples = [
+        (
+            "happiness",
+            "人生不求大富大贵，但求简单快乐。家人安康，知己二三，四季平安。",
+            "everyday_warmth_return",
+            "年轻时总觉得幸福",
+        ),
+        (
+            "settlement",
+            "心若不安，到哪里都是流浪。此心安处是吾乡。把心放平，把事看淡，于一餐一饮中安顿自己。",
+            "inner_settlement",
+            "外面的声音还在",
+        ),
+        (
+            "self_reliance",
+            "心情不好想找朋友倾诉，却发现朋友也在焦头烂额。不要只等待救赎，自己也有能力向上爬。",
+            "self_reliance_inward_support",
+            "朋友各自忙着的时候",
+        ),
+    ]
+
+    for name, source, expected_mode, repeated_opening_fragment in samples:
+        base_payload = {
+            "source_type": "tracked_article",
+            "article_title": name,
+            "body_markdown": source,
+            "reference_article_body_markdown": source,
+        }
+        topic = _build_local_tracked_article_topic_fallback(base_payload)
+        topic_payload = {**base_payload, "topic_title": topic["title"], "topic_angle": topic["angle"]}
+        outline = _build_local_tracked_article_outline_fallback(
+            {**topic_payload, "strategy_card": {"structure_mode": expected_mode}}
+        )
+        _, draft = _build_local_tracked_article_draft_fallback(
+            {**topic_payload, "outline": outline, "strategy_card": {"structure_mode": expected_mode}}
+        )
+        paragraphs = [paragraph.strip() for paragraph in draft.split("\n\n") if paragraph.strip()]
+
+        assert len(paragraphs) >= 2
+        assert paragraphs[0] != paragraphs[1]
+        assert repeated_opening_fragment not in paragraphs[1]
+        assert evaluate_ai_flavor_risk(title=topic["title"], body_markdown=draft).score == 0
 
 
 def test_local_generic_mode_closing_uses_action_instead_of_wish_slogans() -> None:
@@ -1025,6 +1617,26 @@ def test_local_response_priority_time_draft_avoids_not_ab_skeleton() -> None:
     assert summary.score < 20
 
 
+def test_local_response_priority_comment_scene_does_not_repeat_its_opening() -> None:
+    source_body = (
+        "朋友圈里，是给你点赞的人更在意你，还是给你评论的人更在意你？"
+        "随手点赞很容易，评论却要停下来读懂你的言外之意。"
+        "有人看见晚霞，也看见你那句终于下班了后面的疲惫。"
+    )
+    paragraphs = workbench._build_local_response_priority_followup_paragraphs(
+        payload={
+            "article_title": "评论的人，才是真正在意你的人",
+            "reference_article_body_markdown": source_body,
+            "body_markdown": source_body,
+        },
+        intro="你发了一张晚霞照，本来只想轻轻带过一天。把你放在心上的人，还是会顺着那句配文多看一眼。",
+    )
+
+    assert paragraphs[0] != paragraphs[1]
+    assert "点赞很快就会过去" in paragraphs[1]
+    assert "你明明只是把话说得很轻" not in paragraphs[1]
+
+
 def test_local_response_priority_followup_publish_package_keeps_theme_and_avoids_not_ab() -> None:
     assets = AssetItem(
         project_slug="response-followup-project",
@@ -1116,6 +1728,229 @@ def test_packaging_accepts_a_title_with_the_current_theme_entry() -> None:
             "cover_copy": "愿意修复，才有继续走下去的可能",
         },
     )
+
+
+def test_emotional_engine_packaging_uses_current_topic_terms_instead_of_legacy_mode_markers() -> None:
+    strategy = _strategy(
+        structure_mode="emotional_engine_direct",
+        positive_direction="停下来不是认输，是把心力收回自己手里",
+    )
+    strategy["topic_title"] = "搭子很多，知心很少：女性该如何走出浅社交"
+    strategy["topic_angle"] = "写人怎样把偶尔热络误认成关系正在靠近"
+    strategy["problem_brief"].update(
+        {
+            "clarified_problem": "人明明已经很累，还是把继续投入误认成关系还有希望。",
+            "core_conflict": "真正把人困住的，是舍不得放手。",
+        }
+    )
+    strategy["strategy_card"].update(
+        {
+            "reader_situation": "总在浅社交里反复拉扯的人",
+            "conflict_frame": "偶尔热络不等于关系正在靠近。",
+            "packaging_focus": "抓住误认被点破、执念被松开的那一下。",
+            "packaging_hook": "先点破偶尔热络不等于关系正在靠近，再带回停下来后的心力。",
+        }
+    )
+
+    assert not _should_retry_assets_for_packaging(
+        strategy_bundle_payload=strategy,
+        ai_result={
+            "title_options": [
+                "搭子很多，知心很少：偶尔的热络，不等于关系正在靠近",
+                "反复维护一段关系，正在拿走你的睡眠和安稳",
+                "停下来以后，心力才会回到自己手里",
+            ],
+                "recommended_title": "反复维护一段关系，正在拿走你的睡眠和安稳",
+            "social_teaser": "先别急着再发那条邀约。偶尔出现的热络，未必是在靠近，也可能只是让你继续等下去。",
+            "social_teaser_options": [],
+            "cover_copy": "偶尔热络，不等于还有希望",
+        },
+    )
+
+
+def test_packaging_requires_a_reader_pain_point_in_the_title() -> None:
+    assert not _has_title_pain_point("一次隐瞒之后，你为什么总在聊天框里删了又改")
+    assert _has_title_pain_point("不敢说真话、不敢提要求，爱着爱着就累了")
+    assert _has_title_pain_point("他偶尔冷淡就让你反复翻聊天记录？你需要看的不是解释，是持续行动")
+    assert _has_title_pain_point("改了十六版简历仍没面试：一直坚持，可能只是无效投递")
+    assert _has_title_pain_point("意见都没错，关系却变僵")
+    assert not _has_title_pain_point("关系结束以后，你还想留住他，却只能把接下来的日子过下去")
+    assert _has_title_pain_point("他走以后，最怕你还替那段关系守着门")
+    assert _has_title_pain_point("他已经走远了，你还在替这段关系等一个圆满")
+    assert _has_title_pain_point("你不必删掉所有合照，才能停止被一段关系困住")
+    assert _has_title_pain_point("你不是舍不得睡，是白天没有自己的时间")
+    assert _has_title_pain_point("熬夜换来的自由，要用明天的状态偿还")
+
+
+def test_packaging_title_recognizes_routine_life_pain_and_prefers_specific_option() -> None:
+    assert _has_title_pain_point("下班后只想瘫着，不是你懒：你的晚上早被责任切碎了")
+    assert _has_title_pain_point("每天忙到十点半，想做的事一再顺延：怎样拿回属于自己的晚上")
+    assert _has_title_pain_point("下班后只想躺着，自己的需要却一再推迟")
+    assert _has_title_pain_point("别让麻木的重复，把你想要的生活越挪越远")
+
+    strategy = _strategy(
+        structure_mode="pressure_interface_direct",
+        positive_direction="把个人时间和生活主动权慢慢收回来",
+    )
+    result = _repair_packaging_title_fields(
+        {
+            "recommended_title": "把被挪走的生活顺序，一点点调回来",
+            "title_options": [
+                "把被挪走的生活顺序，一点点调回来",
+                "下班后只想瘫着，不是你懒：你的晚上早被责任切碎了",
+                "每天忙到十点半，想做的事一再顺延：怎样拿回属于自己的晚上",
+            ],
+        },
+        strategy_bundle_payload=strategy,
+        fallback_title="把被挪走的生活顺序，一点点调回来",
+        title_field="recommended_title",
+        options_field="title_options",
+    )
+
+    assert result["recommended_title"] == "下班后只想瘫着，不是你懒：你的晚上早被责任切碎了"
+
+
+def test_packaging_hook_accepts_equivalent_delayed_choice_wording() -> None:
+    strategy = _strategy(
+        structure_mode="pressure_interface_direct",
+        positive_direction="把个人时间和生活主动权慢慢收回来",
+    )
+    strategy["strategy_card"]["packaging_hook"] = "一个被往后放的选择如何把代价推到眼前"
+
+    assert workbench._has_strategy_packaging_hook(
+        ["想做的事一再推迟，久了以后，人会慢慢失去对生活的感觉。"],
+        "一个被往后放的选择如何把代价推到眼前",
+        strategy,
+    )
+
+    strategy = _strategy(
+        structure_mode="self_worth_rebuild",
+        positive_direction="把表达需求和选择关系的权利拿回来",
+    )
+    common = {
+        "social_teaser": "想问清楚，却总先把自己的话删掉。",
+        "social_teaser_options": [],
+        "cover_copy": "别再用委屈维持平静。",
+    }
+    assert _should_retry_assets_for_packaging(
+        strategy_bundle_payload=strategy,
+        ai_result={
+            **common,
+            "title_options": ["一次隐瞒之后，你为什么总在聊天框里删了又改"],
+            "recommended_title": "一次隐瞒之后，你为什么总在聊天框里删了又改",
+        },
+    )
+    assert _should_retry_publish_package_for_packaging(
+        strategy_bundle_payload=strategy,
+        ai_result={
+            "publish_title": "一次隐瞒之后，你为什么总在聊天框里删了又改",
+            "publish_lead": common["social_teaser"],
+            "abstract": "关系不该靠一个人不断压低需求来维持。",
+            "intro_options": [],
+        },
+    )
+
+
+def test_packaging_title_repair_replaces_scene_description_and_drops_unsupported_interfaces() -> None:
+    strategy = _strategy(
+        structure_mode="emotional_engine_direct",
+        positive_direction="承认相遇的价值，把曾经得到的勇气带回今天",
+    )
+    strategy["topic_title"] = "有些人不再回来，却一直参与着你后来的人生"
+    strategy["topic_angle"] = "关系结束后，想留住过去的人如何继续生活"
+    strategy["body_markdown"] = "关系结束后，走散的人仍会被想起。感恩相遇，也要继续生活。"
+
+    result = _repair_packaging_title_fields(
+        {
+            "recommended_title": "关系结束以后，你一边想留住他，一边学着独自处理接下来的日子",
+            "title_options": [
+                "凌晨独自处理突发状况时，你才发现他留下的是一种不再慌张",
+                "他不再回应你的消息，可生活里的难题仍要你一个人先处理",
+            ],
+        },
+        strategy_bundle_payload=strategy,
+        fallback_title="关系结束以后，你还要继续生活",
+        title_field="recommended_title",
+        options_field="title_options",
+    )
+
+    assert result["recommended_title"] == "他已经走远了，你还在替这段关系等一个圆满"
+    assert "他不再回应你的消息，可生活里的难题仍要你一个人先处理" not in result["title_options"]
+    assert result["title_options"][0] == result["recommended_title"]
+
+
+def test_packaging_title_repair_keeps_interaction_interface_for_response_priority() -> None:
+    strategy = _strategy(
+        structure_mode="response_priority",
+        positive_direction="让真正的在意落在及时而具体的回应里",
+    )
+    strategy["topic_title"] = "真正关心你的人，会把话接下去"
+    strategy["topic_angle"] = "从一句没有被轻轻带过的话写被认真回应"
+    strategy["body_markdown"] = "消息没有被敷衍，回应让等待不再变成猜测。"
+
+    result = _repair_packaging_title_fields(
+        {
+            "recommended_title": "真正在意你的人，会把话接下去",
+            "title_options": ["他没有回复你的消息，可你终于不再等了"],
+        },
+        strategy_bundle_payload=strategy,
+        fallback_title="真正在意你的人，会把话接下去",
+        title_field="recommended_title",
+        options_field="title_options",
+    )
+
+    assert "他没有回复你的消息，可你终于不再等了" in result["title_options"]
+
+
+def test_packaging_title_repair_prefers_existing_pain_point_option_before_local_fallback() -> None:
+    strategy = _strategy(
+        structure_mode="fragment_chain_observation",
+        positive_direction="分清可为与不可为，把精力留给当下能做的事",
+    )
+    strategy["topic_title"] = "别把所有事都列为待办"
+    strategy["topic_angle"] = "拆解追问、预设和强求带来的内耗"
+
+    result = _repair_packaging_title_fields(
+        {
+            "recommended_title": "别让那句“都可以”，替你让掉自己的位置",
+            "title_options": [
+                "总在等答案、猜结果、替别人做决定：你正在被这三件事耗尽",
+                "越想管好一切，为什么反而越焦虑、越累？",
+            ],
+        },
+        strategy_bundle_payload=strategy,
+        fallback_title="那张总也清不空的心理待办清单",
+        title_field="recommended_title",
+        options_field="title_options",
+    )
+
+    assert result["recommended_title"] == "越想管好一切，为什么反而越焦虑、越累？"
+    assert result["title_options"][0] == result["recommended_title"]
+
+
+def test_local_fallback_corpus_reads_the_current_reference_analysis_contract_once() -> None:
+    payload = {
+        "topic_title": "有些人不再回来，却一直参与着你后来的人生",
+        "reference_analysis_contract": {
+            "structure_mode": "emotional_engine_direct",
+            "theme": "允许重要关系自然结束，把留下的温暖带回自己的生活",
+            "core_conflict": "明知关系已经走远，仍想用旧日的分量换一个圆满",
+            "emotional_exit": "感恩相遇，也有勇气整理行囊继续向前",
+            "opening_pattern": "从一句迟迟没有发出的问候切入",
+            "hook_trigger": "想联系却不知道该以什么身份开口",
+            "progression_drive": "从舍不得回头推进到允许记忆留在心里",
+            "share_reason": "让正在经历关系疏远的人获得体面告别的力量",
+            "do_not_turn_into": "不要写成催促联系或回应排序稿",
+            "content_pillars": ["关系自然退场", "把温暖带回今天"],
+            "expression_profile": ["具体生活细节", "克制而有余温"],
+        },
+    }
+
+    corpus = workbench._extract_local_fallback_corpus(payload)
+
+    assert corpus.count("允许重要关系自然结束") == 1
+    assert "明知关系已经走远" in corpus
+    assert "具体生活细节" in corpus
 
 
 def test_positive_payoff_retries_when_action_cues_have_become_a_fixed_rhythm() -> None:
@@ -1235,12 +2070,23 @@ def test_body_rejects_author_meta_commentary() -> None:
 
 
 def test_persistence_cleanup_strips_code_fence_and_duplicate_body_heading() -> None:
-    body = "```markdown\n# 家里一有事，先把顺序理清\n\n电话响起时，她翻开了日历。\n```"
+    body = (
+        "```markdown\n# 家里一有事，先把顺序理清\n\n"
+        "电话响起时，她翻开了日历。\n\n"
+        "# 家里一有事，先把顺序理清\n```"
+    )
 
     assert _strip_draft_response_wrappers(
         title="家里一有事，先把顺序理清",
         body_markdown=body,
     ) == "电话响起时，她翻开了日历。"
+
+
+def test_persistence_cleanup_strips_standalone_bold_marker() -> None:
+    assert _strip_draft_response_wrappers(
+        title="那句没等来的解释，后来卡在了你的身体里",
+        body_markdown="**\n\n事情已经结束，生活还在继续。",
+    ) == "事情已经结束，生活还在继续。"
 
 
 def test_draft_cleanup_handles_no_feeling_reversal_and_repeated_phrase_typo() -> None:
@@ -1437,7 +2283,8 @@ def test_tracked_article_topic_rewrite_sanitizes_responsibility_shelter_long_tit
 
     assert result["title"] == "那通电话后，你先把家安顿好"
     assert "这篇想拆开" not in result["angle"]
-    assert "电话那头是父母、孩子和账单" in result["angle"]
+    assert "电话那头是父母、孩子和账单" not in result["angle"]
+    assert "临时落到家里的安排" in result["angle"]
 
 
 def test_complete_tracked_article_analysis_preserves_normal_api_topic_result() -> None:
@@ -1459,6 +2306,11 @@ def test_complete_tracked_article_analysis_preserves_normal_api_topic_result() -
         "analysis_content_pillars": [
             "会议现场如何让人把该说的话不断压后",
             "重新找回开口时机如何改变位置感",
+        ],
+        "analysis_expression_profile": [
+            "先沿会议前后的连续现场推进，再让判断从停顿里出现",
+            "中段把动作、位置和下一次选择错开写，不平铺观点",
+            "结尾回到下一次开口，留下向前但不喊话的余味",
         ],
     }
     api_result = {
@@ -1720,6 +2572,51 @@ def test_publish_packaging_sanitizer_strips_editorial_meta_abstract_clause() -> 
     assert "文章从" not in str(result["abstract"])
     assert "写起" not in str(result["abstract"])
     assert str(result["abstract"]).endswith("那些停不下来的辛苦，并不只是消耗自己。")
+
+
+def test_publish_packaging_sanitizer_removes_spaces_inside_chinese_text() -> None:
+    assets = AssetItem(
+        project_slug="farewell-project",
+        draft_version=1,
+        version=1,
+        title_options=["关系结束以后，你还要继续生活"],
+        recommended_title="关系结束以后，你还要继续生活",
+        cover_prompt="16:9横版封面",
+        cover_copy="把想念放回日子里",
+        social_teaser="水龙头漏水的凌晨，你还是会想起那个人。",
+        social_teaser_options=[],
+        cover_image_path="",
+        cover_image_url="",
+        cover_image_status="ready",
+        cover_image_error=None,
+        cover_image_route_label="primary",
+        cover_image_route_model="gpt-image-2",
+        cover_image_route_base_url="https://example.test/v1",
+        created_at="2026-07-19T00:00:00Z",
+        origin="generate",
+        tone_profile_id=None,
+        tone_profile_name=None,
+    )
+
+    result = _sanitize_publish_packaging_result(
+        {
+            "publish_title": "关系结束以后，你还要继续生活",
+            "publish_lead": "你还是会想起那个曾让你慢慢来的 人。",
+            "abstract": "想念会留在后来 的生活里。",
+            "intro_options": ["那句 别急，后来成了你的力量。"],
+        },
+        draft_body_markdown="水龙头漏水的凌晨，你还是会想起那个人。",
+        assets=assets,
+        fallback_title=assets.recommended_title,
+    )
+
+    assert result["publish_lead"] == "你还是会想起那个曾让你慢慢来的人。"
+    assert result["abstract"] == "想念会留在后来的生活里。"
+    assert result["intro_options"] == [
+        "水龙头漏水的凌晨，你还是会想起那个人。",
+        "你还是会想起那个曾让你慢慢来的人。",
+        "那句别急，后来成了你的力量。",
+    ]
 
 
 def test_publish_packaging_sanitizer_strips_editorial_meta_from_lead() -> None:
@@ -3424,3 +4321,27 @@ def test_analysis_first_fallback_lanes_do_not_share_the_same_emotional_landing()
         for name, draft in drafts.items()
     }
     assert len(set(endings.values())) == len(endings)
+
+
+def test_local_resilience_topic_fallback_uses_a_concrete_pool_title() -> None:
+    source = (
+        "3岁那年，一场车祸夺走了她的右臂与右腿。从3岁到8岁，她每年都要上手术台。"
+        "为了康复，她走进泳池，每50米要比别人多划11下。"
+        "肩伤、背痛和炎症反复出现，她仍在训练里一点点重建自己，不让残缺定义人生。"
+    )
+
+    topic = _build_local_tracked_article_topic_fallback(
+        {
+            "source_type": "tracked_article",
+            "article_title": "一个人最大的底气，是韧性",
+            "summary": "命运重击、手术台、泳池训练和不被定义后的重建。",
+            "body_markdown": source,
+            "reference_article_body_markdown": source,
+        }
+    )
+
+    assert topic["title"] == "每50米多划11下，她把人生游成了自己的路"
+    assert len(topic["title"]) <= 24
+    assert "怎样" not in topic["title"]
+    assert "从命运里撑出来" not in topic["title"]
+    assert "训练" in topic["angle"] or "重建" in topic["angle"]

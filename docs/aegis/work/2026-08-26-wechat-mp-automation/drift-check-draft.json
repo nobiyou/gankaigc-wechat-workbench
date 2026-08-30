@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-08-26-wechat-mp-automation",
+  "taskIntentRef": "docs/aegis/work/2026-08-26-wechat-mp-automation/task-intent-draft.json",
+  "baselineRefs": [
+    "docs/aegis/BASELINE-GOVERNANCE.md",
+    "docs/aegis/plans/2026-05-16-gankaigc-wechat-content-workbench-plan.md",
+    "specs/004-creative-workflow/spec.md"
+  ],
+  "scopeStatus": "Feature implementation remains inside the approved cross-platform automation scope",
+  "compatStatus": "Manual QR session, manual import, workbench, preview, approval, and draft routes remain protected",
+  "retirementStatus": "No old owner retired; Windows Task Scheduler and final group-send remain excluded",
+  "newRiskSignals": [
+    "The fresh full backend regression has six failures outside the automation files: three tracked-article/material cases in test_app.py, two dbskill bridge strategy cases, and one complete-contract cover prompt case; they need separate diagnosis before a repository-wide green claim"
+  ],
+  "decision": "needs-verification"
+}

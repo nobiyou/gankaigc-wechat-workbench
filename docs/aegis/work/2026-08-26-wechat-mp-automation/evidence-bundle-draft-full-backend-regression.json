@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "full-backend-regression",
+  "type": "test",
+  "source": "python -m pytest apps/backend/tests -q",
+  "summary": "Fresh full backend regression passed 978 tests and failed 6 tests outside this automation slice: three tracked-article/material cases in test_app.py, two dbskill bridge strategy cases, and one complete-contract cover prompt case. The failures reproduce in current content-quality changes and do not touch the automation owner files.",
+  "verifier": "Codex"
+}

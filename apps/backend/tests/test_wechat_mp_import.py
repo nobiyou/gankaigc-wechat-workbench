@@ -9,7 +9,11 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.schemas.wechat_mp import WechatMpArticleImportRequest
 from app.services import workbench
-from app.services.wechat_mp_client import WechatMpClient, WechatMpSessionStore
+from app.services.wechat_mp_client import (
+    WechatMpArticleFetchError,
+    WechatMpClient,
+    WechatMpSessionStore,
+)
 
 
 client = TestClient(app)
@@ -141,6 +145,75 @@ def test_wechat_mp_article_preview_uses_expected_appmsgpublish_params(monkeypatc
         "size": 5,
         "keyword": "",
     }
+
+
+def test_wechat_mp_client_raises_on_article_fetch_business_error(monkeypatch, tmp_path) -> None:
+    session_store = WechatMpSessionStore(str(tmp_path / "wechat-session.json"))
+    session_store.save({"logged_in": True, "token": "test-token", "cookie": "auth-key=test"})
+    client_instance = WechatMpClient(session_store)
+
+    monkeypatch.setattr(client_instance, "_refresh_logged_in_session_status_if_needed", session_store.status)
+    monkeypatch.setattr(
+        client_instance,
+        "_request_json",
+        lambda **_: {"base_resp": {"ret": 200013, "err_msg": "freq control"}},
+    )
+
+    with pytest.raises(WechatMpArticleFetchError) as exc_info:
+        client_instance.list_articles(fakeid="target-fakeid", begin=0, size=5, keyword=None)
+
+    assert exc_info.value.code == 200013
+    assert "200013" in str(exc_info.value)
+    assert "freq control" in str(exc_info.value)
+
+
+def test_wechat_mp_client_rejects_article_response_without_publish_page(monkeypatch, tmp_path) -> None:
+    session_store = WechatMpSessionStore(str(tmp_path / "wechat-session.json"))
+    session_store.save({"logged_in": True, "token": "test-token", "cookie": "auth-key=test"})
+    client_instance = WechatMpClient(session_store)
+
+    monkeypatch.setattr(client_instance, "_refresh_logged_in_session_status_if_needed", session_store.status)
+    monkeypatch.setattr(client_instance, "_request_json", lambda **_: {"base_resp": {"ret": 0}})
+
+    with pytest.raises(WechatMpArticleFetchError, match="缺少 publish_page"):
+        client_instance.list_articles(fakeid="target-fakeid", begin=0, size=5, keyword=None)
+
+
+def test_wechat_mp_client_cached_session_status_expires_local_session(tmp_path) -> None:
+    session_store = WechatMpSessionStore(str(tmp_path / "wechat-session.json"))
+    session_store.save(
+        {
+            "logged_in": True,
+            "token": "test-token",
+            "cookie": "auth-key=test",
+            "expires_at": "2020-01-01T00:00:00+00:00",
+            "nickname": "测试公众号",
+        }
+    )
+
+    payload = WechatMpClient(session_store).get_cached_session_status()
+
+    assert payload["logged_in"] is False
+    assert payload["login_stage"] == "expired"
+    assert payload["status_message"] == "公众号登录已过期，请重新扫码登录"
+
+
+def test_wechat_mp_article_api_returns_502_for_article_fetch_business_error(monkeypatch) -> None:
+    class FailingClient:
+        def list_articles(self, **_: object) -> list[dict[str, object]]:
+            raise WechatMpArticleFetchError(code=200013, err_msg="freq control")
+
+    monkeypatch.setattr("app.api.wechat_mp.get_wechat_mp_client", lambda: FailingClient())
+
+    response = client.get(
+        "/api/wechat-mp/accounts/target-fakeid/articles",
+        params={"begin": 0, "size": 5, "keyword": ""},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == str(
+        WechatMpArticleFetchError(code=200013, err_msg="freq control")
+    )
 
 
 def test_wechat_mp_import_creates_tracked_articles_and_can_generate_topics(monkeypatch) -> None:

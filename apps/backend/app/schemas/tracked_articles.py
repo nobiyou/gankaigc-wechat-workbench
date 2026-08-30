@@ -22,6 +22,8 @@ class TrackedArticleItem(BaseModel):
     analysis_share_reason: str = ""
     analysis_do_not_turn_into: str = ""
     analysis_content_pillars: list[str] = []
+    analysis_expression_profile: list[str] = []
+    analysis_status: str = "unanalysed"
     created_at: str | None = None
     tags: list[str]
 

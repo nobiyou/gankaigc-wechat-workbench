@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "workspace-check",
+  "type": "structural-validation",
+  "source": "aegis-workspace.py bundle and check",
+  "summary": "Proof bundle assembly passed. Workspace check failed on the existing four-line BASELINE-GOVERNANCE.md shape and five pre-existing unindexed docs/aegis markdown files; no task code file caused this structural failure.",
+  "verifier": "Codex"
+}

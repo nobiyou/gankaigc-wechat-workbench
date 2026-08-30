@@ -260,3 +260,22 @@ def test_reference_originality_report_ignores_generic_support_limit_fragments() 
     assert report.quality_signals["danger_fragment_count"] == 0
     assert report.quality_signals["surface_reuse_detected"] is False
     assert report.quality_signals["functional_equivalence_ready"] is True
+
+
+def test_reference_originality_report_ignores_generic_relationship_fragments() -> None:
+    report = build_reference_originality_report(
+        source_title="有些关系不常联系，也没有离开生活",
+        source_markdown=(
+            "# 有些关系不常联系，也没有离开生活\n\n"
+            "他们回到各自的生活。感情不一定要依靠频繁联系。"
+        ),
+        draft_title="各自把日子过好，也能保留牵挂",
+        draft_markdown=(
+            "# 各自把日子过好，也能保留牵挂\n\n"
+            "名字留在各自的生活。关系不一定要回到从前。"
+        ),
+    )
+
+    assert report.danger_fragment_hits == []
+    assert report.quality_signals["surface_reuse_detected"] is False
+    assert report.quality_signals["functional_equivalence_ready"] is True

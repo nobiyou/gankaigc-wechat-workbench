@@ -20,6 +20,7 @@ from app.services.prompt_templates import (
     _has_inner_settlement_focus,
     _has_self_reliance_inward_support_focus,
     _has_self_worth_rebuild_focus,
+    _build_tracked_article_analysis_contract,
     _has_tracked_article_analysis_contract,
     _has_supportive_appreciation_focus,
     _has_response_priority_focus,
@@ -30,6 +31,7 @@ from app.services.prompt_templates import (
     build_draft_prompt,
     build_outline_prompt,
     build_publish_package_prompt,
+    build_tracked_article_analysis_topic_prompt,
     build_tracked_article_metadata_prompt,
     build_topic_prompt,
     render_tone_profile_section,
@@ -68,9 +70,31 @@ def _assert_legacy_theme_guards_absent(*templates) -> None:
         assert not any(marker in template.instructions for marker in LEGACY_THEME_GUARD_MARKERS)
 
 
+def test_complete_generation_contract_preserves_responsibility_language_in_prompt_contract() -> None:
+    payload = _complete_contract_payload(
+        mode="responsibility_shelter",
+        theme="中年人怎样把苦难里的责任安顿成一家人的日常",
+        conflict="电话那头的缴费窗口和电话这头那句没事，有我同时落下来",
+        exit_hint="承认辛苦，也把家人之间的爱和自己的喘息留在日子里",
+    )
+    payload["analysis_expression_profile"] = [
+        "先从电话和现实开销落笔，再让判断从现场余波里出现",
+        "中段把责任、关系和个人喘息错开推进，不平铺压力清单",
+        "结尾回到家人之间已经发生的照料，留下克制的回温",
+    ]
+
+    contract = _build_tracked_article_analysis_contract(payload)
+
+    assert "苦难" in contract.theme
+    assert "缴费窗口" in contract.core_conflict
+    assert "没事，有我" in contract.core_conflict
+    assert "喘息" in contract.emotional_exit
+
+
 def _complete_contract_payload(*, mode: str, theme: str, conflict: str, exit_hint: str) -> dict[str, object]:
     return {
         "source_type": "tracked_article",
+        "trend_title": "参考文章 / 手动录入",
         "source_ref_slug": f"complete-{mode}",
         "source_name": "手动录入",
         "article_title": f"参考文：{theme}",
@@ -91,6 +115,11 @@ def _complete_contract_payload(*, mode: str, theme: str, conflict: str, exit_hin
         "analysis_content_pillars": [
             f"{theme}的现实入口和第一层判断",
             f"{conflict}带来的关系或生活变化",
+        ],
+        "analysis_expression_profile": [
+            "先从本篇自己的现实入口落笔，再让判断从具体余波里出现。",
+            "中段按主题变化推进，不把观点排成整齐的并列说明。",
+            "结尾回到前文已经出现的现实选择，留下正向但不喊话的余味。",
         ],
         "tone_profile": TONE_PROFILE,
         "trend_title": f"参考文章 / {mode}",
@@ -182,6 +211,11 @@ def test_tracked_article_stage_prompts_use_analysis_contract_as_single_theme_own
                     f"{slug}的现实入口和第一层判断",
                     f"{conflict}带来的后续变化",
                 ],
+                "analysis_expression_profile": [
+                    f"先从 {slug} 的现实入口落笔，再让判断从具体余波里出现。",
+                    "中段按主题变化推进，不把观点排成整齐的并列说明。",
+                    "结尾回到前文已经出现的现实选择，留下正向但不喊话的余味。",
+                ],
             "tone_profile": TONE_PROFILE,
             "trend_title": f"参考文章 / {slug}",
             "topic_title": f"围绕 {slug} 重新组织的选题",
@@ -223,7 +257,8 @@ def test_tracked_article_stage_prompts_use_analysis_contract_as_single_theme_own
             if template_index == 0:
                 assert "选题标题和切入角度要体现这次重建的入口" in template.instructions
             elif template_index in {1, 2}:
-                assert "正文开头必须从新入口开始" in template.instructions
+                assert "新稿开头必须执行分析合同指定的起笔功能" in template.instructions
+                assert "可以从场景、引用、判断、人物、阶段节点或关系接口开始" in template.instructions
             else:
                 assert "包装只提炼新稿已经成立的入口" in template.instructions
             assert theme.rstrip("。；;，,")[:48] in combined
@@ -262,6 +297,34 @@ def test_complete_contract_does_not_inject_fixed_response_or_warmth_openings() -
     assert "若策略包要求大事祛魅后的小事回归推进" not in warmth_text
 
 
+def test_responsibility_contract_requires_a_physical_family_entry_not_a_message() -> None:
+    payload = _complete_contract_payload(
+        mode="responsibility_shelter",
+        theme="家庭责任怎样变成一家人的安稳和彼此照应。",
+        conflict="很多现实安排不能等，但承担者也不该永远独自消化所有事情。",
+        exit_hint="看见家人的照应已经回到日常，也允许承担者被分担。",
+    )
+    variant_payload = _complete_contract_payload(
+        mode="everyday_warmth_return",
+        theme="中年人怎样把父母、孩子、伴侣和家里的日子安排稳。",
+        conflict="责任、账单和照料同时落下来，承担者也需要在家人的回应里得到分担。",
+        exit_hint="看见认真安排生活已经变成家人的安稳和彼此照应。",
+    )
+
+    template = build_draft_prompt(payload)
+    variant_template = build_draft_prompt(variant_payload)
+    combined = template.instructions + template.prompt
+    variant_combined = variant_template.instructions + variant_template.prompt
+
+    assert "已经落地的家庭安排、手上正在处理的物件、空间动作、现场取舍或照料决定" in combined
+    assert "缴费单、复诊安排、药袋、学费清单、接送路线" in combined
+    assert "首段禁止用手机、短信、微信、电话、来电、聊天窗口、回消息、回复或朋友圈作为事件触发器" in combined
+    assert "某人发来消息" in combined
+    assert "首段禁止用手机、短信、微信、电话、来电、聊天窗口、回消息、回复或朋友圈作为事件触发器" in variant_combined
+    assert "body_markdown 直接从第一段正文开始" in combined
+    assert "不重复标题、不另起副标题、不使用 # 或 ## 小标题" in combined
+
+
 def test_complete_contract_treats_reference_opening_as_function_not_draft_material() -> None:
     payload = _complete_contract_payload(
         mode="everyday_warmth_return",
@@ -294,9 +357,9 @@ def test_complete_contract_treats_reference_opening_as_function_not_draft_materi
     topic_text = topic.instructions + topic.prompt
     assert "旧搪瓷饭盒" not in topic_text
     assert "参考文原始标题、摘要、结构备注、开头素材或正文片段" in topic.prompt
-    assert "新现实入口" in topic.instructions
+    assert "内容入口要求：按分析合同指定的起笔方式" in topic.prompt
     assert "题材以分析合同为准" in topic.instructions
-    assert "不预设成女性情感、亲密关系、内耗、自救或励志稿" in topic.instructions
+    assert "不预设成任何固定赛道或统一情绪稿" in topic.instructions
     assert "日常的分量来自有人认真记得彼此" in topic_text
     assert "人容易把重要感押在更大的证明上" in topic_text
     assert "情绪出口" in topic.instructions
@@ -305,9 +368,14 @@ def test_complete_contract_treats_reference_opening_as_function_not_draft_materi
     for template in downstream:
         combined = template.instructions + template.prompt
         assert "旧搪瓷饭盒" not in combined
-        assert "新稿自己的" in combined or "新入口" in combined
+        assert (
+            "分析合同指定的起笔功能" in combined
+            or "按合同指定的起笔功能" in combined
+            or "开头职责" in combined
+        )
         assert "当前分析合同定义的主题与读者处境" in template.instructions
         assert "女性情感成长赛道" not in template.instructions
+        assert "风格档案：" not in combined
 
 
 def test_complete_contract_outline_uses_a_short_theme_owned_operator() -> None:
@@ -360,7 +428,21 @@ def test_complete_contract_quality_retry_keeps_the_same_function_projection() ->
     combined = retry.instructions + retry.prompt
     assert "沿同一份主题功能投影执行" in combined
     assert "推进到让可靠通过持续行动重新被感受到" in combined
-    assert "固定消息、关系或内耗模板" in combined
+
+
+def test_social_boundaries_topic_owner_blocks_fixed_response_and_trust_shells() -> None:
+    payload = _complete_contract_payload(
+        mode="social_boundaries",
+        theme="成年人如何在善待他人与保护自身之间找到相处分寸。",
+        conflict="既想维持和气，又不愿因多嘴、退让和忍耐失去边界。",
+        exit_hint="该缓和时不争，该开口时不退，该止步时不追问。",
+    )
+    prompt = build_topic_prompt(payload)
+    combined = prompt.instructions + prompt.prompt
+
+    assert "不要默认套家庭群、回消息、点赞评论、手机界面或信任裂开等旧入口" in combined
+    assert "保留慎言、让渡、知止三层之间的推进关系" in combined
+    assert "不把开头改回任何固定模板" in combined
 
 
 def test_complete_contract_stage_execution_surface_keeps_modes_distinct() -> None:
@@ -401,15 +483,79 @@ def test_complete_contract_stage_execution_surface_keeps_modes_distinct() -> Non
     everyday_text = everyday_draft.instructions + everyday_draft.prompt
     resilience_draft_text = resilience_draft.instructions + resilience_draft.prompt
 
-    assert "表层互动与真正被理解之间出现一处落差" in response_text
-    assert "柔软被误读为理所当然" in supportive_text
-    assert "外在标准突然失重" in everyday_text
-    assert "重复训练、反复校正" in resilience_draft_text
+    assert "表面回应很多，却没有真正进入对方的处境" in response_text
+    assert "心软常被误认成没有分寸" in supportive_text
+    assert "人容易把更大的拥有误认成更好的生活" in everyday_text
+    assert "限制真实存在，但不能替一个人定义人生宽度" in resilience_draft_text
+    assert "表层互动与真正被理解之间出现一处落差" not in response_text
+    assert "柔软被误读为理所当然" not in supportive_text
+    assert "外在标准突然失重" not in everyday_text
+    assert "重复训练、反复校正" not in resilience_draft_text
     assert "消息等待" not in supportive_text
     assert "回消息" not in supportive_text
     assert "身体告警" not in everyday_text
     assert "训练" in resilience_text
     assert response_text != resilience_text
+
+
+def test_complete_emotional_engine_contract_drops_legacy_theme_guard_stack() -> None:
+    payload = _complete_contract_payload(
+        mode="emotional_engine_direct",
+        theme="遗憾需要被安放，生活才能重新向前。",
+        conflict="人反复追问如果当初，却把已经无法回退的现实和仍在继续的生活放在了一边。",
+        exit_hint="承认曾经在意过，把留下来的温暖带回新的日常。",
+    )
+    payload["draft"] = {
+        "title": "把旧事放回过去，今天继续过",
+        "body_markdown": "承认曾经在意过，也可以把今天重新过起来。",
+    }
+
+    templates = (
+        build_topic_prompt(payload),
+        build_outline_prompt(payload),
+        build_draft_prompt(payload),
+        build_assets_prompt(payload),
+        build_publish_package_prompt({
+            **payload,
+            "assets": {
+                "title_options": ["把旧事放回过去，今天继续过"],
+                "recommended_title": "把旧事放回过去，今天继续过",
+                "cover_copy": "承认在意过，也可以继续生活。",
+                "social_teaser": "有些过去不用抹掉，只要不再替它过今天。",
+            },
+        }),
+    )
+
+    for template in templates:
+        _assert_legacy_theme_guards_absent(template)
+
+    draft_text = templates[2].instructions + templates[2].prompt
+    assert "完整参考文章分析合同驱动的正文首稿阶段" in templates[2].instructions
+    assert "遗憾需要被安放，生活才能重新向前" in draft_text
+    assert "不要统一写成内耗、自救、放下或心安" not in draft_text
+
+
+def test_complete_contract_execution_surface_changes_with_contract_content() -> None:
+    first = _complete_contract_payload(
+        mode="everyday_warmth_return",
+        theme="幸福不只来自拥有更多，也来自有人愿意一起过普通日子。",
+        conflict="人容易把生活的分量交给外在标准，忽略已经在身边的陪伴。",
+        exit_hint="把注意力收回眼前的陪伴，重新感受普通日子的踏实。",
+    )
+    second = _complete_contract_payload(
+        mode="everyday_warmth_return",
+        theme="一个阶段没有按计划完成，也不等于这段路没有意义。",
+        conflict="人容易把阶段结果当成自我评价，忘记途中积累的能力和仍在身边的人。",
+        exit_hint="接纳此刻的自己，带着已有的积累继续走下一段路。",
+    )
+
+    first_text = build_outline_prompt(first).instructions + build_outline_prompt(first).prompt
+    second_text = build_outline_prompt(second).instructions + build_outline_prompt(second).prompt
+
+    assert first["analysis_core_conflict"] in first_text
+    assert second["analysis_core_conflict"] in second_text
+    assert first_text != second_text
+    assert "外在标准突然失重" not in second_text
 
 
 def test_complete_contract_stage_execution_surface_is_kept_short_for_all_stages() -> None:
@@ -640,6 +786,11 @@ def _build_tracked_article_prompt_budget_payloads() -> tuple[
             "阶段回望如何把遗憾误认成失败",
             "眼前的人和继续生活如何重新提供支撑",
         ],
+        "analysis_expression_profile": [
+            "先从阶段节点的现实动作落笔，再让判断从停顿和反馈里出现。",
+            "中段把误判、支撑和选择错开推进，不写成并列说理清单。",
+            "结尾回到继续生活的小动作，留下向前的余味而不喊口号。",
+        ],
         "problem_brief": problem_brief,
         "strategy_card": strategy_card,
         "benchmarks": benchmarks,
@@ -824,6 +975,11 @@ def test_complete_analysis_contract_responsibility_prompt_uses_contract_scene_in
             "陪伴如何在具体小物件里留下回声",
             "共同记忆如何重新说明照料的价值",
         ],
+        "analysis_expression_profile": [
+            "先从一个家庭动作落笔，再让判断从共同承担的反馈里出现。",
+            "中段把责任、关系和现实变化错开推进，不写成压力清单。",
+            "结尾回到已经发生的分担动作，留下具体而克制的温度。",
+        ],
         "strategy_card": {
             "structure_mode": "responsibility_shelter",
             "scene_anchor_requirements": [
@@ -861,16 +1017,21 @@ def test_complete_analysis_contract_responsibility_prompt_uses_contract_scene_in
 
     assert "孩子把比赛号码布递回手里的动作" not in draft_template.instructions
     assert "新稿自己的现实抓手" not in draft_template.instructions
-    assert "新选题现实入口" in draft_template.instructions
+    assert "先执行合同指定的开头功能" in draft_template.instructions
     assert "完整分析合同优先于模式名" in draft_template.instructions
-    assert "不要套‘电话一响’" in draft_template.instructions
+    assert "正文首屏质量门" in draft_template.instructions
+    assert "不能用“有一段时间”“很多时候”“相信你也有过这样的时刻”" in draft_template.instructions
+    assert "正文标题不要直接复制选题标题" in draft_template.instructions
+    assert "负面处境只作必要背景" in draft_template.instructions
+    assert "不要套‘电话一响’" not in draft_template.instructions
+    assert "不引入分析合同之外的主题模板" in draft_template.prompt
     assert "先翻日历" not in draft_template.instructions
     assert "电话、日历安排、复查预约" not in draft_template.instructions
     assert "孩子把比赛号码布递回手里的动作" not in outline_template.instructions
-    assert "新现实入口" in outline_template.instructions or "新入口" in outline_template.instructions
-    assert "不引入固定关系、身体或消息模板" in outline_template.prompt
+    assert "入口可以是场景、引用、判断、人物、阶段节点或关系接口，严格服从本篇分析合同，不设统一开头。" in outline_template.instructions
+    assert "不引入分析合同之外的主题模板" in outline_template.prompt
     for template in (assets_template, publish_template):
-        assert "新选题现实入口" in template.instructions
+        assert "包装只压缩正文已经成立的" in template.instructions
         assert "孩子把比赛号码布递回手里的动作" not in template.instructions
 
 
@@ -952,6 +1113,8 @@ def test_responsibility_shelter_assets_and_publish_prompts_prefer_spoken_packagi
     assert "封面文案要和标题拉开一点" in assets_template.instructions
     assert "封面文案也不要和标题重复" in publish_template.prompt
     assert "导语也别写成编辑说明" in assets_template.instructions
+    assert "标题必须出现具体痛点、代价或冲突" in assets_template.instructions
+    assert "最终发布标题必须明确写出读者正在承受的具体痛点、代价或冲突" in publish_template.prompt
     assert "导语也别写成编辑说明" in publish_template.instructions
     assert "导语和封面文案都尽量少用工整反转骨架" in assets_template.instructions
     assert "发布导语里也尽量少用工整反转句" in publish_template.instructions
@@ -1342,6 +1505,23 @@ def test_build_tracked_article_metadata_prompt_requires_analysis_before_field_co
     assert "7. 结构模式 analysis_structure_mode" in template.prompt
     assert "12. 偏题边界 analysis_do_not_turn_into" in template.prompt
     assert "13. 内容支柱 analysis_content_pillars" in template.prompt
+
+
+def test_combined_reference_analysis_prompt_returns_topic_without_repeating_source() -> None:
+    template = build_tracked_article_analysis_topic_prompt(
+        {
+            "source_kind": "manual",
+            "source_name": "手动录入",
+            "article_title": "参考文章",
+            "body_markdown": "一篇需要先分析主题再重新组织的文章。",
+        }
+    )
+
+    assert "完整参考文分析到选题的一次性请求" in template.instructions
+    assert template.prompt.count("正文内容：") == 1
+    assert "14. 表达风格指纹 analysis_expression_profile" in template.prompt
+    assert "16. 新选题标题 topic_title" in template.prompt
+    assert "17. 新选题角度 topic_angle" in template.prompt
 
 
 def test_outline_and_draft_prompts_consume_generated_dbskill_rules(monkeypatch, tmp_path: Path) -> None:
@@ -2480,6 +2660,11 @@ def test_everyday_warmth_return_topic_prompt_keeps_simple_happiness_axis() -> No
             "知己关系比泛泛社交更有分量",
             "家人的平安和日常温度构成归处",
         ],
+        "analysis_expression_profile": [
+            "先用人生发问和朴素愿望开口，再让判断逐层落到日常。",
+            "中段用人物关系和生活细节承接观点，不把幸福写成抽象定义。",
+            "结尾回到一家人共同拥有的平安，留下踏实而明亮的余味。",
+        ],
         "tags": ["幸福观重估", "知足感", "知己关系", "家庭温暖"],
         "tone_profile": TONE_PROFILE,
     }
@@ -3092,6 +3277,11 @@ def test_self_worth_focus_detector_and_topic_guards() -> None:
         "analysis_content_pillars": [
             "反复迁就如何让人逐渐放低自己",
             "边界和标准如何把选择权带回来",
+        ],
+        "analysis_expression_profile": [
+            "先用一句判断打开价值冲突，再让现实处境把问题落地。",
+            "中段沿着迁就、边界和标准的变化推进，不写成高位训诫。",
+            "结尾回到可以执行的自我选择，留下清醒而有力量的余味。",
         ],
         "tags": ["自爱", "自尊", "边界", "自我价值"],
         "tone_profile": TONE_PROFILE,
@@ -3978,6 +4168,7 @@ def test_nested_reference_contract_keeps_packaging_on_one_prompt_owner() -> None
             "do_not_turn_into": draft_payload["analysis_do_not_turn_into"],
             "structure_mode": draft_payload["analysis_structure_mode"],
             "content_pillars": draft_payload["analysis_content_pillars"],
+            "expression_profile": draft_payload["analysis_expression_profile"],
         }
     assets_template = build_assets_prompt(
         {
@@ -4022,6 +4213,27 @@ def test_adopted_strategy_draft_does_not_append_legacy_guard_stack() -> None:
     assert "执行原则：沿着这些策略结论写，不回收参考文原句、原顺序和原结尾。" in template.prompt
     assert not any(marker in template.instructions for marker in LEGACY_THEME_GUARD_MARKERS)
     assert total_size < 4500
+
+
+def test_complete_contract_draft_uses_only_contract_owner_and_compact_human_rules() -> None:
+    payload, _, _ = _build_tracked_article_prompt_budget_payloads()
+
+    template = build_draft_prompt(payload)
+    combined = template.instructions + template.prompt
+
+    assert "完整参考文章分析合同驱动的正文首稿阶段" in template.instructions
+    assert "当前任务是参考文章策略稿的首稿阶段" not in template.instructions
+    assert "正文每个主要段落都要承担新的内容价值" not in template.instructions
+    assert "原创不是把现成观点换一批近义词" not in template.instructions
+    assert "按中文公众号 AI 味风险检查表达" not in template.instructions
+    assert "这是一篇参考文章改写稿，而且当前已经有策略包" not in template.instructions
+    assert "不统一导向某一种固定的受伤、关系或自我调节结论" in combined
+    assert "不统一导向内耗、自救、放下或心安" not in combined
+    assert "自救自渡" not in combined
+    assert "心安收尾" not in combined
+    assert "主题主线：阶段节点上的自我清算" in combined
+    assert "情绪出口：" in combined
+    assert len(combined) < 4500
 
 
 def test_tracked_article_prompt_surfaces_stay_within_budget_after_strategy_adoption() -> None:
@@ -5198,3 +5410,67 @@ def test_extract_truncated_fragment_paragraphs_detects_broken_endings_article_re
     assert any("**删聊天记录时停住的那一下" in item for item in hits)
     assert any("很多时候，它们就。" in item for item in hits)
     assert len(hits) >= 2
+
+
+def test_complete_contract_prompts_consume_reference_expression_profile_across_stages() -> None:
+    payload = {
+        "source_type": "tracked_article",
+        "trend_title": "参考文章 / 手动录入",
+        "project_title": "表达指纹矩阵样稿",
+        "topic_title": "把一件小事做完，生活就有了回声",
+        "topic_angle": "从一个具体动作切入，沿着动作带来的关系反馈推进，最后回到日常重新显出分量。",
+        "analysis_theme": "日常动作如何重新说明生活的分量。",
+        "analysis_core_conflict": "人总把小事当成无足轻重，却在做完之后发现它改变了关系的温度。",
+        "analysis_emotional_exit": "愿意重新看见日常，并把重要的人和时刻留在生活里。",
+        "analysis_structure_mode": "scene_first_progression",
+        "analysis_opening_pattern": "先让一个动作和现场发生，再让判断从反馈里长出来。",
+        "analysis_hook_trigger": "动作完成后的一个小反馈让人停下来。",
+        "analysis_progression_drive": "由现场动作推进到关系反馈，再回到日常价值。",
+        "analysis_share_reason": "让忙着赶路的人重新看见小事的分量。",
+        "analysis_do_not_turn_into": "不要写成泛泛的内耗、自救或关系判断稿。",
+        "analysis_content_pillars": ["动作留下可见反馈", "反馈重新说明日常价值"],
+        "reference_article_analysis_expression_profile": [
+            "叙事形态：先给现场动作，再让判断跟着反馈出现",
+            "节奏：短段落与一两处稍长的解释交替，不连续堆金句",
+            "表达配比：以生活细节为主，引用只承担一次转折",
+            "结尾回收：从具体日常回到轻一点的正向愿望",
+        ],
+        "outline": {"hook": "一个动作完成后，现场忽然安静了一下。", "outline_body": "1. 动作\n2. 反馈\n3. 回到日常"},
+        "draft": {"title": "把一件小事做完", "body_markdown": "他把那件小事做完，屋里的人都笑了。"},
+        "assets": {
+            "cover_copy": "小事也会留下回声",
+            "social_teaser": "有些日常，做完才知道它有多重要。",
+            "social_teaser_options": ["小事做完，关系就暖了一点。"],
+            "recommended_title": "把一件小事做完",
+            "title_options": ["把一件小事做完"],
+        },
+        "problem_brief": {"theme_axis": "日常动作重新说明生活的分量。", "core_conflict": "小事被忽略与反馈改变关系温度之间的落差。"},
+        "strategy_card": {
+            "structure_mode": "scene_first_progression",
+            "positive_direction": "重新看见日常，并把重要的人和时刻留在生活里。",
+            "writing_texture_notes": ["先让动作发生，再让判断长出来。"],
+        },
+        "tone_profile": TONE_PROFILE,
+    }
+
+    templates = (
+        build_outline_prompt(payload),
+        build_draft_prompt(payload),
+        build_assets_prompt(payload),
+        build_publish_package_prompt(payload),
+    )
+
+    rendered_templates = [template.instructions + "\n" + template.prompt for template in templates]
+    expression_profile_markers = (
+        "叙事形态：先给现场动作",
+        "节奏：短段落",
+        "表达配比：以生活细节",
+        "结尾回收：从具体日常",
+    )
+
+    for rendered in rendered_templates:
+        assert "表达风格指纹" in rendered or "表达指纹" in rendered
+        assert any(marker in rendered for marker in expression_profile_markers)
+
+    combined = "\n".join(rendered_templates)
+    assert sum(marker in combined for marker in expression_profile_markers) >= 3

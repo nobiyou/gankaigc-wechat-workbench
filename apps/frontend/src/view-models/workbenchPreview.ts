@@ -5,8 +5,9 @@ export type WorkbenchPreviewBlock = {
   key: string;
   label: string;
   content: string;
-  kind?: "text" | "markdown" | "image";
+  kind?: "text" | "markdown" | "image" | "html";
   imageUrl?: string;
+  htmlUrl?: string;
   copyText?: string;
 };
 
@@ -54,6 +55,61 @@ function resolvePreviewAssetUrl(path: string | null | undefined): string {
     return normalizedPath;
   }
   return new URL(normalizedPath, `${new URL(API_BASE_URL).origin}/`).toString();
+}
+
+type PublishPackagePreviewItem = NonNullable<ProjectDetail["publish_package"]>;
+
+function formatWechatMpDraftStatus(status?: string | null): string {
+  if (status === "published") {
+    return "已写入公众号草稿箱";
+  }
+  if (status === "publishing") {
+    return "正在写入公众号草稿箱";
+  }
+  if (status === "failed") {
+    return "写入公众号草稿箱失败";
+  }
+  if (status === "not_published" || !status) {
+    return "尚未写入公众号草稿箱";
+  }
+  return "公众号草稿状态异常";
+}
+
+function buildWechatMpDraftStatusLines(packageItem: PublishPackagePreviewItem): string[] {
+  const status = packageItem.wechat_mp_draft_status ?? "not_published";
+  const nextStep =
+    packageItem.status === "approved"
+      ? "审核包已通过，可从当前阶段操作区写入草稿箱。"
+      : "先完成当前发布包审核，通过后才可写入草稿箱。";
+
+  return [
+    `状态：${formatWechatMpDraftStatus(status)}`,
+    status === "published" && packageItem.wechat_mp_draft_id
+      ? `草稿 ID：${packageItem.wechat_mp_draft_id}`
+      : null,
+    status === "published" && packageItem.wechat_mp_draft_published_at
+      ? `写入时间：${packageItem.wechat_mp_draft_published_at}`
+      : null,
+    status === "failed" ? `失败原因：${packageItem.wechat_mp_draft_error || "未记录具体原因"}` : null,
+    nextStep,
+    "边界：只创建公众号草稿，不会自动群发。",
+  ].filter((line): line is string => Boolean(line));
+}
+
+function buildPublishCoverPreviewBlock(detail: ProjectDetail): WorkbenchPreviewBlock | null {
+  const asset = detail.assets;
+  if (!asset) {
+    return null;
+  }
+
+  const imageUrl = resolvePreviewAssetUrl(asset.cover_image_url);
+  return {
+    key: "publish-cover-image",
+    label: "公众号封面预览",
+    content: imageUrl || (asset.cover_image_status === "quality_blocked" ? "封面未通过质量门，暂不可用" : "封面尚未生成"),
+    kind: imageUrl ? "image" : "text",
+    imageUrl,
+  };
 }
 
 function formatCoverRouteLabel(value: string | null | undefined): string {
@@ -867,13 +923,24 @@ export function buildWorkbenchPreview(
 
     if (detail.draft) {
       const articleMarkdown = buildPublishArticleMarkdown(detail.draft.title, detail.draft.body_markdown);
-      blocks.push({
-        key: "article",
-        label: "正文成品",
-        content: articleMarkdown,
-        kind: "markdown",
-        copyText: articleMarkdown,
-      });
+      const articleHtmlUrl = resolvePreviewAssetUrl(detail.publish_package?.html_url);
+      blocks.push(
+        articleHtmlUrl
+          ? {
+              key: "article",
+              label: "公众号排版预览",
+              content: "当前发布包 HTML 预览",
+              kind: "html",
+              htmlUrl: articleHtmlUrl,
+            }
+          : {
+              key: "article",
+              label: "正文成品",
+              content: articleMarkdown,
+              kind: "markdown",
+              copyText: articleMarkdown,
+            },
+      );
     }
 
     if (!detail.publish_package) {
@@ -882,6 +949,10 @@ export function buildWorkbenchPreview(
         label: "发布包状态",
         content: "当前草稿已更新，但发布包尚未生成。先确认原创改写结果，再继续执行素材和发布包生成。",
       });
+      const coverBlock = buildPublishCoverPreviewBlock(detail);
+      if (coverBlock) {
+        blocks.push(coverBlock);
+      }
 
       return {
         title: detail.draft?.title ?? detail.project.title,
@@ -896,6 +967,17 @@ export function buildWorkbenchPreview(
       detail.publish_package.intro_options.length > 0
         ? detail.publish_package.intro_options.map((item, index) => `${index + 1}. ${item}`).join("\n")
         : "暂无导语候选";
+
+    const coverBlock = buildPublishCoverPreviewBlock(detail);
+    if (coverBlock) {
+      blocks.push(coverBlock);
+    }
+    blocks.push({
+      key: "wechat-mp-draft-status",
+      label: "公众号草稿箱",
+      content: buildWechatMpDraftStatusLines(detail.publish_package).join("\n"),
+      kind: "markdown",
+    });
 
     return {
       title: detail.publish_package.publish_title || detail.draft?.title || detail.project.title,

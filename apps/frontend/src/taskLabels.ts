@@ -34,6 +34,7 @@ export const taskTypeLabelMap: Record<string, string> = {
   polish_and_build_publish_package: "原创增强后生成发布包",
   build_publish_package: "生成发布包",
   approve_publish_package: "通过发布审核",
+  publish_wechat_mp_draft: "写入公众号草稿箱",
   publish_review: "发布审核",
   request_publish_revision: "请求发布修改",
   regenerate_from_review: "按审核意见重生成",

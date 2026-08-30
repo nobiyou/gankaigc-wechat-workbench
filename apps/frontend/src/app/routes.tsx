@@ -1,11 +1,13 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./AppShell";
+import { AutomationPage } from "../pages/AutomationPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { PipelinePage } from "../pages/PipelinePage";
 import { ProjectsPage } from "../pages/ProjectsPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import { SourcesPage } from "../pages/SourcesPage";
+import { WechatHtmlStylesPage } from "../pages/WechatHtmlStylesPage";
 import { WorkbenchPage } from "../pages/WorkbenchPage";
 
 export function AppRoutes() {
@@ -26,9 +28,11 @@ export function AppRoutes() {
           <Route path="tasks" element={<PipelinePage section="tasks" />} />
         </Route>
         <Route path="projects" element={<ProjectsPage />} />
+        <Route path="automation" element={<AutomationPage />} />
         <Route path="settings">
           <Route index element={<Navigate to="tone-profiles" replace />} />
           <Route path="tone-profiles" element={<SettingsPage section="tone-profiles" />} />
+          <Route path="wechat-html-styles" element={<WechatHtmlStylesPage />} />
           <Route path="patterns" element={<SettingsPage section="patterns" />} />
         </Route>
       </Route>

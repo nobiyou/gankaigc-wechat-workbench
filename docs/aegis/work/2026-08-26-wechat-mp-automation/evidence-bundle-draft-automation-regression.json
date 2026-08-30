@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "automation-regression",
+  "type": "test",
+  "source": "python -m pytest apps/backend/tests/test_wechat_mp_automation.py -q",
+  "summary": "Fresh automation suite passed 16 tests including full orchestration, automatic draft off, persisted workflow retry, session expiry, next-day due recovery, duplicate skip, multi-item detail projection, and API polling.",
+  "verifier": "Codex"
+}

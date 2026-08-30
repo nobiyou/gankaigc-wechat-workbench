@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     generated_assets_dir: str = "C:/tmp/gankaigc-wechat-workbench-assets"
     wechat_mp_session_path: str = "C:/tmp/gankaigc-wechat-workbench-wechat-session.json"
     wechat_mp_request_timeout_seconds: float = 15.0
+    wx_channel_api_base_url: str = "http://127.0.0.1:2026"
+    wx_channel_request_timeout_seconds: float = 15.0
+    wechat_mp_automation_enabled: bool = True
+    wechat_mp_automation_poll_interval_seconds: int = 30
+    wechat_mp_automation_lease_seconds: int = 120
     trend_feed_urls: list[str] = []
     trend_fetch_request_timeout_seconds: float = 15.0
     trend_fetch_max_items_per_feed: int = 10

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "spec-self-review",
+  "type": "structural-validation",
+  "source": "specs/005-wechat-mp-automation/spec.md; specs/005-wechat-mp-automation/checklists/requirements.md; .specify/feature.json; git diff --check",
+  "summary": "Spec contains all mandatory sections, four user stories, twenty functional requirements, nine measurable success criteria, no unresolved clarification markers, and the feature pointer resolves to specs/005-wechat-mp-automation.",
+  "verifier": "Codex"
+}

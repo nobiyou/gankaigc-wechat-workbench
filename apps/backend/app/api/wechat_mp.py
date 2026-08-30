@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, HTTPException, Response, status
 
 from app.schemas.tracked_articles import TrackedArticleCreate
 from app.schemas.wechat_mp import (
@@ -10,8 +10,11 @@ from app.schemas.wechat_mp import (
     WechatMpArticleImportResult,
     WechatMpArticlePreviewItem,
     WechatMpSessionStatus,
+    WxChannelAccountItem,
+    WxChannelArticleItem,
 )
-from app.services.wechat_mp_client import get_wechat_mp_client
+from app.services.wechat_mp_client import WechatMpArticleFetchError, get_wechat_mp_client
+from app.services.wx_channel_client import WxChannelApiError, get_wx_channel_client
 from app.services.workbench import import_tracked_articles
 
 
@@ -48,6 +51,38 @@ def get_wechat_mp_accounts(keyword: str, begin: int = 0, size: int = 5) -> list[
     return [WechatMpAccountItem(**item).model_dump() for item in accounts]
 
 
+@router.get("/accounts/wx-channel")
+def get_wx_channel_accounts(keyword: str = "", page: int = 1, page_size: int = 20) -> list[dict[str, object]]:
+    client = get_wx_channel_client()
+    try:
+        accounts = client.list_accounts(
+            keyword,
+            page=page,
+            page_size=page_size,
+        )
+    except WxChannelApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            close()
+    return [WxChannelAccountItem(**item).model_dump() for item in accounts]
+
+
+@router.get("/accounts/wx-channel/{biz}/articles")
+def get_wx_channel_articles(biz: str, offset: int = 0, limit: int = 10) -> list[dict[str, object]]:
+    client = get_wx_channel_client()
+    try:
+        articles = client.list_articles(biz=biz, offset=offset, limit=limit)
+    except WxChannelApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            close()
+    return [WxChannelArticleItem(**item).model_dump() for item in articles]
+
+
 @router.get("/accounts/{fakeid}/articles")
 def get_wechat_mp_articles(
     fakeid: str,
@@ -55,7 +90,10 @@ def get_wechat_mp_articles(
     size: int = 5,
     keyword: str = "",
 ) -> list[dict[str, object]]:
-    articles = get_wechat_mp_client().list_articles(fakeid=fakeid, begin=begin, size=size, keyword=keyword)
+    try:
+        articles = get_wechat_mp_client().list_articles(fakeid=fakeid, begin=begin, size=size, keyword=keyword)
+    except WechatMpArticleFetchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return [WechatMpArticlePreviewItem(**item).model_dump() for item in articles]
 
 

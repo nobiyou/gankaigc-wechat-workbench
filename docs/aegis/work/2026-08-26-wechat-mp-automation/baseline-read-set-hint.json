@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "candidateDocs": [
+    "docs/aegis/BASELINE-GOVERNANCE.md",
+    "docs/aegis/plans/2026-05-16-gankaigc-wechat-content-workbench-plan.md",
+    "specs/004-creative-workflow/spec.md"
+  ],
+  "whyRelevant": "复用现有内容生产链和草稿发布前置能力",
+  "missingAuthority": []
+}

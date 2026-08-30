@@ -8,6 +8,7 @@ from app.services.content_skills import build_content_skill_instructions
 from app.services.creative_strategy import (
     build_complete_contract_execution_surface,
     has_complete_tracked_article_analysis_contract,
+    has_complete_tracked_article_generation_contract,
 )
 from app.services.dbskill_bridge import get_dbskill_rule_lines, merge_unique_lines
 from app.schemas.settings import PromptTemplateSummary
@@ -154,6 +155,30 @@ def _as_content_pillars(value: object, *, limit: int = 4) -> list[str]:
         if text and text not in pillars:
             pillars.append(text)
     return pillars[:limit]
+
+
+def _as_expression_profile(value: object, *, limit: int = 5) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    profile: list[str] = []
+    for item in value:
+        text = re.sub(r"\s+", " ", _as_clean_text(item)).strip(" \t\r\n-•")
+        if text and text not in profile:
+            profile.append(text)
+    return profile[:limit]
+
+
+def _resolve_expression_profile(payload: Mapping[str, object], *, reference: bool = False) -> list[str]:
+    keys = (
+        ("reference_article_analysis_expression_profile", "analysis_expression_profile")
+        if reference
+        else ("analysis_expression_profile", "reference_article_analysis_expression_profile")
+    )
+    value: object = payload.get(keys[0]) or payload.get(keys[1])
+    nested = payload.get("reference_analysis_contract")
+    if not isinstance(value, (list, tuple)) and isinstance(nested, Mapping):
+        value = nested.get("expression_profile")
+    return _as_expression_profile(value)
 
 
 _RESPONSIBILITY_SHELTER_PROMPT_REPLACEMENTS = (
@@ -356,17 +381,7 @@ def _build_tracked_article_analysis_contract(payload: Mapping[str, object]) -> T
         ),
         content_pillars=content_pillars,
     )
-    if _has_everyday_warmth_responsibility_shelter_focus(payload):
-        return _sanitize_responsibility_shelter_analysis_contract(contract)
-    return contract
-
-
-def _has_tracked_article_analysis_contract(payload: Mapping[str, object] | None) -> bool:
-    """Return whether upstream reference analysis has taken ownership."""
-    if not isinstance(payload, Mapping) or _as_clean_text(payload.get("source_type")) != "tracked_article":
-        return False
-    contract = _build_tracked_article_analysis_contract(payload)
-    return has_complete_tracked_article_analysis_contract(
+    complete_generation_contract = has_complete_tracked_article_generation_contract(
         analysis_structure_mode_hint=contract.structure_mode,
         analysis_theme=contract.theme,
         analysis_core_conflict=contract.core_conflict,
@@ -377,6 +392,51 @@ def _has_tracked_article_analysis_contract(payload: Mapping[str, object] | None)
         analysis_share_reason=contract.share_reason,
         analysis_do_not_turn_into=contract.do_not_turn_into,
         analysis_content_pillars=contract.content_pillars,
+        analysis_expression_profile=_resolve_expression_profile(payload, reference=True),
+    )
+    if _has_everyday_warmth_responsibility_shelter_focus(payload) and not complete_generation_contract:
+        return _sanitize_responsibility_shelter_analysis_contract(contract)
+    if complete_generation_contract:
+        execution_surface = build_complete_contract_execution_surface(payload)
+        if execution_surface:
+            surface_pillars = execution_surface.get("content_pillars")
+            projected_pillars = (
+                tuple(_as_content_pillars(surface_pillars))
+                if isinstance(surface_pillars, list)
+                else contract.content_pillars
+            )
+            return TrackedArticleAnalysisContract(
+                theme=contract.theme,
+                core_conflict=contract.core_conflict,
+                emotional_exit=contract.emotional_exit,
+                opening_pattern=_as_clean_text(execution_surface.get("opening_pattern")) or contract.opening_pattern,
+                hook_trigger=_as_clean_text(execution_surface.get("hook_trigger")) or contract.hook_trigger,
+                progression_drive=_as_clean_text(execution_surface.get("progression_drive")) or contract.progression_drive,
+                share_reason=_as_clean_text(execution_surface.get("share_reason")) or contract.share_reason,
+                do_not_turn_into=contract.do_not_turn_into,
+                structure_mode=_as_clean_text(execution_surface.get("structure_mode")) or contract.structure_mode,
+                content_pillars=projected_pillars,
+            )
+    return contract
+
+
+def _has_tracked_article_analysis_contract(payload: Mapping[str, object] | None) -> bool:
+    """Return whether upstream reference analysis has taken ownership."""
+    if not isinstance(payload, Mapping) or _as_clean_text(payload.get("source_type")) != "tracked_article":
+        return False
+    contract = _build_tracked_article_analysis_contract(payload)
+    return has_complete_tracked_article_generation_contract(
+        analysis_structure_mode_hint=contract.structure_mode,
+        analysis_theme=contract.theme,
+        analysis_core_conflict=contract.core_conflict,
+        analysis_emotional_exit=contract.emotional_exit,
+        analysis_opening_pattern=contract.opening_pattern,
+        analysis_hook_trigger=contract.hook_trigger,
+        analysis_progression_drive=contract.progression_drive,
+        analysis_share_reason=contract.share_reason,
+        analysis_do_not_turn_into=contract.do_not_turn_into,
+        analysis_content_pillars=contract.content_pillars,
+        analysis_expression_profile=_resolve_expression_profile(payload, reference=True),
     )
 
 
@@ -434,10 +494,14 @@ def _build_analysis_first_topic_structure_notes(contract: TrackedArticleAnalysis
     core_conflict = _strip_analysis_leadin(contract.core_conflict)
     emotional_exit = _strip_analysis_leadin(contract.emotional_exit)
     do_not_turn_into = _strip_analysis_leadin(contract.do_not_turn_into)
-    parts.append("起笔另建一个属于新选题的现实入口，不复用参考文的物件、动作、人物、时间或对话。")
+    opening = _strip_analysis_leadin(contract.opening_pattern) or "分析合同指定的起笔方式"
+    parts.append(
+        f"起笔服从分析合同指定的方式：{opening}；另建同等叙事功能的新入口，"
+        "不复用参考文的物件、动作、人物、时间或对话。"
+    )
     if core_conflict:
         parts.append(f"中段重点拆开：{core_conflict}。")
-    parts.append("中段由新入口带出一次可见变化，再沿核心矛盾走向情绪出口。")
+    parts.append("中段沿分析合同的推进力展开，让主题在事实、判断、引用或现实反馈中逐步显出来。")
     if emotional_exit:
         parts.append(f"结尾回到：{emotional_exit}。")
     if do_not_turn_into:
@@ -452,14 +516,17 @@ def _build_analysis_first_topic_body_cue_section(contract: TrackedArticleAnalysi
     emotional_exit = _strip_analysis_leadin(contract.emotional_exit)
     share_reason = _strip_analysis_leadin(contract.share_reason)
     do_not_turn_into = _strip_analysis_leadin(contract.do_not_turn_into)
-    cue_lines.append("- 新入口任务：另建一处属于当前选题的动作、物件、场所或选择")
+    cue_lines.append(
+        f"- 起笔功能：{_strip_analysis_leadin(contract.opening_pattern) or '按分析合同指定的方式起笔'}；"
+        "另建同等功能的新入口，不搬参考文外壳"
+    )
     if theme:
         cue_lines.append(f"- 主题主线：{theme}")
     if core_conflict:
         cue_lines.append(f"- 真正矛盾：{core_conflict}")
     if contract.content_pillars:
         cue_lines.append(f"- 内容支柱：{' / '.join(contract.content_pillars)}")
-    cue_lines.append("- 中段推进力：让新入口先发生，再把可见变化推回主题矛盾")
+    cue_lines.append("- 中段推进力：按分析合同推进，让事实、判断、引用或现实反馈把主题逐步推出来")
     if emotional_exit:
         cue_lines.append(f"- 情绪出口：{emotional_exit}")
     if share_reason:
@@ -2957,6 +3024,30 @@ TRACKED_ARTICLE_STRUCTURE_TONE_OVERRIDES: dict[str, dict[str, str]] = {
             "把开头和结尾都压回参考文真正的牵挂接口、回稳动作和回到当下的现实落点。"
         ),
     },
+    "social_boundaries": {
+        "opening_style": (
+            "先从一次具体的相处分寸切入：一句话说多了、争执时差点把话说重，"
+            "或看见别人为难后决定不再追问。先让读者看见当场的停顿和取舍，不要先端出三条处世道理。"
+        ),
+        "paragraph_rhythm": (
+            "前半篇沿一个真实相处现场推进，让言语怎样留下伤害、退让怎样改变气氛慢慢显出来；"
+            "中段再自然带出慎言、让渡、知止的不同职责，但不要排成三个僵硬小标题。"
+            "段落要有松紧差，保留一到两处从现场里长出来的人话短句，不要连续堆处世金句。"
+        ),
+        "closing_style": (
+            "结尾回到温和与边界可以同时成立的现实选择：少说一句不是怯，退一步不是失去原则，"
+            "看透以后适时停下也是给彼此留体面。收在从容自守和舒服相处上，不写成冷漠断联。"
+        ),
+        "value_constraints": (
+            "这类稿子的情绪价值，不是教人变圆滑，而是让读者确认：说话有分寸、取舍有余地、"
+            "看透不说破，既能减少关系里的伤害，也能保住自己的原则和体面。"
+        ),
+        "default_polish_instruction": (
+            "如果是慎言、让渡、知止题材，先删掉信任裂开、回消息速度、谁更在乎和情绪耗空等旧壳子，"
+            "把判断压回一句话、一次退让和一次适时停口的现实选择；让三种尺度各自承担变化，"
+            "最后同时保留温和、边界与体面，不写成三条说教或拒绝所有关系。"
+        ),
+    },
     "self_reliance_inward_support": {
         "opening_style": (
             "先服从参考文章分析中的主题、起笔方式和触发点，不为结构模式另造一套开场。"
@@ -3159,7 +3250,7 @@ def _build_tracked_article_analysis_contract_tone_override(
         ),
         "value_constraints": (
             f"情绪价值服从主题和转发理由：{_truncate_text(share_hint, max_length=120)}。"
-            "正向力量从本文现实里长出，不统一导向内耗、自救、放下或心安。"
+            "正向力量从本文现实里长出，不统一导向某一种固定的受伤、关系或自我调节结论。"
         ),
         "default_polish_instruction": (
             "精修时只依据分析合同、策略卡和正文已成立的事实，删除模板化入口、重复判断和统一收尾；"
@@ -3309,6 +3400,7 @@ def _build_jinwan_youyu_stage_instructions(
         return (
             "这篇内容采用“今晚有语”风格。"
             "标题长度控制在 10 到 20 个字，必须带钩子，不能只是情绪陈述。"
+            "选题标题必须直接点出读者正在经历的具体痛点、代价或冲突，再带出主题方向；不能只有场景、现象或抽象结论。"
             "选题要直接点出读者最在意的问题、反差或现实入口。"
             "判断可以明确，但先把答案落在真实接口上，不要只剩抽象结论。"
             "不要写成泛情绪、泛疗愈、泛人生感悟标题。"
@@ -3387,13 +3479,15 @@ def _build_jinwan_youyu_stage_instructions(
     if stage == "assets":
         return (
             "这篇内容采用“今晚有语”风格。"
-            "标题备选和导语要直接点破读者最在意的问题，给出明确判断或答案入口。"
+            "标题备选和导语要直接点破读者最在意的问题，标题必须出现具体痛点、代价或冲突，不能只有场景、动作或抽象判断。"
+            "给出明确判断或答案入口。"
             "不要写成空泛抒情 teaser，不要只剩情绪氛围。"
             "封面文案要短、准、有抓手，最好一眼能截住读者，不要铺成小段落；保留女性成长内容的力量感。"
         )
     if stage == "publish_package":
         return (
             "这篇内容采用“今晚有语”风格。"
+            "最终发布标题必须出现读者可立即认出的具体痛点、代价或冲突，不能只复述场景或抽象结论。"
             "摘要、标签和编辑备注都要服务于“直接给答案”的发布表达。"
             "编辑备注要直接给出这篇稿子的核心答案和发布抓手，不要写成模糊抒情总结。"
         )
@@ -4038,6 +4132,7 @@ def _render_reference_article_section(payload: Mapping[str, object], *, stage: s
     analysis_content_pillars = _as_content_pillars(
         payload.get("reference_article_analysis_content_pillars")
     )
+    analysis_expression_profile = _resolve_expression_profile(payload, reference=True)
     tags_value = payload.get("reference_article_tags")
 
     tags: list[str] = []
@@ -4062,6 +4157,7 @@ def _render_reference_article_section(payload: Mapping[str, object], *, stage: s
             f"参考文章转发理由：{analysis_share_reason or '无'}\n"
             f"参考文章不要写成：{analysis_do_not_turn_into or '无'}\n"
             f"参考文章内容支柱：{' / '.join(analysis_content_pillars) or '无'}\n"
+            f"参考文章表达风格指纹：{' / '.join(analysis_expression_profile) or '无'}\n"
             f"参考文章标签：{' / '.join(tags) or '无'}\n"
         )
 
@@ -4080,6 +4176,7 @@ def _render_reference_article_section(payload: Mapping[str, object], *, stage: s
         f"上游转发理由：{analysis_share_reason or '无'}\n"
         f"上游不要写成：{analysis_do_not_turn_into or '无'}\n"
         f"上游内容支柱：{' / '.join(analysis_content_pillars) or '无'}\n"
+        f"上游表达风格指纹：{' / '.join(analysis_expression_profile) or '无'}\n"
         "原标题、原摘要措辞和结构备注已经在上游选题阶段消化完毕，这一阶段不要再沿着原文标题骨架、开头入口或段落顺序继续展开。\n"
     )
 
@@ -4098,7 +4195,7 @@ def _render_post_strategy_reference_boundary(payload: Mapping[str, object], *, s
     if not (_has_strategy_package(payload) or bool(payload.get("reference_article_hidden"))):
         return ""
     reference_boundary = (
-        "不要把当前文章引回固定模板。不引入固定关系、身体或消息模板。"
+        "不要把当前文章引回固定模板，不引入分析合同之外的主题模板。"
         if stage in {"outline", "draft"}
         else ""
     )
@@ -4156,11 +4253,11 @@ def _build_complete_contract_stage_execution_instructions(
     if not execution_surface:
         return ""
 
-    def surface_text(key: str, fallback: str, *, max_length: int = 76) -> str:
+    def surface_text(key: str, fallback: str, *, max_length: int = 64) -> str:
         value = _as_clean_text(execution_surface.get(key)) or fallback
         return _truncate_text(value, max_length=max_length)
 
-    def surface_items(key: str, *, limit: int = 2, max_length: int = 62) -> str:
+    def surface_items(key: str, *, limit: int = 2, max_length: int = 32) -> str:
         values = execution_surface.get(key)
         if not isinstance(values, list):
             return ""
@@ -4173,20 +4270,117 @@ def _build_complete_contract_stage_execution_instructions(
 
     mode = contract.structure_mode or "当前主题"
     exit_hint = _truncate_text(contract.emotional_exit or "当前合同指定的正向出口", max_length=82)
+    opening_kind = _as_clean_text(execution_surface.get("opening_kind")) or "adaptive"
+    opening_kind_label = {
+        "scene": "场景或动作",
+        "quotation": "引用或判断",
+        "judgment": "判断或设问",
+        "stage": "阶段节点",
+        "story": "人物故事或案例",
+        "relationship": "关系现场",
+        "body": "身体信号或行动代价",
+        "adaptive": "分析合同指定的起笔方式",
+    }.get(opening_kind, "分析合同指定的起笔方式")
+    expression_profile = _resolve_expression_profile(payload, reference=True)
     lines = [
         f"本阶段主题执行面（{mode}）：只执行当前分析合同，不回收参考文外壳。",
-        f"观察焦点：{surface_text('observed_phenomenon', '让当前选题自己的现实变化先发生')}。",
-        f"开头职责：{surface_text('opening_pattern', '从当前选题自己的现实入口起笔')}；"
+        f"观察焦点：{surface_text('observed_phenomenon', '让当前选题的主题功能先显形')}。",
+        f"开头职责（{opening_kind_label}）：{surface_text('opening_pattern', '按当前分析合同指定的方式起笔')}；"
         f"中段推进：{surface_text('progression_drive', '沿当前主题的现实变化推进')}。",
-        f"写法纹理：{surface_items('writing_texture_notes', limit=1) or '先让现实功能发生，再让判断长出来'}。",
-        f"替代骨架：{surface_items('recomposition_recipe', limit=2) or '新入口 → 现实变化 → 当前主题出口'}。",
+        f"写法纹理：{surface_items('writing_texture_notes', limit=1) or '先执行起笔功能，再让判断逐步长出来'}。",
+        f"替代骨架：{surface_items('recomposition_recipe', limit=2) or '起笔功能 → 主题推进 → 当前主题出口'}。",
         f"情绪出口：{exit_hint}。",
     ]
     do_not_turn_into = _as_clean_text(contract.do_not_turn_into)
     if do_not_turn_into:
         lines.append(f"偏题禁区：{_truncate_text(do_not_turn_into, max_length=82)}。")
+    if expression_profile:
+        lines.append(f"参考文表达指纹只借写法不借内容：{' / '.join(_truncate_text(item, max_length=56) for item in expression_profile[:3])}。")
+    if stage == "draft":
+        topic_title = _as_clean_text(payload.get("topic_title"))
+        reference_text = " ".join(
+            _as_clean_text(payload.get(key))
+            for key in (
+                "reference_article_title",
+                "reference_article_summary",
+                "reference_article_structure_notes",
+                "reference_article_body_markdown",
+            )
+            if _as_clean_text(payload.get(key))
+        )
+        digital_contact_markers = (
+            "手机",
+            "短信",
+            "微信",
+            "聊天",
+            "消息",
+            "电话",
+            "来电",
+            "朋友圈",
+            "对话框",
+        )
+        if opening_kind in {"quotation", "judgment"}:
+            lines.append(
+                "正文首屏先执行合同指定的引用或判断，紧接着落到一个现实后果、动作或变化；"
+                "不要连续堆抽象观点。"
+            )
+        else:
+            lines.append(
+                "正文首屏质量门：第一段必须出现本篇独有的可观察接口（动作、物件、位置、时间节点、"
+                "现实安排或当场说出的话至少一项），不能用“有一段时间”“很多时候”“相信你也有过这样的时刻”、"
+                "“人总是这样”这类泛泛总起替代入口。前两段至少保留一处具体变化，再让判断长出来。"
+            )
+        if not any(marker in reference_text for marker in digital_contact_markers):
+            lines.append(
+                "参考材料没有建立手机、短信、微信、聊天、消息、电话或来电等数字联络接口；"
+                "正文不得把这些接口当作首屏主镜头或主要推进线，也不要用删消息、等回复、看手机等固定关系外壳代替本篇现实入口。"
+                "请改用合同支持的自然物、空间、物件、行动或关系余波承载主题。"
+            )
+        if mode == "responsibility_shelter" or _has_everyday_warmth_responsibility_shelter_focus(payload):
+            lines.append(
+                "责任型主题的首段必须从已经落地的家庭安排、手上正在处理的物件、空间动作、现场取舍或照料决定起笔；"
+                "优先使用缴费单、复诊安排、药袋、学费清单、接送路线、办事窗口、饭桌或门口等可见接口，"
+                "先写谁在当场处理什么、原本哪件事因此重新排序，再让责任和安稳长出来。"
+                "首段禁止用手机、短信、微信、电话、来电、聊天窗口、回消息、回复或朋友圈作为事件触发器，"
+                "也不要写成‘某人发来消息’后才开始推进；人物联络或对话如确有必要，放到现实安排已经发生之后。"
+            )
+        if topic_title:
+            lines.append(
+                f"正文标题不要直接复制选题标题“{_truncate_text(topic_title, max_length=28)}”，"
+                "要从正文独有的现实接口另拟一个有信息增量的标题。"
+            )
+        lines.append(
+            f"正文中后段必须把情绪回报落到：{exit_hint}；负面处境只作必要背景，"
+            "不要把辛苦、委屈或硬撑本身写成高潮，结尾停在具体余波、动作或关系反馈上，不用万能祝福收口。"
+        )
     if stage in {"assets", "publish_package"}:
-        lines.append("包装只压缩正文已经成立的入口和情绪回报，不新增场景，不按流量模板换题。")
+        lines.append(
+            "包装只压缩正文已经成立的入口和情绪回报，不新增场景，不按流量模板换题。"
+            "标题质量门：必须写出读者正在承受的具体痛点、代价或冲突，再贴住当前主题；"
+            "只有场景、动作、抽象判断或漂亮结论的标题不合格。"
+        )
+        reference_text = " ".join(
+            _as_clean_text(payload.get(key))
+            for key in (
+                "reference_article_title",
+                "reference_article_summary",
+                "reference_article_structure_notes",
+                "reference_article_body_markdown",
+            )
+            if _as_clean_text(payload.get(key))
+        )
+        if not any(
+            marker in reference_text
+            for marker in ("手机", "短信", "微信", "聊天", "消息", "电话", "来电", "朋友圈", "对话框")
+        ):
+            lines.append(
+                "参考材料没有数字联络接口；标题、封面文案、导语、摘要和封面提示词不得擅自加入手机、聊天、消息、电话或来电主场景，"
+                "封面优先使用自然环境、实体物件和人物动作，不生成聊天界面。"
+            )
+        lines.append(
+            "包装现实接口必须已经出现在当前正文或已采纳策略里；如果当前主题没有明确的消息、回复、电话、点赞、评论、聊天或手机接口，"
+            "不要为了抓眼把这些互动入口写进标题、封面文案、导语、摘要或编辑备注。"
+        )
     return "".join(lines)
 
 
@@ -4214,10 +4408,10 @@ def _build_tracked_article_analysis_alignment_instructions(
     ):
         stage_rule = {
             "topic": "选题只提炼当前合同定义的问题，不把单个例子扩成整篇主线。",
-            "outline": "大纲只按策略包的入口、矛盾、推进和出口组织，用新现实入口推进，结构不要另起模板。",
-            "draft": "正文只按策略包和大纲执行，用新选题现实入口推进，短句与情绪价值从当前现实里长出来。",
-            "assets": "包装只压缩正文已经成立的新选题现实入口和主线，不在素材阶段二次换题。",
-            "publish_package": "发布字段只压缩正文和新选题现实入口，不在发布阶段二次换题。",
+            "outline": "大纲只按策略包的入口、矛盾、推进和出口组织，按合同指定的起笔功能推进，结构不要另起模板。",
+            "draft": "正文只按策略包和大纲执行，按合同指定的起笔功能推进，短句与情绪价值从当前材料里长出来。",
+            "assets": "包装只压缩正文已经成立的选题入口和主线，不在素材阶段二次换题。",
+            "publish_package": "发布字段只压缩正文和选题入口，不在发布阶段二次换题。",
         }[stage]
         return (
             "已采纳策略包是完整分析合同在本阶段的唯一执行载体。"
@@ -4261,6 +4455,9 @@ def _build_tracked_article_analysis_alignment_instructions(
         "偏题边界": contract.do_not_turn_into,
         "结构方式": structure_mode,
         "内容支柱": " / ".join(contract.content_pillars),
+        "表达风格指纹": " / ".join(
+            _resolve_expression_profile(payload, reference=True)[:3]
+        ),
         "正向落点": _as_clean_text(strategy.get("positive_direction")),
     }
     present = [f"{label}：{_truncate_text(value, max_length=96)}" for label, value in values.items() if value]
@@ -4297,12 +4494,12 @@ def _build_tracked_article_analysis_alignment_instructions(
     if _has_tracked_article_analysis_contract(payload):
         lines.append(
             "原文的开头方式和触发点只提炼叙事功能，不复刻物件、动作、人物、时间或对话；"
-            "新稿至少换掉其中两项，另建新现实入口。"
+            "新稿至少换掉其中两项，另建同等功能的新入口。"
         )
         if stage == "topic":
             lines.append("选题标题和切入角度要体现这次重建的入口，不要只把原文开头换个说法。")
         elif stage in {"outline", "draft"}:
-            lines.append("新稿开头必须从新入口开始；正文开头必须从新入口开始，这个新入口必须是新选题现实入口，先让新的动作、物件、场所或选择发生，再让原文主题的判断长出来。")
+            lines.append("新稿开头必须执行分析合同指定的起笔功能；可以从场景、引用、判断、人物、阶段节点或关系接口开始，先完成开头职责，再让主题判断长出来。")
         else:
             lines.append("包装只提炼新稿已经成立的入口，不把参考文的高识别度场景重新搬回标题、导语或封面。")
     if stage == "topic":
@@ -4482,7 +4679,7 @@ def _build_tracked_article_analysis_contract_packaging_owner(
         f"主题只保留：{theme}。包装最终回到：{emotional_exit}。"
         f"新选题现实入口优先服从：{hook}；包装抓手：{focus}。"
         "标题、封面文案、导语、摘要和编辑备注只压缩正文已经成立的主线，允许随本文选择具体节点、引用、人物、动作或判断。"
-        "不要为了抓眼套统一的反问、关系排序、内耗诊断、苦难励志或心灵安慰骨架，也不要补入分析合同没有支持的场景和副主题。"
+        "不要为了抓眼套统一的标题、情绪或场景骨架，也不要补入分析合同没有支持的场景和副主题。"
         "各包装字段要彼此有区分，但都服务同一个主题和正向出口。"
     )
 
@@ -5805,7 +6002,7 @@ def _render_strategy_package_section(
         quotable_line_seeds = [_as_clean_text(item) for item in quotable_line_seeds_value if _as_clean_text(item)]
     if isinstance(writing_texture_notes_value, list):
         writing_texture_notes = [_as_clean_text(item) for item in writing_texture_notes_value if _as_clean_text(item)]
-    if _has_everyday_warmth_responsibility_shelter_focus(payload):
+    if _has_everyday_warmth_responsibility_shelter_focus(payload) and not analysis_contract_owner:
         clarified_problem = _sanitize_responsibility_shelter_prompt_text(clarified_problem)
         observed_phenomenon = _sanitize_responsibility_shelter_prompt_text(observed_phenomenon)
         writing_goal = _sanitize_responsibility_shelter_prompt_text(writing_goal)
@@ -5854,7 +6051,7 @@ def _render_strategy_package_section(
         # A complete contract owns production. Do not let strategy fields that
         # were inferred from the reference hook leak back into later prompts.
         clarified_problem = f"主题：{contract_theme}；核心矛盾：{contract_conflict}"
-        writing_goal = f"围绕{contract_theme}写出一篇有现实变化、情绪回报和正向落点的原创文章"
+        writing_goal = f"围绕{contract_theme}写出一篇有本篇推进变化、情绪回报和正向落点的原创文章"
         emotional_value_goal = contract_exit
         theme_axis = contract_theme
         anti_drift_axis = _strip_analysis_leadin(contract.do_not_turn_into)
@@ -5862,9 +6059,9 @@ def _render_strategy_package_section(
         core_conflict = contract_conflict
         feedback_entry = _strip_analysis_leadin(contract.share_reason)
         reader_situation = target_reader_situation
-        point_of_view = "从新选题自己的现实入口看见主题，而不是解释参考文章"
+        point_of_view = "按分析合同指定的起笔方式看见主题，而不是解释参考文章"
         conflict_frame = contract_conflict
-        emotional_path = f"由新入口的可见变化推进，最后回到{contract_exit}"
+        emotional_path = f"沿本篇指定的推进方式完成变化，最后回到{contract_exit}"
         positive_direction = contract_exit
         constraints = [
             "不复用参考文的物件、动作、人物、时间或对话",
@@ -5872,12 +6069,12 @@ def _render_strategy_package_section(
         ]
         benchmark_summary = ""
         expression_constraints = [
-            "短段、金句和情绪价值服从本篇现实变化",
+            "短段、金句和情绪价值服从本篇推进方式",
             "不套固定开头、固定冲突或固定收束",
         ]
         hook_trigger = (
             _as_clean_text(execution_surface.get("hook_trigger"))
-            or "新选题自己的现实入口"
+            or "分析合同指定的起笔入口"
         )
         progression_drive = (
             _as_clean_text(execution_surface.get("progression_drive"))
@@ -5890,7 +6087,7 @@ def _render_strategy_package_section(
         opening_move = (
             _as_clean_text(execution_surface.get("opening_pattern"))
             or _as_clean_text(execution_surface.get("opening_move"))
-            or "先让新的现实入口发生，再让主题判断长出来"
+            or "先执行分析合同指定的起笔功能，再让主题判断长出来"
         )
         body_shift = progression_drive
         ending_move = f"回到{contract_exit}"
@@ -5907,7 +6104,7 @@ def _render_strategy_package_section(
         opening_move = _as_clean_text(execution_surface.get("opening_move")) or opening_move
         compact_execution_surface = extra_compact or minimal_compact
         writing_texture_notes = (
-            ["新入口先发生，判断后长出。"]
+            ["先执行起笔功能，判断后长出。"]
             if compact_execution_surface
             else [
                 _as_clean_text(item)
@@ -6113,7 +6310,7 @@ def _render_strategy_package_section(
                 borrow_focuses.append(borrow_focus)
             if avoid_focus:
                 avoid_focuses.append(avoid_focus)
-    if _has_everyday_warmth_responsibility_shelter_focus(payload):
+    if _has_everyday_warmth_responsibility_shelter_focus(payload) and not analysis_contract_owner:
         borrow_focuses = [_sanitize_responsibility_shelter_prompt_text(item) for item in borrow_focuses]
         avoid_focuses = [_sanitize_responsibility_shelter_prompt_text(item) for item in avoid_focuses]
 
@@ -6186,30 +6383,6 @@ def _build_strategy_resonance_instructions(
         ]
         writing_texture_notes = [
             _sanitize_responsibility_shelter_prompt_text(item) for item in writing_texture_notes
-        ]
-
-    if _has_tracked_article_analysis_contract(payload):
-        execution_surface = _build_complete_contract_execution_surface(payload)
-        packaging_focus = _as_clean_text(execution_surface.get("packaging_focus"))
-        packaging_hook = _as_clean_text(execution_surface.get("packaging_hook"))
-        realism_texture_goal = _as_clean_text(execution_surface.get("realism_texture_goal"))
-        quotable_line_goal = _as_clean_text(execution_surface.get("quotable_line_goal"))
-        quotable_line_seeds = [
-            _as_clean_text(item)
-            for item in execution_surface.get("quotable_line_seeds", [])
-            if _as_clean_text(item)
-        ]
-        scene_anchor_requirements = [
-            _as_clean_text(item)
-            for item in execution_surface.get("scene_anchor_requirements", [])
-            if _as_clean_text(item)
-        ][:1] if compact else [
-            _as_clean_text(item)
-            for item in execution_surface.get("scene_anchor_requirements", [])
-            if _as_clean_text(item)
-        ]
-        writing_texture_notes = ["新入口先发生，判断后长出。"] if compact else [
-            _as_clean_text(item) for item in execution_surface.get("writing_texture_notes", []) if _as_clean_text(item)
         ]
 
     notes: list[str] = []
@@ -6333,6 +6506,11 @@ def _describe_structure_mode(
         return (
             "回应顺序显形推进",
             "先守住等待和找补里的顺序落差，再让时间投向、回应动作和投入意愿自己把位置感显出来。",
+        )
+    if structure_mode == "social_boundaries":
+        return (
+            "相处分寸三层推进",
+            "先守住一句话、一次让步或一次停口的现实现场，再让慎言减少伤害、让渡保留余地、知止守住体面，最后回到温和与原则并存。",
         )
     if structure_mode == "trust_boundary":
         return (
@@ -6528,6 +6706,25 @@ def _build_structure_mode_instructions(payload: Mapping[str, object], *, stage: 
                 "后半篇把情绪从等待感拉回位置感，不只是写受伤，而是写人怎样慢慢认清顺序、把时间留给值得的人。"
                 "结尾回到位置感回正和时间该留给谁，不写成苦情控诉。"
             )
+    if structure_mode == "social_boundaries":
+        if stage == "outline":
+            return (
+                "若策略包要求相处分寸三层推进，大纲先守住一句话说多了、一次退让失了分寸或一次看透后的停口现场，"
+                "不要先把它写成三条处世道理。"
+                "中段让慎言、让渡、知止顺着同一段相处经验自然展开：慎言处理话语留下的伤害，"
+                "让渡处理输赢和细枝末节，知止处理看透以后是否继续追问或说破。"
+                "结尾回到温和待人和守住原则可以同时成立，不要滑成信任修复、回消息速度或关系控诉。"
+            )
+        if stage == "draft":
+            return (
+                "若策略包要求相处分寸三层推进，正文第一屏先落一个具体分寸现场：一句差点说重的话、"
+                "一次本来可以争到底却停下来的让步，或一次明知对方有难处而没有继续追问。"
+                "不要从信任裂开、回消息、点赞评论或情绪耗空起手，也不要先列‘慎言、让渡、知止’三个小标题。"
+                "中段沿着同一段相处经验自然推进：先写话怎样少伤一个人，再写让出细枝末节怎样给关系留余地，"
+                "最后写看透以后为什么选择停口、留体面，同时守住不可让的原则。"
+                "前六段至少保留两处动作、对话或停顿，让尺度从选择里长出来；结尾回到温和、边界和舒服相处，"
+                "不要收成圆滑世故、冷漠断联或三条说教。"
+            )
     if structure_mode == "trust_boundary":
         if stage == "outline":
             return (
@@ -6700,6 +6897,35 @@ def _build_tracked_article_strategy_first_draft_owner_instructions(
     return "".join(lines)
 
 
+def _build_complete_contract_draft_owner_instructions(
+    *,
+    tone_profile: Mapping[str, object] | None,
+    is_polish_mode: bool,
+) -> str:
+    if is_polish_mode:
+        lines = [
+            "当前任务是完整参考文章分析合同驱动的正文精修阶段。",
+            "分析合同、当前选题和正文已成立的事实是唯一创作边界；只修表达、推进和模板残留，不换题。",
+            "保留合同指定的现实入口、核心矛盾、推进力和情绪出口，优先打散匀速排比、整齐总结和过度解释。",
+            "不为显得具体而补入合同没有支持的人物、场景、关系、副主题或万能收尾；允许局部停顿、改口和没说满。",
+            "短句、金句和情绪价值都要从本文已有的动作、事实、判断或变化里长出来，不连续堆叠，不写成统一模板。",
+            "title 独立承担标题；body_markdown 直接从第一段正文开始，不重复标题、不另起副标题、不使用 # 或 ## 小标题。",
+        ]
+    else:
+        lines = [
+            "当前任务是完整参考文章分析合同驱动的正文首稿阶段。",
+            "分析合同、当前选题和大纲是唯一创作权威；先守住主题、核心矛盾、现实入口、推进力和情绪出口。",
+            "先执行合同指定的开头功能（场景、引用、判断、人物、阶段节点或关系接口等），再让判断从本篇材料里长出来；不要把所有文章统一成同一种开头和节拍。",
+            "段落长短和职责随主题变化，保留少量真实停顿与人话短句，但不要连续堆金句、排比或完整总结。",
+            "不引入合同没有支持的人物、场景、关系、副主题或万能收尾；正向力量必须从本文自己的主题里长出来。",
+            "正向力量从本文现实里长出，不统一导向某一种固定的受伤、关系或自我调节结论。",
+            "title 独立承担标题；body_markdown 直接从第一段正文开始，不重复标题、不另起副标题、不使用 # 或 ## 小标题。",
+        ]
+    if _is_jinwan_youyu_style(tone_profile):
+        lines.append("保持直接、温暖、有边界的表达，但不要让账号风格覆盖本篇参考文章自己的结构。")
+    return "".join(lines)
+
+
 def _build_tracked_article_analysis_contract_outline_owner_instructions(
     *,
     tone_profile: Mapping[str, object] | None,
@@ -6723,15 +6949,25 @@ def _build_tracked_article_analysis_contract_topic_owner_instructions(
     theme = _truncate_text(contract.theme or "上游分析合同指定的主题", max_length=120)
     conflict = _truncate_text(contract.core_conflict or "上游分析合同指定的核心矛盾", max_length=120)
     exit_hint = _truncate_text(contract.emotional_exit or "上游分析合同指定的情绪出口", max_length=120)
-    return (
+    instructions = (
         "当前任务是参考文章分析合同驱动的选题阶段。"
         f"主题必须留在：{theme}。核心矛盾必须留在：{conflict}。情绪出口必须留在：{exit_hint}。"
         "标题和切入角度必须另建入口，不能把参考文的开头对象、动作、人物、时间或对话当作选题素材。"
         "入口可以是引用、场景、人物、阶段节点、判断或关系接口，按当前主题重新选择，不把所有文章统一改成现实问题开场。"
-        "选题只压缩主题和新的观察角度，不新增合同没有支持的关系、身体、内耗、自救或放下副主题。"
+        "选题只压缩主题和新的观察角度，不新增分析合同没有支持的副主题。"
         "标题要有信息增量和情绪价值，角度只写清新的组织焦点，不为了原创距离故意换题。"
-        "至少换掉参考文入口的对象、动作、人物关系、时间和对话中的两项，先建立一个全新的现实入口。"
+        "至少改掉参考文进入方式中的两项（对象、动作、人物关系、时间、对话或组织顺序），"
+        "按分析合同指定的起笔功能重建一个新的内容入口。"
     )
+    structure_mode = _as_clean_text(contract.structure_mode)
+    if structure_mode == "social_boundaries":
+        instructions += (
+            "当前是慎言、让渡、知止主题。不要默认套家庭群、回消息、点赞评论、手机界面或信任裂开等旧入口；"
+            "可以从会议发言、家庭饭桌、朋友相处、合作取舍或看透后停口等新的现实接口中选择一个，"
+            "但必须保留慎言、让渡、知止三层之间的推进关系，不把开头改回任何固定模板，"
+            "不得把主题改写成信任修复或回应速度。"
+        )
+    return instructions
 
 
 def _build_focused_quality_retry_prompt(
@@ -6757,7 +6993,7 @@ def _build_focused_quality_retry_prompt(
             f"开头职责为{_as_clean_text(execution_surface.get('opening_pattern')) or '合同指定的起笔方式'}；"
             f"中段推进为{_as_clean_text(execution_surface.get('progression_drive')) or '合同指定的现实推进'}；"
             f"转发价值为{_as_clean_text(execution_surface.get('share_reason')) or '合同指定的主题价值'}。"
-            "只修正文质量，不把开头改回固定消息、关系或内耗模板。"
+            "只修正文质量，不把开头改回任何固定模板。"
         )
     target_wording = _render_draft_target_wording(tone_profile, payload=payload)
     instructions = (
@@ -6823,6 +7059,10 @@ def _build_tracked_article_timeout_recovery_requirement(payload: Mapping[str, ob
         return "守住心安、从容和把心安放回日常这条线，不要改成关系试探、工作崩溃或身体告警。"
     if _has_self_reliance_inward_support_focus(payload):
         return "守住向内求、自救自渡和先把自己稳住这条线，不要改成没人回应或单一关系冷落。"
+    if _as_clean_text(payload.get("structure_mode")) == "social_boundaries" or _as_clean_text(
+        (payload.get("strategy_card") or {}).get("structure_mode") if isinstance(payload.get("strategy_card"), Mapping) else ""
+    ) == "social_boundaries":
+        return "守住慎言、让渡、知止带来的相处分寸，写温和与原则如何同时成立，不要改成信任修复、回消息或情绪耗空。"
     if _has_response_priority_focus(payload):
         return "守住被认真回应、被读懂和双向在意这条线，不要只写发消息等回复。"
     if _has_supportive_appreciation_focus(payload):
@@ -6920,7 +7160,11 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
                 "返回 JSON：hook, outline_body。"
             ),
         )
-    style_section = render_tone_profile_section(tone_profile)
+    # A complete analysis contract already carries the reference expression
+    # profile and strategy-owned audience constraints. Repeating the generic
+    # tone profile here only spends tokens and can pull distinct topics back
+    # toward one shared account style.
+    style_section = "" if complete_analysis_contract else render_tone_profile_section(tone_profile)
     preset_stage_instructions = (
         _build_tracked_article_analysis_contract_outline_owner_instructions(
             tone_profile=tone_profile,
@@ -6995,9 +7239,18 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
     outline_task_brief = (
         "请基于当前选题和上游参考文章分析合同，输出一份只服务本篇主题的公众号文章大纲。"
-        "题材以分析合同为准，不预设成女性情感、亲密关系、内耗或励志模板。"
+        "题材以分析合同为准，不预设成任何固定赛道或统一情绪模板。"
         if complete_analysis_contract
         else "请基于给定选题，输出一个适合女性情感成长公众号的文章大纲。"
+    )
+    outline_return_instructions = (
+        "返回 JSON：hook（一句话情绪钩子）和 outline_body（4 到 6 段 markdown 大纲，每段 1 行）。"
+        if complete_analysis_contract
+        else (
+            "返回：\n"
+            "1. 一个 1 句话的情绪钩子 hook\n"
+            "2. 一个 4 到 6 段的 markdown 大纲 outline_body（每段 1 行，单段尽量不超过 40 字）"
+        )
     )
     return PromptTemplate(
         instructions=build_stage_instructions(
@@ -7025,19 +7278,22 @@ def build_outline_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         + recomposition_recipe_instructions
         + reference_article_instructions,
         prompt=(
-            f"趋势标题：{payload['trend_title']}\n"
-            f"选题标题：{payload['topic_title']}\n"
+            (
+                f"选题标题：{payload['topic_title']}\n"
+                if complete_analysis_contract
+                else f"趋势标题：{payload['trend_title']}\n选题标题：{payload['topic_title']}\n"
+            )
+            +
             f"{_render_topic_angle_context(payload, stage='outline')}"
-            f"项目标题：{payload['project_title']}\n\n"
+            + (f"项目标题：{payload['project_title']}\n\n" if not complete_analysis_contract else "")
+            +
             f"{reference_article_section}"
             f"{post_strategy_reference_boundary}\n"
             f"{theme_first_execution_card}"
             f"{strategy_package_section}"
             f"{style_section}"
             f"{target_wording}"
-            "返回：\n"
-            "1. 一个 1 句话的情绪钩子 hook\n"
-            "2. 一个 4 到 6 段的 markdown 大纲 outline_body（每段 1 行，单段尽量不超过 40 字）"
+            f"{outline_return_instructions}"
         ),
     )
 
@@ -7053,7 +7309,7 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         if isinstance(raw_tone_profile, Mapping)
         else None
     )
-    style_section = render_tone_profile_section(tone_profile)
+    style_section = "" if complete_analysis_contract else render_tone_profile_section(tone_profile)
     preset_stage_instructions = (
         ""
         if complete_analysis_contract
@@ -7093,6 +7349,7 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         analysis_share_reason = _as_clean_text(payload.get("analysis_share_reason"))
         analysis_do_not_turn_into = _as_clean_text(payload.get("analysis_do_not_turn_into"))
         analysis_content_pillars = _as_content_pillars(payload.get("analysis_content_pillars"))
+        analysis_expression_profile = _resolve_expression_profile(payload)
         if complete_analysis_contract:
             source_prompt = (
                 "来源类型：tracked_article\n"
@@ -7103,9 +7360,10 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
                 f"结构模式：{analysis_structure_mode or '无'}\n"
                 f"偏题边界：{analysis_do_not_turn_into or '无'}\n"
                 f"内容支柱：{' / '.join(analysis_content_pillars) or '无'}\n"
+                f"表达风格指纹：{' / '.join(analysis_expression_profile) or '无'}\n"
                 "如果内容支柱多于一层，选题角度要保留它们之间的推进关系，不要只抓一条支柱改成单一鸡汤主题。\n"
-                "新入口要求：另建一个属于当前选题的动作、物件、场所、人物关系或选择，"
-                "不要把参考文的具体入口当作选题素材。\n"
+                "内容入口要求：按分析合同指定的起笔方式，另建一个属于当前选题的引用、判断、"
+                "人物、阶段节点、关系接口、动作、物件、场所或选择，不要把参考文的具体入口当作选题素材。\n"
             )
         else:
             source_prompt = (
@@ -7126,6 +7384,7 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
                 f"转发理由：{analysis_share_reason or '无'}\n"
                 f"不要写成：{analysis_do_not_turn_into or '无'}\n"
                 f"内容支柱：{' / '.join(analysis_content_pillars) or '无'}\n"
+                f"表达风格指纹：{' / '.join(analysis_expression_profile) or '无'}\n"
                 f"标签：{' / '.join(payload.get('tags') or []) or '无'}\n"
                 f"{body_cue_section}"
             )
@@ -7146,7 +7405,7 @@ def build_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         )
         topic_task_brief = (
             "请基于上游参考文章分析合同，提炼出一个与合同主题一致、但现实入口和组织方式全新的公众号原创选题。"
-            "题材以分析合同为准，不预设成女性情感、亲密关系、内耗、自救或励志稿。"
+            "题材以分析合同为准，不预设成任何固定赛道或统一情绪稿。"
             if complete_analysis_contract
             else "请基于参考文章提炼出一个可直接立项的女性情感成长类原创选题。"
         )
@@ -7204,13 +7463,6 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     outline = payload["outline"]
     complete_analysis_contract = _has_tracked_article_analysis_contract(payload)
     strategy_card = payload.get("strategy_card")
-    complete_contract_responsibility_guidance = False
-    if complete_analysis_contract and isinstance(strategy_card, Mapping):
-        structure_mode = _as_clean_text(strategy_card.get("structure_mode"))
-        complete_contract_responsibility_guidance = structure_mode == "responsibility_shelter" or (
-            structure_mode == "everyday_warmth_return"
-            and _has_everyday_warmth_responsibility_shelter_focus(payload)
-        )
     review_comment = _as_clean_text(payload.get("review_comment"))
     raw_polish_instruction = _as_clean_text(payload.get("polish_instruction"))
     current_draft = payload.get("draft")
@@ -7257,17 +7509,24 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         tone_profile=tone_profile,
         payload=payload,
     )
-    style_section = render_tone_profile_section(tone_profile)
+    style_section = "" if complete_analysis_contract else render_tone_profile_section(tone_profile)
     preset_stage_instructions = (
         ""
         if timeout_recovery_mode
         else (
-            _build_tracked_article_strategy_first_draft_owner_instructions(tone_profile=tone_profile)
-            if strategy_first_draft_mode
-            else _build_jinwan_youyu_stage_instructions(
-                stage="draft",
+            _build_complete_contract_draft_owner_instructions(
                 tone_profile=tone_profile,
-                payload=payload,
+                is_polish_mode=is_polish_mode,
+            )
+            if complete_analysis_contract
+            else (
+                _build_tracked_article_strategy_first_draft_owner_instructions(tone_profile=tone_profile)
+                if strategy_first_draft_mode
+                else _build_jinwan_youyu_stage_instructions(
+                    stage="draft",
+                    tone_profile=tone_profile,
+                    payload=payload,
+                )
             )
         )
     )
@@ -7291,7 +7550,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
     content_skill_instructions = (
         ""
-        if timeout_recovery_mode
+        if timeout_recovery_mode or complete_analysis_contract
         else build_content_skill_instructions(stage="draft", payload=payload)
     )
     target_wording = _render_draft_target_wording(tone_profile, payload=payload)
@@ -7319,7 +7578,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
     strategy_resonance_instructions = (
         ""
-        if timeout_recovery_mode
+        if timeout_recovery_mode or complete_analysis_contract
         else _build_strategy_resonance_instructions(
             payload,
             stage="draft",
@@ -7333,7 +7592,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
     original_expression_instructions = (
         ""
-        if timeout_recovery_mode or strategy_first_draft_mode
+        if timeout_recovery_mode or complete_analysis_contract or strategy_first_draft_mode
         else _build_original_expression_instructions(
             stage="draft",
             compact=compact_strategy_mode,
@@ -7341,7 +7600,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
     humanizer_zh_review_instructions = (
         ""
-        if timeout_recovery_mode or strategy_first_draft_mode
+        if timeout_recovery_mode or complete_analysis_contract or strategy_first_draft_mode
         else _build_humanizer_zh_review_instructions(
             stage="draft",
             compact=compact_strategy_mode and not is_polish_mode,
@@ -7349,19 +7608,19 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     )
     tracked_article_structure_priority_instructions = (
         ""
-        if timeout_recovery_mode
+        if timeout_recovery_mode or complete_analysis_contract
         else _build_tracked_article_structure_priority_instructions(payload, stage="draft")
     )
     ai_flavor_risk_instructions = (
         ""
-        if timeout_recovery_mode or strategy_first_draft_mode
+        if timeout_recovery_mode or complete_analysis_contract or strategy_first_draft_mode
         else _build_localized_ai_flavor_risk_instructions(
             compact=compact_strategy_mode and not is_polish_mode
         )
     )
     wechat_public_account_instructions = (
         ""
-        if timeout_recovery_mode or strategy_first_draft_mode
+        if timeout_recovery_mode or complete_analysis_contract or strategy_first_draft_mode
         else _build_wechat_public_account_draft_instructions(
             compact=compact_strategy_mode
         )
@@ -7369,7 +7628,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
     timeout_recovery_instructions = _build_timeout_recovery_draft_instructions(payload)
     structure_mode_instructions = (
         ""
-        if timeout_recovery_mode or (complete_analysis_contract and not complete_contract_responsibility_guidance)
+        if timeout_recovery_mode or complete_analysis_contract
         else _build_structure_mode_instructions(payload, stage="draft")
     )
     recomposition_recipe_instructions = (
@@ -7419,7 +7678,7 @@ def build_draft_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         )
     if complete_analysis_contract:
         task_brief = (
-            "本篇题材、现实入口和情绪回报以分析合同为准，不预设成女性情感、亲密关系、内耗、自救或励志模板。"
+            "本篇题材、现实入口和情绪回报以分析合同为准，不预设成任何固定赛道或统一情绪模板。"
             + task_brief
         )
 
@@ -7531,7 +7790,7 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         if isinstance(raw_tone_profile, Mapping)
         else None
     )
-    style_section = render_tone_profile_section(tone_profile)
+    style_section = "" if complete_analysis_contract else render_tone_profile_section(tone_profile)
     preset_stage_instructions = (
         ""
         if complete_analysis_contract
@@ -7582,9 +7841,14 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         if complete_analysis_contract
         else build_content_skill_instructions(stage="assets", payload=payload)
     )
-    dbskill_assets_instructions = "".join(get_dbskill_rule_lines("assets", "extra_instructions"))
+    dbskill_assets_instructions = (
+        ""
+        if complete_analysis_contract
+        else "".join(get_dbskill_rule_lines("assets", "extra_instructions"))
+    )
     responsibility_shelter_packaging_instructions = (
         "如果当前题材是责任托家回温稿，标题、封面文案和导语优先写成当场会冒出来的人话，不要先替读者总结意义。"
+        "标题必须出现具体痛点、代价或冲突，不能只有场景动作或抽象结论。"
         "标题优先抓电话响了、门口停住、先翻日历、先排顺序这类现实动作，少写回看型总结句。"
         "标题也尽量别用先讲判断再回收的句式。"
         "标题尽量少用抽象比喻词，比如定盘星、灯塔、港湾、底气、铠甲这类先把人抬高的词。"
@@ -7612,6 +7876,27 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         if review_comment
         else ""
     )
+    assets_field_instructions = (
+        "返回：\n"
+        "1. 3 个标题备选 title_options（每条都必须写出读者正在承受的具体痛点、代价或冲突；不能只有场景、动作或抽象判断）\n"
+        "标题中的“离开、想念、关系结束、独自、回忆、后来”等主题词本身不算痛点；必须再写出留不住、放不下、被困住、继续承受的具体代价或冲突。\n"
+        "2. 1 条主推标题 recommended_title（必须从 title_options 中选）\n"
+        "3. 1 条封面图提示词 cover_prompt\n"
+        "4. 1 条封面文案 cover_copy\n"
+        "5. 1 条主社媒导语 social_teaser\n"
+        "6. 3 条导语候选 social_teaser_options"
+        if complete_analysis_contract
+        else (
+            "返回：\n"
+            "1. 3 个标题备选 title_options（每条都必须写出读者正在承受的具体痛点、代价或冲突；不要套反问翻转、痛点翻转或双重否定翻转这类模板骨架；不要用“很多人”“有些人”“总有人”这类泛主语起手；优先具体节点、误判或动作入口；至少有 1 条明显贴着策略包里的包装抓手）\n"
+            "标题中的“离开、想念、关系结束、独自、回忆、后来”等主题词本身不算痛点；必须再写出留不住、放不下、被困住、继续承受的具体代价或冲突。\n"
+            "2. 1 条主推标题 recommended_title（必须从 title_options 中选，且必须明确点出痛点或代价；优先最适合直接发布的一条；不要选最像模板答案句的那条）\n"
+            "3. 1 条封面图提示词 cover_prompt\n"
+            "4. 1 条封面文案 cover_copy（优先短到一眼能截住人，少解释，像一句现场会冒出来的话）\n"
+            "5. 1 条主社媒导语 social_teaser（不要只概述正文，要带一个明确入口或回正落点；优先像真人顺口说出来的开场，不要写成解释文案；首句优先短句化）\n"
+            "6. 3 条导语候选 social_teaser_options（短句优先，彼此要有区分；不要用群体概括句起手；如果必须群体概括，只能放句中，开头要先给具体入口或动作；首句优先短句化）"
+        )
+    )
     return PromptTemplate(
         instructions=build_stage_instructions(
             role="包装编辑",
@@ -7635,10 +7920,17 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
         + "封面图提示词必须服务于 16:9 横版公众号头图。"
         + "禁止输出竖版、9:16、手机海报、竖构图或会导致上下裁切的画幅描述。",
         prompt=(
-            f"趋势标题：{payload['trend_title']}\n"
-            f"选题标题：{payload['topic_title']}\n"
-            f"切入角度：{payload['topic_angle']}\n"
-            f"项目标题：{payload['project_title']}\n"
+            (
+                f"项目标题：{payload['project_title']}\n"
+                if complete_analysis_contract
+                else (
+                    f"趋势标题：{payload['trend_title']}\n"
+                    f"选题标题：{payload['topic_title']}\n"
+                    f"切入角度：{payload['topic_angle']}\n"
+                    f"项目标题：{payload['project_title']}\n"
+                )
+            )
+            +
             f"{post_strategy_reference_boundary}\n"
             f"{theme_first_execution_card}"
             f"{strategy_package_section}"
@@ -7652,13 +7944,7 @@ def build_assets_prompt(payload: Mapping[str, object]) -> PromptTemplate:
             "3. 禁止出现竖版、9:16、手机海报、竖构图等冲突词\n"
             "4. 封面默认不要手机聊天界面、输入框或消息气泡；如果手机作为道具，只画人在看手机或握着手机，屏幕可以暗掉、虚化或背向镜头，不展示可读聊天内容；不要把聊天界面画在手机背面，不要生成双面手机、前后双屏手机或背面屏幕，不要让后摄模组和屏幕 UI 同时出现在同一可见面上；任何屏幕都必须正常朝向，不要镜像、反字、反向 UI，也不要生成可辨认乱码文字\n"
             "5. 用场景、人物状态、光线和留白描述画面，不要把长文案直接写进图里\n"
-            "返回：\n"
-            "1. 3 个标题备选 title_options（不要套反问翻转、痛点翻转或双重否定翻转这类模板骨架；不要用“很多人”“有些人”“总有人”这类泛主语起手；优先具体节点、误判或动作入口；至少有 1 条明显贴着策略包里的包装抓手）\n"
-            "2. 1 条主推标题 recommended_title（必须从 title_options 中选，优先最适合直接发布的一条；不要选最像模板答案句的那条）\n"
-            "3. 1 条封面图提示词 cover_prompt\n"
-            "4. 1 条封面文案 cover_copy（优先短到一眼能截住人，少解释，像一句现场会冒出来的话）\n"
-            "5. 1 条主社媒导语 social_teaser（不要只概述正文，要带一个明确入口或回正落点；优先像真人顺口说出来的开场，不要写成解释文案；首句优先短句化）\n"
-            "6. 3 条导语候选 social_teaser_options（短句优先，彼此要有区分；不要用群体概括句起手；如果必须群体概括，只能放句中，开头要先给具体入口或动作；首句优先短句化）"
+            f"{assets_field_instructions}"
         ),
     )
 
@@ -7744,6 +8030,7 @@ def build_tracked_article_metadata_prompt(payload: Mapping[str, object]) -> Prom
         + "开头触发点要写出原文第一下最容易把人停住的现实接口、物件、问句或画面，不要写成空泛的“很有代入感”。"
         + "中段推进力要写出文章靠什么一路往前推，比如误判被点破、代价被看见、被爱托住或关系意义被重估。"
         + "转发理由要说明它为什么容易让人觉得“这说的就是我”或“这段话我想发给谁看”，要具体，不要只写“有共鸣”。"
+        + "表达风格指纹 analysis_expression_profile 要输出 3 到 5 条短句，分别记录原文的叙事形态、句段节奏、案例/引用/判断的配比、金句长法或结尾回收方式。它只描述表达方法，不复述主题，不要写成“语言优美”“有共鸣”这类空话。"
         + "结构模式只能从这些值里选一个：fragment_chain_observation / pressure_interface_direct / everyday_warmth_return / inner_settlement / self_worth_rebuild / self_reliance_inward_support / response_priority / trust_boundary / supportive_appreciation / relationship_aftercare / resilience_reconstruction / emotional_engine_direct / scene_first_progression。"
         + "如果原文重心是成年人把一家人的安稳放在心上，最后落回家里仍有灯、有回应、辛苦慢慢变成踏实，这也属于 everyday_warmth_return，不要误判成泛放下稿。"
         + "开头方式要说明原文如何起笔，例如从生活接口、关系现场、判断句、引用或身体信号切入。"
@@ -7776,13 +8063,71 @@ def build_tracked_article_metadata_prompt(payload: Mapping[str, object]) -> Prom
             "11. 转发理由 analysis_share_reason\n"
             "12. 偏题边界 analysis_do_not_turn_into\n"
             "13. 内容支柱 analysis_content_pillars（数组，2 到 4 条）\n"
-            "14. 标签 tags"
+            "14. 表达风格指纹 analysis_expression_profile（数组，3 到 5 条）\n"
+            "15. 标签 tags"
         ),
+    )
+
+
+def build_tracked_article_analysis_topic_prompt(payload: Mapping[str, object]) -> PromptTemplate:
+    """Analyze a reference article and choose its next topic in one request."""
+    metadata_template = build_tracked_article_metadata_prompt(payload)
+    return PromptTemplate(
+        instructions=(
+            metadata_template.instructions
+            + "当前是完整参考文分析到选题的一次性请求。"
+            + "先完成分析合同，再基于同一份分析合同生成一个主题一致、入口全新的原创选题。"
+            + "不要把选题标题和角度写成分析字段的重复摘要，也不要跳过分析直接套熟悉的情感模板。"
+            + "选题标题要能直接立项，切入角度控制在 40 到 80 个汉字，必须保留分析合同的主题、核心矛盾和正向出口。"
+        ),
+        prompt=(
+            metadata_template.prompt.rsplit("返回：\n", 1)[0]
+            + "返回：\n"
+            + "1. 作者 author\n"
+            + "2. 摘要 summary\n"
+            + "3. 结构备注 structure_notes\n"
+            + "4. 分析主题 analysis_theme\n"
+            + "5. 核心矛盾 analysis_core_conflict\n"
+            + "6. 情绪出口 analysis_emotional_exit\n"
+            + "7. 结构模式 analysis_structure_mode\n"
+            + "8. 开头方式 analysis_opening_pattern\n"
+            + "9. 开头触发点 analysis_hook_trigger\n"
+            + "10. 中段推进力 analysis_progression_drive\n"
+            + "11. 转发理由 analysis_share_reason\n"
+            + "12. 偏题边界 analysis_do_not_turn_into\n"
+            + "13. 内容支柱 analysis_content_pillars（数组，2 到 4 条）\n"
+            + "14. 表达风格指纹 analysis_expression_profile（数组，3 到 5 条）\n"
+            + "15. 标签 tags\n"
+            + "16. 新选题标题 topic_title\n"
+            + "17. 新选题角度 topic_angle"
+        ),
+    )
+
+
+def _reference_has_digital_contact_interface(payload: Mapping[str, object]) -> bool:
+    reference_text = " ".join(
+        _as_clean_text(payload.get(key))
+        for key in (
+            "reference_article_title",
+            "reference_article_summary",
+            "reference_article_structure_notes",
+            "reference_article_body_markdown",
+        )
+        if _as_clean_text(payload.get(key))
+    )
+    return any(
+        marker in reference_text
+        for marker in ("手机", "短信", "微信", "聊天", "消息", "电话", "来电", "朋友圈", "对话框")
     )
 
 
 def build_cover_image_prompt(payload: Mapping[str, object]) -> str:
     strategy_card = payload.get("strategy_card")
+    no_digital_contact_scene = (
+        _as_clean_text(payload.get("source_type")) == "tracked_article"
+        and _has_tracked_article_analysis_contract(payload)
+        and not _reference_has_digital_contact_interface(payload)
+    )
     responsibility_shelter_cover_focus = (
         not _has_tracked_article_analysis_contract(payload)
         and (
@@ -7797,6 +8142,16 @@ def build_cover_image_prompt(payload: Mapping[str, object]) -> str:
         "不要只把手机远远丢在桌角，也不要被手、纸张或桌面杂物挡到几乎看不见。"
     ) if responsibility_shelter_cover_focus else ""
 
+    digital_scene_instructions = (
+        "当前参考文没有手机、短信、微信、聊天、消息、电话或来电接口，封面不得出现手机或任何聊天设备；"
+        "请优先使用自然环境、实体物件、人物动作和空间留白表达主题。"
+        if no_digital_contact_scene
+        else (
+            "如果手机作为道具，只画人在看手机、拿着手机或手机放在桌边；屏幕可以暗掉、虚化、侧过去或背向镜头。"
+            "即使原始创意提示词提到聊天界面，也要改成无可读屏幕内容的看手机场景。"
+            "不要把聊天界面画在手机背面，不要生成双面手机、前后双屏手机或背面屏幕，不要让后摄像头模组和屏幕 UI 同时出现在同一可见面上。"
+        )
+    )
     return (
         "请生成适合公众号头图的横版封面图，目标视觉比例为 16:9。"
         "主体信息放在画面中部安全区，避免关键人物或文字落在上下裁切边缘。"
@@ -7805,9 +8160,7 @@ def build_cover_image_prompt(payload: Mapping[str, object]) -> str:
         "人物可以是侧身、背身、低头或面部被自然遮挡，但整体气质要像真实回家、真实停顿，而不是抽象符号。"
         "封面默认不要手机聊天界面、输入框、消息气泡或可读屏幕文字。"
         f"{responsibility_shelter_phone_requirement}"
-        "如果手机作为道具，只画人在看手机、拿着手机或手机放在桌边；屏幕可以暗掉、虚化、侧过去或背向镜头。"
-        "即使原始创意提示词提到聊天界面，也要改成无可读屏幕内容的看手机场景。"
-        "不要把聊天界面画在手机背面，不要生成双面手机、前后双屏手机或背面屏幕，不要让后摄像头模组和屏幕 UI 同时出现在同一可见面上。"
+        f"{digital_scene_instructions}"
         "任何屏幕都必须保持正常朝向，不要镜像翻转，不要反字，不要生成可辨认乱码文字。"
         f"\n原始创意提示词：{payload['cover_prompt']}"
     )
@@ -7826,7 +8179,7 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
         if isinstance(raw_tone_profile, Mapping)
         else None
     )
-    style_section = render_tone_profile_section(tone_profile)
+    style_section = "" if complete_analysis_contract else render_tone_profile_section(tone_profile)
     preset_stage_instructions = (
         ""
         if complete_analysis_contract
@@ -7877,9 +8230,14 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
         if complete_analysis_contract
         else build_content_skill_instructions(stage="publish_package", payload=payload)
     )
-    dbskill_publish_instructions = "".join(get_dbskill_rule_lines("publish_package", "extra_instructions"))
+    dbskill_publish_instructions = (
+        ""
+        if complete_analysis_contract
+        else "".join(get_dbskill_rule_lines("publish_package", "extra_instructions"))
+    )
     responsibility_shelter_publish_instructions = (
         "如果当前题材是责任托家回温稿，发布标题和导语优先保住那种先稳住家里、再轮到自己开口的口气。"
+        "最终发布标题必须明确写出读者正在承受的具体痛点、代价或冲突。"
         "标题不要写成大而整齐的总结句，优先保留一个现实动作、当场停顿或顺手先做的事。"
         "标题尽量短，优先 8 到 14 个字左右，别做成长句收口。"
         "publish_lead 和 intro_options 优先像人站在具体现场处理事情时会说出来的话，少写作者替读者总结的句子。"
@@ -7895,12 +8253,14 @@ def build_publish_package_prompt(payload: Mapping[str, object]) -> PromptTemplat
         else ""
     )
     publish_field_instructions = (
-        "2. 最终发布标题 publish_title（从已有标题备选中选择或微调，保持正文主线，不引入新主题或统一模板）\n"
+        "2. 最终发布标题 publish_title（从已有标题备选中选择或微调，必须明确写出读者正在承受的具体痛点、代价或冲突；保持正文主线，不引入新主题或统一模板）\n"
+        "发布标题不能只复述“关系结束后会想念、一个人继续生活”这类主题说明，必须让读者一眼看见自己正在承受的那一下。\n"
         "3. 最终发布导语 publish_lead（适合微信正文前的简短导语，像真人写的开场；保留本文自己的入口和正向出口，不写编辑说明）\n"
         "4. 3 条导语候选 intro_options（和 publish_lead 同主题但不要重复；可以分别抓动作、判断、引用或情绪回落，按本文主线区分）\n"
         if complete_analysis_contract
         else (
-            "2. 最终发布标题 publish_title（优先基于标题备选微调，不要另起完全无关的新标题；不要套反问翻转、痛点翻转或双重否定翻转这类模板骨架；不要用“很多人”“有些人”“总有人”这类泛主语起手；责任类题材尤其优先动作型、现场型、停顿型标题，不要先讲道理；可以从来电、门口、日历、接送、请假、回家或开销等现实入口里选择，但必须跟正文主场景一致；不要写成回环句、总括前缀或总结句）\n"
+            "2. 最终发布标题 publish_title（最终发布标题必须明确写出读者正在承受的具体痛点、代价或冲突；优先基于标题备选微调，不要另起完全无关的新标题；不要套反问翻转、痛点翻转或双重否定翻转这类模板骨架；不要用“很多人”“有些人”“总有人”这类泛主语起手；责任类题材尤其优先动作型、现场型、停顿型标题，不要先讲道理；可以从来电、门口、日历、接送、请假、回家或开销等现实入口里选择，但必须跟正文主场景一致；不要写成回环句、总括前缀或总结句）\n"
+            "发布标题不能只复述“关系结束后会想念、一个人继续生活”这类主题说明，必须让读者一眼看见自己正在承受的那一下。\n"
             "3. 最终发布导语 publish_lead（适合微信正文前的简短导语，尽量像真人写的开场；不要写成编辑说明；要有入口，也要带回正落点；优先保留口语停顿和现场感，不要先替读者下总结；首句优先短句化；责任类题材优先先写正文已经成立的现场动作，再落一点情绪，不要先抽象概括辛苦）\n"
             "4. 3 条导语候选 intro_options（用于正文开头前的导语备选，和 publish_lead 保持同主题但不要完全重复；优先短句，允许口语停顿，不要整齐三段论；不要用群体概括句起手；如果必须群体概括，只能放句中，开头要先给具体入口或动作；首句优先短句化；责任类题材里，先给现场动作，再给轻一点的回落；少用“托稳”“底气”“定盘星”这种太整齐的词；封面文案也不要和标题重复）\n"
         )

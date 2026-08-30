@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "requestedOutcome": "每天21:00从指定公众号抓取最新1篇，改写、排版并写入公众号草稿箱，支持跨平台运行",
+  "goal": "建立可持久化、可恢复、只写草稿不群发的公众号自动化流程",
+  "successEvidence": [
+    "feature spec获用户审阅；后续实现通过调度、幂等、会话过期、失败恢复和草稿写入测试"
+  ],
+  "stopCondition": "完成、需要验证、阻塞或超出范围时停止；不自动群发，不覆盖现有脏改动",
+  "nonGoals": [
+    "Windows专属任务计划、多账号权限系统、公众号自动群发、无限重试"
+  ],
+  "scope": "跨平台调度、公众号订阅配置、抓取游标、自动改写排版、草稿写入、管理界面与验证",
+  "changeKinds": [
+    "architecture-contract-cross-module"
+  ],
+  "riskHints": [
+    "涉及持久化配置、跨进程调度、扫码会话和外部草稿写入；需防重复处理与会话过期"
+  ]
+}

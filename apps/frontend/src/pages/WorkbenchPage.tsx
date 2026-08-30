@@ -8,10 +8,12 @@ import {
   diagnoseDraft,
   fetchBackgroundTask,
   buildPublishPackageInBackground,
+  publishWechatMpDraftInBackground,
   fetchDomainPacks,
   fetchProjectDetail,
   fetchProjectVersions,
   fetchToneProfiles,
+  fetchWechatMpHtmlStyles,
   generateAssets,
   generateCreativeReviewReport,
   generateDraft,
@@ -34,6 +36,7 @@ import {
   type ProjectDetail,
   type ProjectRetroCreatePayload,
   type ToneProfileItem,
+  type WechatMpHtmlStyleItem,
   type ProjectVersions,
 } from "../api/workbench";
 import { WORKBENCH_STAGES, type WorkbenchStage } from "../app/navigation";
@@ -62,7 +65,14 @@ import { buildWorkbenchStageViews, resolveRecommendedWorkbenchStage } from "../v
 type WorkbenchLoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; detail: ProjectDetail; versions: ProjectVersions; domainPacks: DomainPackSummary[]; toneProfiles: ToneProfileItem[] };
+  | {
+      status: "ready";
+      detail: ProjectDetail;
+      versions: ProjectVersions;
+      domainPacks: DomainPackSummary[];
+      toneProfiles: ToneProfileItem[];
+      wechatHtmlStyles: WechatMpHtmlStyleItem[];
+    };
 
 function formatCoverRouteLabel(value?: string | null): string {
   if (value === "primary") {
@@ -176,7 +186,19 @@ function buildStageContent(stage: WorkbenchStage, detail: ProjectDetail): { titl
           : detail.project.stage === "revision_requested" || detail.project.current_publish_package_version == null
             ? `链路回退中：${formatProjectChainStateLabel(detail.project.current_chain_state)}`
             : "暂无审核意见",
-    ],
+      detail.publish_package?.wechat_mp_draft_status === "published"
+        ? `公众号草稿：已写入${detail.publish_package.wechat_mp_draft_published_at ? `（${detail.publish_package.wechat_mp_draft_published_at}）` : ""}`
+        : detail.publish_package?.wechat_mp_draft_status === "failed"
+          ? "公众号草稿：上次写入失败，可重试"
+          : detail.publish_package?.wechat_mp_draft_status === "publishing"
+            ? "公众号草稿：正在写入"
+            : detail.publish_package?.wechat_mp_draft_status === "not_published"
+            ? "公众号草稿：尚未写入"
+            : null,
+      detail.publish_package?.wechat_html_style_name
+        ? `公众号排版：${detail.publish_package.wechat_html_style_name}（${detail.publish_package.wechat_html_style_source === "manual" ? "指定" : "智能"}）`
+        : null,
+    ].filter((item): item is string => Boolean(item)),
   };
 }
 
@@ -291,12 +313,34 @@ function renderSimpleMarkdown(markdown: string): ReactNode {
   return nodes;
 }
 
-function renderPreviewBlockBody(block: { content: string; kind?: "text" | "markdown" | "image"; imageUrl?: string }): ReactNode {
+function renderPreviewBlockBody(block: {
+  content: string;
+  kind?: "text" | "markdown" | "image" | "html";
+  imageUrl?: string;
+  htmlUrl?: string;
+  label?: string;
+}): ReactNode {
   if (block.kind === "image" && block.imageUrl) {
     return (
       <figure className="workbench-preview__image-frame">
         <img src={block.imageUrl} alt="生成的封面图" className="workbench-preview__image" />
       </figure>
+    );
+  }
+
+  if (block.kind === "html" && block.htmlUrl) {
+    return (
+      <div className="workbench-preview__html-frame">
+        <iframe
+          className="workbench-preview__html"
+          src={block.htmlUrl}
+          title={block.label ?? "公众号排版预览"}
+          sandbox="allow-same-origin"
+        />
+        <a className="workspace-inline-toggle" href={block.htmlUrl} target="_blank" rel="noreferrer">
+          新窗口打开预览
+        </a>
+      </div>
     );
   }
 
@@ -321,6 +365,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
   const [isConfigExpanded, setIsConfigExpanded] = useState(false);
   const [domainPackDraft, setDomainPackDraft] = useState("");
   const [toneProfileDraft, setToneProfileDraft] = useState("");
+  const [wechatHtmlStyleDraft, setWechatHtmlStyleDraft] = useState("");
   const [savingConfig, setSavingConfig] = useState(false);
   const historySectionRef = useRef<HTMLElement | null>(null);
   const [activeBackgroundTask, setActiveBackgroundTask] = useState<{
@@ -338,13 +383,20 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     let isCancelled = false;
     setLoadState({ status: "loading" });
 
-    Promise.all([fetchProjectDetail(projectSlug), fetchProjectVersions(projectSlug), fetchDomainPacks(), fetchToneProfiles()])
-      .then(([detail, versions, domainPacks, toneProfiles]) => {
+    Promise.all([
+      fetchProjectDetail(projectSlug),
+      fetchProjectVersions(projectSlug),
+      fetchDomainPacks(),
+      fetchToneProfiles(),
+      fetchWechatMpHtmlStyles(),
+    ])
+      .then(([detail, versions, domainPacks, toneProfiles, wechatHtmlStyles]) => {
         if (!isCancelled) {
-          setLoadState({ status: "ready", detail, versions, domainPacks, toneProfiles });
+          setLoadState({ status: "ready", detail, versions, domainPacks, toneProfiles, wechatHtmlStyles });
           setRetroDraft(buildRetroDraft(detail.retro));
           setDomainPackDraft(detail.project.domain_pack_key ?? "");
           setToneProfileDraft(detail.project.preferred_tone_profile_id == null ? "" : String(detail.project.preferred_tone_profile_id));
+          setWechatHtmlStyleDraft(detail.project.preferred_wechat_html_style_key ?? "");
         }
       })
       .catch((error: unknown) => {
@@ -528,6 +580,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     ? getWorkbenchBackgroundTaskStatusMessage(activeBackgroundTask.submission.job_type, activeBackgroundTaskStatus)
     : null;
   const activeBackgroundTaskIsCoverRegeneration = activeBackgroundTask?.submission.job_type === "regenerate_cover_image";
+  const activeBackgroundTaskIsWechatDraftPublish = activeBackgroundTask?.submission.job_type === "publish_wechat_mp_draft";
   const activeBackgroundTaskShouldShowImageRouteLink =
     activeBackgroundTaskStatus === "failed" &&
     (activeBackgroundTaskIsCoverRegeneration ||
@@ -549,7 +602,8 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
   const nextToneProfileId = toneProfileDraft ? Number.parseInt(toneProfileDraft, 10) : null;
   const hasConfigChanged =
     (loadState.detail.project.domain_pack_key ?? "") !== domainPackDraft ||
-    hasProjectToneProfileSelectionChanged(loadState.detail.project, nextToneProfileId);
+    hasProjectToneProfileSelectionChanged(loadState.detail.project, nextToneProfileId) ||
+    (loadState.detail.project.preferred_wechat_html_style_key ?? "") !== wechatHtmlStyleDraft;
   const activeProjectToneProfile =
     loadState.toneProfiles.find((profile) => profile.id === nextToneProfileId) ??
     loadState.toneProfiles.find((profile) => profile.is_active) ??
@@ -565,18 +619,24 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
     activeProjectToneProfile,
     currentDiagnosisReport?.recommended_polish_instruction || referenceIsolationInstruction,
   );
+  const selectedWechatHtmlStyle =
+    loadState.wechatHtmlStyles.find((style) => style.key === wechatHtmlStyleDraft) ??
+    loadState.wechatHtmlStyles.find((style) => style.is_default) ??
+    null;
 
   async function reloadWorkbench(projectSlugValue: string) {
-    const [detail, versions, domainPacks, toneProfiles] = await Promise.all([
+    const [detail, versions, domainPacks, toneProfiles, wechatHtmlStyles] = await Promise.all([
       fetchProjectDetail(projectSlugValue),
       fetchProjectVersions(projectSlugValue),
       fetchDomainPacks(),
       fetchToneProfiles(),
+      fetchWechatMpHtmlStyles(),
     ]);
-    setLoadState({ status: "ready", detail, versions, domainPacks, toneProfiles });
+    setLoadState({ status: "ready", detail, versions, domainPacks, toneProfiles, wechatHtmlStyles });
     setRetroDraft(buildRetroDraft(detail.retro));
     setDomainPackDraft(detail.project.domain_pack_key ?? "");
     setToneProfileDraft(detail.project.preferred_tone_profile_id == null ? "" : String(detail.project.preferred_tone_profile_id));
+    setWechatHtmlStyleDraft(detail.project.preferred_wechat_html_style_key ?? "");
   }
 
   async function handleSaveProjectConfig() {
@@ -592,6 +652,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
         stage: loadState.detail.project.stage,
         domain_pack_key: domainPackDraft || null,
         preferred_tone_profile_id: nextToneProfileId,
+        preferred_wechat_html_style_key: wechatHtmlStyleDraft || null,
       });
       await reloadWorkbench(projectSlug);
       setActionMessage("已更新当前项目的赛道和风格配置。");
@@ -686,7 +747,19 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
       } else if (actionKind === "restore_assets" && versionNumber) {
         await restoreAssetsVersion(projectSlug, versionNumber);
       } else if (actionKind === "build_publish_package") {
-        const submission = await buildPublishPackageInBackground(projectSlug);
+        const submission = await buildPublishPackageInBackground(projectSlug, {
+          wechat_html_style_key: wechatHtmlStyleDraft || null,
+        });
+        setActiveBackgroundTask({
+          submission,
+          detail: null,
+          error: null,
+        });
+        backgroundTaskSubmitted = true;
+        setActionMessage(getWorkbenchBackgroundTaskCopy(submission.job_type).submittedMessage);
+        return;
+      } else if (actionKind === "publish_wechat_mp_draft") {
+        const submission = await publishWechatMpDraftInBackground(projectSlug);
         setActiveBackgroundTask({
           submission,
           detail: null,
@@ -701,6 +774,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
         const submission = await buildPublishPackageInBackground(projectSlug, {
           polish_before_generate: true,
           polish_instruction: effectiveDraftPolishInstruction,
+          wechat_html_style_key: wechatHtmlStyleDraft || null,
         });
         setActiveBackgroundTask({
           submission,
@@ -809,6 +883,9 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
           <div className="workspace-tag-list">
             <span className="workspace-tag">{formatProjectDomainPackLabel(loadState.detail.project, loadState.domainPacks)}</span>
             <span className="workspace-tag">{formatProjectToneProfileLabel(loadState.detail.project)}</span>
+            <span className="workspace-tag">
+              {wechatHtmlStyleDraft ? `排版：${selectedWechatHtmlStyle?.name ?? wechatHtmlStyleDraft}` : "排版：智能选择"}
+            </span>
           </div>
         </div>
         <div className="workbench-shell__header-actions">
@@ -859,6 +936,25 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
                 ))}
               </select>
             </label>
+            <label className="workspace-search workspace-search--compact">
+              <span>公众号排版</span>
+              <select
+                className="workspace-select"
+                value={wechatHtmlStyleDraft}
+                onChange={(event) => setWechatHtmlStyleDraft(event.target.value)}
+              >
+                <option value="">智能选择（跟随排版默认）</option>
+                {loadState.wechatHtmlStyles
+                  .filter((style) => style.is_active || style.key === wechatHtmlStyleDraft)
+                  .map((style) => (
+                    <option key={style.key} value={style.key}>
+                      {style.name}
+                      {style.is_default ? " · 默认" : ""}
+                      {!style.is_active ? " · 已停用" : ""}
+                    </option>
+                  ))}
+              </select>
+            </label>
             <button
               className="dashboard-button"
               type="button"
@@ -877,6 +973,11 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
             }).map((line) => (
               <p key={line}>{line}</p>
             ))}
+            <p>
+              {wechatHtmlStyleDraft
+                ? `公众号排版：${selectedWechatHtmlStyle?.name ?? wechatHtmlStyleDraft}（项目指定）`
+                : "公众号排版：智能选择，生成发布包时根据文章场景匹配启用风格"}
+            </p>
           </div>
         </section>
       ) : null}
@@ -924,6 +1025,8 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
                     <span className="workspace-tag">封面图只走 API 图片链路</span>
                     <span className="workspace-tag">调整图片 API / 备用链路后可直接重试</span>
                   </>
+                ) : activeBackgroundTaskIsWechatDraftPublish ? (
+                  <span className="workspace-tag">检查公众号扫码会话、封面和正文文件后可重试</span>
                 ) : (
                   <span className="workspace-tag">调整备用链路后可直接重试</span>
                 )}
@@ -931,6 +1034,7 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
             ) : (
               <>
                 {activeBackgroundTaskIsCoverRegeneration ? <span className="workspace-tag">封面图只走 API 图片链路</span> : null}
+                {activeBackgroundTaskIsWechatDraftPublish ? <span className="workspace-tag">仅写入草稿箱，不会自动群发</span> : null}
                 <span className="workspace-tag">可先切换到其他阶段继续查看</span>
                 <span className="workspace-tag">任务完成后会自动刷新当前 Workbench</span>
               </>
@@ -1196,13 +1300,16 @@ export function WorkbenchPage({ stage }: { stage: WorkbenchStage }) {
                   {activeAction === actionPlan.primaryAction.kind
                     ? actionPlan.primaryAction.kind === "regenerate_from_review" ||
                       actionPlan.primaryAction.kind === "build_publish_package" ||
-                      actionPlan.primaryAction.kind === "polish_and_build_publish_package"
+                      actionPlan.primaryAction.kind === "polish_and_build_publish_package" ||
+                      actionPlan.primaryAction.kind === "publish_wechat_mp_draft"
                       ? activeBackgroundTask?.detail?.status === "running"
                         ? actionPlan.primaryAction.kind === "build_publish_package"
                           ? "后台生成中..."
                           : actionPlan.primaryAction.kind === "polish_and_build_publish_package"
                             ? "后台处理中..."
-                          : "后台重生成中..."
+                            : actionPlan.primaryAction.kind === "publish_wechat_mp_draft"
+                              ? "后台写入中..."
+                              : "后台重生成中..."
                         : "提交后台任务..."
                       : "执行中..."
                     : actionPlan.primaryAction.label}

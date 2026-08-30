@@ -1,4 +1,4 @@
-export type PrimaryNavKey = "dashboard" | "sources" | "pipeline" | "projects" | "settings";
+export type PrimaryNavKey = "dashboard" | "sources" | "pipeline" | "projects" | "automation" | "settings";
 
 export type PrimaryNavItem = {
   key: PrimaryNavKey;
@@ -40,6 +40,12 @@ export const PRIMARY_NAV_ITEMS: PrimaryNavItem[] = [
     label: "Projects",
     to: "/projects",
     description: "按分组管理项目，并进入单项目 Workbench 持续生产。",
+  },
+  {
+    key: "automation",
+    label: "Automation",
+    to: "/automation",
+    description: "管理公众号订阅、21:00 自动运行、失败恢复和草稿预览。",
   },
   {
     key: "settings",
@@ -99,6 +105,12 @@ export const SETTINGS_NAV_ITEMS: SectionNavItem[] = [
     description: "维护写作风格配置，同时与生产界面保持隔离。",
   },
   {
+    key: "wechat-html-styles",
+    label: "公众号排版",
+    to: "/settings/wechat-html-styles",
+    description: "管理公众号 HTML 排版风格、默认项和预览。",
+  },
+  {
     key: "patterns",
     label: "Creative Patterns",
     to: "/settings/patterns",
@@ -149,6 +161,9 @@ export function resolvePrimaryNavKey(pathname: string): PrimaryNavKey {
   }
   if (pathname.startsWith("/projects")) {
     return "projects";
+  }
+  if (pathname.startsWith("/automation")) {
+    return "automation";
   }
   if (pathname.startsWith("/settings")) {
     return "settings";

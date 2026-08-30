@@ -116,6 +116,19 @@ export type WechatMpAccountItem = {
   signature: string | null;
 };
 
+export type WxChannelAccountItem = {
+  source: "wx_channel";
+  biz: string;
+  nickname: string;
+  avatar_url: string;
+  is_effective: boolean;
+  article_count: number;
+  archived_count: number;
+  last_sync_at: number;
+  sync_status: string;
+  sync_error: string;
+};
+
 export type WechatMpArticlePreviewItem = {
   article_id: string;
   account_fakeid: string;
@@ -162,6 +175,7 @@ export type ProjectItem = {
   owner: string;
   preferred_tone_profile_id: number | null;
   preferred_tone_profile_name: string | null;
+  preferred_wechat_html_style_key?: string | null;
   domain_pack_key: string | null;
   chain_status: "missing" | "stale" | "ready";
   current_chain_state: string;
@@ -220,6 +234,109 @@ export type AssetItem = {
   tone_profile_name: string | null;
 };
 
+export type AutomationSubscription = {
+  id: number;
+  account_fakeid: string;
+  account_biz: string | null;
+  account_nickname: string;
+  account_alias: string | null;
+  account_avatar_url: string | null;
+  article_source: "wechat_mp" | "wx_channel";
+  enabled: boolean;
+  schedule_time: string;
+  timezone: string;
+  fetch_limit: number;
+  automatic_draft: boolean;
+  next_run_at: string | null;
+  last_scheduled_local_date: string | null;
+  last_run_id: number | null;
+  last_run_status: string | null;
+  last_run_stage: string | null;
+  last_success_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AutomationSubscriptionCreatePayload = {
+  account_fakeid: string;
+  account_biz?: string | null;
+  account_nickname: string;
+  account_alias?: string | null;
+  account_avatar_url?: string | null;
+  article_source?: "wechat_mp" | "wx_channel";
+  enabled?: boolean;
+  schedule_time?: string;
+  timezone?: string;
+  fetch_limit?: number;
+  automatic_draft?: boolean;
+};
+
+export type AutomationSubscriptionUpdatePayload = Partial<
+  Pick<
+    AutomationSubscription,
+    | "account_fakeid"
+    | "account_biz"
+    | "account_nickname"
+    | "account_alias"
+    | "account_avatar_url"
+    | "article_source"
+    | "enabled"
+    | "schedule_time"
+    | "timezone"
+    | "fetch_limit"
+    | "automatic_draft"
+  >
+>;
+
+export type AutomationRun = {
+  id: number;
+  subscription_id: number;
+  trigger: "scheduled" | "manual" | "retry";
+  scheduled_local_date: string | null;
+  status: "queued" | "running" | "completed" | "skipped" | "failed" | "claimed" | string;
+  stage: string;
+  fetched_count: number;
+  imported_count: number;
+  skipped_count: number;
+  source_article_id: string | null;
+  source_article_link: string | null;
+  source_article_title: string | null;
+  tracked_article_slug: string | null;
+  topic_slug: string | null;
+  project_slug: string | null;
+  publish_package_version: number | null;
+  draft_status: string | null;
+  draft_id: string | null;
+  error: string | null;
+  result: Record<string, unknown> | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  retryable: boolean;
+  project_url: string | null;
+  preview_url: string | null;
+  source_url: string | null;
+  style_name: string | null;
+  provenance: string | null;
+};
+
+export type AutomationRunSubmission = {
+  run_id: number;
+  subscription_id: number;
+  trigger: "scheduled" | "manual" | "retry";
+  status: string;
+  created_at: string;
+};
+
+export type AutomationCycleResponse = {
+  evaluated_count: number;
+  claimed_count: number;
+  skipped_count: number;
+  failed_count: number;
+  run_ids: number[];
+};
+
 export type PublishPackageItem = {
   project_slug: string;
   draft_version: number;
@@ -234,6 +351,8 @@ export type PublishPackageItem = {
   intro_options: string[];
   markdown_path: string;
   markdown_url: string;
+  html_path?: string;
+  html_url?: string;
   manifest_path: string;
   manifest_url: string;
   status: string;
@@ -244,6 +363,14 @@ export type PublishPackageItem = {
   origin: string | null;
   tone_profile_id: number | null;
   tone_profile_name: string | null;
+  wechat_html_style_key?: string;
+  wechat_html_style_name?: string;
+  wechat_html_style_source?: string;
+  wechat_html_style_reason?: string;
+  wechat_mp_draft_status?: "not_published" | "publishing" | "published" | "failed" | string;
+  wechat_mp_draft_id?: string | null;
+  wechat_mp_draft_error?: string | null;
+  wechat_mp_draft_published_at?: string | null;
 };
 
 export type ReferenceDangerFragmentHit = {
@@ -379,6 +506,25 @@ export type ToneProfileReorder = {
   profile_ids: number[];
 };
 
+export type WechatMpHtmlStyleItem = {
+  key: string;
+  name: string;
+  group: string;
+  aliases: string[];
+  suitable_for: string[];
+  is_builtin: boolean;
+  is_active: boolean;
+  is_default: boolean;
+  sort_order: number;
+};
+
+export type WechatMpHtmlStylePreview = {
+  key: string;
+  name: string;
+  group: string;
+  html: string;
+};
+
 export type AIConfigSummary = {
   api_key_configured: boolean;
   base_url: string | null;
@@ -474,12 +620,14 @@ export type TrackedArticleCreatePayload = Pick<
 export type ProjectCreatePayload = Pick<ProjectItem, "slug" | "title" | "owner"> & {
   preferred_tone_profile_id?: number | null;
   domain_pack_key?: string | null;
+  preferred_wechat_html_style_key?: string | null;
 };
 
 export type ProjectUpdatePayload = {
   stage: ProjectItem["stage"];
   preferred_tone_profile_id?: number | null;
   domain_pack_key?: string | null;
+  preferred_wechat_html_style_key?: string | null;
 };
 
 export type ProjectRetroCreatePayload = {
@@ -498,6 +646,7 @@ export type GenerateAssetsPayload = {
 export type BuildPublishPackagePayload = {
   polish_before_generate?: boolean;
   polish_instruction?: string | null;
+  wechat_html_style_key?: string | null;
 };
 
 export type DiagnoseDraftPayload = {
@@ -775,6 +924,19 @@ export function searchWechatMpAccounts(
   return fetchJson<WechatMpAccountItem[]>(`/wechat-mp/accounts?${params.toString()}`);
 }
 
+export function searchWxChannelAccounts(
+  keyword: string,
+  page: number = 1,
+  pageSize: number = 20,
+): Promise<WxChannelAccountItem[]> {
+  const params = new URLSearchParams({
+    keyword,
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  return fetchJson<WxChannelAccountItem[]>(`/wechat-mp/accounts/wx-channel?${params.toString()}`);
+}
+
 export function fetchWechatMpArticles(
   fakeid: string,
   begin: number = 0,
@@ -805,6 +967,92 @@ export function fetchProjects(): Promise<ProjectItem[]> {
 
 export function fetchToneProfiles(): Promise<ToneProfileItem[]> {
   return fetchJson<ToneProfileItem[]>("/tone-profiles");
+}
+
+export function fetchAutomationSubscriptions(): Promise<AutomationSubscription[]> {
+  return fetchJson<AutomationSubscription[]>("/wechat-mp/automation/subscriptions");
+}
+
+export function createAutomationSubscription(
+  payload: AutomationSubscriptionCreatePayload,
+): Promise<AutomationSubscription> {
+  return sendJson<AutomationSubscription>("/wechat-mp/automation/subscriptions", "POST", payload);
+}
+
+export function updateAutomationSubscription(
+  subscriptionId: number,
+  payload: AutomationSubscriptionUpdatePayload,
+): Promise<AutomationSubscription> {
+  return sendJson<AutomationSubscription>(
+    `/wechat-mp/automation/subscriptions/${subscriptionId}`,
+    "PATCH",
+    payload,
+  );
+}
+
+export function disableAutomationSubscription(subscriptionId: number): Promise<AutomationSubscription> {
+  return sendJson<AutomationSubscription>(
+    `/wechat-mp/automation/subscriptions/${subscriptionId}`,
+    "DELETE",
+    {},
+  );
+}
+
+export function fetchAutomationRuns(options?: {
+  subscription_id?: number | null;
+  limit?: number;
+}): Promise<AutomationRun[]> {
+  const params = new URLSearchParams();
+  if (options?.subscription_id != null) {
+    params.set("subscription_id", String(options.subscription_id));
+  }
+  params.set("limit", String(options?.limit ?? 50));
+  return fetchJson<AutomationRun[]>(`/wechat-mp/automation/runs?${params.toString()}`);
+}
+
+export function fetchAutomationRun(runId: number): Promise<AutomationRun> {
+  return fetchJson<AutomationRun>(`/wechat-mp/automation/runs/${runId}`);
+}
+
+export function startAutomationRun(subscriptionId: number): Promise<AutomationRunSubmission> {
+  return sendJson<AutomationRunSubmission>(
+    `/wechat-mp/automation/subscriptions/${subscriptionId}/runs`,
+    "POST",
+    {},
+  );
+}
+
+export function retryAutomationRun(runId: number): Promise<AutomationRunSubmission> {
+  return sendJson<AutomationRunSubmission>(`/wechat-mp/automation/runs/${runId}/retry`, "POST", {});
+}
+
+export function runAutomationCycle(): Promise<AutomationCycleResponse> {
+  return sendJson<AutomationCycleResponse>("/wechat-mp/automation/cycle", "POST", {});
+}
+
+export function fetchWechatMpHtmlStyles(): Promise<WechatMpHtmlStyleItem[]> {
+  return fetchJson<WechatMpHtmlStyleItem[]>("/wechat-mp-html-styles");
+}
+
+export function fetchWechatMpHtmlStylePreview(styleKey: string): Promise<WechatMpHtmlStylePreview> {
+  return fetchJson<WechatMpHtmlStylePreview>(`/wechat-mp-html-styles/${encodeURIComponent(styleKey)}/preview`);
+}
+
+export function updateWechatMpHtmlStyle(
+  styleKey: string,
+  isActive: boolean,
+): Promise<WechatMpHtmlStyleItem> {
+  return sendJson<WechatMpHtmlStyleItem>(`/wechat-mp-html-styles/${encodeURIComponent(styleKey)}`, "PATCH", {
+    is_active: isActive,
+  });
+}
+
+export function setDefaultWechatMpHtmlStyle(styleKey: string): Promise<WechatMpHtmlStyleItem> {
+  return sendJson<WechatMpHtmlStyleItem>(
+    `/wechat-mp-html-styles/${encodeURIComponent(styleKey)}/default`,
+    "POST",
+    {},
+  );
 }
 
 export function fetchAIConfigSummary(): Promise<AIConfigSummary> {
@@ -1024,8 +1272,11 @@ export function restoreAssetsVersion(projectSlug: string, version: number): Prom
   return sendJson<AssetItem>(`/projects/${projectSlug}/restore-assets/${version}`, "POST", {});
 }
 
-export function buildPublishPackage(projectSlug: string): Promise<PublishPackageItem> {
-  return sendJson<PublishPackageItem>(`/projects/${projectSlug}/build-publish-package`, "POST", {});
+export function buildPublishPackage(
+  projectSlug: string,
+  payload?: BuildPublishPackagePayload,
+): Promise<PublishPackageItem> {
+  return sendJson<PublishPackageItem>(`/projects/${projectSlug}/build-publish-package`, "POST", payload ?? {});
 }
 
 export function buildPublishPackageInBackground(
@@ -1033,6 +1284,10 @@ export function buildPublishPackageInBackground(
   payload?: BuildPublishPackagePayload,
 ): Promise<BackgroundTaskSubmission> {
   return sendJson<BackgroundTaskSubmission>(`/projects/${projectSlug}/build-publish-package/background`, "POST", payload ?? {});
+}
+
+export function publishWechatMpDraftInBackground(projectSlug: string): Promise<BackgroundTaskSubmission> {
+  return sendJson<BackgroundTaskSubmission>(`/projects/${projectSlug}/publish-wechat-draft/background`, "POST", {});
 }
 
 export function restorePublishPackageVersion(projectSlug: string, version: number): Promise<PublishPackageItem> {

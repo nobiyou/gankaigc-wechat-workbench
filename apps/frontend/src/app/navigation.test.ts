@@ -19,10 +19,10 @@ function test(name: string, fn: () => void) {
   }
 }
 
-test("primary navigation exposes exactly five work modes", () => {
+test("primary navigation exposes the six work modes", () => {
   assert.deepEqual(
     PRIMARY_NAV_ITEMS.map((item) => item.label),
-    ["Dashboard", "Sources", "Pipeline", "Projects", "Settings"],
+    ["Dashboard", "Sources", "Pipeline", "Projects", "Automation", "Settings"],
   );
 });
 
@@ -35,7 +35,11 @@ test("secondary navigation routes match the route contract", () => {
     PIPELINE_NAV_ITEMS.map((item) => item.to),
     ["/pipeline/topics", "/pipeline/runs", "/pipeline/tasks"],
   );
-  assert.deepEqual(SETTINGS_NAV_ITEMS.map((item) => item.to), ["/settings/tone-profiles", "/settings/patterns"]);
+  assert.deepEqual(SETTINGS_NAV_ITEMS.map((item) => item.to), [
+    "/settings/tone-profiles",
+    "/settings/wechat-html-styles",
+    "/settings/patterns",
+  ]);
 });
 
 test("resolvePrimaryNavKey maps workbench routes back to projects", () => {
@@ -44,7 +48,9 @@ test("resolvePrimaryNavKey maps workbench routes back to projects", () => {
   assert.equal(resolvePrimaryNavKey("/pipeline/tasks"), "pipeline");
   assert.equal(resolvePrimaryNavKey("/projects/demo-project/workbench/draft"), "projects");
   assert.equal(resolvePrimaryNavKey("/settings/tone-profiles"), "settings");
+  assert.equal(resolvePrimaryNavKey("/settings/wechat-html-styles"), "settings");
   assert.equal(resolvePrimaryNavKey("/settings/patterns"), "settings");
+  assert.equal(resolvePrimaryNavKey("/automation"), "automation");
 });
 
 test("workbench stages stay in the approved canonical order", () => {

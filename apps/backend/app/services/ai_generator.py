@@ -29,6 +29,7 @@ from app.services.prompt_templates import (
     build_draft_prompt,
     build_outline_prompt,
     build_publish_package_prompt,
+    build_tracked_article_analysis_topic_prompt,
     build_tracked_article_metadata_prompt,
     build_topic_prompt,
 )
@@ -89,9 +90,40 @@ class TrackedArticleMetadataGenerationResult(BaseModel):
     analysis_share_reason: str = ""
     analysis_do_not_turn_into: str = ""
     analysis_content_pillars: list[str] = []
+    analysis_expression_profile: list[str] = []
+
+
+class TrackedArticleAnalysisTopicGenerationResult(TrackedArticleMetadataGenerationResult):
+    topic_title: str
+    topic_angle: str
 
 
 ResponseModelT = TypeVar("ResponseModelT", bound=BaseModel)
+
+
+_TRACKED_ARTICLE_ANALYSIS_CONTRACT_FIELDS = (
+    "analysis_theme",
+    "analysis_core_conflict",
+    "analysis_emotional_exit",
+    "analysis_structure_mode",
+    "analysis_opening_pattern",
+    "analysis_hook_trigger",
+    "analysis_progression_drive",
+    "analysis_share_reason",
+    "analysis_do_not_turn_into",
+)
+
+
+def _has_structurally_complete_tracked_article_analysis(payload: Mapping[str, object]) -> bool:
+    if not all(str(payload.get(field) or "").strip() for field in _TRACKED_ARTICLE_ANALYSIS_CONTRACT_FIELDS):
+        return False
+    content_pillars = payload.get("analysis_content_pillars")
+    if not isinstance(content_pillars, list) or len([item for item in content_pillars if str(item).strip()]) < 2:
+        return False
+    expression_profile = payload.get("analysis_expression_profile")
+    if not isinstance(expression_profile, list):
+        return False
+    return 3 <= len([item for item in expression_profile if str(item).strip()]) <= 5
 
 
 _REQUEST_TELEMETRY: ContextVar[dict[str, int] | None] = ContextVar(
@@ -131,6 +163,7 @@ def _request_stage(response_format: type[BaseModel], *, payload: Mapping[str, ob
             return explicit
     stage_by_type = {
         TrackedArticleMetadataGenerationResult: "metadata",
+        TrackedArticleAnalysisTopicGenerationResult: "analysis_topic",
         TopicGenerationResult: "topic",
         OutlineGenerationResult: "outline",
         DraftGenerationResult: "draft",
@@ -148,6 +181,9 @@ def _normalize_draft_generation_result(result: DraftGenerationResult) -> DraftGe
     title = re.sub(r"^\s*```(?:markdown|md|text)?\s*", "", title, flags=re.IGNORECASE)
     body = re.sub(r"^\s*```(?:markdown|md|text)?\s*", "", body, flags=re.IGNORECASE)
     body = re.sub(r"\s*```\s*$", "", body)
+    title = re.sub(r"^\s*\*{1,2}\s*", "", title)
+    title = re.sub(r"\s*\*{1,2}\s*$", "", title)
+    body = re.sub(r"^\s*\*{1,2}\s*(?:\r?\n|$)", "", body, count=1)
     title = re.sub(r"^\s*\d+\s*[.)、:：]?\s*(?:标题|title)\s*[:：]?\s*", "", title, flags=re.IGNORECASE)
     normalized_title = title.strip().casefold()
     placeholder_title = normalized_title in {"", "标题", "title", "标题 title", "title title"}
@@ -326,6 +362,7 @@ class OpenAIWorkbenchGenerator:
                 enforce_custom_base_url_retry_floor=False,
                 include_custom_base_url_extra_body=False,
                 retry_on_output_error=False,
+                request_stage=str(payload.get("request_stage") or "").strip() or None,
             )
         else:
             result = self._parse_response(
@@ -334,6 +371,7 @@ class OpenAIWorkbenchGenerator:
                 response_format=TopicGenerationResult,
                 timeout_seconds_override=timeout_seconds_override,
                 max_attempts_override=max_attempts_override,
+                request_stage=str(payload.get("request_stage") or "").strip() or None,
             )
         return result.model_dump()
 
@@ -443,7 +481,9 @@ class OpenAIWorkbenchGenerator:
             primary_timeout = min(max(request_timeout_seconds * 4, 60.0), 120.0)
             return [
                 {
-                    "size": "16:9",
+                    # The configured proxy accepts WIDTHxHEIGHT, not ratio
+                    # tokens.  1536x864 keeps the requested 16:9 canvas.
+                    "size": "1536x864",
                     "timeout": ratio_timeout,
                 },
                 {
@@ -595,6 +635,15 @@ class OpenAIWorkbenchGenerator:
         return result.model_dump()
 
     def generate_tracked_article_metadata(self, payload: dict[str, object]) -> dict[str, object]:
+        result = self._generate_tracked_article_metadata_result(payload)
+        return result.model_dump(exclude_defaults=True)
+
+    def _generate_tracked_article_metadata_result(
+        self,
+        payload: dict[str, object],
+        *,
+        request_stage: str | None = None,
+    ) -> TrackedArticleMetadataGenerationResult:
         prompt_template = build_tracked_article_metadata_prompt(payload)
         timeout_seconds_override = self._resolve_tracked_article_metadata_timeout_override(payload)
         max_attempts_override = self._resolve_tracked_article_metadata_max_attempts(payload)
@@ -607,7 +656,8 @@ class OpenAIWorkbenchGenerator:
                 max_attempts=max_attempts_override or 1,
                 enforce_custom_base_url_retry_floor=False,
                 include_custom_base_url_extra_body=False,
-                retry_on_output_error=False,
+                retry_on_output_error=True,
+                request_stage=request_stage,
             )
         else:
             result = self._parse_response(
@@ -616,7 +666,47 @@ class OpenAIWorkbenchGenerator:
                 response_format=TrackedArticleMetadataGenerationResult,
                 timeout_seconds_override=timeout_seconds_override,
                 max_attempts_override=max_attempts_override,
+                request_stage=request_stage,
             )
+        return result
+
+    def generate_tracked_article_analysis_and_topic(self, payload: dict[str, object]) -> dict[str, object]:
+        prompt_template = build_tracked_article_analysis_topic_prompt(payload)
+        timeout_seconds_override = self._resolve_tracked_article_metadata_timeout_override(payload)
+        max_attempts_override = self._resolve_tracked_article_metadata_max_attempts(payload)
+        if self._uses_custom_base_url:
+            result = self._parse_response_with_chat_json_fallback(
+                instructions=prompt_template.instructions,
+                prompt=prompt_template.prompt,
+                response_format=TrackedArticleAnalysisTopicGenerationResult,
+                timeout_seconds=timeout_seconds_override or self._resolve_text_request_timeout(TrackedArticleAnalysisTopicGenerationResult),
+                max_attempts=max_attempts_override or 1,
+                enforce_custom_base_url_retry_floor=False,
+                include_custom_base_url_extra_body=False,
+                retry_on_output_error=True,
+                request_stage="analysis_topic",
+            )
+        else:
+            result = self._parse_response(
+                instructions=prompt_template.instructions,
+                prompt=prompt_template.prompt,
+                response_format=TrackedArticleAnalysisTopicGenerationResult,
+                timeout_seconds_override=timeout_seconds_override,
+                max_attempts_override=max_attempts_override,
+                request_stage="analysis_topic",
+            )
+        result_payload = result.model_dump(exclude_defaults=True)
+        if not _has_structurally_complete_tracked_article_analysis(result_payload):
+            # Some compatible providers return the requested topic but omit
+            # optional analysis fields from a large combined JSON response.
+            # Recover only this failed stage, keeping the topic already paid
+            # for and charging the bounded recovery request to analysis_topic.
+            metadata_result = self._generate_tracked_article_metadata_result(
+                payload,
+                request_stage="analysis_topic",
+            )
+            result_payload.update(metadata_result.model_dump(exclude_defaults=True))
+            result = TrackedArticleAnalysisTopicGenerationResult.model_validate(result_payload)
         return result.model_dump(exclude_defaults=True)
 
     def _parse_response(
@@ -780,6 +870,7 @@ class OpenAIWorkbenchGenerator:
             AssetGenerationResult,
             PublishPackageGenerationResult,
             TrackedArticleMetadataGenerationResult,
+            TrackedArticleAnalysisTopicGenerationResult,
         }
 
     def _ensure_custom_base_url_retry_attempts(self, max_attempts: int) -> int:
@@ -1109,6 +1200,28 @@ class OpenAIWorkbenchGenerator:
         if last_error is not None:
             raise last_error
         raise RuntimeError("AI config check failed without a captured exception")
+
+    def list_available_text_models(self) -> list[str] | None:
+        """Return the provider's model ids when its models endpoint is available.
+
+        Some OpenAI-compatible providers omit ``/models`` even though their
+        generation endpoints work.  In that case, keep the existing minimal
+        response probe as the compatibility path instead of treating the
+        listing failure as a configuration failure.
+        """
+        try:
+            response = self._client.models.list()
+        except openai.APIStatusError as exc:
+            if getattr(exc, "status_code", None) in {400, 403, 404, 405, 501}:
+                return None
+            raise
+
+        model_ids: list[str] = []
+        for item in getattr(response, "data", ()) or ():
+            model_id = str(getattr(item, "id", "") or "").strip()
+            if model_id and model_id not in model_ids:
+                model_ids.append(model_id)
+        return sorted(model_ids)
 
     def check_image_connection(self) -> str:
         _bytes, route_label = self._generate_cover_image_with_route(
@@ -1548,6 +1661,7 @@ def _build_ai_image_check_failure_result(
 
 _NUMERIC_IMAGE_SIZE_PATTERN = re.compile(r"^\d+x\d+$")
 _IMAGE_RATIO_FALLBACKS = {
+    "16:9": "1536x864",
     "1536x864": "16:9",
 }
 _UNRECOGNIZED_IMAGE_KEYS_PATTERN = re.compile(r'Unrecognized keys:\s*"?([^"]+)"?(.*)$', re.IGNORECASE)
@@ -1558,7 +1672,10 @@ def _is_image_size_validation_error(error: Exception) -> bool:
     if not message:
         return False
     normalized = message.lower()
-    return "size" in normalized and "expected one of" in normalized
+    return "size" in normalized and (
+        "expected one of" in normalized
+        or "must be auto or widthxheight" in normalized
+    )
 
 
 def _build_ratio_cover_image_variant(variant: dict[str, object]) -> dict[str, object] | None:
@@ -1634,6 +1751,121 @@ def _extract_async_image_task_payload(response: object) -> dict[str, str] | None
     }
 
 
+def _build_model_unavailable_result(
+    *,
+    config: Settings,
+    available_models: list[str],
+    checked_at: str,
+) -> AIConfigCheckResult:
+    model_preview = ", ".join(available_models[:20]) or "（接口未返回可用模型）"
+    if len(available_models) > 20:
+        model_preview += ", ..."
+    return AIConfigCheckResult(
+        ok=False,
+        status="model_unavailable",
+        message=(
+            f"当前上游不支持配置的文本模型 {config.openai_model}。"
+            f"接口返回的可用模型：{model_preview}。"
+        ),
+        checked_at=checked_at,
+        recovery_actions=[
+            "请把 OPENAI_MODEL 改为当前接口实际提供的文本模型，或更换支持目标模型的 OPENAI_BASE_URL。",
+            "系统不会自动换模型，也不会用本地兜底替代当前创作链路。",
+        ],
+    )
+
+
+def _build_model_compatibility_result(
+    *,
+    config: Settings,
+    available_models: list[str] | None,
+    checked_at: str,
+) -> AIConfigCheckResult | None:
+    """Return a result only when /models can make a compatibility decision."""
+    if available_models is None:
+        return None
+    if config.openai_model not in available_models:
+        return _build_model_unavailable_result(
+            config=config,
+            available_models=available_models,
+            checked_at=checked_at,
+        )
+    return AIConfigCheckResult(
+        ok=True,
+        status="model_available",
+        message=f"上游模型列表包含配置的文本模型 {config.openai_model}。",
+        checked_at=checked_at,
+    )
+
+
+def run_ai_model_compatibility_check(config: Settings = settings) -> AIConfigCheckResult:
+    """Check the configured model through /models without spending generation tokens."""
+    checked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    if not config.openai_api_key:
+        return AIConfigCheckResult(
+            ok=False,
+            status="missing_key",
+            message="OPENAI_API_KEY 未配置，当前无法检查模型兼容性。",
+            checked_at=checked_at,
+        )
+
+    try:
+        _record_request("model_compatibility")
+        generator = OpenAIWorkbenchGenerator(config)
+        available_models = generator.list_available_text_models()
+        model_result = _build_model_compatibility_result(
+            config=config,
+            available_models=available_models,
+            checked_at=checked_at,
+        )
+        if model_result is not None:
+            return model_result
+        return AIConfigCheckResult(
+            ok=True,
+            status="model_listing_unavailable",
+            message="当前接口未提供可用模型列表，已跳过文本生成探针；后续请求仍使用配置的原模型。",
+            checked_at=checked_at,
+            recovery_actions=[
+                "如后续返回 404 或模型不存在，请更换支持目标模型的 OPENAI_BASE_URL。",
+            ],
+        )
+    except openai.AuthenticationError as exc:
+        return AIConfigCheckResult(
+            ok=False,
+            status="auth_error",
+            message=f"认证失败：{_extract_openai_error_message(exc)}",
+            checked_at=checked_at,
+        )
+    except openai.PermissionDeniedError as exc:
+        return AIConfigCheckResult(
+            ok=False,
+            status="permission_error",
+            message=f"权限不足：{_extract_openai_error_message(exc)}",
+            checked_at=checked_at,
+        )
+    except openai.NotFoundError as exc:
+        return AIConfigCheckResult(
+            ok=False,
+            status="not_found",
+            message=f"模型列表接口不存在：{_extract_openai_error_message(exc)}",
+            checked_at=checked_at,
+        )
+    except (openai.InternalServerError, APIConnectionError, APITimeoutError) as exc:
+        return AIConfigCheckResult(
+            ok=False,
+            status="upstream_error",
+            message=f"上游服务异常：{_extract_openai_error_message(exc)}",
+            checked_at=checked_at,
+        )
+    except Exception as exc:
+        return AIConfigCheckResult(
+            ok=False,
+            status="unexpected_error",
+            message=f"检测失败：{_extract_openai_error_message(exc)}",
+            checked_at=checked_at,
+        )
+
+
 def run_ai_config_check(config: Settings = settings) -> AIConfigCheckResult:
     checked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     if not config.openai_api_key:
@@ -1645,7 +1877,18 @@ def run_ai_config_check(config: Settings = settings) -> AIConfigCheckResult:
         )
 
     try:
-        OpenAIWorkbenchGenerator(config).check_connection()
+        _record_request("preflight")
+        generator = OpenAIWorkbenchGenerator(config)
+        list_models = getattr(generator, "list_available_text_models", None)
+        available_models = list_models() if callable(list_models) else None
+        model_result = _build_model_compatibility_result(
+            config=config,
+            available_models=available_models,
+            checked_at=checked_at,
+        )
+        if model_result is not None and not model_result.ok:
+            return model_result
+        generator.check_connection()
         return AIConfigCheckResult(
             ok=True,
             status="ok",

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Callable, Mapping
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 import openai
@@ -90,11 +90,19 @@ from app.services.creative_patterns import build_reusable_pattern_from_lesson, b
 from app.services.creative_strategy import (
     build_complete_contract_execution_surface,
     build_strategy_package,
+    has_source_aligned_tracked_article_topic,
+    has_source_aligned_tracked_article_generation_contract,
+    has_complete_tracked_article_generation_contract,
     has_complete_tracked_article_analysis_contract,
     normalize_structure_mode_hint,
     resolve_tracked_article_structure_mode,
 )
 from app.schemas.tone_profiles import ToneProfileItem, ToneProfileReorder, ToneProfileUpsert
+from app.schemas.wechat_mp_styles import (
+    WechatMpHtmlStyleActiveUpdate,
+    WechatMpHtmlStyleItem,
+    WechatMpHtmlStylePreview,
+)
 from app.services.prompt_templates import DEFAULT_DOMAIN_PROMPT_PACK, get_domain_prompt_pack
 from app.services.prompt_templates import (
     _extract_tracked_article_body_cues,
@@ -135,6 +143,20 @@ from app.schemas.trends import (
     TrendUpdate,
 )
 from app.services.wechat_mp_client import _normalize_wechat_text
+from app.services.wechat_mp_draft_publisher import get_wechat_mp_draft_publisher
+from app.services.wechat_mp_html import (
+    WechatMpHtmlRenderError,
+    build_wechat_preview_document,
+    render_wechat_html,
+)
+from app.services.wechat_mp_styles import (
+    DEFAULT_WECHAT_MP_HTML_STYLE_KEY,
+    STYLE_PREVIEW_MARKDOWN,
+    WechatMpHtmlStyle,
+    get_wechat_mp_html_style,
+    list_builtin_wechat_mp_html_styles,
+    recommend_wechat_mp_html_style,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -376,13 +398,18 @@ def _apply_initial_draft_candidate_cleanups(
     body_markdown: str,
     source_type: str,
     reference_source_markdown: str = "",
+    analysis_contract_complete: bool = False,
 ) -> tuple[str, int]:
     current_body = _strip_draft_response_wrappers(title=title, body_markdown=body_markdown)
     changed_steps = int(current_body != body_markdown)
-    responsibility_cleanup = source_type == "tracked_article" and _looks_like_responsibility_shelter_output(
-        title=title,
-        body_markdown=current_body,
-        reference_source_markdown=reference_source_markdown,
+    responsibility_cleanup = (
+        source_type == "tracked_article"
+        and not analysis_contract_complete
+        and _looks_like_responsibility_shelter_output(
+            title=title,
+            body_markdown=current_body,
+            reference_source_markdown=reference_source_markdown,
+        )
     )
 
     cleanup_steps = _get_initial_draft_candidate_cleanup_steps(source_type=source_type)
@@ -413,7 +440,7 @@ def _apply_initial_draft_candidate_cleanups(
                 segmented_collapse_applied = True
         current_body = collapsed_body
 
-    if source_type == "tracked_article" and reference_source_markdown:
+    if source_type == "tracked_article" and reference_source_markdown and not analysis_contract_complete:
         rewritten_body = _rewrite_tracked_article_danger_fragments(
             source_markdown=reference_source_markdown,
             body_markdown=current_body,
@@ -447,6 +474,7 @@ def _strip_draft_response_wrappers(*, title: str, body_markdown: str) -> str:
     body = str(body_markdown or "").strip()
     body = re.sub(r"^\s*```(?:markdown|md|text)?\s*", "", body, flags=re.IGNORECASE)
     body = re.sub(r"\s*```\s*$", "", body)
+    body = re.sub(r"^\s*\*{1,2}\s*(?:\r?\n|$)", "", body, count=1)
     body = re.sub(
         r"^\s*(?:\d+\s*[\.\)：:]?\s*)?(?:\*{1,2}\s*)?(?:标题|title)(?:\s+title)?(?:\s*\*{1,2})?\s*[:：]?\s*",
         "",
@@ -470,6 +498,16 @@ def _strip_draft_response_wrappers(*, title: str, body_markdown: str) -> str:
             while lines and not lines[0].strip():
                 lines.pop(0)
             body = "\n".join(lines)
+    if body and normalized_title:
+        trailing_lines = body.rstrip().splitlines()
+        if trailing_lines:
+            trailing_heading = trailing_lines[-1].strip()
+            if trailing_heading.startswith("#"):
+                trailing_heading = re.sub(r"^\s*#+\s*", "", trailing_heading).strip()
+                normalized_trailing_heading = re.sub(r"[\s*_`#]+", "", trailing_heading)
+                if normalized_trailing_heading == normalized_title:
+                    trailing_lines.pop()
+                    body = "\n".join(trailing_lines).rstrip()
     return body.strip()
 
 
@@ -521,9 +559,10 @@ def _rewrite_tracked_article_danger_result_fields(
     ai_result: Mapping[str, object],
     text_fields: tuple[str, ...],
     list_fields: tuple[str, ...] = (),
+    analysis_contract_complete: bool = False,
 ) -> dict[str, object]:
     sanitized = dict(ai_result)
-    if not source_markdown.strip():
+    if analysis_contract_complete or not source_markdown.strip():
         return sanitized
     for field in text_fields:
         if field in sanitized:
@@ -587,6 +626,7 @@ def _build_initial_draft_candidate_result(
     body_markdown: str,
     source_type: str,
     reference_source_markdown: str = "",
+    analysis_contract_complete: bool = False,
 ) -> _InitialDraftCandidateResult:
     reference_title = title
     reference_body_markdown = body_markdown
@@ -595,6 +635,7 @@ def _build_initial_draft_candidate_result(
         body_markdown=body_markdown,
         source_type=source_type,
         reference_source_markdown=reference_source_markdown,
+        analysis_contract_complete=analysis_contract_complete,
     )
 
     if source_type == "tracked_article":
@@ -627,18 +668,21 @@ def _should_prefer_retried_candidate_after_cleanup_preview(
     source_type: str,
     reference_source_markdown: str = "",
     selection_context: Mapping[str, object] | None = None,
+    analysis_contract_complete: bool = False,
 ) -> bool:
     current_candidate = _build_initial_draft_candidate_result(
         title=current_title,
         body_markdown=current_markdown,
         source_type=source_type,
         reference_source_markdown=reference_source_markdown,
+        analysis_contract_complete=analysis_contract_complete,
     )
     retried_candidate = _build_initial_draft_candidate_result(
         title=retried_title,
         body_markdown=retried_markdown,
         source_type=source_type,
         reference_source_markdown=reference_source_markdown,
+        analysis_contract_complete=analysis_contract_complete,
     )
     return _should_prefer_retried_ai_flavor_candidate(
         current_title=current_candidate.title,
@@ -899,6 +943,10 @@ def _ensure_projects_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE projects ADD COLUMN domain_pack_key TEXT DEFAULT NULL"
         )
+    if "preferred_wechat_html_style_key" not in columns:
+        connection.execute(
+            "ALTER TABLE projects ADD COLUMN preferred_wechat_html_style_key TEXT DEFAULT NULL"
+        )
 
 
 def _ensure_trends_schema(connection: sqlite3.Connection) -> None:
@@ -991,6 +1039,125 @@ def _ensure_publish_packages_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE publish_packages ADD COLUMN origin TEXT DEFAULT NULL"
         )
+    if "wechat_html_style_key" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN wechat_html_style_key TEXT NOT NULL DEFAULT 'minimal'"
+        )
+    if "wechat_html_style_name" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN wechat_html_style_name TEXT NOT NULL DEFAULT '极简黑白'"
+        )
+    if "wechat_html_style_source" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN wechat_html_style_source TEXT NOT NULL DEFAULT 'smart'"
+        )
+    if "wechat_html_style_reason" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN wechat_html_style_reason TEXT NOT NULL DEFAULT ''"
+        )
+    if "wechat_mp_draft_status" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN wechat_mp_draft_status TEXT NOT NULL DEFAULT 'not_published'"
+        )
+    if "wechat_mp_draft_id" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN wechat_mp_draft_id TEXT DEFAULT NULL"
+        )
+    if "wechat_mp_draft_error" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN wechat_mp_draft_error TEXT DEFAULT NULL"
+        )
+    if "wechat_mp_draft_published_at" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN wechat_mp_draft_published_at TEXT DEFAULT NULL"
+        )
+    if "approval_provenance" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN approval_provenance TEXT DEFAULT NULL"
+        )
+    if "wechat_mp_draft_provenance" not in columns:
+        connection.execute(
+            "ALTER TABLE publish_packages ADD COLUMN wechat_mp_draft_provenance TEXT DEFAULT NULL"
+        )
+
+
+def _ensure_wechat_mp_styles_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS wechat_mp_html_styles (
+            style_key TEXT PRIMARY KEY,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+
+    builtin_styles = list_builtin_wechat_mp_html_styles()
+    existing_rows = connection.execute(
+        "SELECT style_key FROM wechat_mp_html_styles"
+    ).fetchall()
+    existing_keys = {str(row["style_key"]) for row in existing_rows}
+    for sort_order, style in enumerate(builtin_styles, start=1):
+        if style.key in existing_keys:
+            connection.execute(
+                "UPDATE wechat_mp_html_styles SET sort_order = ? WHERE style_key = ?",
+                (sort_order, style.key),
+            )
+            continue
+        connection.execute(
+            """
+            INSERT INTO wechat_mp_html_styles (style_key, is_active, is_default, sort_order)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                style.key,
+                1,
+                1 if style.key == DEFAULT_WECHAT_MP_HTML_STYLE_KEY else 0,
+                sort_order,
+            ),
+        )
+
+    default_rows = connection.execute(
+        """
+        SELECT style_key
+        FROM wechat_mp_html_styles
+        WHERE is_default = 1 AND is_active = 1
+        ORDER BY sort_order ASC, style_key ASC
+        """
+    ).fetchall()
+    if len(default_rows) > 1:
+        keep_default = str(default_rows[0]["style_key"])
+        connection.execute(
+            "UPDATE wechat_mp_html_styles SET is_default = CASE WHEN style_key = ? THEN 1 ELSE 0 END",
+            (keep_default,),
+        )
+    elif not default_rows:
+        active_row = connection.execute(
+            """
+            SELECT style_key
+            FROM wechat_mp_html_styles
+            WHERE is_active = 1
+            ORDER BY sort_order ASC, style_key ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        if not active_row:
+            connection.execute(
+                "UPDATE wechat_mp_html_styles SET is_active = 0, is_default = 0"
+            )
+            connection.execute(
+                "UPDATE wechat_mp_html_styles SET is_active = 1, is_default = 1 WHERE style_key = ?",
+                (DEFAULT_WECHAT_MP_HTML_STYLE_KEY,),
+            )
+        else:
+            connection.execute(
+                "UPDATE wechat_mp_html_styles SET is_default = 0"
+            )
+            connection.execute(
+                "UPDATE wechat_mp_html_styles SET is_default = 1 WHERE style_key = ?",
+                (str(active_row["style_key"]),),
+            )
 
 
 def _ensure_project_retros_schema(connection: sqlite3.Connection) -> None:
@@ -1316,6 +1483,8 @@ def _ensure_tracked_articles_schema(connection: sqlite3.Connection) -> None:
             analysis_share_reason TEXT NOT NULL DEFAULT '',
             analysis_do_not_turn_into TEXT NOT NULL DEFAULT '',
             analysis_content_pillars TEXT NOT NULL DEFAULT '[]',
+            analysis_expression_profile TEXT NOT NULL DEFAULT '[]',
+            analysis_status TEXT NOT NULL DEFAULT 'unanalysed',
             created_at TEXT DEFAULT NULL,
             tags TEXT NOT NULL
         )
@@ -1378,6 +1547,14 @@ def _ensure_tracked_articles_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE tracked_articles ADD COLUMN analysis_content_pillars TEXT NOT NULL DEFAULT '[]'"
         )
+    if "analysis_expression_profile" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN analysis_expression_profile TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "analysis_status" not in columns:
+        connection.execute(
+            "ALTER TABLE tracked_articles ADD COLUMN analysis_status TEXT NOT NULL DEFAULT 'unanalysed'"
+        )
 
 
 def _ensure_source_ingestion_runs_schema(connection: sqlite3.Connection) -> None:
@@ -1435,6 +1612,7 @@ def _ensure_runtime_chain_schema(connection: sqlite3.Connection) -> None:
     _ensure_publish_packages_schema(connection)
     _ensure_project_retros_schema(connection)
     _ensure_tone_profiles_schema(connection)
+    _ensure_wechat_mp_styles_schema(connection)
     _ensure_tracked_articles_schema(connection)
 
 
@@ -1602,7 +1780,8 @@ def initialize_store(reset: bool = False) -> None:
                 stage TEXT NOT NULL,
                 owner TEXT NOT NULL,
                 preferred_tone_profile_id INTEGER DEFAULT NULL,
-                domain_pack_key TEXT DEFAULT NULL
+                domain_pack_key TEXT DEFAULT NULL,
+                preferred_wechat_html_style_key TEXT DEFAULT NULL
             )
             """
         )
@@ -1691,7 +1870,17 @@ def initialize_store(reset: bool = False) -> None:
                 reviewed_by TEXT DEFAULT NULL,
                 reviewed_at TEXT DEFAULT NULL,
                 created_at TEXT DEFAULT NULL,
-                origin TEXT DEFAULT NULL
+                origin TEXT DEFAULT NULL,
+                wechat_html_style_key TEXT NOT NULL DEFAULT 'minimal',
+                wechat_html_style_name TEXT NOT NULL DEFAULT '极简黑白',
+                wechat_html_style_source TEXT NOT NULL DEFAULT 'smart',
+                wechat_html_style_reason TEXT NOT NULL DEFAULT '',
+                wechat_mp_draft_status TEXT NOT NULL DEFAULT 'not_published',
+                wechat_mp_draft_id TEXT DEFAULT NULL,
+                wechat_mp_draft_error TEXT DEFAULT NULL,
+                wechat_mp_draft_published_at TEXT DEFAULT NULL,
+                approval_provenance TEXT DEFAULT NULL,
+                wechat_mp_draft_provenance TEXT DEFAULT NULL
             )
             """
         )
@@ -1734,12 +1923,16 @@ def initialize_store(reset: bool = False) -> None:
         _ensure_drafts_schema(connection)
         _ensure_assets_schema(connection)
         _ensure_tone_profiles_schema(connection)
+        _ensure_wechat_mp_styles_schema(connection)
         _ensure_publish_packages_schema(connection)
         _ensure_project_retros_schema(connection)
         _ensure_tracked_articles_schema(connection)
         _ensure_source_ingestion_runs_schema(connection)
         _ensure_background_tasks_schema(connection)
         _ensure_task_logs_schema(connection)
+        from app.services.wechat_mp_automation import ensure_automation_schema
+
+        ensure_automation_schema(connection, reset=reset)
 
         if reset:
             connection.execute("DELETE FROM trends")
@@ -1756,6 +1949,8 @@ def initialize_store(reset: bool = False) -> None:
             connection.execute("DELETE FROM drafts")
             connection.execute("DELETE FROM assets")
             connection.execute("DELETE FROM publish_packages")
+            connection.execute("DELETE FROM wechat_mp_html_styles")
+            _ensure_wechat_mp_styles_schema(connection)
             connection.execute("DELETE FROM project_retros")
             connection.execute("DELETE FROM tracked_articles")
             connection.execute("DELETE FROM source_ingestion_runs")
@@ -2153,6 +2348,145 @@ def delete_tone_profile(profile_id: int) -> dict[str, int]:
     return {"deleted_profile_id": profile_id}
 
 
+def _hydrate_wechat_mp_html_style_row(
+    style: WechatMpHtmlStyle,
+    row: sqlite3.Row,
+) -> WechatMpHtmlStyleItem:
+    return WechatMpHtmlStyleItem(
+        key=style.key,
+        name=style.name,
+        group=style.group,
+        aliases=list(style.aliases),
+        suitable_for=list(style.suitable_for),
+        is_builtin=True,
+        is_active=bool(row["is_active"]),
+        is_default=bool(row["is_default"]),
+        sort_order=int(row["sort_order"]),
+    )
+
+
+def list_wechat_mp_html_styles() -> list[WechatMpHtmlStyleItem]:
+    with _get_connection() as connection:
+        _ensure_wechat_mp_styles_schema(connection)
+        rows = connection.execute(
+            """
+            SELECT style_key, is_active, is_default, sort_order
+            FROM wechat_mp_html_styles
+            ORDER BY sort_order ASC, style_key ASC
+            """
+        ).fetchall()
+    rows_by_key = {str(row["style_key"]): row for row in rows}
+    return [
+        _hydrate_wechat_mp_html_style_row(style, rows_by_key[style.key])
+        for style in list_builtin_wechat_mp_html_styles()
+        if style.key in rows_by_key
+    ]
+
+
+def update_wechat_mp_html_style(
+    style_key: str,
+    payload: WechatMpHtmlStyleActiveUpdate,
+) -> WechatMpHtmlStyleItem:
+    try:
+        style = get_wechat_mp_html_style(style_key)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="WeChat HTML style not found") from None
+
+    with _get_connection() as connection:
+        _ensure_wechat_mp_styles_schema(connection)
+        existing = connection.execute(
+            "SELECT style_key, is_active, is_default, sort_order FROM wechat_mp_html_styles WHERE style_key = ?",
+            (style.key,),
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="WeChat HTML style not found")
+
+        if not payload.is_active:
+            active_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM wechat_mp_html_styles WHERE is_active = 1"
+                ).fetchone()[0]
+            )
+            if active_count <= 1 and bool(existing["is_active"]):
+                raise HTTPException(status_code=409, detail="至少保留一种可用公众号排版风格")
+            connection.execute(
+                "UPDATE wechat_mp_html_styles SET is_active = 0, is_default = 0 WHERE style_key = ?",
+                (style.key,),
+            )
+            if bool(existing["is_default"]):
+                next_default = connection.execute(
+                    """
+                    SELECT style_key
+                    FROM wechat_mp_html_styles
+                    WHERE is_active = 1
+                    ORDER BY sort_order ASC, style_key ASC
+                    LIMIT 1
+                    """
+                ).fetchone()
+                if next_default:
+                    connection.execute("UPDATE wechat_mp_html_styles SET is_default = 0")
+                    connection.execute(
+                        "UPDATE wechat_mp_html_styles SET is_default = 1 WHERE style_key = ?",
+                        (str(next_default["style_key"]),),
+                    )
+        else:
+            connection.execute(
+                "UPDATE wechat_mp_html_styles SET is_active = 1 WHERE style_key = ?",
+                (style.key,),
+            )
+        connection.commit()
+        row = connection.execute(
+            "SELECT style_key, is_active, is_default, sort_order FROM wechat_mp_html_styles WHERE style_key = ?",
+            (style.key,),
+        ).fetchone()
+    return _hydrate_wechat_mp_html_style_row(style, row)
+
+
+def set_default_wechat_mp_html_style(style_key: str) -> WechatMpHtmlStyleItem:
+    try:
+        style = get_wechat_mp_html_style(style_key)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="WeChat HTML style not found") from None
+
+    with _get_connection() as connection:
+        _ensure_wechat_mp_styles_schema(connection)
+        existing = connection.execute(
+            "SELECT style_key FROM wechat_mp_html_styles WHERE style_key = ?",
+            (style.key,),
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="WeChat HTML style not found")
+        connection.execute("UPDATE wechat_mp_html_styles SET is_default = 0")
+        connection.execute(
+            "UPDATE wechat_mp_html_styles SET is_active = 1, is_default = 1 WHERE style_key = ?",
+            (style.key,),
+        )
+        connection.commit()
+        row = connection.execute(
+            "SELECT style_key, is_active, is_default, sort_order FROM wechat_mp_html_styles WHERE style_key = ?",
+            (style.key,),
+        ).fetchone()
+    return _hydrate_wechat_mp_html_style_row(style, row)
+
+
+def get_wechat_mp_html_style_preview(style_key: str) -> WechatMpHtmlStylePreview:
+    try:
+        style = get_wechat_mp_html_style(style_key)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="WeChat HTML style not found") from None
+    rendered = render_wechat_html(
+        STYLE_PREVIEW_MARKDOWN,
+        title="公众号排版风格预览",
+        style_key=style.key,
+    )
+    return WechatMpHtmlStylePreview(
+        key=style.key,
+        name=style.name,
+        group=style.group,
+        html=build_wechat_preview_document(rendered, title="公众号排版风格预览"),
+    )
+
+
 def _record_task(
     connection: sqlite3.Connection,
     *,
@@ -2204,6 +2538,23 @@ def _normalize_analysis_content_pillars(value: object) -> list[str]:
     return normalized[:4]
 
 
+def _normalize_analysis_expression_profile(value: object) -> list[str]:
+    parsed: object = value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = []
+    if not isinstance(parsed, (list, tuple)):
+        return []
+    normalized: list[str] = []
+    for item in parsed:
+        text = re.sub(r"\s+", " ", str(item or "")).strip(" \t\r\n-•")
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized[:5]
+
+
 def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
     summary = str(row["summary"])
     body_markdown = str(row["body_markdown"]) if "body_markdown" in row.keys() else ""
@@ -2219,6 +2570,10 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
     analysis_content_pillars = _normalize_analysis_content_pillars(
         row["analysis_content_pillars"] if "analysis_content_pillars" in row.keys() else []
     )
+    analysis_expression_profile = _normalize_analysis_expression_profile(
+        row["analysis_expression_profile"] if "analysis_expression_profile" in row.keys() else []
+    )
+    analysis_status = str(row["analysis_status"] or "unanalysed") if "analysis_status" in row.keys() else "unanalysed"
     tags = _normalize_tracked_article_tags(json.loads(str(row["tags"])))
     metadata = _sanitize_responsibility_shelter_tracked_article_metadata(
         {
@@ -2234,6 +2589,7 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
             "analysis_share_reason": analysis_share_reason,
             "analysis_do_not_turn_into": analysis_do_not_turn_into,
             "analysis_content_pillars": analysis_content_pillars,
+            "analysis_expression_profile": analysis_expression_profile,
         },
         article_title=str(row["title"]),
         body_markdown=body_markdown,
@@ -2288,6 +2644,8 @@ def _hydrate_tracked_article_row(row: sqlite3.Row) -> TrackedArticleItem:
         analysis_share_reason=analysis_share_reason,
         analysis_do_not_turn_into=analysis_do_not_turn_into,
         analysis_content_pillars=analysis_content_pillars,
+        analysis_expression_profile=analysis_expression_profile,
+        analysis_status=analysis_status,
         created_at=str(row["created_at"]) if "created_at" in row.keys() and row["created_at"] is not None else None,
         tags=tags,
     )
@@ -2299,7 +2657,8 @@ def _get_tracked_article_row_by_slug(connection: sqlite3.Connection, article_slu
         SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
                analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
                analysis_opening_pattern, analysis_hook_trigger, analysis_progression_drive, analysis_share_reason,
-               analysis_do_not_turn_into, analysis_content_pillars, created_at, tags
+               analysis_do_not_turn_into, analysis_content_pillars, analysis_expression_profile, analysis_status,
+               created_at, tags
         FROM tracked_articles
         WHERE slug = ?
         """,
@@ -2316,7 +2675,8 @@ def _find_tracked_article_by_url(connection: sqlite3.Connection, url: str) -> Tr
         SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
                analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
                analysis_opening_pattern, analysis_hook_trigger, analysis_progression_drive, analysis_share_reason,
-               analysis_do_not_turn_into, analysis_content_pillars, created_at, tags
+               analysis_do_not_turn_into, analysis_content_pillars, analysis_expression_profile, analysis_status,
+               created_at, tags
         FROM tracked_articles
         WHERE url = ?
         """,
@@ -2346,9 +2706,10 @@ def _create_tracked_article_in_connection(
             slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
             analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
             analysis_opening_pattern, analysis_hook_trigger, analysis_progression_drive, analysis_share_reason,
-            analysis_do_not_turn_into, analysis_content_pillars, created_at, tags
+            analysis_do_not_turn_into, analysis_content_pillars, analysis_expression_profile, analysis_status,
+            created_at, tags
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload.slug,
@@ -2371,6 +2732,24 @@ def _create_tracked_article_in_connection(
             payload.analysis_share_reason,
             payload.analysis_do_not_turn_into,
             json.dumps(payload.analysis_content_pillars, ensure_ascii=False),
+            json.dumps(payload.analysis_expression_profile, ensure_ascii=False),
+            (
+                "complete"
+                if has_complete_tracked_article_generation_contract(
+                    analysis_structure_mode_hint=payload.analysis_structure_mode,
+                    analysis_theme=payload.analysis_theme,
+                    analysis_core_conflict=payload.analysis_core_conflict,
+                    analysis_emotional_exit=payload.analysis_emotional_exit,
+                    analysis_opening_pattern=payload.analysis_opening_pattern,
+                    analysis_hook_trigger=payload.analysis_hook_trigger,
+                    analysis_progression_drive=payload.analysis_progression_drive,
+                    analysis_share_reason=payload.analysis_share_reason,
+                    analysis_do_not_turn_into=payload.analysis_do_not_turn_into,
+                    analysis_content_pillars=payload.analysis_content_pillars,
+                    analysis_expression_profile=payload.analysis_expression_profile,
+                )
+                else "unanalysed"
+            ),
             created_at,
             json.dumps(payload.tags, ensure_ascii=False),
         ),
@@ -2389,6 +2768,23 @@ def _create_tracked_article_in_connection(
             "source_name": source_name,
             "url": payload.url.strip(),
             "body_source": body_source,
+            "analysis_status": (
+                "complete"
+                if has_complete_tracked_article_generation_contract(
+                    analysis_structure_mode_hint=payload.analysis_structure_mode,
+                    analysis_theme=payload.analysis_theme,
+                    analysis_core_conflict=payload.analysis_core_conflict,
+                    analysis_emotional_exit=payload.analysis_emotional_exit,
+                    analysis_opening_pattern=payload.analysis_opening_pattern,
+                    analysis_hook_trigger=payload.analysis_hook_trigger,
+                    analysis_progression_drive=payload.analysis_progression_drive,
+                    analysis_share_reason=payload.analysis_share_reason,
+                    analysis_do_not_turn_into=payload.analysis_do_not_turn_into,
+                    analysis_content_pillars=payload.analysis_content_pillars,
+                    analysis_expression_profile=payload.analysis_expression_profile,
+                )
+                else "unanalysed"
+            ),
             "created_at": created_at,
         }
     )
@@ -2874,7 +3270,8 @@ def list_tracked_articles() -> list[TrackedArticleItem]:
             SELECT slug, source_kind, source_name, title, url, author, summary, body_markdown, body_source, structure_notes,
                    analysis_theme, analysis_core_conflict, analysis_emotional_exit, analysis_structure_mode,
                    analysis_opening_pattern, analysis_hook_trigger, analysis_progression_drive, analysis_share_reason,
-                   analysis_do_not_turn_into, analysis_content_pillars, created_at, tags
+                   analysis_do_not_turn_into, analysis_content_pillars, analysis_expression_profile, analysis_status,
+                   created_at, tags
             FROM tracked_articles
             ORDER BY rowid DESC
             """
@@ -2980,7 +3377,7 @@ def refresh_tracked_article_body(
                 analysis_theme = '', analysis_core_conflict = '', analysis_emotional_exit = '',
                 analysis_structure_mode = '', analysis_opening_pattern = '', analysis_hook_trigger = '',
                 analysis_progression_drive = '', analysis_share_reason = '', analysis_do_not_turn_into = '',
-                analysis_content_pillars = '[]'
+                analysis_content_pillars = '[]', analysis_expression_profile = '[]', analysis_status = 'unanalysed'
             WHERE slug = ?
             """,
             (body_markdown, body_source, article_slug),
@@ -3051,6 +3448,22 @@ def _sanitize_responsibility_shelter_tracked_article_metadata(
     }
     if not _has_everyday_warmth_responsibility_shelter_focus(probe):
         return normalized
+    if has_complete_tracked_article_generation_contract(
+        analysis_structure_mode_hint=str(normalized.get("analysis_structure_mode") or ""),
+        analysis_theme=str(normalized.get("analysis_theme") or ""),
+        analysis_core_conflict=str(normalized.get("analysis_core_conflict") or ""),
+        analysis_emotional_exit=str(normalized.get("analysis_emotional_exit") or ""),
+        analysis_opening_pattern=str(normalized.get("analysis_opening_pattern") or ""),
+        analysis_hook_trigger=str(normalized.get("analysis_hook_trigger") or ""),
+        analysis_progression_drive=str(normalized.get("analysis_progression_drive") or ""),
+        analysis_share_reason=str(normalized.get("analysis_share_reason") or ""),
+        analysis_do_not_turn_into=str(normalized.get("analysis_do_not_turn_into") or ""),
+        analysis_content_pillars=_normalize_analysis_content_pillars(normalized.get("analysis_content_pillars")),
+        analysis_expression_profile=_normalize_analysis_expression_profile(
+            normalized.get("analysis_expression_profile")
+        ),
+    ):
+        return normalized
 
     text_fields = (
         "summary",
@@ -3075,7 +3488,10 @@ def _sanitize_responsibility_shelter_tracked_article_metadata(
 
 
 def _tracked_article_has_analysis(article: TrackedArticleItem) -> bool:
-    return has_complete_tracked_article_analysis_contract(
+    return has_source_aligned_tracked_article_generation_contract(
+        source_title=article.title,
+        source_summary=article.summary,
+        source_body_markdown=article.body_markdown,
         analysis_structure_mode_hint=article.analysis_structure_mode,
         analysis_theme=article.analysis_theme,
         analysis_core_conflict=article.analysis_core_conflict,
@@ -3086,6 +3502,46 @@ def _tracked_article_has_analysis(article: TrackedArticleItem) -> bool:
         analysis_share_reason=article.analysis_share_reason,
         analysis_do_not_turn_into=article.analysis_do_not_turn_into,
         analysis_content_pillars=article.analysis_content_pillars,
+        analysis_expression_profile=article.analysis_expression_profile,
+    )
+
+
+def _resolve_tracked_article_analysis_status(
+    *,
+    analysis_structure_mode_hint: str,
+    analysis_theme: str,
+    analysis_core_conflict: str,
+    analysis_emotional_exit: str,
+    analysis_opening_pattern: str,
+    analysis_hook_trigger: str,
+    analysis_progression_drive: str,
+    analysis_share_reason: str,
+    analysis_do_not_turn_into: str,
+    analysis_content_pillars: object,
+    analysis_expression_profile: object,
+    source_title: str = "",
+    source_summary: str = "",
+    source_body_markdown: str = "",
+) -> str:
+    return (
+        "complete"
+        if has_source_aligned_tracked_article_generation_contract(
+            source_title=source_title,
+            source_summary=source_summary,
+            source_body_markdown=source_body_markdown,
+            analysis_structure_mode_hint=analysis_structure_mode_hint,
+            analysis_theme=analysis_theme,
+            analysis_core_conflict=analysis_core_conflict,
+            analysis_emotional_exit=analysis_emotional_exit,
+            analysis_opening_pattern=analysis_opening_pattern,
+            analysis_hook_trigger=analysis_hook_trigger,
+            analysis_progression_drive=analysis_progression_drive,
+            analysis_share_reason=analysis_share_reason,
+            analysis_do_not_turn_into=analysis_do_not_turn_into,
+            analysis_content_pillars=analysis_content_pillars,
+            analysis_expression_profile=_normalize_analysis_expression_profile(analysis_expression_profile),
+        )
+        else "incomplete"
     )
 
 
@@ -3361,6 +3817,15 @@ _ABSTRACT_RESPONSIBILITY_SHELTER_TITLE_TOKENS = (
 _RESPONSIBILITY_SHELTER_NEGATIVE_TOPIC_TOKENS = (
     "熬沉默",
     "挂了电话才敢累",
+)
+_RESPONSIBILITY_SHELTER_SOURCE_SHELL_TOKENS = (
+    "电话那头是",
+    "电话这头",
+    "从电话",
+    "父母、孩子和账单",
+    "请假、转身",
+    "把“我没事”说",
+    "一接到父母",
 )
 _RESPONSIBILITY_SHELTER_TITLE_HARD_ANCHOR_TOKENS = (
     "责任",
@@ -4015,6 +4480,8 @@ def _should_rewrite_everyday_warmth_return_topic(payload: Mapping[str, object], 
         return False
     combined = f"{title} {angle}"
     if _has_everyday_warmth_responsibility_shelter_focus(payload):
+        if any(token in angle for token in _RESPONSIBILITY_SHELTER_SOURCE_SHELL_TOKENS):
+            return True
         title_hard_anchor_hits = sum(
             1 for token in _RESPONSIBILITY_SHELTER_TITLE_HARD_ANCHOR_TOKENS if token in title
         )
@@ -4071,18 +4538,7 @@ def _rewrite_everyday_warmth_return_topic(payload: Mapping[str, object], ai_resu
     if _has_everyday_warmth_responsibility_shelter_focus(payload):
         if _uses_local_responsibility_endurance_variant(payload):
             new_title = _resolve_local_responsibility_endurance_topic_title(payload)
-            if _uses_local_responsibility_midlife_variant(payload):
-                new_angle = (
-                    "从电话那头是父母、孩子和账单切入，"
-                    "写中年人为什么总把“我没事”说得很轻；"
-                    "也写那些请假、转身都要多想一步的日子，后来怎样慢慢换来一家人的安稳。"
-                )
-            else:
-                new_angle = (
-                    "从成年人总把那句“我没事”顶在前面切入，"
-                    "写那些不肯说出口的辛苦，怎样慢慢换来父母的安心、孩子的底气和一家人的安稳；"
-                    "也写那个总在为家里扛事的人，最后为什么同样值得被温柔接住。"
-                )
+            new_angle = _resolve_local_responsibility_topic_angle(payload)
             return {"title": new_title, "angle": new_angle}
         if any(token in corpus for token in ("账单", "缴费", "复查", "请假", "电话", "喉咙发紧")):
             new_title = "把日子托稳的人，也该被好好心疼"
@@ -4123,6 +4579,39 @@ def _has_local_trust_boundary_focus(payload: Mapping[str, object] | None) -> boo
     candidate = dict(payload)
     candidate.setdefault("source_type", "tracked_article")
     return _has_trust_boundary_focus(candidate)
+
+
+def _has_local_social_boundaries_focus(payload: Mapping[str, object] | None) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    corpus = "\n".join(
+        str(payload.get(key) or "").strip()
+        for key in (
+            "article_title",
+            "topic_title",
+            "topic_angle",
+            "summary",
+            "structure_notes",
+            "body_markdown",
+            "reference_article_title",
+            "reference_article_summary",
+            "reference_article_structure_notes",
+            "reference_article_body_markdown",
+            "analysis_theme",
+            "analysis_core_conflict",
+            "analysis_emotional_exit",
+            "analysis_opening_pattern",
+            "analysis_progression_drive",
+            "analysis_do_not_turn_into",
+        )
+        if str(payload.get(key) or "").strip()
+    )
+    explicit_hits = sum(token in corpus for token in ("慎言", "让渡", "知止", "处世尺度", "相处之道"))
+    supporting_hits = sum(
+        token in corpus
+        for token in ("分寸", "留余地", "留体面", "不妄言", "不恶言", "不多言", "看透不必说透", "温和待人")
+    )
+    return explicit_hits >= 2 and supporting_hits >= 2
 
 
 _TRUST_BOUNDARY_TOPIC_ANCHOR_TOKENS = ("信任", "坦诚", "隐瞒", "谎言", "辜负", "心安", "说到做到", "赤诚")
@@ -4735,7 +5224,7 @@ def _rewrite_resilience_reconstruction_topic(payload: Mapping[str, object], ai_r
     corpus = " ".join(part for part in (body_markdown, structure_notes, summary) if part)
 
     if _has_local_resilience_pool_profile(payload, extra_text=corpus):
-        new_title = "那些总要多划11下的人，最后是怎样把自己从命运里撑出来的"
+        new_title = "每50米多划11下，她把人生游成了自己的路"
     elif any(token in corpus for token in ("不被定义", "残缺", "破碎中重建")):
         new_title = "命运想用残缺定义你时，真正托住人的往往是那股不肯松掉的韧性"
     else:
@@ -4753,19 +5242,14 @@ def _rewrite_resilience_reconstruction_topic(payload: Mapping[str, object], ai_r
 def _resolve_local_responsibility_topic_angle(payload: Mapping[str, object]) -> str:
     if _uses_local_responsibility_endurance_variant(payload):
         return (
-            "从成年人总把那句“我没事”顶在前面切入，"
+            "从成年人总把“我没事”顶在前面切入，"
             "写那些不肯说出口的辛苦，怎样慢慢换来父母的安心、孩子的底气和一家人的安稳；"
             "也写那个总在为家里扛事的人，最后为什么同样值得被温柔接住。"
         )
-    if _uses_local_responsibility_midlife_variant(payload):
-        return (
-            "从电话那头是父母、孩子和账单切入，"
-            "写中年人为什么总把“我没事”说得很轻；"
-            "也写那些请假、转身都要多想一步的日子，后来怎样慢慢换来一家人的安稳。"
-        )
     return (
-        "从家里一有临时情况，人为什么总会先把顺序理清写起，"
-        "写那些翻日历、改安排、往前顶一步的时刻，怎样一点点托住父母、孩子和家里的安稳。"
+        "从一件临时落到家里的安排切入，"
+        "写一个人为什么总先把顺序理清、先把父母、孩子和家里的事安顿好；"
+        "也写这些认真怎样换来家里的安稳，以及那个总在承担的人怎样被家人接住。"
     )
 
 
@@ -4814,6 +5298,7 @@ def _sanitize_responsibility_shelter_topic_result(
         or _looks_like_packaging_instruction_leakage(angle)
         or _looks_like_packaging_meta_text(angle)
         or angle.startswith(("这篇想", "这篇稿子", "文章想", "稿子想", "从家里一有临时情况"))
+        or any(token in angle for token in _RESPONSIBILITY_SHELTER_SOURCE_SHELL_TOKENS)
     ):
         rewritten["angle"] = _resolve_local_responsibility_topic_angle(payload)
     else:
@@ -4822,7 +5307,7 @@ def _sanitize_responsibility_shelter_topic_result(
 
 
 def _has_complete_tracked_article_topic_analysis(payload: Mapping[str, object]) -> bool:
-    return has_complete_tracked_article_analysis_contract(
+    return has_complete_tracked_article_generation_contract(
         analysis_structure_mode_hint=str(payload.get("analysis_structure_mode") or ""),
         analysis_theme=str(payload.get("analysis_theme") or ""),
         analysis_core_conflict=str(payload.get("analysis_core_conflict") or ""),
@@ -4833,6 +5318,9 @@ def _has_complete_tracked_article_topic_analysis(payload: Mapping[str, object]) 
         analysis_share_reason=str(payload.get("analysis_share_reason") or ""),
         analysis_do_not_turn_into=str(payload.get("analysis_do_not_turn_into") or ""),
         analysis_content_pillars=_normalize_analysis_content_pillars(payload.get("analysis_content_pillars")),
+        analysis_expression_profile=_normalize_analysis_expression_profile(
+            payload.get("analysis_expression_profile")
+        ),
     )
 
 
@@ -5031,27 +5519,32 @@ def _raise_creative_upstream_failure(stage_label: str, exc: Exception) -> None:
     ) from exc
 
 
-def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
+def enrich_tracked_article_metadata(
+    article_slug: str,
+    *,
+    ai_result: Mapping[str, object] | None = None,
+) -> TrackedArticleItem:
     with _get_connection() as connection:
         row = _get_tracked_article_row_by_slug(connection, article_slug)
         if row is None:
             raise HTTPException(status_code=404, detail="Tracked article not found")
 
         article = _hydrate_tracked_article_row(row)
-        ai_result = get_ai_generator().generate_tracked_article_metadata(
-            {
-                "source_kind": article.source_kind,
-                "source_name": article.source_name,
-                "article_title": article.title,
-                "article_url": article.url,
-                "author": article.author,
-                "summary": article.summary,
-                "body_markdown": article.body_markdown,
-                "body_source": article.body_source,
-                "structure_notes": article.structure_notes,
-                "tags": article.tags,
-            }
-        )
+        if ai_result is None:
+            ai_result = get_ai_generator().generate_tracked_article_metadata(
+                {
+                    "source_kind": article.source_kind,
+                    "source_name": article.source_name,
+                    "article_title": article.title,
+                    "article_url": article.url,
+                    "author": article.author,
+                    "summary": article.summary,
+                    "body_markdown": article.body_markdown,
+                    "body_source": article.body_source,
+                    "structure_notes": article.structure_notes,
+                    "tags": article.tags,
+                }
+            )
 
         updated_author = article.author.strip() or str(ai_result.get("author") or "").strip()
         updated_summary = str(ai_result.get("summary") or "").strip() or article.summary
@@ -5082,6 +5575,9 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
         updated_analysis_content_pillars = _normalize_analysis_content_pillars(
             ai_result.get("analysis_content_pillars")
         ) or article.analysis_content_pillars
+        updated_analysis_expression_profile = _normalize_analysis_expression_profile(
+            ai_result.get("analysis_expression_profile")
+        ) or article.analysis_expression_profile
         updated_metadata = _sanitize_responsibility_shelter_tracked_article_metadata(
             {
                 "summary": updated_summary,
@@ -5097,6 +5593,7 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
                 "analysis_share_reason": updated_analysis_share_reason,
                 "analysis_do_not_turn_into": updated_analysis_do_not_turn_into,
                 "analysis_content_pillars": updated_analysis_content_pillars,
+                "analysis_expression_profile": updated_analysis_expression_profile,
             },
             article_title=article.title,
             body_markdown=article.body_markdown,
@@ -5131,6 +5628,22 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
             analysis_do_not_turn_into=updated_analysis_do_not_turn_into,
             trust_complete_analysis_contract=True,
         )
+        updated_analysis_status = _resolve_tracked_article_analysis_status(
+            analysis_structure_mode_hint=updated_analysis_structure_mode,
+            analysis_theme=updated_analysis_theme,
+            analysis_core_conflict=updated_analysis_core_conflict,
+            analysis_emotional_exit=updated_analysis_emotional_exit,
+            analysis_opening_pattern=updated_analysis_opening_pattern,
+            analysis_hook_trigger=updated_analysis_hook_trigger,
+            analysis_progression_drive=updated_analysis_progression_drive,
+            analysis_share_reason=updated_analysis_share_reason,
+            analysis_do_not_turn_into=updated_analysis_do_not_turn_into,
+            analysis_content_pillars=updated_analysis_content_pillars,
+            analysis_expression_profile=updated_analysis_expression_profile,
+            source_title=article.title,
+            source_summary=updated_summary,
+            source_body_markdown=article.body_markdown,
+        )
 
         connection.execute(
             """
@@ -5139,7 +5652,7 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
                 analysis_theme = ?, analysis_core_conflict = ?, analysis_emotional_exit = ?,
                 analysis_structure_mode = ?, analysis_opening_pattern = ?, analysis_hook_trigger = ?,
                 analysis_progression_drive = ?, analysis_share_reason = ?, analysis_do_not_turn_into = ?,
-                analysis_content_pillars = ?
+                analysis_content_pillars = ?, analysis_expression_profile = ?, analysis_status = ?
             WHERE slug = ?
             """,
             (
@@ -5157,6 +5670,8 @@ def enrich_tracked_article_metadata(article_slug: str) -> TrackedArticleItem:
                 updated_analysis_share_reason,
                 updated_analysis_do_not_turn_into,
                 json.dumps(updated_analysis_content_pillars, ensure_ascii=False),
+                json.dumps(updated_analysis_expression_profile, ensure_ascii=False),
+                updated_analysis_status,
                 article_slug,
             ),
         )
@@ -5487,6 +6002,7 @@ def generate_topic_from_tracked_article(
     tone_profile = get_active_tone_profile()
     article_for_analysis: TrackedArticleItem | None = None
     generator = get_ai_generator()
+    combined_topic_result: dict[str, str] | None = None
     with _get_connection() as connection:
         article_row = _get_tracked_article_row_by_slug(connection, article_slug)
         if not article_row:
@@ -5498,11 +6014,40 @@ def generate_topic_from_tracked_article(
     if (
         auto_enrich_analysis
         and not _tracked_article_has_analysis(article_for_analysis)
-        and hasattr(generator, "generate_tracked_article_metadata")
+        and (
+            hasattr(generator, "generate_tracked_article_metadata")
+            or callable(getattr(generator, "generate_tracked_article_analysis_and_topic", None))
+        )
     ):
         if not analysis_already_attempted:
             try:
-                article_for_analysis = enrich_tracked_article_metadata(article_slug)
+                combined_generator = getattr(generator, "generate_tracked_article_analysis_and_topic", None)
+                if callable(combined_generator):
+                    combined_result = combined_generator(
+                        {
+                            "source_kind": article_for_analysis.source_kind,
+                            "source_name": article_for_analysis.source_name,
+                            "article_title": article_for_analysis.title,
+                            "article_url": article_for_analysis.url,
+                            "author": article_for_analysis.author,
+                            "summary": article_for_analysis.summary,
+                            "body_markdown": article_for_analysis.body_markdown,
+                            "body_source": article_for_analysis.body_source,
+                            "structure_notes": article_for_analysis.structure_notes,
+                            "tags": article_for_analysis.tags,
+                        }
+                    )
+                    topic_title = str(combined_result.get("topic_title") or "").strip()
+                    topic_angle = str(combined_result.get("topic_angle") or "").strip()
+                    if not topic_title or not topic_angle:
+                        raise ValueError("combined reference analysis did not return topic_title and topic_angle")
+                    article_for_analysis = enrich_tracked_article_metadata(
+                        article_slug,
+                        ai_result=combined_result,
+                    )
+                    combined_topic_result = {"title": topic_title, "angle": topic_angle}
+                else:
+                    article_for_analysis = enrich_tracked_article_metadata(article_slug)
             except Exception as exc:
                 logger.warning(
                     "Tracked article metadata enrichment failed during topic generation; stopping before topic generation",
@@ -5548,11 +6093,56 @@ def generate_topic_from_tracked_article(
             "analysis_share_reason": article_for_analysis.analysis_share_reason,
             "analysis_do_not_turn_into": article_for_analysis.analysis_do_not_turn_into,
             "analysis_content_pillars": article_for_analysis.analysis_content_pillars,
+            "analysis_expression_profile": article_for_analysis.analysis_expression_profile,
             "tags": article_for_analysis.tags,
             "tone_profile": tone_profile.model_dump(),
         }
         try:
-            ai_result = _apply_tracked_article_topic_rewrites(topic_payload, generator.generate_topic(topic_payload))
+            raw_topic_result = combined_topic_result or generator.generate_topic(topic_payload)
+            ai_result = _apply_tracked_article_topic_rewrites(topic_payload, raw_topic_result)
+            if _has_complete_tracked_article_topic_analysis(topic_payload) and not has_source_aligned_tracked_article_topic(
+                source_title=article_for_analysis.title,
+                source_summary=article_for_analysis.summary,
+                source_body_markdown=article_for_analysis.body_markdown,
+                analysis_structure_mode_hint=article_for_analysis.analysis_structure_mode,
+                analysis_theme=article_for_analysis.analysis_theme,
+                analysis_core_conflict=article_for_analysis.analysis_core_conflict,
+                analysis_emotional_exit=article_for_analysis.analysis_emotional_exit,
+                analysis_opening_pattern=article_for_analysis.analysis_opening_pattern,
+                analysis_hook_trigger=article_for_analysis.analysis_hook_trigger,
+                analysis_progression_drive=article_for_analysis.analysis_progression_drive,
+                analysis_share_reason=article_for_analysis.analysis_share_reason,
+                analysis_do_not_turn_into=article_for_analysis.analysis_do_not_turn_into,
+                analysis_content_pillars=article_for_analysis.analysis_content_pillars,
+                topic_title=ai_result["title"],
+                topic_angle=ai_result["angle"],
+            ):
+                logger.warning(
+                    "Tracked article topic drifted from the analysis contract; retrying topic stage once",
+                    extra={"article_slug": article_slug},
+                )
+                retry_payload = dict(topic_payload)
+                retry_payload["request_stage"] = "analysis_topic"
+                retry_result = generator.generate_topic(retry_payload)
+                ai_result = _apply_tracked_article_topic_rewrites(topic_payload, retry_result)
+                if not has_source_aligned_tracked_article_topic(
+                    source_title=article_for_analysis.title,
+                    source_summary=article_for_analysis.summary,
+                    source_body_markdown=article_for_analysis.body_markdown,
+                    analysis_structure_mode_hint=article_for_analysis.analysis_structure_mode,
+                    analysis_theme=article_for_analysis.analysis_theme,
+                    analysis_core_conflict=article_for_analysis.analysis_core_conflict,
+                    analysis_emotional_exit=article_for_analysis.analysis_emotional_exit,
+                    analysis_opening_pattern=article_for_analysis.analysis_opening_pattern,
+                    analysis_hook_trigger=article_for_analysis.analysis_hook_trigger,
+                    analysis_progression_drive=article_for_analysis.analysis_progression_drive,
+                    analysis_share_reason=article_for_analysis.analysis_share_reason,
+                    analysis_do_not_turn_into=article_for_analysis.analysis_do_not_turn_into,
+                    analysis_content_pillars=article_for_analysis.analysis_content_pillars,
+                    topic_title=ai_result["title"],
+                    topic_angle=ai_result["angle"],
+                ):
+                    raise ValueError("topic generation remained outside the reference analysis theme after one retry")
         except Exception as exc:
             if not _allow_local_creative_fallbacks():
                 _raise_creative_upstream_failure("选题生成", exc)
@@ -5603,6 +6193,7 @@ def list_projects() -> list[ProjectItem]:
                 p.owner,
                 p.preferred_tone_profile_id,
                 p.domain_pack_key,
+                p.preferred_wechat_html_style_key,
                 tp.name AS preferred_tone_profile_name,
                 t.source_type
             FROM projects p
@@ -5634,11 +6225,18 @@ def create_project_from_topic(topic_slug: str, payload: ProjectCreate) -> Projec
         if payload.domain_pack_key is not None and get_domain_prompt_pack(payload.domain_pack_key) is None:
             raise HTTPException(status_code=404, detail="Domain pack not found")
 
+        normalized_html_style_key = str(payload.preferred_wechat_html_style_key or "").strip().lower() or None
+        if normalized_html_style_key is not None:
+            try:
+                get_wechat_mp_html_style(normalized_html_style_key)
+            except ValueError:
+                raise HTTPException(status_code=404, detail="WeChat HTML style not found") from None
+
         try:
             connection.execute(
                 """
-                INSERT INTO projects (slug, topic_slug, title, stage, owner, preferred_tone_profile_id, domain_pack_key)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO projects (slug, topic_slug, title, stage, owner, preferred_tone_profile_id, domain_pack_key, preferred_wechat_html_style_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload.slug,
@@ -5648,6 +6246,7 @@ def create_project_from_topic(topic_slug: str, payload: ProjectCreate) -> Projec
                     payload.owner,
                     payload.preferred_tone_profile_id,
                     payload.domain_pack_key,
+                    normalized_html_style_key,
                 ),
             )
             connection.execute(
@@ -5671,7 +6270,7 @@ def update_project_stage(project_slug: str, payload: ProjectStageUpdate) -> Proj
     with _get_connection() as connection:
         existing = connection.execute(
             """
-            SELECT slug, topic_slug, title, stage, owner, preferred_tone_profile_id, domain_pack_key
+            SELECT slug, topic_slug, title, stage, owner, preferred_tone_profile_id, domain_pack_key, preferred_wechat_html_style_key
             FROM projects
             WHERE slug = ?
             """,
@@ -5691,6 +6290,16 @@ def update_project_stage(project_slug: str, payload: ProjectStageUpdate) -> Proj
         if payload.domain_pack_key is not None and get_domain_prompt_pack(payload.domain_pack_key) is None:
             raise HTTPException(status_code=404, detail="Domain pack not found")
 
+        next_preferred_wechat_html_style_key = existing["preferred_wechat_html_style_key"]
+        if "preferred_wechat_html_style_key" in payload.model_fields_set:
+            normalized_html_style_key = str(payload.preferred_wechat_html_style_key or "").strip().lower() or None
+            if normalized_html_style_key is not None:
+                try:
+                    get_wechat_mp_html_style(normalized_html_style_key)
+                except ValueError:
+                    raise HTTPException(status_code=404, detail="WeChat HTML style not found") from None
+            next_preferred_wechat_html_style_key = normalized_html_style_key
+
         next_preferred_tone_profile_id = existing["preferred_tone_profile_id"]
         if "preferred_tone_profile_id" in payload.model_fields_set:
             next_preferred_tone_profile_id = payload.preferred_tone_profile_id
@@ -5700,8 +6309,8 @@ def update_project_stage(project_slug: str, payload: ProjectStageUpdate) -> Proj
             next_domain_pack_key = payload.domain_pack_key
 
         connection.execute(
-            "UPDATE projects SET stage = ?, preferred_tone_profile_id = ?, domain_pack_key = ? WHERE slug = ?",
-            (payload.stage, next_preferred_tone_profile_id, next_domain_pack_key, project_slug),
+            "UPDATE projects SET stage = ?, preferred_tone_profile_id = ?, domain_pack_key = ?, preferred_wechat_html_style_key = ? WHERE slug = ?",
+            (payload.stage, next_preferred_tone_profile_id, next_domain_pack_key, next_preferred_wechat_html_style_key, project_slug),
         )
         connection.commit()
 
@@ -5720,6 +6329,7 @@ def _get_project_row(project_slug: str) -> sqlite3.Row:
                 p.owner,
                 p.preferred_tone_profile_id,
                 p.domain_pack_key,
+                p.preferred_wechat_html_style_key,
                 tp.name AS preferred_tone_profile_name,
                 t.source_type
             FROM projects p
@@ -5746,6 +6356,7 @@ def _get_project_context(project_slug: str) -> sqlite3.Row:
                 p.owner,
                 p.preferred_tone_profile_id,
                 p.domain_pack_key,
+                p.preferred_wechat_html_style_key,
                 tp.name AS preferred_tone_profile_name,
                 t.source_type,
                 t.source_ref_slug,
@@ -5767,6 +6378,8 @@ def _get_project_context(project_slug: str) -> sqlite3.Row:
                 ta.analysis_share_reason AS reference_article_analysis_share_reason,
                 ta.analysis_do_not_turn_into AS reference_article_analysis_do_not_turn_into,
                 ta.analysis_content_pillars AS reference_article_analysis_content_pillars,
+                ta.analysis_expression_profile AS reference_article_analysis_expression_profile,
+                ta.analysis_status AS reference_article_analysis_status,
                 ta.tags AS reference_article_tags,
                 CASE
                     WHEN t.source_type = 'trend' THEN tr.title
@@ -5797,9 +6410,6 @@ def _build_reference_article_payload(
         "source_type": str(project["source_type"]),
     }
     if str(project["source_type"]) != "tracked_article":
-        return payload
-    if hide_details:
-        payload["reference_article_hidden"] = True
         return payload
 
     tags: list[str] = []
@@ -5841,6 +6451,91 @@ def _build_reference_article_payload(
         trust_complete_analysis_contract=True,
     )
 
+    analysis_payload = {
+        "reference_article_analysis_theme": str(project["reference_article_analysis_theme"] or ""),
+        "reference_article_analysis_core_conflict": str(project["reference_article_analysis_core_conflict"] or ""),
+        "reference_article_analysis_emotional_exit": str(project["reference_article_analysis_emotional_exit"] or ""),
+        "reference_article_analysis_structure_mode": resolved_analysis_structure_mode,
+        "reference_article_analysis_opening_pattern": str(project["reference_article_analysis_opening_pattern"] or ""),
+        "reference_article_analysis_hook_trigger": (
+            str(project["reference_article_analysis_hook_trigger"] or "")
+            if "reference_article_analysis_hook_trigger" in project_keys
+            else ""
+        ),
+        "reference_article_analysis_progression_drive": (
+            str(project["reference_article_analysis_progression_drive"] or "")
+            if "reference_article_analysis_progression_drive" in project_keys
+            else ""
+        ),
+        "reference_article_analysis_share_reason": (
+            str(project["reference_article_analysis_share_reason"] or "")
+            if "reference_article_analysis_share_reason" in project_keys
+            else ""
+        ),
+        "reference_article_analysis_do_not_turn_into": str(project["reference_article_analysis_do_not_turn_into"] or ""),
+        "reference_article_analysis_content_pillars": _normalize_analysis_content_pillars(
+            project["reference_article_analysis_content_pillars"]
+            if "reference_article_analysis_content_pillars" in project_keys
+            else []
+        ),
+        "reference_article_analysis_expression_profile": _normalize_analysis_expression_profile(
+            project["reference_article_analysis_expression_profile"]
+            if "reference_article_analysis_expression_profile" in project_keys
+            else []
+        ),
+        "reference_article_analysis_status": (
+            str(project["reference_article_analysis_status"] or "unanalysed")
+            if "reference_article_analysis_status" in project_keys
+            else "unanalysed"
+        ),
+    }
+    analysis_status = str(
+        _project_value(project, "reference_article_analysis_status", "unanalysed")
+    ).strip() or "unanalysed"
+    can_hide_source_details = analysis_status == "unanalysed" or _project_reference_analysis_is_complete(project)
+    if hide_details and can_hide_source_details:
+        # Hide source wording after the analysis contract has been carried
+        # forward; downstream stages still need the contract to own prompts.
+        source_surface_payload = {
+            str(key): project[key]
+            for key in project_keys
+        }
+        execution_surface = build_complete_contract_execution_surface(source_surface_payload)
+        if execution_surface:
+            analysis_payload.update(
+                {
+                    "reference_article_analysis_structure_mode": str(
+                        execution_surface.get("structure_mode")
+                        or analysis_payload["reference_article_analysis_structure_mode"]
+                    ),
+                    "reference_article_analysis_opening_pattern": str(
+                        execution_surface.get("opening_pattern")
+                        or analysis_payload["reference_article_analysis_opening_pattern"]
+                    ),
+                    "reference_article_analysis_hook_trigger": str(
+                        execution_surface.get("hook_trigger")
+                        or analysis_payload["reference_article_analysis_hook_trigger"]
+                    ),
+                    "reference_article_analysis_progression_drive": str(
+                        execution_surface.get("progression_drive")
+                        or analysis_payload["reference_article_analysis_progression_drive"]
+                    ),
+                    "reference_article_analysis_share_reason": str(
+                        execution_surface.get("share_reason")
+                        or analysis_payload["reference_article_analysis_share_reason"]
+                    ),
+                    "reference_article_analysis_content_pillars": _normalize_analysis_content_pillars(
+                        execution_surface.get("content_pillars")
+                    ) or analysis_payload["reference_article_analysis_content_pillars"],
+                    "reference_article_analysis_expression_profile": _normalize_analysis_expression_profile(
+                        execution_surface.get("expression_profile")
+                    ) or analysis_payload["reference_article_analysis_expression_profile"],
+                }
+            )
+        payload["reference_article_hidden"] = True
+        payload.update(analysis_payload)
+        return payload
+
     payload.update(
         {
             "reference_article_title": str(project["reference_article_title"] or ""),
@@ -5849,36 +6544,65 @@ def _build_reference_article_payload(
             "reference_article_summary": str(project["reference_article_summary"] or ""),
             "reference_article_body_markdown": str(project["reference_article_body_markdown"] or ""),
             "reference_article_structure_notes": str(project["reference_article_structure_notes"] or ""),
-            "reference_article_analysis_theme": str(project["reference_article_analysis_theme"] or ""),
-            "reference_article_analysis_core_conflict": str(project["reference_article_analysis_core_conflict"] or ""),
-            "reference_article_analysis_emotional_exit": str(project["reference_article_analysis_emotional_exit"] or ""),
-            "reference_article_analysis_structure_mode": resolved_analysis_structure_mode,
-            "reference_article_analysis_opening_pattern": str(project["reference_article_analysis_opening_pattern"] or ""),
-            "reference_article_analysis_hook_trigger": (
-                str(project["reference_article_analysis_hook_trigger"] or "")
-                if "reference_article_analysis_hook_trigger" in project_keys
-                else ""
-            ),
-            "reference_article_analysis_progression_drive": (
-                str(project["reference_article_analysis_progression_drive"] or "")
-                if "reference_article_analysis_progression_drive" in project_keys
-                else ""
-            ),
-            "reference_article_analysis_share_reason": (
-                str(project["reference_article_analysis_share_reason"] or "")
-                if "reference_article_analysis_share_reason" in project_keys
-                else ""
-            ),
-            "reference_article_analysis_do_not_turn_into": str(project["reference_article_analysis_do_not_turn_into"] or ""),
-            "reference_article_analysis_content_pillars": _normalize_analysis_content_pillars(
-                project["reference_article_analysis_content_pillars"]
-                if "reference_article_analysis_content_pillars" in project_keys
-                else []
-            ),
+            **analysis_payload,
             "reference_article_tags": tags,
         }
     )
     return payload
+
+
+def _project_value(project: sqlite3.Row | Mapping[str, object], key: str, default: object = "") -> object:
+    if hasattr(project, "keys") and key not in project.keys():
+        return default
+    try:
+        value = project[key]
+    except (KeyError, IndexError):
+        return default
+    return default if value is None else value
+
+
+def _project_reference_analysis_is_complete(project: sqlite3.Row | Mapping[str, object]) -> bool:
+    return has_source_aligned_tracked_article_generation_contract(
+        source_title=str(_project_value(project, "reference_article_title")),
+        source_summary=str(_project_value(project, "reference_article_summary")),
+        source_body_markdown=str(_project_value(project, "reference_article_body_markdown")),
+        analysis_structure_mode_hint=str(_project_value(project, "reference_article_analysis_structure_mode")),
+        analysis_theme=str(_project_value(project, "reference_article_analysis_theme")),
+        analysis_core_conflict=str(_project_value(project, "reference_article_analysis_core_conflict")),
+        analysis_emotional_exit=str(_project_value(project, "reference_article_analysis_emotional_exit")),
+        analysis_opening_pattern=str(_project_value(project, "reference_article_analysis_opening_pattern")),
+        analysis_hook_trigger=str(_project_value(project, "reference_article_analysis_hook_trigger")),
+        analysis_progression_drive=str(_project_value(project, "reference_article_analysis_progression_drive")),
+        analysis_share_reason=str(_project_value(project, "reference_article_analysis_share_reason")),
+        analysis_do_not_turn_into=str(_project_value(project, "reference_article_analysis_do_not_turn_into")),
+        analysis_content_pillars=_normalize_analysis_content_pillars(
+            _project_value(project, "reference_article_analysis_content_pillars", [])
+        ),
+        analysis_expression_profile=_normalize_analysis_expression_profile(
+            _project_value(project, "reference_article_analysis_expression_profile", [])
+        ),
+    )
+
+
+def _ensure_reference_article_analysis_ready(
+    project: sqlite3.Row | Mapping[str, object],
+    *,
+    stage_label: str,
+) -> None:
+    if str(_project_value(project, "source_type")) != "tracked_article":
+        return
+    analysis_status = str(
+        _project_value(project, "reference_article_analysis_status", "unanalysed")
+    ).strip() or "unanalysed"
+    if analysis_status == "unanalysed" or _project_reference_analysis_is_complete(project):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"参考文章分析合同不完整，已停止{stage_label}。"
+            "请先重新运行参考文章分析，确认分析主题、推进关系、内容支柱和表达风格指纹完整后再继续。"
+        ),
+    )
 
 
 def _build_draft_candidate_selection_context(
@@ -5954,6 +6678,7 @@ def _build_local_tracked_article_fallback_payload(
         "analysis_share_reason": "reference_article_analysis_share_reason",
         "analysis_do_not_turn_into": "reference_article_analysis_do_not_turn_into",
         "analysis_content_pillars": "reference_article_analysis_content_pillars",
+        "analysis_expression_profile": "reference_article_analysis_expression_profile",
     }
     for local_key, reference_key in analysis_aliases.items():
         if fallback_payload.get(local_key) in (None, "", [], {}):
@@ -6011,6 +6736,13 @@ def _build_strategy_bundle_payload(
                 return []
             return _normalize_analysis_content_pillars(value)
 
+        def project_expression_profile() -> list[str]:
+            try:
+                value = project["reference_article_analysis_expression_profile"]
+            except (KeyError, IndexError, TypeError):
+                return []
+            return _normalize_analysis_expression_profile(value)
+
         payload.update(
             {
                 "source_type": project_text("source_type"),
@@ -6027,6 +6759,7 @@ def _build_strategy_bundle_payload(
                     "share_reason": project_text("reference_article_analysis_share_reason"),
                     "do_not_turn_into": project_text("reference_article_analysis_do_not_turn_into"),
                     "content_pillars": project_list("reference_article_analysis_content_pillars"),
+                    "expression_profile": project_expression_profile(),
                 },
             }
         )
@@ -6561,7 +7294,17 @@ def _get_project_chain_rows(connection: sqlite3.Connection, project_slug: str) -
                 created_at,
                 origin,
                 tone_profile_id,
-                tone_profile_name
+                tone_profile_name,
+                wechat_html_style_key,
+                wechat_html_style_name,
+                wechat_html_style_source,
+                wechat_html_style_reason,
+                wechat_mp_draft_status,
+                wechat_mp_draft_id,
+                wechat_mp_draft_error,
+                wechat_mp_draft_published_at,
+                approval_provenance,
+                wechat_mp_draft_provenance
             FROM publish_packages
             WHERE project_slug = ? AND draft_version = ? AND assets_version = ?
             ORDER BY version DESC, id DESC
@@ -6838,6 +7581,7 @@ def _hydrate_project_retro_row(row: sqlite3.Row) -> ProjectRetroItem:
 
 def generate_strategy_package(project_slug: str) -> StrategyPackageResult:
     project = _get_project_context(project_slug)
+    _ensure_reference_article_analysis_ready(project, stage_label="策略包生成")
     created_at = _utc_now_iso()
     with _get_project_version_lock(project_slug):
         with _get_connection() as connection:
@@ -7217,7 +7961,17 @@ def get_project_versions(project_slug: str) -> ProjectVersions:
                 created_at,
                 origin,
                 tone_profile_id,
-                tone_profile_name
+                tone_profile_name,
+                wechat_html_style_key,
+                wechat_html_style_name,
+                wechat_html_style_source,
+                wechat_html_style_reason,
+                wechat_mp_draft_status,
+                wechat_mp_draft_id,
+                wechat_mp_draft_error,
+                wechat_mp_draft_published_at,
+                approval_provenance,
+                wechat_mp_draft_provenance
             FROM publish_packages
             WHERE project_slug = ?
             ORDER BY version DESC, id DESC
@@ -7366,11 +8120,21 @@ def generate_creative_review_report(project_slug: str) -> CreativeReviewReportIt
                     status,
                     review_comment,
                     reviewed_by,
-                    reviewed_at,
-                    created_at,
-                    origin,
-                    tone_profile_id,
-                    tone_profile_name
+                reviewed_at,
+                created_at,
+                origin,
+                tone_profile_id,
+                tone_profile_name,
+                wechat_html_style_key,
+                wechat_html_style_name,
+                wechat_html_style_source,
+                wechat_html_style_reason,
+                wechat_mp_draft_status,
+                wechat_mp_draft_id,
+                wechat_mp_draft_error,
+                wechat_mp_draft_published_at,
+                approval_provenance,
+                wechat_mp_draft_provenance
                 FROM publish_packages
                 WHERE project_slug = ?
                 ORDER BY version DESC, id DESC
@@ -7615,6 +8379,7 @@ def promote_creative_pattern(project_slug: str, payload: PromoteCreativePatternA
 
 def generate_outline(project_slug: str) -> OutlineItem:
     project = _get_project_context(project_slug)
+    _ensure_reference_article_analysis_ready(project, stage_label="大纲生成")
     tone_profile = get_project_tone_profile(project)
     domain_pack = get_project_domain_pack(project)
     created_at = _utc_now_iso()
@@ -7982,6 +8747,7 @@ def polish_draft(
     objective_key: str | None = None,
 ) -> DraftItem:
     project = _get_project_context(project_slug)
+    _ensure_reference_article_analysis_ready(project, stage_label="正文生成")
     tone_profile = get_project_tone_profile(project)
     normalized_instruction = (instruction or "").strip()
     directional_context: _DirectionalPolishContext | None = None
@@ -8286,6 +9052,7 @@ def _generate_draft(
                 body_markdown=body_markdown,
                 source_type=str(project["source_type"]),
                 reference_source_markdown=_get_project_reference_source_markdown(project),
+                analysis_contract_complete=_project_reference_analysis_is_complete(project),
             )
             word_count = len(body_markdown)
             connection.execute(
@@ -8514,6 +9281,7 @@ def _extract_local_fallback_corpus(
                 str(payload.get("analysis_progression_drive") or "").strip(),
                 str(payload.get("analysis_share_reason") or "").strip(),
                 str(payload.get("analysis_do_not_turn_into") or "").strip(),
+                " ".join(_normalize_analysis_expression_profile(payload.get("analysis_expression_profile"))),
                 str(payload.get("reference_article_analysis_theme") or "").strip(),
                 str(payload.get("reference_article_analysis_core_conflict") or "").strip(),
                 str(payload.get("reference_article_analysis_emotional_exit") or "").strip(),
@@ -8523,6 +9291,9 @@ def _extract_local_fallback_corpus(
                 str(payload.get("reference_article_analysis_progression_drive") or "").strip(),
                 str(payload.get("reference_article_analysis_share_reason") or "").strip(),
                 str(payload.get("reference_article_analysis_do_not_turn_into") or "").strip(),
+                " ".join(
+                    _normalize_analysis_expression_profile(payload.get("reference_article_analysis_expression_profile"))
+                ),
             ]
         )
     problem_brief = payload.get("problem_brief")
@@ -8560,6 +9331,24 @@ def _extract_local_fallback_corpus(
             fields.append(str(strategy_card.get(key) or "").strip())
         for key in ("scene_anchor_requirements", "quotable_line_seeds", "writing_texture_notes"):
             value = strategy_card.get(key)
+            if isinstance(value, list):
+                fields.extend(str(item).strip() for item in value if str(item).strip())
+    reference_analysis_contract = payload.get("reference_analysis_contract")
+    if isinstance(reference_analysis_contract, Mapping):
+        for key in (
+            "structure_mode",
+            "theme",
+            "core_conflict",
+            "emotional_exit",
+            "opening_pattern",
+            "hook_trigger",
+            "progression_drive",
+            "share_reason",
+            "do_not_turn_into",
+        ):
+            fields.append(str(reference_analysis_contract.get(key) or "").strip())
+        for key in ("content_pillars", "expression_profile"):
+            value = reference_analysis_contract.get(key)
             if isinstance(value, list):
                 fields.extend(str(item).strip() for item in value if str(item).strip())
     for key in ("tags", "reference_article_tags"):
@@ -8609,6 +9398,7 @@ def _build_local_creative_strategy_context(
         "reference_article_analysis_share_reason",
         "reference_article_analysis_do_not_turn_into",
         "reference_article_analysis_content_pillars",
+        "reference_article_analysis_expression_profile",
     ):
         try:
             value = project[key]
@@ -8631,6 +9421,7 @@ def _build_local_creative_strategy_context(
         "analysis_share_reason": "reference_article_analysis_share_reason",
         "analysis_do_not_turn_into": "reference_article_analysis_do_not_turn_into",
         "analysis_content_pillars": "reference_article_analysis_content_pillars",
+        "analysis_expression_profile": "reference_article_analysis_expression_profile",
     }
     for local_key, source_key in aliases.items():
         if source_key in context and context[source_key] not in (None, ""):
@@ -8658,6 +9449,7 @@ def _extract_local_reference_corpus(payload: Mapping[str, object]) -> str:
         str(payload.get("analysis_share_reason") or "").strip(),
         str(payload.get("analysis_do_not_turn_into") or "").strip(),
         " ".join(_normalize_analysis_content_pillars(payload.get("analysis_content_pillars"))),
+        " ".join(_normalize_analysis_expression_profile(payload.get("analysis_expression_profile"))),
         str(payload.get("reference_article_analysis_theme") or "").strip(),
         str(payload.get("reference_article_analysis_core_conflict") or "").strip(),
         str(payload.get("reference_article_analysis_emotional_exit") or "").strip(),
@@ -8669,6 +9461,9 @@ def _extract_local_reference_corpus(payload: Mapping[str, object]) -> str:
         str(payload.get("reference_article_analysis_do_not_turn_into") or "").strip(),
         " ".join(
             _normalize_analysis_content_pillars(payload.get("reference_article_analysis_content_pillars"))
+        ),
+        " ".join(
+            _normalize_analysis_expression_profile(payload.get("reference_article_analysis_expression_profile"))
         ),
     ]
     for key in ("tags", "reference_article_tags"):
@@ -8822,7 +9617,7 @@ def _resolve_local_mode_reference_opening(payload: Mapping[str, object], mode: s
                 payload,
                 (
                     "心总往外悬着的时候，热闹也很难真正让人安稳。先把自己安顿下来，日子才会落稳。",
-                    "一个人真正安静下来，不是外面没有声音，而是心里终于有了可以回去的地方。",
+                    "一个人真正安静下来以后，外面的声音还在，心里却终于有了可以回去的地方。",
                     "心里有了归处，外面的风景才不再需要替你证明什么。",
                 ),
             )
@@ -9893,6 +10688,17 @@ def _build_local_inner_settlement_paragraphs(
         token in corpus
         for token in ("与时间同行", "静待花开", "已经过去的事", "还没发生的事", "不念过往", "不畏将来")
     )
+    has_stillness = _uses_local_inner_settlement_stillness_variant(payload)
+
+    if has_stillness:
+        return [
+            intro,
+            "风声仍会从窗缝里进来，你却不必每次都跟着它转身。心里有了自己的尺度，很多事情自然有了轻重。",
+            "心安也不是把自己关进一处没有变化的地方。喜欢的事，仍然可以认真争取；遇见的人，仍然可以真诚相待；已经走远的，也不必反复追问。该珍惜的珍惜，该放下的放下，心才会越来越轻。",
+            "苏轼说：“此心安处是吾乡。”走过一些路以后才懂，归处不是别人替你安排好的答案，而是你终于愿意接纳自己的节奏，也愿意相信脚下这一步。",
+            "往后的日子，外面尽管风起云涌，你仍可以把一餐一饮过得认真，把每一次呼吸放慢一点，把心里的重心收回自己身上。",
+            "当你不再急着向世界证明什么，生活就会还给你从容。心有归处，哪里都能安身；心无挂碍，平常日子也会发光。",
+        ]
 
     if has_stage_restart:
         return [
@@ -9910,7 +10716,7 @@ def _build_local_inner_settlement_paragraphs(
             intro,
             "人常常同时被两头牵着：已经发生的事还在心里回响，尚未发生的事又提前来借走今天的安静。心一直向前预支，脚下这一刻就很难真正被看见。",
             "把过去反复重播，并不能替昨天改写结局；把明天提前演完，也不会让未知变得更听话。真正能握住的，只有今天这一小段时间，以及你愿意用什么心情把它过完。",
-            "心安不是所有事情都有答案，而是你不再把每个答案都交给外界。该努力的继续努力，该等待的耐心等待，剩下的先放回它自己的时间里。",
+            "心安来自不必把每个答案都交给外界。该努力的继续努力，该等待的耐心等待，剩下的先放回它自己的时间里。",
             "苏轼说：“此心安处是吾乡。”所谓归处，不是终于拥有了一个没有波澜的世界，而是无论外面怎样变化，你都知道自己的判断、节奏和盼头还在。",
             "今晚先把今天还给今天。睡前不替明天发愁，醒来再处理醒来的事；你不必一夜之间变得通透，肯让心少绕一个弯，生活就已经在往从容处走。",
         ]
@@ -9918,7 +10724,7 @@ def _build_local_inner_settlement_paragraphs(
     if has_homecoming and not has_future_release:
         return [
             intro,
-            "回到家关上门，外面的声音还在，心里那口气也还没放下来。你给自己倒杯水，坐了好一会儿，才发现人悬着久了，连安静都需要慢慢适应。",
+            "你给自己倒杯水，坐在窗边缓了一会儿，才发现人悬着久了，连一顿饭都顾不上好好吃。心安常常从分辨开始：哪些声音值得听，哪些可以轻轻放过。",
             "以前你总想等一个结果，等一句认可，等事情完全顺起来，再允许自己安心。可日子不会每一步都提前给答案，越把心交给外面，越容易被一点动静牵着走。",
             "把鞋摆好，把饭吃热，把水杯洗干净放回原处。心安先落在这些能亲手做的小事里，人也从这些小事里一点点回到自己身上。",
             "苏轼说：“此心安处是吾乡。”这句话动人的地方，在于它把归处放回心里。外面的风还会吹，脚下的路却可以一天一天走稳。",
@@ -10357,7 +11163,64 @@ def _resolve_local_generic_fallback_mode(payload: Mapping[str, object]) -> str:
     return ""
 
 
+def _resolve_local_explicit_strategy_mode(payload: Mapping[str, object]) -> str:
+    """Use the adopted strategy card only after the reference contract is complete."""
+    strategy_card = payload.get("strategy_card")
+    if not isinstance(strategy_card, Mapping):
+        return ""
+    raw_mode = str(strategy_card.get("structure_mode") or "").strip()
+    if raw_mode not in _TRACKED_ARTICLE_SELECTION_SUPPORTED_MODES and raw_mode not in {
+        "internal_pressure",
+        "responsibility_shelter",
+    }:
+        return ""
+
+    contract = payload.get("reference_analysis_contract")
+    if isinstance(contract, Mapping):
+        value = lambda name: contract.get(name)
+        mode_hint = str(value("structure_mode") or raw_mode)
+        expression_profile = value("expression_profile")
+    else:
+        value = lambda name: (
+            payload.get(name)
+            or payload.get(f"analysis_{name}")
+            or payload.get(f"reference_article_analysis_{name}")
+        )
+        mode_hint = str(value("structure_mode") or raw_mode)
+        expression_profile = value("expression_profile")
+    if not has_complete_tracked_article_generation_contract(
+        analysis_structure_mode_hint=mode_hint,
+        analysis_theme=str(value("theme") or ""),
+        analysis_core_conflict=str(value("core_conflict") or ""),
+        analysis_emotional_exit=str(value("emotional_exit") or ""),
+        analysis_opening_pattern=str(value("opening_pattern") or ""),
+        analysis_hook_trigger=str(value("hook_trigger") or ""),
+        analysis_progression_drive=str(value("progression_drive") or ""),
+        analysis_share_reason=str(value("share_reason") or ""),
+        analysis_do_not_turn_into=str(value("do_not_turn_into") or ""),
+        analysis_content_pillars=_normalize_analysis_content_pillars(value("content_pillars")),
+        analysis_expression_profile=_normalize_analysis_expression_profile(expression_profile),
+    ):
+        return ""
+    if mode_hint == "internal_pressure":
+        return "pressure_interface_direct"
+    if mode_hint == "responsibility_shelter":
+        return "responsibility_shelter"
+    if mode_hint in _TRACKED_ARTICLE_SELECTION_SUPPORTED_MODES:
+        return mode_hint
+    if raw_mode == "internal_pressure":
+        return "pressure_interface_direct"
+    if raw_mode == "responsibility_shelter":
+        return "responsibility_shelter"
+    return raw_mode
+
+
 def _resolve_local_fallback_mode(payload: Mapping[str, object]) -> str:
+    explicit_mode = _resolve_local_explicit_strategy_mode(payload)
+    if explicit_mode:
+        return explicit_mode
+    if _has_local_social_boundaries_focus(payload):
+        return "social_boundaries"
     if _has_local_trust_boundary_focus(payload):
         return "trust_boundary"
     title = str(
@@ -10977,17 +11840,26 @@ def _resolve_local_generic_opening(
         if _has_local_resilience_pool_profile(payload)
         else "训练没做完的那天，你坐在原地缓了一会儿；第二天，还是重新站回了起点。"
     )
+    if mode == "inner_settlement" and _uses_local_inner_settlement_stillness_variant(payload):
+        return _pick_local_seeded_text_variant(
+            payload,
+            (
+                "心不起微澜的时候，外面的风声还在，已经不必句句都拿来惊动自己。",
+                "世界依旧会有起伏，心里有了自己的尺度，脚下就不会轻易失去方向。",
+                "真正的从容，落在知道什么值得回应、什么可以轻轻放过的分寸里。",
+            ),
+        )
     if _extract_local_reference_corpus(payload):
         contextual_mode_openings: dict[str, tuple[str, ...]] = {
             "inner_settlement": (
-                "很多时候，心安不是事情都顺了，而是你不再催自己立刻把一切想明白。",
+                "很多时候，事情还没有完全顺起来，心却可以先不催自己立刻想明白。",
                 "人把自己安顿好以后，外面的声音还在，却不再每一句都要回头解释。",
                 "生活没有要求你今天解决所有问题，先把心放回眼前，路才会重新看得清。",
             ),
             "supportive_appreciation": (
-                "真正的温柔不是没有判断，而是看清以后，仍然愿意把关系往暖处带。",
-                "一个人愿意体谅你，不代表他什么都没看见，而是他把情分看得比一时的锋利更重。",
-                "被认真对待过的人，才知道温柔不是软弱，而是一种有分寸的选择。",
+                "真正的温柔，带着判断，也带着看清以后仍愿意把关系往暖处带的选择。",
+                "一个人愿意体谅你，往往是把情分看得比一时的锋利更重。",
+                "被认真对待过的人，知道温柔也有自己的分寸。",
             ),
             "relationship_aftercare": (
                 "关系里的裂缝，常常不是争吵本身留下的，而是争吵以后再也没人愿意把话说完。",
@@ -11681,8 +12553,8 @@ def _pick_local_self_reliance_action_paragraph(payload: Mapping[str, object]) ->
             "电话暂时没人接时，你先把能处理的那件事写下来，等心里有了顺序，再去联系愿意分担的人。",
         ),
         "companionship": (
-            "想找人商量时，你先把事情写成几行，先把最要紧的一件理清，再慢慢说给愿意听的人。",
-            "朋友各自忙着的时候，你先把最要紧的一件落下去，再去找愿意分担的人把话说清。",
+            "想找人商量时，先把事情写成几行，把已经能处理的那件做好；等对方腾出手来，再把自己的需要讲明白。",
+            "先把手边能做的一件处理掉，再把需要别人接手的地方讲清，让愿意帮你的人知道从哪里接手。",
         ),
         "work": (
             "工作一多，你先把今天必须完成的一项圈出来。事情不会立刻变少，但不会再一起压在心上。",
@@ -11690,7 +12562,7 @@ def _pick_local_self_reliance_action_paragraph(payload: Mapping[str, object]) ->
         ),
         "neutral": (
             "事情一多的时候，先把眼前能确定的一件事抓住。",
-            "心里乱成一团时，先喝一口水，把下一步落到一个具体动作上。",
+            "心里乱成一团时，先喝一口水，把下一步落到一个具体动作上，再给自己留出调整的余地。",
         ),
     }
     family = _resolve_local_self_reliance_scene_family(payload)
@@ -11793,6 +12665,37 @@ def _uses_local_inner_settlement_homecoming_variant(payload: Mapping[str, object
         if token in corpus
     )
     return anchor_hits >= 2 or (anchor_hits >= 1 and support_hits >= 2)
+
+
+def _uses_local_inner_settlement_stillness_variant(payload: Mapping[str, object]) -> bool:
+    """Detect the reflective, self-settling lane without forcing a home scene."""
+    corpus = " ".join(
+        part
+        for part in (
+            _extract_local_reference_corpus(payload),
+            _extract_local_fallback_corpus(payload),
+        )
+        if part
+    )
+    if not corpus:
+        return False
+    stillness_hits = sum(
+        1
+        for token in (
+            "心不起微澜",
+            "风起云涌",
+            "独善其身",
+            "自在独行",
+            "来去随风",
+            "随心活出自我",
+            "淡定与从容",
+            "与内心和解",
+            "心无挂碍",
+            "心有归处",
+        )
+        if token in corpus
+    )
+    return stillness_hits >= 2 and not _uses_local_inner_settlement_stage_restart_variant(payload)
 
 
 def _uses_local_emotional_memory_reflux_variant(payload: Mapping[str, object]) -> bool:
@@ -11907,6 +12810,8 @@ def _uses_local_emotional_endings_acceptance_variant(payload: Mapping[str, objec
             "接纳离开",
             "接纳结束",
             "关系结束",
+            "已经结束的关系",
+            "曾经重要的人离开后",
             "聚散终有时",
             "过客",
             "停在半路",
@@ -11928,6 +12833,9 @@ def _uses_local_emotional_endings_acceptance_variant(payload: Mapping[str, objec
             "觉睡稳",
             "回到自己生活",
             "留下来的温暖",
+            "相遇的价值",
+            "承认相遇",
+            "继续面对后来的生活",
             "任务完成了",
             "自然会退场",
             "最好的祝福",
@@ -12186,7 +13094,12 @@ def _build_local_response_priority_followup_paragraphs(
 
     paragraphs = [
         opening,
-        "你明明只是把话说得很轻，像随手把一天带过去。可有人会顺着那点语气多停一会儿，听出你为什么忽然只发这一张图。",
+        (
+            "点赞很快就会过去，评论却留下了一个具体的问题：你今天还好吗？"
+            "它让人知道，有人关注的不是照片本身，而是发照片的人。"
+            if has_photo_scene and has_comment_like
+            else "很多回应只停在字面上，愿意在意的人，会把你的话放回当天的处境里再听一遍。"
+        ),
     ]
     if has_specific_comment_scene:
         paragraphs.extend(
@@ -12250,7 +13163,7 @@ def _build_local_mode_shaped_generic_paragraphs(
             )
             return [
                 intro,
-                "年轻时总觉得幸福要等一个更大的结果来证明。收入再高一点，房子再宽一点，认识的人再多一点，才敢说自己过得不错。",
+                "那些看起来更体面的拥有，曾经总被我们当成幸福的门票。收入再高一点，房子再宽一点，认识的人再多一点，才敢说自己过得不错。",
                 "后来才发现，幸福常常不是被谁颁发的奖，而是你回头一看，身边的人还在，身体允许你去做喜欢的事，心里也还保留着一点期待。",
                 wish_scene,
                 "知己不必很多。有人愿意把你的话听完，见你得意不酸，见你低落不躲，平时各自忙，真正需要时却不会把你留在原地，这样的情分已经很重。",
@@ -12266,7 +13179,7 @@ def _build_local_mode_shaped_generic_paragraphs(
             )
             return [
                 opening,
-                "年轻时很容易把幸福想得很满。钱要再多一点，房子要再大一点，认识的人要再广一点，才觉得日子算往上走。",
+                "曾经我们把幸福想得很满。钱要再多一点，房子要再大一点，认识的人要再广一点，才觉得日子算往上走。",
                 "可走着走着，人会慢慢换一套算法。身体少点毛病，家里少点挂心，饭点有人等，话到嘴边有人愿意听，心就会踏实下来。",
                 "下班路过菜市场，买两把青菜、一条鱼，回家听见锅铲碰到锅边的声音，那种安心不需要发朋友圈，也不需要谁来证明。",
                 "孩子把今天学校里的小事讲得乱七八糟，父母在电话里反复叮嘱天气，老朋友约你下周喝茶。都不是大事，却都在告诉你：你不是一个人在过日子。",
@@ -12284,7 +13197,7 @@ def _build_local_mode_shaped_generic_paragraphs(
         )
         return [
             opening,
-            "年轻时总觉得幸福要有很大的样子：账户数字再漂亮一点，房子再大一点，朋友圈再热闹一点。",
+            "曾经我们把幸福想得很大：账户数字再漂亮一点，房子再大一点，朋友圈再热闹一点。",
             "可人走到后来，常常会被很小的事劝住：父母电话里一句“别太累”，朋友饭桌上一句“你先说完”，孩子回头喊你一声，心就落了地。",
             "有个朋友前阵子说，他最开心的一天，没有升职，也没有买什么贵东西，只是下班早了半小时，陪父母去菜市场买了一把青菜。",
             "回家时，孩子在楼下等他，手里攥着一根快化的冰棍，非要分他一口；饭桌上没什么大菜，母亲还是把鱼肚子那块夹到他碗里。",
@@ -12391,6 +13304,17 @@ def _build_local_mode_shaped_generic_paragraphs(
                 "宽恕走到最后，是心里终于空出一点地方。早晨拉开窗帘，阳光落进来，你忽然发现，那件旧事已经没有资格继续替你安排今天。",
                 "往后的日子，少一点纠缠，多一点舒展。能吃好一顿饭，睡一个安稳觉，把笑留给真正值得的人，就是很大的胜利。",
             ]
+        if payload and _uses_local_emotional_endings_acceptance_variant(payload):
+            return [
+                intro,
+                "有些人离开以后，最难放下的，往往是你一直想替这段关系找一个圆满的解释。",
+                "可成年人的关系，本来就是一段一段的。有人陪你走过热烈，有人陪你穿过低谷，也有人只在某个阶段出现，陪你把那段路走完。",
+                "允许一段关系结束，不等于否定它曾经给过你的爱。那段并肩同行的时光是真的，留下来的改变也是真的，不必因为结局停下，就把来时的温柔一并抹掉。",
+                "真正的成熟，常常落在一个很安静的时刻：你不再反复追问“为什么”，也不再把自己的以后交给那段告别。有些答案，要等你带着得到的分寸和勇气继续生活，才会慢慢出现。",
+                "你可以把遗憾留在那段路里，把眼界、判断和被认真爱过的记忆带到下一段人生。它们没有跟着谁离开，早已经长成了你的一部分。",
+                "聚散有时，关系有它自己的季节。整理好行囊，去拥抱下一场未知的山海，往后的路也慢慢走回自己。",
+                "相遇有相遇的意义，结束也有结束的体面。谢谢那段路来过，也谢谢你终于肯把未来还给自己。",
+            ]
         if payload and _uses_local_emotional_memory_reflux_variant(payload):
             return [
                 intro,
@@ -12489,10 +13413,10 @@ def _build_local_mode_shaped_generic_paragraphs(
             _compose_local_followup(intro, point_one),
             _pick_local_self_reliance_action_paragraph(payload or {}),
             "人就是在这样的动作里慢慢回稳的。喝一口水，把灯打开，把最要紧的一件事放到眼前。",
-            _compose_local_followup(point_two, "有人马上帮你当然很好；一时等不到，也不代表你只能停在那里。"),
-            "顺序理出来，心里的慌就会退一点；手边能做的事落下去，外面的帮助来了，也更容易接得住。",
-            _compose_local_followup(point_three, "你不再把全部希望压在某一个人的回应上，也不会因为暂时没人搭手，就把眼前事彻底放下。"),
-            "成年人很重要的一份底气，是需要的时候敢开口，没人立刻回应时，也不停止照顾自己。",
+            _compose_local_followup(point_two, "需要分担时就把话说清，愿意帮你的人才知道怎样真正接住你。"),
+            "顺序理出来，心里的慌就会退一点；手边能做的事落下去，身边的支持也更容易进到日子里。",
+            _compose_local_followup(point_three, "你既照顾好自己的步子，也给身边的人留下可以一起承担的位置。"),
+            "成年人很重要的一份底气，是需要时敢开口，能独立处理的事也愿意自己稳稳接住。",
             _compose_local_followup(point_four, "等你把自己稳住，再去找那个真正愿意分担的人，很多话会说得更清楚，很多事也会处理得更稳。"),
         ]
     if mode == "pressure_interface_direct":
@@ -12913,6 +13837,8 @@ def _finalize_initial_draft_candidate(
     body_markdown: str,
 ) -> _InitialDraftCandidateResult:
     retry_budget = retry_budget or _new_creative_quality_retry_budget()
+    analysis_contract_complete = _project_reference_analysis_is_complete(project)
+
     def _finish(body: str, current_title: str) -> _InitialDraftCandidateResult:
         reference_source_markdown = _get_project_reference_source_markdown(project)
         normalized_title = _normalize_responsibility_shelter_draft_title(
@@ -12929,6 +13855,7 @@ def _finalize_initial_draft_candidate(
             body_markdown=body,
             source_type=str(project["source_type"]),
             reference_source_markdown=reference_source_markdown,
+            analysis_contract_complete=analysis_contract_complete,
         )
         return _InitialDraftCandidateResult(
             title=normalized_title,
@@ -12963,6 +13890,9 @@ def _finalize_initial_draft_candidate(
                 body_markdown=finalized_body_markdown,
                 target_word_count=tone_profile.target_word_count,
             )
+            # Compression is another full draft request. It must consume the
+            # same single quality budget instead of bypassing the request cap.
+            and retry_budget.acquire()
         ):
             finalized_body_markdown, finalized_title = _maybe_compress_draft_output(
                 project_slug=project_slug,
@@ -13935,7 +14865,11 @@ def _get_strategy_contract_targets(strategy_bundle_payload: Mapping[str, object]
                 for item in execution_surface.get("quotable_line_seeds", [])
                 if str(item).strip()
             ]
-            packaging_hook = str(execution_surface.get("packaging_hook") or packaging_hook).strip()
+            # The adopted strategy card already owns the topic-specific hook.
+            # Rebuilding the surface here can only see the hidden analysis
+            # contract, so its hook may be the reference article's opening
+            # trigger rather than the rewritten topic's packaging hook.
+            packaging_hook = str(packaging_hook or execution_surface.get("packaging_hook") or "").strip()
     return {
         "theme_axis": str(problem_brief.get("theme_axis") or "").strip(),
         "anti_drift_axis": str(problem_brief.get("anti_drift_axis") or "").strip(),
@@ -13947,6 +14881,166 @@ def _get_strategy_contract_targets(strategy_bundle_payload: Mapping[str, object]
     }
 
 
+_COMPLETE_CONTRACT_COMMON_TERMS = {
+    "当前",
+    "文章",
+    "主题",
+    "核心",
+    "矛盾",
+    "情绪",
+    "出口",
+    "读者",
+    "内容",
+    "支柱",
+    "现实",
+    "入口",
+    "自己",
+    "我们",
+    "一个",
+    "一种",
+    "有些",
+    "很多",
+    "真正",
+    "事情",
+    "时候",
+    "可以",
+    "能够",
+    "需要",
+    "开始",
+    "已经",
+    "慢慢",
+    "重新",
+    "继续",
+}
+
+
+def _complete_contract_semantic_terms(*values: object) -> tuple[str, ...]:
+    """Extract lightweight, contract-owned terms for quality checks.
+
+    This deliberately derives terms from the adopted analysis instead of
+    maintaining another topic-to-marker table in the workbench.
+    """
+    terms: list[str] = []
+    for value in values:
+        normalized = re.sub(r"\s+", "", str(value or ""))
+        if not normalized:
+            continue
+        chunks = re.findall(r"[\u4e00-\u9fff]{2,16}", normalized)
+        for chunk in chunks:
+            candidates = [chunk]
+            for size in (6, 5, 4, 3, 2):
+                if len(chunk) < size:
+                    continue
+                candidates.extend(chunk[index : index + size] for index in range(len(chunk) - size + 1))
+            for candidate in candidates:
+                if candidate in _COMPLETE_CONTRACT_COMMON_TERMS or candidate in terms:
+                    continue
+                if len(candidate) < 2:
+                    continue
+                terms.append(candidate)
+    return tuple(terms)
+
+
+def _complete_contract_quality_surface(
+    strategy_bundle_payload: Mapping[str, object],
+) -> dict[str, object]:
+    if not _has_complete_strategy_bundle_analysis_contract(strategy_bundle_payload):
+        return {}
+    contract = strategy_bundle_payload.get("reference_analysis_contract")
+    if not isinstance(contract, Mapping):
+        return {}
+    execution_surface = build_complete_contract_execution_surface(
+        {
+            "source_type": str(strategy_bundle_payload.get("source_type") or ""),
+            "topic_title": str(strategy_bundle_payload.get("topic_title") or ""),
+            "topic_angle": str(strategy_bundle_payload.get("topic_angle") or ""),
+            "analysis_structure_mode": str(contract.get("structure_mode") or ""),
+            "analysis_theme": str(contract.get("theme") or ""),
+            "analysis_core_conflict": str(contract.get("core_conflict") or ""),
+            "analysis_emotional_exit": str(contract.get("emotional_exit") or ""),
+            "analysis_opening_pattern": str(contract.get("opening_pattern") or ""),
+            "analysis_hook_trigger": str(contract.get("hook_trigger") or ""),
+            "analysis_progression_drive": str(contract.get("progression_drive") or ""),
+            "analysis_share_reason": str(contract.get("share_reason") or ""),
+            "analysis_do_not_turn_into": str(contract.get("do_not_turn_into") or ""),
+            "analysis_content_pillars": _normalize_analysis_content_pillars(contract.get("content_pillars")),
+        }
+    )
+    return {
+        "contract": contract,
+        "execution_surface": execution_surface,
+    }
+
+
+def _has_complete_contract_positive_landing(
+    *,
+    strategy_bundle_payload: Mapping[str, object],
+    candidate_markdown: str,
+) -> bool:
+    surface = _complete_contract_quality_surface(strategy_bundle_payload)
+    if not surface:
+        return False
+    contract = surface["contract"]
+    execution_surface = surface["execution_surface"]
+    tail_text = "\n".join(_extract_non_heading_paragraphs(candidate_markdown)[-3:])
+    exit_terms = _complete_contract_semantic_terms(
+        contract.get("emotional_exit"),
+        execution_surface.get("share_reason"),
+        contract.get("content_pillars"),
+    )
+    return any(term in tail_text for term in exit_terms)
+
+
+def _has_complete_contract_theme_drift(
+    *,
+    strategy_bundle_payload: Mapping[str, object],
+    candidate_markdown: str,
+) -> bool:
+    surface = _complete_contract_quality_surface(strategy_bundle_payload)
+    if not surface:
+        return False
+    contract = surface["contract"]
+    avoid_text = str(contract.get("do_not_turn_into") or "").strip()
+    if not avoid_text:
+        return False
+    target_parts = re.split(r"(?:写成|改成|缩成|拐去|变成|引回|转成|落成)", avoid_text, maxsplit=1)
+    if len(target_parts) < 2:
+        return False
+    forbidden_terms = _complete_contract_semantic_terms(target_parts[-1])
+    if not forbidden_terms:
+        return False
+    theme_terms = _complete_contract_semantic_terms(
+        contract.get("theme"),
+        contract.get("emotional_exit"),
+        contract.get("content_pillars"),
+    )
+    candidate_terms = [term for term in forbidden_terms if term not in theme_terms and term in candidate_markdown]
+    return len(candidate_terms) >= 2
+
+
+def _has_complete_contract_packaging_focus(
+    *,
+    strategy_bundle_payload: Mapping[str, object],
+    values: list[str],
+) -> bool:
+    surface = _complete_contract_quality_surface(strategy_bundle_payload)
+    if not surface:
+        return True
+    contract = surface["contract"]
+    execution_surface = surface["execution_surface"]
+    terms = _complete_contract_semantic_terms(
+        strategy_bundle_payload.get("topic_title"),
+        strategy_bundle_payload.get("topic_angle"),
+        contract.get("theme"),
+        contract.get("emotional_exit"),
+        execution_surface.get("packaging_focus"),
+    )
+    combined = "\n".join(value for value in values if value)
+    if not terms or not combined:
+        return True
+    return any(term in combined for term in terms)
+
+
 def _positive_direction_markers(structure_mode: str) -> tuple[str, ...]:
     mapping: dict[str, tuple[str, ...]] = {
         "everyday_warmth_return": ("日子", "生活", "陪伴", "家人", "人间烟火", "平安", "温暖", "已经拥有"),
@@ -13955,6 +15049,7 @@ def _positive_direction_markers(structure_mode: str) -> tuple[str, ...]:
         "self_reliance_inward_support": ("托住", "稳住", "撑过去", "把自己", "运转起来", "自救", "自渡"),
         "self_worth_rebuild": ("边界", "门槛", "标准", "体面", "尊重自己", "把自己放回前面", "不再将就", "养贵"),
         "response_priority": ("顺序", "时间", "收回来", "值得", "优先", "留给自己", "读懂", "理解", "被看见", "安稳", "珍惜", "接住"),
+        "social_boundaries": ("慎言", "让渡", "知止", "分寸", "边界", "底线", "体面", "温和", "从容", "舒服相处"),
         "supportive_appreciation": ("珍惜", "被珍惜", "温柔", "牵紧", "值得", "尊重"),
         "relationship_aftercare": ("修复", "回来", "沟通", "接住", "继续走下去", "态度"),
         "resilience_reconstruction": ("重建", "继续", "不被定义", "向前", "站起来"),
@@ -13986,6 +15081,7 @@ def _packaging_focus_markers(structure_mode: str) -> tuple[str, ...]:
         "self_reliance_inward_support": ("向内求", "自救", "自渡", "靠自己", "托住", "稳住"),
         "self_worth_rebuild": ("养贵", "边界", "门槛", "标准", "体面", "尊重自己", "将就", "放轻"),
         "response_priority": ("没时间", "优先", "顺序", "回应", "在乎", "时间在哪儿", "评论", "追问", "读懂", "理解", "被看见", "安稳"),
+        "social_boundaries": ("慎言", "让渡", "知止", "分寸", "边界", "底线", "留余地", "留体面", "停口", "原则"),
         "supportive_appreciation": ("心软", "柔软", "珍惜", "牵紧", "包容"),
         "relationship_aftercare": ("吵架", "冷暴力", "修复", "回来", "态度"),
         "resilience_reconstruction": ("韧性", "重建", "训练", "命运", "不被定义"),
@@ -14034,12 +15130,21 @@ def _strategy_contract_keywords(text: str) -> tuple[str, ...]:
         keyword_groups.extend(["现场", "会议", "当场", "没说出口", "补救", "那句话"])
     if "误判" in normalized or any(token in normalized for token in ("回神", "误认", "原来", "后来才发现")):
         keyword_groups.extend(["误判", "回神", "原来", "后来", "发现"])
+        # Keep topic-specific action terms when the hook explains a change of
+        # direction; generic transition words alone can miss a valid package.
+        for marker in ("坚持", "硬撑", "转弯", "换路", "换方法", "方向", "无效", "重新开始"):
+            if marker in normalized:
+                keyword_groups.append(marker)
+    if any(token in normalized for token in ("往后放", "推迟", "顺延", "拖到", "挪到")):
+        keyword_groups.extend(["往后放", "推迟", "顺延", "拖到", "挪到", "代价", "失去"])
     if "现实接口" in normalized:
         keyword_groups.extend(["消息", "电话", "晚饭", "体检", "会议", "清单", "目标", "房租", "手机", "沙发"])
     deduped: list[str] = []
     for item in keyword_groups:
         if item and item not in deduped:
             deduped.append(item)
+    if not deduped:
+        deduped.extend(_complete_contract_semantic_terms(normalized))
     return tuple(deduped)
 
 
@@ -14127,7 +15232,13 @@ def _has_structure_mode_drift(
     *,
     structure_mode: str,
     candidate_markdown: str,
+    strategy_bundle_payload: Mapping[str, object] | None = None,
 ) -> bool:
+    if strategy_bundle_payload and _complete_contract_quality_surface(strategy_bundle_payload):
+        return _has_complete_contract_theme_drift(
+            strategy_bundle_payload=strategy_bundle_payload,
+            candidate_markdown=candidate_markdown,
+        )
     drift_tokens = _STRUCTURE_MODE_DRIFT_GUARDS.get(structure_mode)
     if not drift_tokens:
         return False
@@ -14141,14 +15252,42 @@ def _has_structure_mode_drift(
 def _has_strategy_packaging_hook(
     values: list[str],
     packaging_hook: str,
+    strategy_bundle_payload: Mapping[str, object] | None = None,
 ) -> bool:
     keywords = _strategy_contract_keywords(packaging_hook)
-    if not keywords:
-        return True
     combined = "\n".join(value for value in values if value)
     if not combined:
         return False
-    return any(keyword in combined for keyword in keywords)
+    if keywords and any(keyword in combined for keyword in keywords):
+        return True
+    if strategy_bundle_payload and _complete_contract_quality_surface(strategy_bundle_payload):
+        return not keywords
+    if strategy_bundle_payload:
+        return any(
+            marker in combined
+            for marker in _strategy_packaging_topic_markers(strategy_bundle_payload)
+        )
+    return not keywords
+
+
+def _strategy_packaging_topic_markers(
+    strategy_bundle_payload: Mapping[str, object],
+) -> tuple[str, ...]:
+    problem_brief = strategy_bundle_payload.get("problem_brief")
+    strategy_card = strategy_bundle_payload.get("strategy_card")
+    if not isinstance(problem_brief, Mapping) or not isinstance(strategy_card, Mapping):
+        return ()
+    source_values = (
+        strategy_bundle_payload.get("topic_title"),
+        strategy_bundle_payload.get("topic_angle"),
+        problem_brief.get("clarified_problem"),
+        problem_brief.get("core_conflict"),
+        strategy_card.get("reader_situation"),
+        strategy_card.get("conflict_frame"),
+        strategy_card.get("packaging_focus"),
+        strategy_card.get("packaging_hook"),
+    )
+    return _complete_contract_semantic_terms(*source_values)
 
 
 def _has_responsibility_shelter_packaging_floor(values: list[str]) -> bool:
@@ -14169,7 +15308,13 @@ def _has_strategy_positive_landing(
     *,
     structure_mode: str,
     candidate_markdown: str,
+    strategy_bundle_payload: Mapping[str, object] | None = None,
 ) -> bool:
+    if strategy_bundle_payload and _complete_contract_quality_surface(strategy_bundle_payload):
+        return _has_complete_contract_positive_landing(
+            strategy_bundle_payload=strategy_bundle_payload,
+            candidate_markdown=candidate_markdown,
+        )
     paragraphs = _extract_non_heading_paragraphs(candidate_markdown)
     if not paragraphs:
         return False
@@ -14187,6 +15332,7 @@ def _has_strategy_positive_landing(
         "self_reliance_inward_support": ("自己", "自救", "自渡", "托住", "稳住"),
         "self_worth_rebuild": ("边界", "门槛", "标准", "体面", "尊重自己", "不再将就"),
         "response_priority": ("理解", "被看见", "留给自己", "值得", "安稳", "珍惜"),
+        "social_boundaries": ("慎言", "让渡", "知止", "分寸", "边界", "底线", "体面", "温和", "原则"),
         "supportive_appreciation": ("被珍惜", "温柔", "牵紧", "包容", "尊重"),
         "relationship_aftercare": ("修复", "沟通", "接住", "继续走下去", "态度"),
         "resilience_reconstruction": ("重建", "不被定义", "站起来", "向前"),
@@ -14253,6 +15399,8 @@ def _positive_payoff_candidate_rank(
     )
     contract_targets = _get_strategy_contract_targets(strategy_bundle_payload)
     scene_requirements = contract_targets["scene_anchor_requirements"]
+    if _complete_contract_quality_surface(strategy_bundle_payload):
+        scene_requirements = scene_requirements[:1]
     required_scene_hits = 2 if len(scene_requirements) >= 2 else 1 if scene_requirements else 0
     hard_defects = sum(
         (
@@ -14260,7 +15408,11 @@ def _positive_payoff_candidate_rank(
             _has_unfinished_dialogue_sentence(candidate_markdown),
             _has_author_meta_commentary(candidate_markdown),
             len(extract_not_ab_skeletons(candidate_markdown)) > 1,
-            _has_structure_mode_drift(structure_mode=structure_mode, candidate_markdown=candidate_markdown),
+            _has_structure_mode_drift(
+                structure_mode=structure_mode,
+                candidate_markdown=candidate_markdown,
+                strategy_bundle_payload=strategy_bundle_payload,
+            ),
         )
     )
     contract_defects = sum(
@@ -14269,6 +15421,7 @@ def _positive_payoff_candidate_rank(
             and not _has_strategy_positive_landing(
                 structure_mode=structure_mode,
                 candidate_markdown=candidate_markdown,
+                strategy_bundle_payload=strategy_bundle_payload,
             ),
             bool(quotable_line_goal) and not extract_short_judgment_paragraphs(candidate_markdown),
             required_scene_hits > 0
@@ -14295,6 +15448,8 @@ def _should_retry_for_positive_payoff(
     )
     contract_targets = _get_strategy_contract_targets(strategy_bundle_payload)
     scene_anchor_requirements = contract_targets["scene_anchor_requirements"]
+    if _complete_contract_quality_surface(strategy_bundle_payload):
+        scene_anchor_requirements = scene_anchor_requirements[:1]
     if not any(
         (
             structure_mode,
@@ -14313,6 +15468,7 @@ def _should_retry_for_positive_payoff(
     missing_positive_landing = bool(positive_direction) and not _has_strategy_positive_landing(
         structure_mode=structure_mode,
         candidate_markdown=candidate_markdown,
+        strategy_bundle_payload=strategy_bundle_payload,
     )
     short_judgments = extract_short_judgment_paragraphs(candidate_markdown)
     missing_quotable_line = bool(quotable_line_goal) and not short_judgments
@@ -14328,6 +15484,7 @@ def _should_retry_for_positive_payoff(
     structure_mode_drift = _has_structure_mode_drift(
         structure_mode=structure_mode,
         candidate_markdown=candidate_markdown,
+        strategy_bundle_payload=strategy_bundle_payload,
     )
     compact_length = len(re.sub(r"\s+", "", candidate_markdown))
     minimum_content_length = max(650, int(target_word_count * 0.65)) if target_word_count > 0 else 0
@@ -14371,6 +15528,7 @@ def _build_positive_payoff_retry_instruction(
     if positive_direction and not _has_strategy_positive_landing(
         structure_mode=structure_mode,
         candidate_markdown=candidate_markdown,
+        strategy_bundle_payload=strategy_bundle_payload,
     ):
         notes.append(f"结尾现在还不够回正，请把最后两段明确收回这里：{positive_direction}")
     compact_length = len(re.sub(r"\s+", "", candidate_markdown))
@@ -14386,8 +15544,15 @@ def _build_positive_payoff_retry_instruction(
         notes.append(f"前六段补回这些现实抓手：{' / '.join(scene_anchor_requirements)}")
     if contract_targets["realism_texture_goal"] and len(extract_generic_reflective_openers(candidate_markdown)) >= 2:
         notes.append(f"开头现在还是太像讲稿，请按这个真实质感重写前屏：{contract_targets['realism_texture_goal']}")
-    if _has_structure_mode_drift(structure_mode=structure_mode, candidate_markdown=candidate_markdown):
-        notes.append("这版正文已经被别的题型词汇带偏了，请把重心拉回当前主题，不要滑成身体告警、关系回应排序或争执善后稿。")
+    if _has_structure_mode_drift(
+        structure_mode=structure_mode,
+        candidate_markdown=candidate_markdown,
+        strategy_bundle_payload=strategy_bundle_payload,
+    ):
+        if _complete_contract_quality_surface(strategy_bundle_payload):
+            notes.append("这版正文已经偏离分析合同，请删除偏题支线，把重心拉回合同定义的主题、核心矛盾和情绪出口。")
+        else:
+            notes.append("这版正文已经被别的题型词汇带偏了，请把重心拉回当前主题，不要滑成身体告警、关系回应排序或争执善后稿。")
     if _has_repetitive_structural_cues(candidate_markdown):
         notes.append("这版正文的动作推进词重复过密，尤其不要连续用‘先、然后、于是、慢慢’排队推进；保留必要动作，其余改成不同的观察、停顿或后果，让句子像真人在回忆一件事。")
     if _has_obvious_repeated_character(candidate_markdown):
@@ -14720,10 +15885,65 @@ def _dedupe_safe_packaging_body_options(values: list[str], *, fallback: str = ""
     return safe
 
 
+def _normalize_packaging_inline_spacing(text: str) -> str:
+    normalized = re.sub(r"[ \t]+", " ", str(text or "").strip())
+    normalized = re.sub(r"([\u4e00-\u9fff]) +([\u4e00-\u9fff])", r"\1\2", normalized)
+    normalized = re.sub(r"([\u4e00-\u9fff]) +([，。！？；：、）》」』】])", r"\1\2", normalized)
+    normalized = re.sub(r"([（《「『【]) +([\u4e00-\u9fff])", r"\1\2", normalized)
+    return normalized
+
+
+def _sanitize_cover_prompt_for_reference_interface(
+    ai_result: Mapping[str, object],
+    *,
+    source_markdown: str,
+) -> dict[str, object]:
+    """Keep forbidden phone safety clauses from becoming a packaging hook."""
+    sanitized = dict(ai_result)
+    source_text = re.sub(r"\s+", "", str(source_markdown or ""))
+    if not source_text or any(
+        marker in source_text
+        for marker in ("手机", "短信", "微信", "聊天", "消息", "电话", "来电", "朋友圈", "对话框")
+    ):
+        return sanitized
+
+    prompt = str(sanitized.get("cover_prompt") or "").strip()
+    if not prompt:
+        return sanitized
+
+    interface_markers = (
+        "手机",
+        "屏幕",
+        "短信",
+        "微信",
+        "聊天",
+        "消息",
+        "电话",
+        "来电",
+        "朋友圈",
+        "对话框",
+    )
+    chunks = re.split(r"(?<=[，,。！？!?；;\n])", prompt)
+    kept_chunks = [
+        chunk
+        for chunk in chunks
+        if not any(marker in chunk for marker in interface_markers)
+        and chunk.strip() not in {"不展示可读内容", "不展示可读屏幕文字"}
+    ]
+    cleaned = "".join(kept_chunks)
+    cleaned = re.sub(r"[，,]{2,}", "，", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ，,；;")
+    sanitized["cover_prompt"] = cleaned or (
+        "16:9横版公众号封面，真实摄影感，主体位于画面中部安全区，"
+        "使用自然环境、实体物件和人物动作表达主题，不生成可读文字"
+    )
+    return sanitized
+
+
 def _sanitize_assets_packaging_result(ai_result: Mapping[str, object]) -> dict[str, object]:
     sanitized = dict(ai_result)
     if "cover_copy" in sanitized:
-        sanitized["cover_copy"] = re.sub(r"\s+", " ", str(sanitized.get("cover_copy") or "").strip()).strip()
+        sanitized["cover_copy"] = _normalize_packaging_inline_spacing(str(sanitized.get("cover_copy") or ""))
     social_teaser = _strip_packaging_editorial_meta_clauses(str(sanitized.get("social_teaser") or "").strip())
     social_teaser_options_value = sanitized.get("social_teaser_options")
     social_teaser_options = (
@@ -14739,8 +15959,10 @@ def _sanitize_assets_packaging_result(ai_result: Mapping[str, object]) -> dict[s
     if not safe_teasers:
         safe_teasers = _dedupe_safe_packaging_body_options([str(sanitized.get("cover_copy") or "").strip()])
     if safe_teasers:
-        sanitized["social_teaser"] = safe_teasers[0]
-        sanitized["social_teaser_options"] = safe_teasers[:3]
+        sanitized["social_teaser"] = _normalize_packaging_inline_spacing(safe_teasers[0])
+        sanitized["social_teaser_options"] = [
+            _normalize_packaging_inline_spacing(item) for item in safe_teasers[:3]
+        ]
     else:
         sanitized["social_teaser_options"] = []
     return sanitized
@@ -14770,8 +15992,14 @@ def _sanitize_publish_packaging_result(
         fallback=assets.social_teaser,
     )
     if safe_intro_options:
-        sanitized["publish_lead"] = publish_lead if publish_lead in safe_intro_options else safe_intro_options[0]
-        sanitized["intro_options"] = safe_intro_options[:4]
+        sanitized["publish_lead"] = (
+            _normalize_packaging_inline_spacing(publish_lead)
+            if publish_lead in safe_intro_options
+            else _normalize_packaging_inline_spacing(safe_intro_options[0])
+        )
+        sanitized["intro_options"] = [
+            _normalize_packaging_inline_spacing(item) for item in safe_intro_options[:4]
+        ]
     else:
         sanitized["intro_options"] = []
 
@@ -14788,7 +16016,7 @@ def _sanitize_publish_packaging_result(
             fallback_title=fallback_title,
         )
     else:
-        sanitized["abstract"] = abstract
+        sanitized["abstract"] = _normalize_packaging_inline_spacing(abstract)
     return sanitized
 
 
@@ -14821,8 +16049,20 @@ def _packaging_hits_strategy_focus(
     *,
     structure_mode: str,
     values: list[str],
+    strategy_bundle_payload: Mapping[str, object] | None = None,
 ) -> bool:
-    markers = _packaging_focus_markers(structure_mode)
+    if strategy_bundle_payload and _complete_contract_quality_surface(strategy_bundle_payload):
+        return _has_complete_contract_packaging_focus(
+            strategy_bundle_payload=strategy_bundle_payload,
+            values=values,
+        )
+    markers = (
+        _strategy_packaging_topic_markers(strategy_bundle_payload)
+        if strategy_bundle_payload
+        else ()
+    )
+    if not markers:
+        markers = _packaging_focus_markers(structure_mode)
     if not markers:
         return True
     combined = "\n".join(value for value in values if value)
@@ -14859,7 +16099,214 @@ def _packaging_title_focus_markers(structure_mode: str) -> tuple[str, ...]:
     return mapping.get(structure_mode, ())
 
 
-def _has_strategy_title_focus(*, structure_mode: str, title_options: list[str], recommended_title: str) -> bool:
+_TITLE_PAIN_POINT_MARKERS = (
+    "不敢",
+    "害怕",
+    "怕被",
+    "委屈",
+    "累",
+    "疲惫",
+    "消耗",
+    "内耗",
+    "迁就",
+    "压抑",
+    "压低",
+    "卑微",
+    "失衡",
+    "变僵",
+    "失望",
+    "失约",
+    "落空",
+    "冷漠",
+    "冷淡",
+    "缺席",
+    "敷衍",
+    "不兑现",
+    "受伤",
+    "被忽略",
+    "被辜负",
+    "冷落",
+    "冷暴力",
+    "吵架",
+    "吵完",
+    "争吵",
+    "争执",
+    "冲突",
+    "没时间",
+    "没回",
+    "不回",
+    "等不到",
+    "没面试",
+    "没回音",
+    "没有回音",
+    "无效投递",
+    "说不出口",
+    "不敢说",
+    "不敢提",
+    "总在猜",
+    "猜来猜去",
+    "反复翻聊天记录",
+    "一个人扛",
+    "扛不住",
+    "撑不住",
+    "困住",
+    "瘫着",
+    "切碎",
+    "顺延",
+    "推迟",
+    "懒",
+    "麻木",
+    "重复",
+    "最怕",
+    "放不下",
+    "合照",
+    "走不出来",
+    "还没走出来",
+    "守着门",
+    "等一个圆满",
+    "等一个答案",
+    "求不得",
+    "不甘",
+    "背叛",
+    "不平等",
+    "不安心",
+    "不自在",
+    "将就",
+    "低头",
+    "难过",
+    "心酸",
+    "痛苦",
+    "焦虑",
+    "低谷",
+    "困境",
+    "孤单",
+    "孤独",
+    "遗憾",
+    "熬夜",
+    "舍不得睡",
+    "睡不着",
+    "睡眠",
+    "账单",
+    "生病",
+    "疼",
+    "没有人",
+    "没人",
+)
+
+_PACKAGING_INTERACTION_INTERFACE_MARKERS = (
+    "回消息",
+    "回信息",
+    "打电话",
+    "回电话",
+    "朋友圈",
+    "消息",
+    "回复",
+    "回应",
+    "电话",
+    "来电",
+    "短信",
+    "微信",
+    "聊天",
+    "点赞",
+    "评论",
+    "未读",
+    "手机",
+)
+
+
+def _has_title_pain_point(title: str) -> bool:
+    normalized = re.sub(r"\s+", "", str(title or "")).strip()
+    if not normalized:
+        return False
+    return any(marker in normalized for marker in _TITLE_PAIN_POINT_MARKERS)
+
+
+def _build_current_packaging_strategy_surface(
+    strategy_bundle_payload: Mapping[str, object],
+) -> str:
+    """Return only the current strategy's visible packaging surface.
+
+    The hidden reference-analysis contract is intentionally excluded. It can
+    contain source-only scenes that must not become a new title or lead.
+    """
+    values: list[str] = []
+    for key in ("topic_title", "topic_angle"):
+        value = strategy_bundle_payload.get(key)
+        if value:
+            values.append(str(value))
+
+    sections = (
+        ("problem_brief", ("raw_goal", "clarified_problem", "theme_axis", "core_conflict", "writing_goal", "emotional_value_goal", "target_reader_situation")),
+        ("strategy_card", ("reader_situation", "point_of_view", "conflict_frame", "positive_direction", "packaging_focus", "packaging_hook", "hook_trigger", "opening_move", "body_shift", "ending_move")),
+    )
+    for section_name, keys in sections:
+        section = strategy_bundle_payload.get(section_name)
+        if not isinstance(section, Mapping):
+            continue
+        for key in keys:
+            value = section.get(key)
+            if value:
+                values.append(str(value))
+        for key in ("scene_anchor_requirements", "quotable_line_seeds"):
+            value = section.get(key)
+            if isinstance(value, list):
+                values.extend(str(item) for item in value if str(item).strip())
+
+    return re.sub(r"\s+", "", "\n".join(values)).strip()
+
+
+def _unsupported_packaging_interface_markers(
+    text: str,
+    *,
+    strategy_surface: str,
+) -> tuple[str, ...]:
+    normalized = re.sub(r"\s+", "", str(text or "").strip())
+    if not normalized or not strategy_surface:
+        return ()
+    return tuple(
+        marker
+        for marker in _PACKAGING_INTERACTION_INTERFACE_MARKERS
+        if marker in normalized and marker not in strategy_surface
+    )
+
+
+def _has_unsupported_packaging_interface(
+    *,
+    strategy_bundle_payload: Mapping[str, object],
+    values: list[str],
+) -> bool:
+    """Reject a new interaction entry when the current strategy did not own it.
+
+    A response-priority strategy is explicitly allowed to use interaction
+    interfaces. For every other theme, a message/phone/chat entry must be
+    present in the current topic or adopted strategy before packaging can make
+    it the reader-facing hook.
+    """
+    strategy_card = strategy_bundle_payload.get("strategy_card")
+    if isinstance(strategy_card, Mapping) and str(strategy_card.get("structure_mode") or "").strip() == "response_priority":
+        return False
+    strategy_surface = _build_current_packaging_strategy_surface(strategy_bundle_payload)
+    if not strategy_surface:
+        return False
+    return any(
+        _unsupported_packaging_interface_markers(value, strategy_surface=strategy_surface)
+        for value in values
+        if value
+    )
+
+
+def _has_strategy_title_focus(
+    *,
+    structure_mode: str,
+    title_options: list[str],
+    recommended_title: str,
+    strategy_bundle_payload: Mapping[str, object] | None = None,
+) -> bool:
+    if strategy_bundle_payload and _complete_contract_quality_surface(strategy_bundle_payload):
+        return _has_complete_contract_packaging_focus(
+            strategy_bundle_payload=strategy_bundle_payload,
+            values=[*title_options, recommended_title],
+        )
     markers = _packaging_title_focus_markers(structure_mode)
     if not markers:
         return True
@@ -14892,21 +16339,67 @@ def _should_retry_assets_for_packaging(
         structure_mode=structure_mode,
         title_options=title_options,
         recommended_title=recommended_title,
+        strategy_bundle_payload=strategy_bundle_payload,
     )
-    missing_focus = not _packaging_hits_strategy_focus(structure_mode=structure_mode, values=values)
-    missing_hook = bool(packaging_hook) and not _has_strategy_packaging_hook(values, packaging_hook)
+    missing_title_pain_point = not _has_title_pain_point(recommended_title)
+    missing_focus = not _packaging_hits_strategy_focus(
+        structure_mode=structure_mode,
+        values=values,
+        strategy_bundle_payload=strategy_bundle_payload,
+    )
+    missing_hook = bool(packaging_hook) and not _has_strategy_packaging_hook(
+        values,
+        packaging_hook,
+        strategy_bundle_payload,
+    )
+    unsupported_interface = _has_unsupported_packaging_interface(
+        strategy_bundle_payload=strategy_bundle_payload,
+        values=values,
+    )
+    if _complete_contract_quality_surface(strategy_bundle_payload) and not any(
+        (
+            instruction_leakage,
+            meta_packaging,
+            generic_packaging,
+            missing_title_focus,
+            missing_title_pain_point,
+            missing_focus,
+            unsupported_interface,
+        )
+    ):
+        # An abstract strategy hook guides packaging but must not block concrete,
+        # contract-aligned copy that already carries a specific reader pain point.
+        missing_hook = False
     if (
         responsibility_floor
-        and not any((instruction_leakage, meta_packaging, generic_packaging, missing_title_focus, missing_focus))
+        and not any(
+            (
+                instruction_leakage,
+                meta_packaging,
+                generic_packaging,
+                missing_title_focus,
+                missing_title_pain_point,
+                missing_focus,
+            )
+        )
     ):
         missing_hook = False
     if (
         structure_mode != "responsibility_shelter"
         and responsibility_floor
-        and not any((instruction_leakage, meta_packaging, generic_packaging))
+        and not any((instruction_leakage, meta_packaging, generic_packaging, missing_title_pain_point))
     ):
         return False
-    return instruction_leakage or meta_packaging or generic_packaging or missing_title_focus or missing_focus or missing_hook
+    return (
+        instruction_leakage
+        or meta_packaging
+        or generic_packaging
+        or missing_title_focus
+        or missing_title_pain_point
+        or missing_focus
+        or missing_hook
+        or unsupported_interface
+    )
 
 
 def _should_retry_publish_package_for_packaging(
@@ -14928,9 +16421,41 @@ def _should_retry_publish_package_for_packaging(
     generic_packaging = _has_generic_packaging_openers(values)
     instruction_leakage = _has_packaging_instruction_leakage(values)
     meta_packaging = _has_packaging_meta_text(values)
-    missing_focus = not _packaging_hits_strategy_focus(structure_mode=structure_mode, values=values)
-    missing_hook = bool(packaging_hook) and not _has_strategy_packaging_hook(values, packaging_hook)
-    return instruction_leakage or meta_packaging or generic_packaging or missing_focus or missing_hook
+    missing_focus = not _packaging_hits_strategy_focus(
+        structure_mode=structure_mode,
+        values=values,
+        strategy_bundle_payload=strategy_bundle_payload,
+    )
+    missing_title_pain_point = not _has_title_pain_point(publish_title)
+    missing_hook = bool(packaging_hook) and not _has_strategy_packaging_hook(
+        values,
+        packaging_hook,
+        strategy_bundle_payload,
+    )
+    unsupported_interface = _has_unsupported_packaging_interface(
+        strategy_bundle_payload=strategy_bundle_payload,
+        values=values,
+    )
+    if _complete_contract_quality_surface(strategy_bundle_payload) and not any(
+        (
+            instruction_leakage,
+            meta_packaging,
+            generic_packaging,
+            missing_title_pain_point,
+            missing_focus,
+            unsupported_interface,
+        )
+    ):
+        missing_hook = False
+    return (
+        instruction_leakage
+        or meta_packaging
+        or generic_packaging
+        or missing_title_pain_point
+        or missing_focus
+        or missing_hook
+        or unsupported_interface
+    )
 
 
 def _merge_retry_review_comment(review_comment: str | None, extra_instruction: str) -> str:
@@ -14951,8 +16476,9 @@ def _build_assets_packaging_retry_instruction(
         notes.append(f"这次包装主钩子要更明确地落在这里：{contract_targets['packaging_hook']}")
     if positive_direction:
         notes.append(f"主导语最后要带回这个正向落点：{positive_direction}")
-    notes.append("标题候选必须独立抓住当前主题的现实入口，不要靠封面文案或导语替标题补题；不同主题使用不同入口，不要套同一个标题骨架。")
+    notes.append("标题候选必须独立抓住当前主题的现实入口，并明确写出读者正在承受的具体痛点、代价或冲突，不要靠封面文案或导语替标题补题；不同主题使用不同入口，不要套同一个标题骨架。")
     notes.append("不要只概述正文；标题、封面文案、主导语和候选导语都不要用“很多人”“有些人”“总有人”这类泛主语起手。")
+    notes.append("包装现实接口必须已经出现在当前正文或已采纳策略里；如果当前主题没有明确的消息、回复、电话、点赞、评论、聊天或手机接口，不要为了抓眼把它们写进标题、封面文案或导语。")
     return " ".join(notes)
 
 
@@ -14968,7 +16494,8 @@ def _build_publish_packaging_retry_instruction(
         notes.append(f"发布包装主钩子要更明确地落在这里：{contract_targets['packaging_hook']}")
     if positive_direction:
         notes.append(f"发布导语最后要带回这个正向落点：{positive_direction}")
-    notes.append("不要写成编辑说明或泛概括句；发布标题、发布导语、摘要和导语候选都不要用“很多人”“有些人”“总有人”这类泛主语起手，先给入口，再给回收。")
+    notes.append("不要写成编辑说明或泛概括句；发布标题必须明确点出读者正在承受的具体痛点、代价或冲突；发布标题、发布导语、摘要和导语候选都不要用“很多人”“有些人”“总有人”这类泛主语起手，先给入口，再给回收。")
+    notes.append("包装现实接口必须已经出现在当前正文或已采纳策略里；如果当前主题没有明确的消息、回复、电话、点赞、评论、聊天或手机接口，不要为了抓眼把它们写进发布标题、发布导语、摘要或候选导语。")
     return " ".join(notes)
 
 
@@ -15217,6 +16744,17 @@ def _resolve_mode_shaped_local_packaging_title(
         for token in ("韧性", "重新长出力量", "最难走的路", "筋骨", "被生活按回去", "重新起身")
     ):
         mode = "resilience_reconstruction"
+    if mode == "emotional_engine_direct":
+        if _uses_local_emotional_regret_forward_variant(payload):
+            return "旧事可以收起来，脚下的路还要往前走"
+        if _uses_local_emotional_forgiveness_release_variant(payload):
+            return "放过别人，也是把自己从旧事里放出来"
+        if _uses_local_emotional_memory_presence_variant(payload):
+            return "有些人走远了，还是会在一个背影里轻轻回来"
+        if _uses_local_emotional_memory_reflux_variant(payload):
+            return "那段旧关系没收好，往事就会在某个普通时刻回潮"
+        if _uses_local_emotional_endings_acceptance_variant(payload):
+            return "他已经走远了，你还在替这段关系等一个圆满"
     cleaned = str(fallback_title or "").strip()
     if cleaned and not _starts_with_generic_packaging_openers(cleaned) and not _looks_like_packaging_title_judgment_template(cleaned):
         if mode in {
@@ -15251,16 +16789,6 @@ def _resolve_mode_shaped_local_packaging_title(
         return "这次不硬接，体面反而回来了"
     if mode == "supportive_appreciation" and _has_local_supportive_warmth_profile(payload):
         return "总会先顾别人感受的人，也该被认真护住"
-    if mode == "emotional_engine_direct" and _uses_local_emotional_regret_forward_variant(payload):
-        return "旧事可以收起来，脚下的路还要往前走"
-    if mode == "emotional_engine_direct" and _uses_local_emotional_forgiveness_release_variant(payload):
-        return "放过别人，也是把自己从旧事里放出来"
-    if mode == "emotional_engine_direct" and _uses_local_emotional_memory_presence_variant(payload):
-        return "有些人走远了，还是会在一个背影里轻轻回来"
-    if mode == "emotional_engine_direct" and _uses_local_emotional_memory_reflux_variant(payload):
-        return "那段旧关系没收好，往事就会在某个普通时刻回潮"
-    if mode == "emotional_engine_direct" and _uses_local_emotional_endings_acceptance_variant(payload):
-        return "有些关系停在半路，也会成全后来的你"
     mode_title = str(mode_titles.get(mode) or "").strip()
     if mode_title:
         return mode_title
@@ -15310,6 +16838,72 @@ def _normalize_relationship_aftercare_local_title(title: str) -> str:
     if any(marker in cleaned for marker in stale_markers) or _looks_like_packaging_title_judgment_template(cleaned):
         return "吵完还肯递杯水的人，最舍不得你难过"
     return cleaned
+
+
+def _repair_packaging_title_fields(
+    ai_result: Mapping[str, object],
+    *,
+    strategy_bundle_payload: Mapping[str, object],
+    fallback_title: str,
+    title_field: str,
+    options_field: str | None = None,
+) -> dict[str, object]:
+    """Replace a scene-only title after the final packaging quality pass.
+
+    The model may satisfy the broad topic check while still describing the
+    article instead of naming the reader's tension. Keep good API titles, but
+    use the existing local mode owner when the selected title is only a topic
+    or scene label. Unsupported interaction interfaces are removed from the
+    remaining candidates at the same boundary.
+    """
+    repaired = dict(ai_result)
+    current_title = _normalize_packaging_inline_spacing(str(repaired.get(title_field) or ""))
+    raw_options = repaired.get(options_field) if options_field else None
+    options = (
+        [str(item).strip() for item in raw_options if str(item).strip()]
+        if isinstance(raw_options, list)
+        else []
+    )
+    strategy_surface = _build_current_packaging_strategy_surface(strategy_bundle_payload)
+    strategy_card = strategy_bundle_payload.get("strategy_card")
+    allows_interaction_interface = (
+        isinstance(strategy_card, Mapping)
+        and str(strategy_card.get("structure_mode") or "").strip() == "response_priority"
+    )
+    safe_options: list[str] = []
+    for option in _dedupe_nonempty_text_options([current_title, *options]):
+        if (
+            _looks_like_packaging_instruction_leakage(option)
+            or (
+                not allows_interaction_interface
+                and _unsupported_packaging_interface_markers(option, strategy_surface=strategy_surface)
+            )
+        ):
+            continue
+        safe_options.append(_normalize_packaging_inline_spacing(option))
+
+    selected_title = current_title if _has_title_pain_point(current_title) else ""
+    if not selected_title:
+        selected_title = next(
+            (option for option in safe_options if _has_title_pain_point(option)),
+            "",
+        )
+    if not selected_title:
+        selected_title = _normalize_packaging_inline_spacing(
+            _resolve_mode_shaped_local_packaging_title(
+                strategy_bundle_payload,
+                fallback_title=current_title or fallback_title,
+            )
+        )
+    if not selected_title:
+        selected_title = current_title or _normalize_packaging_inline_spacing(fallback_title)
+    if not selected_title:
+        return repaired
+
+    repaired[title_field] = selected_title
+    if options_field:
+        repaired[options_field] = _dedupe_nonempty_text_options([selected_title, *safe_options])[:3]
+    return repaired
 
 
 def _dedupe_safe_packaging_text_options(
@@ -15433,6 +17027,8 @@ def _resolve_local_assets_cover_copy(
         return self_reliance_cover_copy
     if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(payload):
         return "这半年没有白走，后面的日子还可以重新开始。"
+    if mode == "inner_settlement" and _uses_local_inner_settlement_stillness_variant(payload):
+        return "心定下来，风起云涌也只是路过。"
     if mode == "inner_settlement" and _uses_local_inner_settlement_homecoming_variant(payload):
         return "把今天过稳，心就有了归处。"
     if mode == "inner_settlement" and _uses_local_inner_settlement_bedtime_variant(payload):
@@ -15590,6 +17186,9 @@ def _resolve_local_assets_social_teaser(
         return _compose_local_followup(lead, "把该照顾自己的那一步放回今天，日子才会一点点回到顺序里。")
     if mode == "trust_boundary":
         return "你愿意相信一个人的时候，已经把很重要的心安交了出去。坦诚的分量，是把话说透，也把答应过的事做到。"
+    if mode == "inner_settlement" and _uses_local_inner_settlement_stillness_variant(payload):
+        lead = first if first_is_safe else "心不起微澜的时候，外面的风声还在，已经不必句句都拿来惊动自己。"
+        return _compose_local_followup(lead, "心定下来，风起云涌也只是路过。")
     if mode == "inner_settlement" and _uses_local_inner_settlement_stage_restart_variant(payload):
         lead = first if first_is_safe else "翻回年初那页计划时，先别急着给这半年判输。"
         return _compose_local_followup(lead, "没完成的清单之外，你也已经认真走过一程。")
@@ -15792,6 +17391,9 @@ def _build_local_assets_fallback(
             social_teaser = (
                 "家人平安，知己还在，心里还有一点想去完成的事。走过一些路才知道，简单日子并不简单。"
             )
+        elif mode == "inner_settlement" and _uses_local_inner_settlement_stillness_variant(focus_payload):
+            cover_copy = "心定下来，风起云涌也只是路过。"
+            social_teaser = "心不起微澜的时候，外面的风声还在，已经不必句句都拿来惊动自己。把自己的节奏找回来，平常日子也会有从容。"
         elif mode == "inner_settlement" and _has_local_analysis_first_pillars(focus_payload) and _uses_local_inner_settlement_homecoming_variant(focus_payload) and any(
             token in _extract_local_reference_corpus(focus_payload) for token in ("已经过去的事", "还没发生的事", "静待花开")
         ):
@@ -15856,6 +17458,12 @@ def _build_local_assets_fallback(
         )
         if mode_cover_prompt:
             cover_prompt = mode_cover_prompt
+        elif mode == "inner_settlement" and _uses_local_inner_settlement_stillness_variant(focus_payload):
+            cover_prompt = (
+                f"16:9横版公众号封面，真实摄影感，清晨或傍晚的开阔窗边，一个人放下手里的手机或书本，望向有风的树影与明亮天色，"
+                f"画面表现心绪安定后的从容，不安排回家、热饭或关灯叙事，保留左下标题安全区，主题是《{recommended_title}》，副文案是“{cover_copy}”。"
+                "不要聊天界面，不要消息气泡，不要可读手机屏幕，不要纯文字海报。"
+            )
         elif mode == "inner_settlement" and _has_local_analysis_first_pillars(focus_payload) and _uses_local_inner_settlement_homecoming_variant(focus_payload) and any(
             token in _extract_local_reference_corpus(focus_payload) for token in ("已经过去的事", "还没发生的事", "静待花开")
         ):
@@ -16123,14 +17731,17 @@ def _build_local_publish_package_fallback(
                 publish_lead = "回家时那盏灯还亮着，饭也还热着。忙了一天的人，常常就是被这些细碎又实在的小事轻轻接住。"
                 abstract = "家里人平安，想说的话有人听，再普通的一天也会让人心里发暖。一顿热饭、一句惦记，就够人踏实很久。"
         elif mode == "inner_settlement":
-            if _uses_local_inner_settlement_stage_restart_variant(focus_payload):
+            if _uses_local_inner_settlement_stillness_variant(focus_payload):
+                publish_lead = "世界依旧有风，也依旧有答案之外的喧闹。可当你把心里的尺度找回来，就不必每一次起伏都跟着摇晃。"
+                abstract = "真正的从容，来自知道什么值得认真、什么可以放过。心有归处，外界再吵，也不会轻易把你带离自己的节奏。"
+            elif _uses_local_inner_settlement_stage_restart_variant(focus_payload):
                 publish_lead = "翻到年初那页计划时，先别急着给这半年判输。有些目标还空着，但你认真扛过的日子、遇见的温暖和重新调整的勇气，都不该被轻轻抹掉。"
                 abstract = "这半年没有完全照着计划走，也不代表你白走了一程。没完成的清单可以慢慢补，错过的人和事可以慢慢安放。把眼前事做好，把身边人珍惜好，后面的日子还会有新的答案。"
             elif _uses_local_inner_settlement_homecoming_variant(focus_payload) and _has_local_analysis_first_pillars(focus_payload) and any(
                 token in _extract_local_reference_corpus(focus_payload) for token in ("已经过去的事", "还没发生的事", "静待花开")
             ):
                 publish_lead = "过去的先放回过去，明天的等明天到来。把今天还给今天，心才会慢慢从容。"
-                abstract = "心安不是所有事情都有答案，而是不再把每个答案都交给外界。该努力的继续努力，该等待的耐心等待，剩下的先放回它自己的时间里，生活自然会长出自己的节奏。"
+                abstract = "心安来自不再把每个答案都交给外界。该努力的继续努力，该等待的耐心等待，剩下的先放回它自己的时间里，生活自然会长出自己的节奏。"
             elif _uses_local_inner_settlement_homecoming_variant(focus_payload):
                 publish_lead, abstract = _pick_local_seeded_pair_variant(
                     focus_payload,
@@ -16145,7 +17756,7 @@ def _build_local_publish_package_fallback(
                         ),
                         (
                             "有些夜晚不需要想通什么，能让心从悬着的地方落下来，就已经是在照顾自己。",
-                            "心安不是把所有问题一次解决，而是先允许今天只是今天。你把脚下站稳，很多路就会慢慢显出来。",
+                            "心安有时只是先允许今天成为今天。你把脚下站稳，很多路就会慢慢显出来。",
                         ),
                     ),
                 )
@@ -16322,7 +17933,16 @@ def _build_local_publish_package_fallback(
                     ]
                 )
         elif mode == "inner_settlement":
-            if _uses_local_inner_settlement_stage_restart_variant(focus_payload):
+            if _uses_local_inner_settlement_stillness_variant(focus_payload):
+                intro_options = _dedupe_nonempty_text_options(
+                    [
+                        publish_lead,
+                        "外界有风，心里有自己的尺度，就不必被每阵风带走。",
+                        "把自己的节奏找回来，平常日子也会有从容。",
+                        *intro_options,
+                    ]
+                )
+            elif _uses_local_inner_settlement_stage_restart_variant(focus_payload):
                 intro_options = _dedupe_nonempty_text_options(
                     [
                         publish_lead,
@@ -19528,7 +21148,10 @@ def _sanitize_responsibility_shelter_result_fields(
     reference_source_markdown: str = "",
     text_fields: tuple[str, ...] = (),
     list_fields: tuple[str, ...] = (),
+    analysis_contract_complete: bool = False,
 ) -> dict[str, object]:
+    if analysis_contract_complete:
+        return dict(ai_result)
     if not _looks_like_responsibility_shelter_output(
         title=title,
         body_markdown=body_markdown,
@@ -19604,6 +21227,7 @@ def _apply_final_tracked_article_guard(
     body_markdown: str,
     source_type: str,
     reference_source_markdown: str = "",
+    analysis_contract_complete: bool = False,
 ) -> str:
     if source_type != "tracked_article":
         return body_markdown
@@ -19613,6 +21237,7 @@ def _apply_final_tracked_article_guard(
         body_markdown=body_markdown,
         source_type=source_type,
         reference_source_markdown=reference_source_markdown,
+        analysis_contract_complete=analysis_contract_complete,
     )
     current_body = _repair_tracked_article_fragment_residue(title=title, body_markdown=current_body)
     return current_body
@@ -20295,6 +21920,7 @@ _TRACKED_ARTICLE_SELECTION_SUPPORTED_MODES = {
     "scene_first_progression",
     "emotional_engine_direct",
     "pressure_interface_direct",
+    "social_boundaries",
 }
 _TRACKED_ARTICLE_THEME_COLLAPSE_RISK_MODES: dict[str, set[str]] = {
     "response_priority": {"inner_settlement", "internal_pressure", "relationship_aftercare", "trust_boundary"},
@@ -20329,12 +21955,26 @@ _TRACKED_ARTICLE_THEME_COLLAPSE_RISK_MODES: dict[str, set[str]] = {
     },
     "emotional_engine_direct": {"inner_settlement", "internal_pressure", "response_priority"},
     "scene_first_progression": {"inner_settlement", "internal_pressure", "relationship_aftercare"},
+    "social_boundaries": {
+        "trust_boundary",
+        "response_priority",
+        "relationship_aftercare",
+        "supportive_appreciation",
+        "inner_settlement",
+        "self_worth_rebuild",
+        "emotional_engine_direct",
+    },
 }
 
 
 def _resolve_tracked_article_expected_selection_mode(selection_context: Mapping[str, object] | None) -> str:
     if not isinstance(selection_context, Mapping):
         return ""
+    explicit_mode = _resolve_local_explicit_strategy_mode(selection_context)
+    if explicit_mode:
+        return explicit_mode
+    if _has_local_social_boundaries_focus(selection_context):
+        return "social_boundaries"
     if _has_local_trust_boundary_focus(selection_context):
         return "trust_boundary"
     selection_title = str(
@@ -20443,6 +22083,8 @@ def _resolve_tracked_article_candidate_mode(*, title: str, markdown: str) -> str
         return "everyday_warmth_return"
     if _has_everyday_warmth_return_focus(payload):
         return "everyday_warmth_return"
+    if _has_local_social_boundaries_focus(payload):
+        return "social_boundaries"
     strong_supportive_title = any(
         token in title for token in ("心软的人", "别人感受放在前面", "最该被人好好珍惜", "值得被认真珍惜")
     )
@@ -20938,6 +22580,7 @@ def _maybe_retry_polish_for_over_smoothing(
         source_type=str(project["source_type"]),
         reference_source_markdown=_get_project_reference_source_markdown(project),
         selection_context=candidate_selection_context,
+        analysis_contract_complete=_project_reference_analysis_is_complete(project),
     ):
         return retried_markdown, retried_title
     return candidate_body_markdown, candidate_title
@@ -21094,6 +22737,7 @@ def _maybe_retry_polish_for_remaining_ai_flavor(
         source_type=str(project["source_type"]),
         reference_source_markdown=_get_project_reference_source_markdown(project),
         selection_context=candidate_selection_context,
+        analysis_contract_complete=_project_reference_analysis_is_complete(project),
     ):
         return retried_markdown, retried_title
     return candidate_body_markdown, candidate_title
@@ -21184,6 +22828,7 @@ def _maybe_retry_polish_for_final_ai_flavor_cleanup(
             source_type=str(project["source_type"]),
             reference_source_markdown=_get_project_reference_source_markdown(project),
             selection_context=candidate_selection_context,
+            analysis_contract_complete=_project_reference_analysis_is_complete(project),
         ):
             break
         current_markdown = next_markdown
@@ -21268,6 +22913,12 @@ def _maybe_auto_polish_ai_flavor_draft_output(
     if review_comment or polish_instruction:
         return body_markdown, title
 
+    # The initial draft prompt already carries the active analysis contract,
+    # strategy package, and human-writing constraints. With the default zero
+    # quality budget, do not silently turn one generation into two requests.
+    if retry_budget.remaining <= 0:
+        return body_markdown, title
+
     candidate_selection_context = _build_draft_candidate_selection_context(
         project=project,
         reference_source_markdown=_get_project_reference_source_markdown(project),
@@ -21331,12 +22982,21 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         **strategy_bundle_payload,
         **reference_article_payload,
     }
-    polished_result = generator.generate_draft(
-        _build_nested_draft_retry_payload(
-            polish_payload,
-            generator=generator,
+    if not retry_budget.acquire():
+        return body_markdown, title
+
+    try:
+        polished_result = generator.generate_draft(
+            _build_nested_draft_retry_payload(
+                polish_payload,
+                generator=generator,
+            )
         )
-    )
+    except Exception:
+        # The initial draft is still the usable result. Do not spend another
+        # request trying to recover from a failed optional quality pass.
+        logger.warning("Optional draft quality pass failed; keeping initial draft", exc_info=True)
+        return body_markdown, title
     polished_title = str(polished_result["title"])
     polished_markdown = str(polished_result["body_markdown"])
     if _should_prefer_retried_candidate_after_cleanup_preview(
@@ -21347,6 +23007,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         source_type=str(project["source_type"]),
         reference_source_markdown=_get_project_reference_source_markdown(project),
         selection_context=candidate_selection_context,
+        analysis_contract_complete=_project_reference_analysis_is_complete(project),
     ):
         best_markdown, best_title = polished_markdown, polished_title
     else:
@@ -21451,6 +23112,7 @@ def _maybe_auto_polish_ai_flavor_draft_output(
         source_type=str(project["source_type"]),
         reference_source_markdown=_get_project_reference_source_markdown(project),
         selection_context=candidate_selection_context,
+        analysis_contract_complete=_project_reference_analysis_is_complete(project),
     ):
         return retried_body_markdown, retried_title
     return best_markdown, best_title
@@ -21539,11 +23201,55 @@ def _hydrate_asset_row(asset_row: sqlite3.Row) -> AssetItem:
     return AssetItem(**payload)
 
 
+def _derive_publish_html_artifact_paths(
+    markdown_path: str | None,
+    markdown_url: str | None,
+) -> tuple[str, str]:
+    normalized_path = str(markdown_path or "").strip()
+    if not normalized_path:
+        return "", ""
+
+    candidate = Path(normalized_path)
+    candidate = candidate.with_suffix(".html") if candidate.suffix else Path(f"{candidate}.html")
+    if not candidate.is_absolute():
+        candidate = GENERATED_ASSETS_DIR / candidate
+    candidate = candidate.resolve()
+    if not candidate.is_file():
+        return "", ""
+
+    normalized_url = str(markdown_url or "").strip()
+    if normalized_url.lower().endswith(".md"):
+        html_url = f"{normalized_url[:-3]}.html"
+    elif normalized_url:
+        html_url = f"{normalized_url}.html"
+    else:
+        try:
+            relative_path = candidate.relative_to(GENERATED_ASSETS_DIR.resolve())
+            html_url = f"/generated-assets/{quote(relative_path.as_posix(), safe='/')}"
+        except ValueError:
+            html_url = f"/generated-assets/{quote(candidate.name)}"
+    return str(candidate), html_url
+
+
 def _hydrate_publish_package_row(package_row: sqlite3.Row) -> PublishPackageItem:
     payload = dict(package_row)
     payload["tags"] = json.loads(payload["tags"])
     payload["publish_checklist"] = json.loads(payload["publish_checklist"])
     payload["intro_options"] = json.loads(payload.get("intro_options", "[]"))
+    payload["html_path"], payload["html_url"] = _derive_publish_html_artifact_paths(
+        payload.get("markdown_path"),
+        payload.get("markdown_url"),
+    )
+    payload.setdefault("wechat_html_style_key", DEFAULT_WECHAT_MP_HTML_STYLE_KEY)
+    payload.setdefault("wechat_html_style_name", "极简黑白")
+    payload.setdefault("wechat_html_style_source", "smart")
+    payload.setdefault("wechat_html_style_reason", "")
+    payload.setdefault("wechat_mp_draft_status", "not_published")
+    payload.setdefault("wechat_mp_draft_id", None)
+    payload.setdefault("wechat_mp_draft_error", None)
+    payload.setdefault("wechat_mp_draft_published_at", None)
+    payload.setdefault("approval_provenance", None)
+    payload.setdefault("wechat_mp_draft_provenance", None)
     return PublishPackageItem(**payload)
 
 
@@ -21563,14 +23269,22 @@ def _get_project_version_lock(project_slug: str) -> threading.Lock:
 def _normalize_cover_prompt_layout(prompt: str) -> str:
     normalized = str(prompt).strip()
     raw_prompt_for_layout = normalized
-    positive_phone_scene_requested = bool(re.search(r"(?:看|握着|拿着|在看|人物[^。！？!?；;\n]{0,24}手机)手机", raw_prompt_for_layout))
-    chat_ui_requested = bool(_COVER_PROMPT_CHAT_UI_PATTERN.search(raw_prompt_for_layout))
     negative_chat_guard = bool(
         re.search(
             r"(?:不要|禁止|避免|不出现|不展示)[^。！？!?；;\n]{0,80}(?:聊天界面|聊天框|输入框|消息气泡|微信聊天|聊天记录|对话界面|对话框|可读屏幕)",
             normalized,
         )
     )
+    explicit_no_phone_scene = bool(
+        re.search(
+            r"(?:不要|禁止|避免|不出现|不展示|不得|无|没有)(?:人物[^。！？!?；;\n]{0,16})?手机",
+            raw_prompt_for_layout,
+        )
+    )
+    positive_phone_scene_requested = bool(
+        re.search(r"(?:看|握着|拿着|在看|人物[^。！？!?；;\n]{0,24}手机)手机", raw_prompt_for_layout)
+    ) and not explicit_no_phone_scene
+    chat_ui_requested = bool(_COVER_PROMPT_CHAT_UI_PATTERN.search(raw_prompt_for_layout)) and not negative_chat_guard
     if negative_chat_guard:
         normalized = re.sub(
             r"(?:不要|禁止|避免|不出现|不展示)[^。！？!?；;\n]{0,120}(?:聊天界面|聊天框|输入框|消息气泡|微信聊天|聊天记录|对话界面|对话框|可读屏幕)[^。！？!?；;\n]{0,120}[。！？!?；;]?",
@@ -21584,6 +23298,8 @@ def _normalize_cover_prompt_layout(prompt: str) -> str:
             raw_prompt_for_layout,
         )
     )
+    if explicit_no_phone_scene and not positive_phone_scene_requested:
+        phone_layout_guard_needed = False
     if positive_phone_scene_requested and not re.search(r"(?:手机|屏幕)", normalized):
         normalized = f"{normalized}，{_COVER_PROMPT_PHONE_BACK_SCENE}" if normalized else _COVER_PROMPT_PHONE_BACK_SCENE
         phone_layout_guard_needed = True
@@ -21602,7 +23318,9 @@ def _normalize_cover_prompt_layout(prompt: str) -> str:
             normalized,
         )
     normalized = re.sub(r"(?:作为主视觉|手机背面也有|背面也有)(?=[，,。！？!?；;]|$)", "", normalized)
-    if _COVER_PROMPT_DOUBLE_SCREEN_PATTERN.search(normalized):
+    if _COVER_PROMPT_DOUBLE_SCREEN_PATTERN.search(normalized) and not (
+        explicit_no_phone_scene and not positive_phone_scene_requested
+    ):
         phone_layout_guard_needed = True
         normalized = _COVER_PROMPT_DOUBLE_SCREEN_PATTERN.sub("普通单屏手机，手机背面没有屏幕，不要双面手机、前后双屏或背面屏幕", normalized)
     normalized = re.sub(
@@ -21686,9 +23404,14 @@ def _should_retry_cover_image_generation_error(exc: Exception) -> bool:
 def _resolve_cover_image_call_deadline_seconds(generator) -> float:
     configured_timeout = getattr(generator, "_image_request_timeout_seconds", None)
     if isinstance(configured_timeout, (int, float)) and configured_timeout > 0:
+        if bool(getattr(generator, "image_uses_custom_base_url", False)):
+            # The custom-route generator gives its 16:9 and numeric fallback
+            # variants up to 90 seconds. The outer worker must leave room for
+            # that request to finish instead of cutting it off at 45 seconds.
+            return max(float(configured_timeout), 120.0)
         return max(float(configured_timeout), 45.0)
     if bool(getattr(generator, "image_uses_custom_base_url", False)):
-        return 45.0
+        return 120.0
     return 75.0
 
 
@@ -21977,16 +23700,22 @@ def _run_background_task(task_id: str) -> None:
         elif job_type == "batch_create_projects":
             result = batch_create_projects(payload.get("topic_slugs"))
         elif job_type == "build_publish_package":
-            result = build_publish_package(str(payload["project_slug"]))
+            result = build_publish_package(
+                str(payload["project_slug"]),
+                wechat_html_style_key=str(payload.get("wechat_html_style_key") or "") or None,
+            )
         elif job_type == "polish_and_build_publish_package":
             result = polish_and_build_publish_package(
                 str(payload["project_slug"]),
                 polish_instruction=str(payload.get("polish_instruction") or ""),
+                wechat_html_style_key=str(payload.get("wechat_html_style_key") or "") or None,
             )
         elif job_type == "regenerate_from_review":
             result = regenerate_from_review(str(payload["project_slug"]))
         elif job_type == "regenerate_cover_image":
             result = regenerate_cover_image(str(payload["project_slug"]))
+        elif job_type == "publish_wechat_mp_draft":
+            result = publish_wechat_mp_draft(str(payload["project_slug"]))
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported background job type: {job_type}")
 
@@ -22336,6 +24065,7 @@ def restore_assets_version(project_slug: str, version: int) -> AssetItem:
 
 def _generate_assets(project_slug: str, *, review_comment: str | None = None) -> AssetItem:
     project = _get_project_context(project_slug)
+    _ensure_reference_article_analysis_ready(project, stage_label="标题与封面生成")
     tone_profile = get_project_tone_profile(project)
     domain_pack = get_project_domain_pack(project)
     _ensure_generated_assets_dir()
@@ -22346,6 +24076,12 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                 connection,
                 project_slug,
                 adopted_only=True,
+            )
+            quality_strategy_bundle_payload = _build_strategy_bundle_payload(
+                problem_brief=problem_brief,
+                strategy_card=strategy_card,
+                benchmarks=benchmarks,
+                project=project,
             )
             draft_row = connection.execute(
                 """
@@ -22383,9 +24119,7 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                 "reference_article_hidden": str(project["source_type"]) == "tracked_article" and bool(problem_brief and strategy_card),
             }
             if problem_brief and strategy_card:
-                assets_payload["problem_brief"] = problem_brief.model_dump()
-                assets_payload["strategy_card"] = strategy_card.model_dump()
-                assets_payload["benchmarks"] = [benchmark.model_dump() for benchmark in benchmarks]
+                assets_payload.update(quality_strategy_bundle_payload)
             generator = get_ai_generator()
             used_local_assets_fallback = False
 
@@ -22460,14 +24194,16 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                     )
                     ai_result = generator.generate_assets(retry_payload)
             ai_result = _sanitize_assets_packaging_result(ai_result)
+            if str(project["source_type"]) == "tracked_article":
+                ai_result = _sanitize_cover_prompt_for_reference_interface(
+                    ai_result,
+                    source_markdown=str(project["reference_article_body_markdown"] or ""),
+                )
             if (
                 _creative_quality_retry_max_attempts() > 0
                 and (not used_local_assets_fallback)
                 and _should_retry_assets_for_packaging(
-                    strategy_bundle_payload={
-                        "problem_brief": assets_payload.get("problem_brief"),
-                        "strategy_card": assets_payload.get("strategy_card"),
-                    },
+                    strategy_bundle_payload=quality_strategy_bundle_payload,
                     ai_result=ai_result,
                 )
             ):
@@ -22475,10 +24211,7 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                 retry_payload["review_comment"] = _merge_retry_review_comment(
                     review_comment,
                     _build_assets_packaging_retry_instruction(
-                        {
-                            "problem_brief": assets_payload.get("problem_brief"),
-                            "strategy_card": assets_payload.get("strategy_card"),
-                        }
+                        quality_strategy_bundle_payload
                     ),
                 )
                 try:
@@ -22502,11 +24235,13 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                     used_local_assets_fallback = True
                 else:
                     retried_result = _sanitize_assets_packaging_result(retried_result)
+                    if str(project["source_type"]) == "tracked_article":
+                        retried_result = _sanitize_cover_prompt_for_reference_interface(
+                            retried_result,
+                            source_markdown=str(project["reference_article_body_markdown"] or ""),
+                        )
                     retried_still_needs_retry = _should_retry_assets_for_packaging(
-                        strategy_bundle_payload={
-                            "problem_brief": assets_payload.get("problem_brief"),
-                            "strategy_card": assets_payload.get("strategy_card"),
-                        },
+                        strategy_bundle_payload=quality_strategy_bundle_payload,
                         ai_result=retried_result,
                     )
                     if not retried_still_needs_retry:
@@ -22523,6 +24258,7 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                     ai_result=ai_result,
                     text_fields=("recommended_title", "cover_prompt", "cover_copy", "social_teaser"),
                     list_fields=("title_options", "social_teaser_options"),
+                    analysis_contract_complete=_project_reference_analysis_is_complete(project),
                 )
                 ai_result = _sanitize_responsibility_shelter_result_fields(
                     ai_result=ai_result,
@@ -22531,13 +24267,22 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
                     reference_source_markdown=str(project["reference_article_body_markdown"] or ""),
                     text_fields=("recommended_title", "cover_prompt", "cover_copy", "social_teaser"),
                     list_fields=("title_options", "social_teaser_options"),
+                    analysis_contract_complete=_project_reference_analysis_is_complete(project),
                 )
                 ai_result = _sanitize_assets_packaging_result(ai_result)
+                ai_result = _sanitize_cover_prompt_for_reference_interface(
+                    ai_result,
+                    source_markdown=str(project["reference_article_body_markdown"] or ""),
+                )
+                ai_result = _repair_packaging_title_fields(
+                    ai_result,
+                    strategy_bundle_payload=quality_strategy_bundle_payload,
+                    fallback_title=str(draft_row["title"]),
+                    title_field="recommended_title",
+                    options_field="title_options",
+                )
                 assets_packaging_quality_failed = (not used_local_assets_fallback) and _should_retry_assets_for_packaging(
-                    strategy_bundle_payload={
-                        "problem_brief": assets_payload.get("problem_brief"),
-                        "strategy_card": assets_payload.get("strategy_card"),
-                    },
+                    strategy_bundle_payload=quality_strategy_bundle_payload,
                     ai_result=ai_result,
                 )
                 if assets_packaging_quality_failed:
@@ -22679,8 +24424,17 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
     )
 
 
-def build_publish_package(project_slug: str) -> PublishPackageItem:
-    return _build_publish_package(project_slug)
+def build_publish_package(
+    project_slug: str,
+    *,
+    wechat_html_style_key: str | None = None,
+) -> PublishPackageItem:
+    if not wechat_html_style_key:
+        return _build_publish_package(project_slug)
+    return _build_publish_package(
+        project_slug,
+        wechat_html_style_key=wechat_html_style_key,
+    )
 
 
 def _maybe_reuse_latest_publish_package_after_cover_refresh(
@@ -22706,7 +24460,11 @@ def _maybe_reuse_latest_publish_package_after_cover_refresh(
             publish_lead,
             intro_options,
             tone_profile_id,
-            tone_profile_name
+            tone_profile_name,
+            wechat_html_style_key,
+            wechat_html_style_name,
+            wechat_html_style_source,
+            wechat_html_style_reason
         FROM publish_packages
         WHERE project_slug = ?
         ORDER BY version DESC, id DESC
@@ -22757,11 +24515,85 @@ def _maybe_reuse_latest_publish_package_after_cover_refresh(
         "intro_options": json.loads(str(latest_package_row["intro_options"] or "[]")),
         "tone_profile_id": latest_package_row["tone_profile_id"],
         "tone_profile_name": latest_package_row["tone_profile_name"],
+        "wechat_html_style_key": str(latest_package_row["wechat_html_style_key"] or DEFAULT_WECHAT_MP_HTML_STYLE_KEY),
+        "wechat_html_style_name": str(latest_package_row["wechat_html_style_name"] or "极简黑白"),
+        "wechat_html_style_source": str(latest_package_row["wechat_html_style_source"] or "smart"),
+        "wechat_html_style_reason": str(latest_package_row["wechat_html_style_reason"] or ""),
     }
 
 
-def _build_publish_package(project_slug: str, *, review_comment: str | None = None) -> PublishPackageItem:
-    return _create_publish_package(project_slug, review_comment=review_comment)
+def _resolve_wechat_mp_html_style_for_package(
+    *,
+    project: sqlite3.Row,
+    draft_title: str,
+    draft_body_markdown: str,
+    package_override: dict[str, object] | None,
+    requested_style_key: str | None = None,
+) -> tuple[WechatMpHtmlStyle, str, str]:
+    override_key = str(requested_style_key or "").strip().lower()
+    override_source = "manual"
+    override_reason = "本次生成由操作者指定公众号排版风格。"
+    if not override_key and package_override:
+        override_key = str(package_override.get("wechat_html_style_key") or "").strip().lower()
+        override_source = str(package_override.get("wechat_html_style_source") or "manual").strip() or "manual"
+        override_reason = str(package_override.get("wechat_html_style_reason") or "").strip()
+    if override_key:
+        try:
+            style = get_wechat_mp_html_style(override_key)
+        except ValueError:
+            if requested_style_key:
+                raise HTTPException(status_code=404, detail="WeChat HTML style not found") from None
+            style = get_wechat_mp_html_style(DEFAULT_WECHAT_MP_HTML_STYLE_KEY)
+        return style, override_source, override_reason or f"沿用已保存的公众号排版「{style.name}」。"
+
+    configured_key = str(project["preferred_wechat_html_style_key"] or "").strip().lower()
+    configured_style: WechatMpHtmlStyle | None = None
+    if configured_key:
+        try:
+            configured_style = get_wechat_mp_html_style(configured_key)
+        except ValueError:
+            configured_style = None
+
+    style_items = list_wechat_mp_html_styles()
+    active_keys = {item.key for item in style_items if item.is_active}
+    default_style_key = next(
+        (item.key for item in style_items if item.is_default and item.is_active),
+        DEFAULT_WECHAT_MP_HTML_STYLE_KEY,
+    )
+    if configured_style and configured_style.key in active_keys:
+        return (
+            configured_style,
+            "manual",
+            f"项目已指定公众号排版「{configured_style.name}」。",
+        )
+
+    recommendation = recommend_wechat_mp_html_style(
+        title=draft_title,
+        body_markdown=draft_body_markdown,
+        topic_title=str(project["topic_title"] or ""),
+        topic_angle=str(project["topic_angle"] or ""),
+        active_style_keys=active_keys,
+        default_style_key=default_style_key,
+    )
+    reason = recommendation.reason
+    if configured_key and not configured_style:
+        reason = f"项目配置的排版风格不存在，{reason}"
+    elif configured_style and configured_style.key not in active_keys:
+        reason = f"项目指定的排版「{configured_style.name}」已停用，{reason}"
+    return get_wechat_mp_html_style(recommendation.key), "smart", reason
+
+
+def _build_publish_package(
+    project_slug: str,
+    *,
+    review_comment: str | None = None,
+    wechat_html_style_key: str | None = None,
+) -> PublishPackageItem:
+    return _create_publish_package(
+        project_slug,
+        review_comment=review_comment,
+        wechat_html_style_key=wechat_html_style_key,
+    )
 
 
 def _create_publish_package(
@@ -22770,8 +24602,10 @@ def _create_publish_package(
     review_comment: str | None = None,
     package_override: dict[str, object] | None = None,
     restored: bool = False,
+    wechat_html_style_key: str | None = None,
 ) -> PublishPackageItem:
     project = _get_project_context(project_slug)
+    _ensure_reference_article_analysis_ready(project, stage_label="导语与发布包生成")
     tone_profile = get_project_tone_profile(project)
     domain_pack = get_project_domain_pack(project)
     effective_tone_profile_id = tone_profile.id
@@ -22783,6 +24617,12 @@ def _create_publish_package(
             connection,
             project_slug,
             adopted_only=True,
+        )
+        quality_strategy_bundle_payload = _build_strategy_bundle_payload(
+            problem_brief=problem_brief,
+            strategy_card=strategy_card,
+            benchmarks=benchmarks,
+            project=project,
         )
         draft_row = connection.execute(
             """
@@ -22838,6 +24678,7 @@ def _create_publish_package(
                 body_markdown=draft_body_markdown,
                 source_type="tracked_article",
                 reference_source_markdown=str(project["reference_article_body_markdown"] or ""),
+                analysis_contract_complete=_project_reference_analysis_is_complete(project),
             )
         assets = _hydrate_asset_row(assets_row)
         if assets.cover_image_status != "ready" or not assets.cover_image_url.strip():
@@ -22877,6 +24718,14 @@ def _create_publish_package(
         effective_tone_profile_id = int(package_override["tone_profile_id"]) if package_override.get("tone_profile_id") is not None else None
         effective_tone_profile_name = str(package_override["tone_profile_name"])
 
+    html_style, html_style_source, html_style_reason = _resolve_wechat_mp_html_style_for_package(
+        project=project,
+        draft_title=draft_title,
+        draft_body_markdown=draft_body_markdown,
+        package_override=package_override,
+        requested_style_key=wechat_html_style_key,
+    )
+
     publish_payload: dict[str, object] = {
         "project_title": project["title"],
         "source_type": project["source_type"],
@@ -22886,14 +24735,18 @@ def _create_publish_package(
         },
         "assets": assets.model_dump(),
         "tone_profile": tone_profile.model_dump(),
+        "wechat_html_style": {
+            "key": html_style.key,
+            "name": html_style.name,
+            "source": html_style_source,
+            "reason": html_style_reason,
+        },
         "domain_pack": domain_pack,
         "review_comment": review_comment,
         "reference_article_hidden": str(project["source_type"]) == "tracked_article" and bool(problem_brief and strategy_card),
     }
     if problem_brief and strategy_card:
-        publish_payload["problem_brief"] = problem_brief.model_dump()
-        publish_payload["strategy_card"] = strategy_card.model_dump()
-        publish_payload["benchmarks"] = [benchmark.model_dump() for benchmark in benchmarks]
+        publish_payload.update(quality_strategy_bundle_payload)
 
     fallback_asset_title = assets.recommended_title or (assets.title_options[0] if assets.title_options else "")
     generator = get_ai_generator()
@@ -22928,20 +24781,14 @@ def _create_publish_package(
                 fallback_title=fallback_asset_title or draft_title,
             )
             if _creative_quality_retry_max_attempts() > 0 and _should_retry_publish_package_for_packaging(
-                strategy_bundle_payload={
-                    "problem_brief": publish_payload.get("problem_brief"),
-                    "strategy_card": publish_payload.get("strategy_card"),
-                },
+                strategy_bundle_payload=quality_strategy_bundle_payload,
                 ai_result=ai_result,
             ):
                 retry_payload = dict(publish_payload)
                 retry_payload["review_comment"] = _merge_retry_review_comment(
                     review_comment,
                     _build_publish_packaging_retry_instruction(
-                        {
-                            "problem_brief": publish_payload.get("problem_brief"),
-                            "strategy_card": publish_payload.get("strategy_card"),
-                        }
+                        quality_strategy_bundle_payload
                     ),
                 )
                 retried_result = generator.generate_publish_package(retry_payload)
@@ -22952,10 +24799,7 @@ def _create_publish_package(
                     fallback_title=fallback_asset_title or draft_title,
                 )
                 retried_still_needs_retry = _should_retry_publish_package_for_packaging(
-                    strategy_bundle_payload={
-                        "problem_brief": publish_payload.get("problem_brief"),
-                        "strategy_card": publish_payload.get("strategy_card"),
-                    },
+                    strategy_bundle_payload=quality_strategy_bundle_payload,
                     ai_result=retried_result,
                 )
                 if not retried_still_needs_retry:
@@ -22990,6 +24834,7 @@ def _create_publish_package(
             ai_result=ai_result,
             text_fields=("abstract", "publish_title", "publish_lead", "editor_note"),
             list_fields=("intro_options",),
+            analysis_contract_complete=_project_reference_analysis_is_complete(project),
         )
         ai_result = _sanitize_responsibility_shelter_result_fields(
             ai_result=ai_result,
@@ -22998,6 +24843,7 @@ def _create_publish_package(
             reference_source_markdown=str(project["reference_article_body_markdown"] or ""),
             text_fields=("abstract", "publish_title", "publish_lead", "editor_note"),
             list_fields=("intro_options",),
+            analysis_contract_complete=_project_reference_analysis_is_complete(project),
         )
         ai_result = _sanitize_publish_packaging_result(
             ai_result,
@@ -23005,11 +24851,14 @@ def _create_publish_package(
             assets=assets,
             fallback_title=fallback_asset_title or draft_title,
         )
+        ai_result = _repair_packaging_title_fields(
+            ai_result,
+            strategy_bundle_payload=quality_strategy_bundle_payload,
+            fallback_title=fallback_asset_title or draft_title,
+            title_field="publish_title",
+        )
         if _should_retry_publish_package_for_packaging(
-            strategy_bundle_payload={
-                "problem_brief": publish_payload.get("problem_brief"),
-                "strategy_card": publish_payload.get("strategy_card"),
-            },
+            strategy_bundle_payload=quality_strategy_bundle_payload,
             ai_result=ai_result,
         ):
             logger.warning(
@@ -23041,10 +24890,13 @@ def _create_publish_package(
                 restored=restored,
             )
             markdown_filename = f"{project_slug}-publish-v{version}.md"
+            html_filename = f"{project_slug}-publish-v{version}.html"
             manifest_filename = f"{project_slug}-publish-v{version}.json"
             markdown_path = GENERATED_ASSETS_DIR / markdown_filename
+            html_path = GENERATED_ASSETS_DIR / html_filename
             manifest_path = GENERATED_ASSETS_DIR / manifest_filename
             markdown_url = f"/generated-assets/{markdown_filename}"
+            html_url = f"/generated-assets/{html_filename}"
             manifest_url = f"/generated-assets/{manifest_filename}"
             markdown_body = _build_publish_markdown(
                 project_title=project["title"],
@@ -23060,6 +24912,20 @@ def _create_publish_package(
                 intro_options=intro_options,
                 tone_profile_name=effective_tone_profile_name,
             )
+            try:
+                rendered_html = render_wechat_html(
+                    markdown_body,
+                    base_dir=GENERATED_ASSETS_DIR,
+                    image_resolver=_resolve_publish_preview_image,
+                    title=publish_title or draft_title,
+                    style_key=html_style.key,
+                )
+                html_body = build_wechat_preview_document(
+                    rendered_html,
+                    title=publish_title or draft_title,
+                )
+            except WechatMpHtmlRenderError as exc:
+                raise HTTPException(status_code=409, detail=f"发布包 HTML 生成失败：{exc}") from None
             manifest_body = {
                 "project_slug": project_slug,
                 "project_title": project["title"],
@@ -23074,10 +24940,16 @@ def _create_publish_package(
                 "editor_note": ai_result["editor_note"],
                 "tone_profile_id": effective_tone_profile_id,
                 "tone_profile_name": effective_tone_profile_name,
+                "wechat_html_style_key": html_style.key,
+                "wechat_html_style_name": html_style.name,
+                "wechat_html_style_source": html_style_source,
+                "wechat_html_style_reason": html_style_reason,
                 "cover_image_url": assets.cover_image_url,
                 "markdown_url": markdown_url,
+                "html_url": html_url,
             }
             markdown_path.write_text(markdown_body, encoding="utf-8")
+            html_path.write_text(html_body, encoding="utf-8")
             manifest_path.write_text(json.dumps(manifest_body, ensure_ascii=False, indent=2), encoding="utf-8")
             payload: dict[str, object] = {
                 "project_slug": project_slug,
@@ -23103,6 +24975,10 @@ def _create_publish_package(
                 "origin": origin,
                 "tone_profile_id": effective_tone_profile_id,
                 "tone_profile_name": effective_tone_profile_name,
+                "wechat_html_style_key": html_style.key,
+                "wechat_html_style_name": html_style.name,
+                "wechat_html_style_source": html_style_source,
+                "wechat_html_style_reason": html_style_reason,
             }
             if "wechat_body" in publish_columns:
                 payload["wechat_body"] = draft_body_markdown
@@ -23146,6 +25022,8 @@ def _create_publish_package(
         intro_options=intro_options,
         markdown_path=str(markdown_path),
         markdown_url=markdown_url,
+        html_path=str(html_path),
+        html_url=html_url,
         manifest_path=str(manifest_path),
         manifest_url=manifest_url,
         status="ready",
@@ -23156,6 +25034,10 @@ def _create_publish_package(
         origin=origin,
         tone_profile_id=effective_tone_profile_id,
         tone_profile_name=effective_tone_profile_name,
+        wechat_html_style_key=html_style.key,
+        wechat_html_style_name=html_style.name,
+        wechat_html_style_source=html_style_source,
+        wechat_html_style_reason=html_style_reason,
     )
 
 
@@ -23163,7 +25045,8 @@ def restore_publish_package_version(project_slug: str, version: int) -> PublishP
     with _get_connection() as connection:
         package_row = connection.execute(
             """
-            SELECT abstract, tags, publish_checklist, editor_note, publish_title, publish_lead, intro_options, tone_profile_id, tone_profile_name
+            SELECT abstract, tags, publish_checklist, editor_note, publish_title, publish_lead, intro_options, tone_profile_id, tone_profile_name,
+                   wechat_html_style_key, wechat_html_style_name, wechat_html_style_source, wechat_html_style_reason
             FROM publish_packages
             WHERE project_slug = ? AND version = ?
             ORDER BY id DESC
@@ -23186,17 +25069,254 @@ def restore_publish_package_version(project_slug: str, version: int) -> PublishP
             "intro_options": json.loads(str(package_row["intro_options"] or "[]")),
             "tone_profile_id": package_row["tone_profile_id"],
             "tone_profile_name": package_row["tone_profile_name"],
+            "wechat_html_style_key": package_row["wechat_html_style_key"],
+            "wechat_html_style_name": package_row["wechat_html_style_name"],
+            "wechat_html_style_source": package_row["wechat_html_style_source"],
+            "wechat_html_style_reason": package_row["wechat_html_style_reason"],
         },
         restored=True,
     )
 
 
-def approve_publish_package(project_slug: str, reviewer: str, comment: str) -> PublishPackageItem:
-    return _review_publish_package(project_slug, reviewer=reviewer, comment=comment, status="approved", stage="published")
+def approve_publish_package(
+    project_slug: str,
+    reviewer: str,
+    comment: str,
+    *,
+    provenance: str | None = None,
+) -> PublishPackageItem:
+    return _review_publish_package(
+        project_slug,
+        reviewer=reviewer,
+        comment=comment,
+        status="approved",
+        stage="published",
+        provenance=provenance,
+    )
 
 
 def request_publish_package_revision(project_slug: str, reviewer: str, comment: str) -> PublishPackageItem:
     return _review_publish_package(project_slug, reviewer=reviewer, comment=comment, status="needs_revision", stage="revision_requested")
+
+
+def mark_publish_package_provenance(project_slug: str, *, provenance: str) -> PublishPackageItem:
+    normalized_provenance = str(provenance or "").strip()
+    if not normalized_provenance:
+        raise ValueError("provenance is required")
+    with _get_connection() as connection:
+        package_row = connection.execute(
+            """
+            SELECT * FROM publish_packages
+            WHERE project_slug = ?
+            ORDER BY version DESC, id DESC
+            LIMIT 1
+            """,
+            (project_slug,),
+        ).fetchone()
+        if not package_row:
+            raise HTTPException(status_code=404, detail="Publish package not found")
+        connection.execute(
+            """
+            UPDATE publish_packages
+            SET origin = ?, approval_provenance = ?
+            WHERE id = ?
+            """,
+            (normalized_provenance, normalized_provenance, package_row["id"]),
+        )
+        row = connection.execute(
+            "SELECT * FROM publish_packages WHERE id = ?",
+            (package_row["id"],),
+        ).fetchone()
+        connection.commit()
+    if not row:
+        raise HTTPException(status_code=500, detail="Publish package provenance update failed")
+    return _hydrate_publish_package_row(row)
+
+
+def publish_wechat_mp_draft(
+    project_slug: str,
+    *,
+    provenance: str | None = None,
+) -> PublishPackageItem:
+    """Write the approved package into the configured WeChat MP draft route."""
+    with _get_project_version_lock(project_slug):
+        with _get_connection() as connection:
+            package_row = connection.execute(
+                """
+                SELECT *
+                FROM publish_packages
+                WHERE project_slug = ?
+                ORDER BY version DESC, id DESC
+                LIMIT 1
+                """,
+                (project_slug,),
+            ).fetchone()
+            if not package_row:
+                raise HTTPException(status_code=409, detail="Publish package not generated")
+            if str(package_row["status"]) != "approved":
+                raise HTTPException(status_code=409, detail="Approve the current publish package before writing it to WeChat MP draft")
+            current_draft_status = str(package_row["wechat_mp_draft_status"] or "not_published")
+            if current_draft_status == "publishing":
+                raise HTTPException(status_code=409, detail="Current publish package is being written to WeChat MP draft")
+            if current_draft_status not in {"not_published", "failed", "published"}:
+                raise HTTPException(status_code=409, detail="公众号草稿状态异常，请刷新当前发布包后重试")
+            if current_draft_status == "published":
+                raise HTTPException(status_code=409, detail="当前发布包已经写入公众号草稿箱，请勿重复提交")
+
+            package_version = int(package_row["version"])
+
+            def fail_before_publish(detail: str) -> None:
+                connection.execute(
+                    """
+                    UPDATE publish_packages
+                    SET wechat_mp_draft_status = 'failed',
+                        wechat_mp_draft_id = NULL,
+                        wechat_mp_draft_error = ?,
+                        wechat_mp_draft_published_at = NULL,
+                        wechat_mp_draft_provenance = COALESCE(?, wechat_mp_draft_provenance)
+                    WHERE project_slug = ? AND version = ? AND wechat_mp_draft_status = 'publishing'
+                    """,
+                    (
+                        detail,
+                        provenance.strip() if provenance and provenance.strip() else None,
+                        project_slug,
+                        package_version,
+                    ),
+                )
+                connection.commit()
+                raise HTTPException(status_code=409, detail=detail)
+
+            # The Python lock protects the in-process worker; this conditional update
+            # also prevents duplicate claims when the app runs with multiple workers.
+            claim = connection.execute(
+                """
+                UPDATE publish_packages
+                SET wechat_mp_draft_status = 'publishing',
+                    wechat_mp_draft_id = NULL,
+                    wechat_mp_draft_error = NULL,
+                    wechat_mp_draft_published_at = NULL,
+                    wechat_mp_draft_provenance = COALESCE(?, wechat_mp_draft_provenance)
+                WHERE project_slug = ?
+                  AND version = ?
+                  AND wechat_mp_draft_status IN ('not_published', 'failed')
+                """,
+                (provenance.strip() if provenance and provenance.strip() else None, project_slug, package_version),
+            )
+            if claim.rowcount != 1:
+                refreshed_row = connection.execute(
+                    """
+                    SELECT wechat_mp_draft_status
+                    FROM publish_packages
+                    WHERE project_slug = ? AND version = ?
+                    LIMIT 1
+                    """,
+                    (project_slug, package_version),
+                ).fetchone()
+                refreshed_status = str(refreshed_row["wechat_mp_draft_status"] or "") if refreshed_row else ""
+                if refreshed_status == "published":
+                    raise HTTPException(status_code=409, detail="当前发布包已经写入公众号草稿箱，请勿重复提交")
+                if refreshed_status == "publishing":
+                    raise HTTPException(status_code=409, detail="Current publish package is being written to WeChat MP draft")
+                raise HTTPException(status_code=409, detail="公众号草稿状态已变化，请刷新当前发布包后重试")
+
+            connection.commit()
+
+            assets_row = connection.execute(
+                """
+                SELECT cover_image_path
+                FROM assets
+                WHERE project_slug = ? AND version = ?
+                LIMIT 1
+                """,
+                (project_slug, package_row["assets_version"]),
+            ).fetchone()
+            if not assets_row or not str(assets_row["cover_image_path"] or "").strip():
+                fail_before_publish("当前发布包缺少封面图片，无法写入公众号草稿箱")
+
+            markdown_path = Path(str(package_row["markdown_path"] or ""))
+            if not markdown_path.is_file():
+                fail_before_publish("Publish package markdown file not found; regenerate the package")
+            cover_image_path = Path(str(assets_row["cover_image_path"] or ""))
+            if not cover_image_path.is_absolute():
+                cover_image_path = (GENERATED_ASSETS_DIR / cover_image_path).resolve()
+            if not cover_image_path.is_file():
+                fail_before_publish("Publish package cover image file not found; regenerate the assets")
+
+        title = str(package_row["publish_title"] or "").strip()
+        if not title:
+            first_line = markdown_path.read_text(encoding="utf-8").splitlines()[0:1]
+            title = first_line[0].lstrip("# ").strip() if first_line else project_slug
+        try:
+            result = get_wechat_mp_draft_publisher().publish(
+                title=title,
+                digest=str(package_row["abstract"] or ""),
+                author="",
+                markdown_path=markdown_path,
+                cover_image_path=cover_image_path,
+            )
+        except Exception as exc:
+            error_message = str(exc).strip()[:500] or "Writing WeChat MP draft failed"
+            with _get_connection() as connection:
+                connection.execute(
+                    """
+                    UPDATE publish_packages
+                    SET wechat_mp_draft_status = 'failed',
+                        wechat_mp_draft_id = NULL,
+                        wechat_mp_draft_error = ?,
+                        wechat_mp_draft_published_at = NULL,
+                        wechat_mp_draft_provenance = COALESCE(?, wechat_mp_draft_provenance)
+                    WHERE project_slug = ? AND version = ? AND wechat_mp_draft_status = 'publishing'
+                    """,
+                    (
+                        error_message,
+                        provenance.strip() if provenance and provenance.strip() else None,
+                        project_slug,
+                        package_version,
+                    ),
+                )
+                connection.commit()
+            raise
+
+        published_at = _utc_now_iso()
+        with _get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE publish_packages
+                SET wechat_mp_draft_status = 'published',
+                    wechat_mp_draft_id = ?,
+                    wechat_mp_draft_error = NULL,
+                    wechat_mp_draft_published_at = ?,
+                    wechat_mp_draft_provenance = COALESCE(?, wechat_mp_draft_provenance)
+                WHERE project_slug = ? AND version = ?
+                """,
+                (
+                    result.draft_id,
+                    published_at,
+                    provenance.strip() if provenance and provenance.strip() else None,
+                    project_slug,
+                    package_version,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT *
+                FROM publish_packages
+                WHERE project_slug = ? AND version = ?
+                LIMIT 1
+                """,
+                (project_slug, package_version),
+            ).fetchone()
+            _record_task(
+                connection,
+                task_type="wechat_mp_draft_published",
+                status="done",
+                entity_slug=project_slug,
+                entity_type="project",
+            )
+            connection.commit()
+        if not row:
+            raise HTTPException(status_code=500, detail="Draft submitted but publish status update failed")
+        return _hydrate_publish_package_row(row)
 
 
 def record_project_retro(project_slug: str, payload: ProjectRetroCreate) -> ProjectRetroItem:
@@ -23292,14 +25412,30 @@ def polish_and_build_publish_package(
     project_slug: str,
     *,
     polish_instruction: str | None = None,
+    wechat_html_style_key: str | None = None,
 ) -> PublishPackageItem:
     project = _get_project_context(project_slug)
     tone_profile = get_project_tone_profile(project)
     normalized_instruction = (polish_instruction or "").strip()
     effective_instruction = normalized_instruction or tone_profile.default_polish_instruction.strip() or DEFAULT_ASSETS_POLISH_INSTRUCTION
-    _generate_draft(project_slug, polish_instruction=effective_instruction)
+    can_polish_existing_draft = str(project["source_type"]) != "tracked_article"
+    if not can_polish_existing_draft:
+        with _get_connection() as connection:
+            _, _, adopted_strategy_card = _load_project_strategy_bundle(
+                connection,
+                project_slug,
+                adopted_only=True,
+            )
+        can_polish_existing_draft = adopted_strategy_card is not None
+    if can_polish_existing_draft:
+        _generate_draft(project_slug, polish_instruction=effective_instruction)
     _generate_assets(project_slug)
-    return _build_publish_package(project_slug)
+    if not wechat_html_style_key:
+        return _build_publish_package(project_slug)
+    return _build_publish_package(
+        project_slug,
+        wechat_html_style_key=wechat_html_style_key,
+    )
 
 
 def _review_publish_package(
@@ -23309,6 +25445,7 @@ def _review_publish_package(
     comment: str,
     status: str,
     stage: str,
+    provenance: str | None = None,
 ) -> PublishPackageItem:
     with _get_connection() as connection:
         package_row = connection.execute(
@@ -23331,8 +25468,15 @@ def _review_publish_package(
                 review_comment,
                 reviewed_by,
                 reviewed_at,
+                origin,
+                approval_provenance,
+                wechat_mp_draft_provenance,
                 tone_profile_id,
-                tone_profile_name
+                tone_profile_name,
+                wechat_html_style_key,
+                wechat_html_style_name,
+                wechat_html_style_source,
+                wechat_html_style_reason
             FROM publish_packages
             WHERE project_slug = ?
             ORDER BY version DESC
@@ -23347,10 +25491,20 @@ def _review_publish_package(
         connection.execute(
             """
             UPDATE publish_packages
-            SET status = ?, review_comment = ?, reviewed_by = ?, reviewed_at = ?
+            SET status = ?, review_comment = ?, reviewed_by = ?, reviewed_at = ?,
+                origin = COALESCE(?, origin),
+                approval_provenance = COALESCE(?, approval_provenance)
             WHERE id = ?
             """,
-            (status, comment, reviewer, reviewed_at, package_row["id"]),
+            (
+                status,
+                comment,
+                reviewer,
+                reviewed_at,
+                provenance.strip() if provenance and provenance.strip() else None,
+                provenance.strip() if provenance and provenance.strip() else None,
+                package_row["id"],
+            ),
         )
         _record_task(
             connection,
@@ -23370,10 +25524,26 @@ def _review_publish_package(
     payload["review_comment"] = comment
     payload["reviewed_by"] = reviewer
     payload["reviewed_at"] = reviewed_at
+    if provenance and provenance.strip():
+        payload["origin"] = provenance.strip()
+        payload["approval_provenance"] = provenance.strip()
     payload["tags"] = json.loads(payload["tags"])
     payload["publish_checklist"] = json.loads(payload["publish_checklist"])
     payload["intro_options"] = json.loads(payload.get("intro_options", "[]"))
+    payload["html_path"], payload["html_url"] = _derive_publish_html_artifact_paths(
+        payload.get("markdown_path"),
+        payload.get("markdown_url"),
+    )
     return PublishPackageItem(**payload)
+
+
+def _resolve_publish_preview_image(image_path: Path, _alt: str) -> str:
+    generated_root = GENERATED_ASSETS_DIR.resolve()
+    try:
+        relative_path = image_path.resolve().relative_to(generated_root)
+    except ValueError:
+        raise WechatMpHtmlRenderError("正文图片必须位于生成素材目录，无法生成可访问的发布预览") from None
+    return quote(relative_path.as_posix(), safe="/")
 
 
 def _build_publish_markdown(

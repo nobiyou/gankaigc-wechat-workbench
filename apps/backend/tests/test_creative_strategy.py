@@ -5,10 +5,14 @@ from app.services.creative_strategy import (
     _build_packaging_focus,
     _build_packaging_hook,
     _is_usable_analysis_emotional_exit,
+    _resolve_analysis_opening_kind,
     _resolve_inner_settlement_variant,
     build_complete_contract_execution_surface,
     build_strategy_package,
+    has_complete_tracked_article_generation_contract,
     has_complete_tracked_article_analysis_contract,
+    has_source_aligned_tracked_article_generation_contract,
+    has_source_aligned_tracked_article_topic,
     resolve_tracked_article_structure_mode,
 )
 
@@ -47,6 +51,282 @@ def test_complete_analysis_contract_requires_a_forward_emotional_exit() -> None:
         **incomplete,
         analysis_emotional_exit="看清位置，也把时间留给真正愿意回应你的人。",
     ) is False
+
+
+def test_generation_contract_requires_specific_expression_profile() -> None:
+    base = {
+        "analysis_structure_mode_hint": "response_priority",
+        "analysis_theme": "真正的在乎会在时间安排里显形。",
+        "analysis_core_conflict": "表面的热闹和真正的投入并不相同。",
+        "analysis_emotional_exit": "把时间留给真正愿意回应你的人。",
+        "analysis_opening_pattern": "从一个日常互动切入。",
+        "analysis_hook_trigger": "一个细小的回应落差。",
+        "analysis_progression_drive": "由顺序落差推进到关系判断。",
+        "analysis_share_reason": "读者会在熟悉的等待里认出自己。",
+        "analysis_do_not_turn_into": "泛泛的关系控诉。",
+        "analysis_content_pillars": [
+            "时间安排如何显出关系里的真实投入",
+            "回应落差如何改变一个人的关系判断",
+        ],
+    }
+
+    assert has_complete_tracked_article_generation_contract(
+        **base,
+        analysis_expression_profile=["先写现场，再让判断出现", "中段用行动推进"],
+    ) is False
+    assert has_complete_tracked_article_generation_contract(
+        **base,
+        analysis_expression_profile=[
+            "先写现场停顿，再让判断从动作余波里出现",
+            "中段用现实选择承接主题，不平铺抽象观点",
+            "结尾回到关系里的下一步，不用统一祝福收束",
+        ],
+    ) is True
+    assert has_complete_tracked_article_generation_contract(
+        **base,
+        analysis_expression_profile=["语言优美", "有共鸣", "正能量"],
+    ) is False
+
+
+def test_complete_analysis_contract_accepts_specific_emotional_engine_mode() -> None:
+    assert has_complete_tracked_article_analysis_contract(
+        analysis_structure_mode_hint="emotional_engine_direct",
+        analysis_theme="遗憾需要被安放，生活才能重新向前。",
+        analysis_core_conflict="人反复追问如果当初，却把已经无法回退的现实和仍在继续的生活放在了一边。",
+        analysis_emotional_exit="承认曾经在意过，把留下来的温暖带回新的日常。",
+        analysis_opening_pattern="从一次普通偶遇里突然被旧事触发的停顿切入。",
+        analysis_hook_trigger="一个熟悉的背影让人短暂地回到了过去。",
+        analysis_progression_drive="从回头追问推进到看见现实，再落到重新安排今天。",
+        analysis_share_reason="让仍被旧事牵住的人看见继续生活并不等于否定过去。",
+        analysis_do_not_turn_into="不要写成催促读者立刻忘掉过去的励志口号。",
+        analysis_content_pillars=[
+            "旧事如何在普通时刻重新出现",
+            "承认在意之后如何把生活带回今天",
+        ],
+    ) is True
+
+
+def test_source_aligned_generation_contract_rejects_a_complete_but_wrong_theme() -> None:
+    common = {
+        "source_title": "信任很贵，请别辜负",
+        "source_summary": "文章讨论隐瞒怎样改变信任，以及坦诚如何重新托住关系。",
+        "source_body_markdown": "一句谎言，一次隐瞒，那个叫信任的东西就裂了一道缝。真正的修复需要坦诚、交代和持续兑现。",
+        "analysis_structure_mode_hint": "everyday_warmth_return",
+        "analysis_core_conflict": "外在拥有和生活踏实之间有落差。",
+        "analysis_emotional_exit": "重新看见家人、知己和日常的分量。",
+        "analysis_opening_pattern": "从一句关于幸福的判断起笔。",
+        "analysis_hook_trigger": "一个普通愿望让幸福坐标变化。",
+        "analysis_progression_drive": "从比较推进到知足和陪伴。",
+        "analysis_share_reason": "让忙着追赶的人重新看见眼前生活。",
+        "analysis_do_not_turn_into": "不要写成关系修复稿。",
+        "analysis_content_pillars": [
+            "幸福标准从外在拥有转向知足",
+            "家人的平安和日常温度构成归处",
+        ],
+        "analysis_expression_profile": [
+            "先用判断句立住幸福标准，再落到现实选择",
+            "中段用日常细节承接主题，不平铺抽象观点",
+            "结尾回到眼前生活的分量，不用关系修复收束",
+        ],
+    }
+
+    assert has_source_aligned_tracked_article_generation_contract(**common) is False
+
+    aligned = {
+        **common,
+        "analysis_structure_mode_hint": "trust_boundary",
+        "analysis_theme": "亲密关系里的信任，需要被坦诚和持续兑现共同守住。",
+        "analysis_core_conflict": "一次隐瞒会让交出的放心变成反复确认，关系表面仍在继续，心却已经不敢像从前那样打开。",
+        "analysis_emotional_exit": "珍惜愿意交付的赤诚，用坦诚和守护把关系里的心安托住。",
+        "analysis_opening_pattern": "从一句关于信任的判断起笔，再落到谎言让人心里裂开一道缝的现实。",
+        "analysis_hook_trigger": "一次隐瞒让原本放心的人开始反复确认。",
+        "analysis_progression_drive": "从信任裂开的瞬间推进到辜负的代价，再落到坦诚和兑现如何修复关系。",
+        "analysis_share_reason": "让拥有别人赤诚交付的人意识到，信任不是默认存在，而是需要每天守护的关系底气。",
+        "analysis_do_not_turn_into": "不要写成回消息、点赞评论或谁更在乎你的关系排序稿。",
+        "analysis_content_pillars": [
+            "谎言和隐瞒如何让放心变成反复确认",
+            "坦诚、交代和持续兑现如何重新托住关系",
+        ],
+    }
+    assert has_source_aligned_tracked_article_generation_contract(**aligned) is True
+
+
+def test_relationship_fatigue_reference_uses_self_worth_mode_when_the_issue_is_shared_work() -> None:
+    body = (
+        "我们总习惯用爱不爱丈量一段关系，却忘了问自己累不累。"
+        "吵架时总是先低头，不敢说真话，也不敢提需求，心里只剩失望。"
+        "成熟的感情里会有妥协和磨合，遇到问题共同解决，而不是一个人独自承担。"
+    )
+
+    assert resolve_tracked_article_structure_mode(
+        article_title="别只问爱不爱，累不累才是答案",
+        body_markdown=body,
+        analysis_structure_mode_hint="trust_boundary",
+        analysis_theme="关系里的疲惫提醒人重新确认是否存在对等回应。",
+        analysis_core_conflict="共同磨合和一个人独自迁就之间存在失衡。",
+        analysis_emotional_exit="让关系回到坦诚、共同承担和相处自在。",
+        analysis_opening_pattern="从一句关系判断切入。",
+        analysis_hook_trigger="爱不爱被改写成会不会累。",
+        analysis_progression_drive="从迁就和压抑推进到共同解决与继续相处。",
+        analysis_share_reason="让长期独自承担关系问题的人看见自己的疲惫。",
+        analysis_do_not_turn_into="不要写成简单的分手劝告。",
+        analysis_content_pillars=[
+            "过度迁就怎样让关系变成单方面承担",
+            "共同解决和磨合怎样让关系重新获得分量",
+        ],
+        trust_complete_analysis_contract=True,
+    ) == "self_worth_rebuild"
+
+
+def test_source_aligned_generation_contract_accepts_responsibility_sub_lane_of_everyday_warmth() -> None:
+    responsibility = {
+        "source_title": "万般辛苦，皆为序章，人间安稳，终会如愿",
+        "source_summary": "文章写成年人把父母、孩子、伴侣和一个家的安稳放在前面，认真承担最后换来家人的照应。",
+        "source_body_markdown": (
+            "电话的那头，是父母、孩子和每个月的账单；电话的这头，你说没事，有我。"
+            "你熬过的每一个黑夜，都在为身边所爱之人撑起一片晴空。"
+            "人间安稳，从来不是没有风雨，而是风雨再大，你知道家在哪里。"
+        ),
+        "analysis_structure_mode_hint": "everyday_warmth_return",
+        "analysis_theme": "承担家庭责任，怎样从个人的辛苦变成家人可感知的安稳。",
+        "analysis_core_conflict": "人明明很累，还是会把父母、孩子和伴侣的安稳先护住。",
+        "analysis_emotional_exit": "看见认真安排生活正在给家人留下照应，也允许自己被家人分担和接住。",
+        "analysis_opening_pattern": "从一项临时的家庭安排切入，再让责任的分量从后续反馈里显出来。",
+        "analysis_hook_trigger": "一项需要先处理的家庭安排，让责任的顺序先显形。",
+        "analysis_progression_drive": "从现实安排推进到家人被照应，再落到彼此分担和安稳回到日常。",
+        "analysis_share_reason": "让总在家里先把事情安排好的人，看见自己的认真也值得被回应。",
+        "analysis_do_not_turn_into": "不要写成泛中年励志、关系回应排序或只歌颂硬撑的文章。",
+        "analysis_content_pillars": [
+            "家庭责任如何把现实顺序推到眼前",
+            "父母孩子伴侣如何在承担之外彼此照应",
+        ],
+        "analysis_expression_profile": [
+            "先从一项现实安排落笔，再让责任判断从动作后果里出现",
+            "中段写家人如何被照应，也写承担者如何得到分担",
+            "结尾回到家里恢复秩序的具体动作，不用统一祝福收束",
+        ],
+    }
+
+    assert has_source_aligned_tracked_article_generation_contract(**responsibility) is True
+
+
+def test_source_aligned_generation_contract_accepts_daily_order_during_a_low_point() -> None:
+    contract = {
+        "source_title": "把此刻过好，转机总会在路上",
+        "source_summary": "文章写人在看不到出路时，先用规律生活和手边小事恢复行动感。",
+        "source_body_markdown": (
+            "跌入低谷时，不必反复追问未来，先把今天过好。"
+            "每天按时起床、运动、阅读、整理房间，认真完成手边小事，"
+            "在日复一日的生活秩序里慢慢等来转机。"
+        ),
+        "analysis_structure_mode_hint": "self_reliance_inward_support",
+        "analysis_theme": "人在暂时看不到出路时，如何靠守住当下的生活秩序恢复行动感。",
+        "analysis_core_conflict": "想立刻找到答案的急切，与低谷只能靠重复而缓慢的日常行动走出去之间的冲突。",
+        "analysis_emotional_exit": "先照顾好睡眠、饮食和手边事务，重新找回对生活的掌控，并为新的转机保留可能。",
+        "analysis_opening_pattern": "从一个人在低谷期仍准时起床的具体变化切入，再引出普遍处境。",
+        "analysis_hook_trigger": "看不到前路时，仍像上班打卡一样准时起床。",
+        "analysis_progression_drive": "由人物经历推进到对焦虑误区的拆解，再落到日常秩序如何成为现实支点。",
+        "analysis_share_reason": "让正在失业或受挫的人看见，今天仍有几件低门槛的小事可以掌握。",
+        "analysis_do_not_turn_into": "不要写成只靠忍耐就能改变命运的泛励志鸡汤。",
+        "analysis_content_pillars": [
+            "低谷期用规律生活恢复行动感",
+            "把焦虑拆成当下可以完成的小事",
+            "缓慢持续的行动为转机保留可能",
+        ],
+        "analysis_expression_profile": [
+            "先以人物经历进入，再从单一经验扩展到普遍处境",
+            "用连续日常动作铺出日复一日的稳定节奏",
+            "中段由判断句拆解焦虑，随后用生活细节落地",
+        ],
+    }
+
+    assert has_source_aligned_tracked_article_generation_contract(**contract) is True
+
+
+def test_complete_responsibility_contract_does_not_repeat_analysis_meta_language() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "complete-responsibility-contract-project",
+            "topic_title": "真正托住一个家的，不只是一个人的能扛",
+            "topic_angle": "从一次临时家庭安排切入，写责任怎样变成彼此照应和日常安稳。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "万般辛苦，皆为序章，人间安稳，终会如愿",
+            "reference_article_summary": "文章写成年人把父母、孩子、伴侣和一个家的安稳放在前面，认真承担最后换来家人的照应。",
+            "reference_article_body_markdown": (
+                "电话的那头，是父母、孩子和每个月的账单；电话的这头，你说没事，有我。"
+                "你熬过的每一个黑夜，都在为身边所爱之人撑起一片晴空。"
+                "人间安稳，从来不是没有风雨，而是风雨再大，你知道家在哪里。"
+            ),
+            "reference_article_analysis_structure_mode": "everyday_warmth_return",
+            "reference_article_analysis_theme": "文章真正讨论的是，中年人承担家庭责任，怎样从个人的辛苦变成家人可感知的安稳。",
+            "reference_article_analysis_core_conflict": "一边是成年人要把父母、孩子和伴侣的安稳先护住，另一边是长期疲惫后想被分担的需要；文章试图拆开这两者之间的张力。",
+            "reference_article_analysis_emotional_exit": "看见认真安排生活正在给家人留下照应，也允许自己被家人分担和接住。",
+            "reference_article_analysis_opening_pattern": "从一项临时的家庭安排切入，再让责任的分量从后续反馈里显出来。",
+            "reference_article_analysis_hook_trigger": "一项需要先处理的家庭安排，让责任的顺序先显形。",
+            "reference_article_analysis_progression_drive": "从现实安排推进到家人被照应，再落到彼此分担和安稳回到日常。",
+            "reference_article_analysis_share_reason": "让总在家里先把事情安排好的人，看见自己的认真也值得被回应。",
+            "reference_article_analysis_do_not_turn_into": "不要写成泛中年励志、关系回应排序或只歌颂硬撑的文章。",
+            "reference_article_analysis_content_pillars": [
+                "家庭责任如何把现实顺序推到眼前",
+                "父母孩子伴侣如何在承担之外彼此照应",
+            ],
+            "reference_article_analysis_expression_profile": [
+                "先从一项现实安排落笔，再让责任判断从动作后果里出现",
+                "中段写家人如何被照应，也写承担者如何得到分担",
+                "结尾回到家里恢复秩序的具体动作，不用统一祝福收束",
+            ],
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-08-03T00:00:00Z",
+        trust_complete_analysis_contract=True,
+    )
+
+    combined = json.dumps(result.model_dump(), ensure_ascii=False)
+    assert combined.count("文章真正讨论的是") == 0
+    assert "家庭责任" in combined
+    assert "彼此分担" in combined or "照应" in combined
+
+
+def test_strategy_package_does_not_adopt_a_complete_but_wrong_analysis_contract() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "mismatched-contract-project",
+            "topic_title": "把幸福放回日常",
+            "topic_angle": "从一个普通愿望切入，写幸福标准怎样重新排序。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "信任很贵，请别辜负",
+            "reference_article_summary": "文章讨论隐瞒怎样改变信任，以及坦诚如何重新托住关系。",
+            "reference_article_body_markdown": "一句谎言，一次隐瞒，那个叫信任的东西就裂了一道缝。真正的修复需要坦诚、交代和持续兑现。",
+            "reference_article_analysis_structure_mode": "everyday_warmth_return",
+            "reference_article_analysis_theme": "幸福来自普通日子的陪伴和安稳。",
+            "reference_article_analysis_core_conflict": "外在拥有和生活踏实之间有落差。",
+            "reference_article_analysis_emotional_exit": "重新看见家人、知己和日常的分量。",
+            "reference_article_analysis_opening_pattern": "从一句关于幸福的判断起笔。",
+            "reference_article_analysis_hook_trigger": "一个普通愿望让幸福坐标变化。",
+            "reference_article_analysis_progression_drive": "从比较推进到知足和陪伴。",
+            "reference_article_analysis_share_reason": "让忙着追赶的人重新看见眼前生活。",
+            "reference_article_analysis_do_not_turn_into": "不要写成关系修复稿。",
+            "reference_article_analysis_content_pillars": [
+                "幸福标准从外在拥有转向知足",
+                "家人的平安和日常温度构成归处",
+            ],
+            "reference_article_analysis_expression_profile": [
+                "先用判断句立住幸福标准，再落到现实选择",
+                "中段用日常细节承接主题，不平铺抽象观点",
+                "结尾回到眼前生活的分量，不用关系修复收束",
+            ],
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-08-03T00:00:00Z",
+        trust_complete_analysis_contract=True,
+    )
+
+    assert result.strategy_card.structure_mode == "trust_boundary"
+    assert "幸福来自普通日子的陪伴和安稳" not in result.strategy_card.positive_direction
 
 
 def test_complete_analysis_contract_rejects_execution_placeholder_entry() -> None:
@@ -94,6 +374,122 @@ def test_complete_contract_execution_surface_preserves_content_pillars() -> None
         "知己关系比泛泛社交更有分量",
         "家人的平安和日常温度构成归处",
     ]
+
+
+def test_complete_contract_execution_surface_reads_json_lists_from_project_rows() -> None:
+    surface = build_complete_contract_execution_surface(
+        {
+            "source_type": "tracked_article",
+            "topic_title": "把责任落到家里的踏实",
+            "topic_angle": "从一次家庭安排切入，写承担怎样换来安稳。",
+            "reference_article_title": "中年人的世界，半生风雨，半生奔波",
+            "reference_article_summary": "文章写成年人承担家庭责任，后来换来家人的安稳和彼此照应。",
+            "reference_article_body_markdown": "父母、孩子、账单和家里的安稳，构成成年人持续承担的现实。",
+            "reference_article_analysis_structure_mode": "responsibility_shelter",
+            "reference_article_analysis_theme": "承担家庭责任怎样从个人忍耐转化为家人可感知的安稳。",
+            "reference_article_analysis_core_conflict": "一边是必须把家庭责任接住的现实，另一边是长期压住疲惫后对回应和分担的需要。",
+            "reference_article_analysis_emotional_exit": "确认认真安排生活正在给家人留出照应和选择，也允许自己在被回应时恢复力量。",
+            "reference_article_analysis_opening_pattern": "从一次家庭安排切入，再让承担的分量从后续反馈里显出来。",
+            "reference_article_analysis_hook_trigger": "一项需要先处理的家庭安排，让责任的顺序先显形。",
+            "reference_article_analysis_progression_drive": "从当场取舍推进到生活顺序被理顺，再落到家人获得安稳和分担。",
+            "reference_article_analysis_share_reason": "让总在家里先扛住事情的人看见自己的付出，也看见自己可以被接住。",
+            "reference_article_analysis_do_not_turn_into": "不要写成无条件牺牲或苦尽甘来的保证。",
+            "reference_article_analysis_content_pillars": '["责任落到具体安排", "承担如何改变家里的顺序", "安稳如何被家人感知"]',
+            "reference_article_analysis_expression_profile": '["先写安排，再让判断出现", "用前后反馈推进，不平铺抽象观点", "结尾停在被分担的具体动作"]',
+        }
+    )
+
+    assert surface["content_pillars"] == [
+        "责任落到具体安排",
+        "承担如何改变家里的顺序",
+        "安稳如何被家人感知",
+    ]
+
+
+def test_social_boundaries_execution_surface_keeps_three_scales_and_mode_packaging() -> None:
+    source = (
+        "人与人相处，恰似山谷的回声。慎言，避免妄言、恶言和多余的话；"
+        "让渡细枝末节的输赢，却不让原则；知止，看透以后给彼此留体面。"
+    )
+    project = {
+        "source_type": "tracked_article",
+        "reference_article_title": "人与人相处的分寸",
+        "reference_article_summary": "文章讨论慎言、让渡和知止如何共同改善相处。",
+        "reference_article_body_markdown": source,
+        "reference_article_analysis_structure_mode": "social_boundaries",
+        "reference_article_analysis_theme": "成年人如何在善待他人与保护自身之间找到相处分寸。",
+        "reference_article_analysis_core_conflict": "既想维持和气，又不愿因多嘴、退让和忍耐失去边界。",
+        "reference_article_analysis_emotional_exit": "该缓和时不争，该开口时不退，该止步时不追问。",
+        "reference_article_analysis_opening_pattern": "从判断性比喻起笔。",
+        "reference_article_analysis_hook_trigger": "付出善意却未必得到善意的落差。",
+        "reference_article_analysis_progression_drive": "先写慎言，再写让渡，最后写知止。",
+        "reference_article_analysis_share_reason": "读者能对照自己说多、争过或忍过的时刻。",
+        "reference_article_analysis_do_not_turn_into": "不要写成圆滑讨好或对所有冒犯保持沉默。",
+        "reference_article_analysis_content_pillars": [
+            "以慎言处理语言损耗。",
+            "以让渡处理细枝末节的取舍。",
+            "以知止处理看透后的停口和体面。",
+        ],
+        "reference_article_analysis_expression_profile": [
+            "总起判断后逐层推进",
+            "短判断配合生活场景",
+            "结尾回收为相处尺度",
+        ],
+        "topic_title": "别把好脾气用错地方",
+        "topic_angle": "从一次相处中的停口与退让切入，写温和如何和边界同时成立。",
+    }
+
+    surface = build_complete_contract_execution_surface(project)
+
+    assert surface["structure_mode"] == "social_boundaries"
+    assert surface["content_pillars"] == [
+        "以慎言处理语言损耗",
+        "以让渡处理细枝末节的取舍",
+        "以知止处理看透后的停口和体面",
+    ]
+    assert "信任裂开" not in str(surface["packaging_hook"])
+    assert "一句话、一次让步或一次适时停下" in str(surface["packaging_hook"])
+    assert surface["expression_profile"] == (
+        "总起判断后逐层推进",
+        "短判断配合生活场景",
+        "结尾回收为相处尺度",
+    )
+    assert surface["opening_kind"] == "judgment"
+
+
+def test_complete_contract_respects_quote_opening_instead_of_forcing_a_scene() -> None:
+    project = {
+        "source_type": "tracked_article",
+        "topic_title": "先把那句判断说清楚，再谈怎样把自己放回生活",
+        "topic_angle": "从一句关于分量的判断切入，再用新的现实选择承接自我尊重。",
+        "reference_article_body_markdown": "参考文章用一句引语起笔，随后拆开将就和边界。",
+        "reference_article_analysis_structure_mode": "emotional_engine_direct",
+        "reference_article_analysis_theme": "人不断将就时，生活会慢慢失去分量。",
+        "reference_article_analysis_core_conflict": "害怕失去关系和重新尊重自己之间存在拉扯。",
+        "reference_article_analysis_emotional_exit": "把精力收回来，重新守住自己的边界和体面。",
+        "reference_article_analysis_opening_pattern": "从一句带判断性的引语起笔，再落到现实里的选择。",
+        "reference_article_analysis_hook_trigger": "一句关于分量的判断先把人停住。",
+        "reference_article_analysis_progression_drive": "从将就的代价推进到边界重新立住。",
+        "reference_article_analysis_share_reason": "让总在关系里放轻自己的人获得一次确认。",
+        "reference_article_analysis_do_not_turn_into": "不要写成回消息或争吵善后稿。",
+        "reference_article_analysis_content_pillars": [
+            "将就如何改变一个人的位置",
+            "边界如何在一次选择里重新立住",
+        ],
+        "analysis_expression_profile": ["先用判断句立住问题，再用现实选择承接"],
+    }
+
+    surface = build_complete_contract_execution_surface(project)
+
+    assert _resolve_analysis_opening_kind(
+        project["reference_article_analysis_opening_pattern"],
+        project["reference_article_analysis_structure_mode"],
+    ) == "quotation"
+    assert surface["opening_kind"] == "quotation"
+    assert "表达入口" in surface["scene_anchor_requirements"][0]
+    assert "动作、物件、场所或选择发生" not in " ".join(surface["scene_anchor_requirements"])
+    assert "现实入口发生" not in " ".join(surface["writing_texture_notes"])
+    assert list(surface["expression_profile"]) == project["analysis_expression_profile"]
 
 
 def test_strategy_package_does_not_propagate_negative_only_analysis_exit() -> None:
@@ -358,6 +754,11 @@ def test_build_strategy_package_can_use_complete_analysis_contract_as_production
                 "习惯性退让如何压低一个人的感受",
                 "边界和标准如何在日常选择里重新回来",
             ],
+            "reference_article_analysis_expression_profile": [
+                "先从一次退让的现场切入，再让判断从余波里出现",
+                "中段用具体选择推进，不平铺关系道理",
+                "结尾回到边界重新立住的动作，不用统一祝福收束",
+            ],
         },
         problem_brief_version=1,
         strategy_version=1,
@@ -367,11 +768,55 @@ def test_build_strategy_package_can_use_complete_analysis_contract_as_production
 
     assert result.strategy_card.structure_mode == "self_worth_rebuild"
     assert result.problem_brief.core_conflict == "越怕失去，越容易把边界和标准让出去"
-    assert "一次习惯性退让" in result.strategy_card.opening_move
+    assert "一次明明不舒服却还是说都可以" in result.strategy_card.opening_move
+    assert "习惯性退让" not in result.strategy_card.opening_move
     assert "那句明明不舒服却还是说出口的都可以" == result.strategy_card.hook_trigger
     assert "一次次退让" in result.strategy_card.progression_drive
     assert result.strategy_card.ending_move == "把精力收回自己，守住边界，重新确认自己的分量"
     assert "总在关系里把自己放轻" in result.strategy_card.share_reason
+
+
+def test_build_strategy_package_preserves_quote_opening_anchor_from_complete_contract() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "quote-opening-anchor",
+            "topic_title": "先把幸福的标准说清楚",
+            "topic_angle": "从一句关于幸福的判断切入，再落到眼前的生活选择。",
+            "source_type": "tracked_article",
+            "trend_title": "参考文章 / 手动录入",
+            "reference_article_title": "幸福不在远方",
+            "reference_article_summary": "文章讨论人如何从外在比较回到知足、知己和家人的日常。",
+            "reference_article_structure_notes": "先用一句判断提出幸福，再沿知己、家庭和生活回到知足。",
+            "reference_article_body_markdown": "参考文章讨论比较、知足、知己和家人的生活分量。",
+            "reference_article_analysis_structure_mode": "emotional_engine_direct",
+            "reference_article_analysis_theme": "真正的幸福来自对眼前生活的重新确认。",
+            "reference_article_analysis_core_conflict": "外在比较不断抬高标准，反而让已经拥有的安稳失去分量。",
+            "reference_article_analysis_emotional_exit": "把注意力带回知足、知己和家人的日常。",
+            "reference_article_analysis_opening_pattern": "从一句关于幸福的判断性引语起笔，再落到现实选择。",
+            "reference_article_analysis_hook_trigger": "一句关于幸福的判断先让人停下来重新衡量生活。",
+            "reference_article_analysis_progression_drive": "从外在比较推进到知足，再落到家人和知己的真实分量。",
+            "reference_article_analysis_share_reason": "让总在追赶的人重新看见眼前生活并不贫乏。",
+            "reference_article_analysis_do_not_turn_into": "不要写成反成功学口号或固定家庭温情故事。",
+            "reference_article_analysis_content_pillars": [
+                "外在比较如何抬高幸福标准",
+                "知己关系如何让生活重新有分量",
+                "家人的平安如何成为真实的归处",
+            ],
+            "reference_article_analysis_expression_profile": [
+                "先用幸福判断停住读者，再让日常愿望把主题落地",
+                "中段用知己和家庭的细节错开推进，不堆砌道理",
+                "结尾回到眼前生活的平安，留下明亮但克制的余味",
+            ],
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-08-03T00:00:00Z",
+        trust_complete_analysis_contract=True,
+    )
+
+    anchors = " ".join(result.strategy_card.scene_anchor_requirements)
+    assert "表达入口" in anchors
+    assert "动作、物件、场所或选择发生" not in anchors
 
 
 def test_complete_analysis_contract_does_not_store_reference_shell_in_strategy_artifacts() -> None:
@@ -398,6 +843,11 @@ def test_complete_analysis_contract_does_not_store_reference_shell_in_strategy_a
             "reference_article_analysis_content_pillars": [
                 "害怕失去如何让人压低感受",
                 "重新确认边界和标准如何带回分量",
+            ],
+            "reference_article_analysis_expression_profile": [
+                "先从旧物停顿切入，再让判断从动作余波里出现",
+                "中段沿着退让和边界的变化推进，不写成怀旧说明",
+                "结尾回到自己的标准，留下清醒而具体的余味",
             ],
         },
         problem_brief_version=1,
@@ -445,6 +895,11 @@ def test_complete_analysis_contract_does_not_reuse_structure_profile_copy_fields
                 "reference_article_analysis_content_pillars": [
                     f"{theme}的现实入口",
                     f"{conflict}带来的重新判断",
+                ],
+                "reference_article_analysis_expression_profile": [
+                    "先从本篇自己的现实入口落笔，再让判断从具体余波里出现",
+                    "中段按主题变化推进，不把观点排成整齐的并列说明",
+                    "结尾回到前文已经出现的现实选择，留下正向但不喊话的余味",
                 ],
             },
             problem_brief_version=1,
@@ -530,6 +985,81 @@ def test_complete_contract_execution_surface_separates_topic_jobs_and_drops_refe
     assert boundary_surface["execution_checklist"] != happiness_surface["execution_checklist"]
     assert "边界" in boundary_text
     assert "幸福" in happiness_text
+
+
+def test_complete_contract_execution_surface_keeps_distinct_theme_jobs() -> None:
+    def build(mode: str, theme: str, conflict: str, exit_hint: str, pillars: list[str]) -> dict[str, object]:
+        return build_complete_contract_execution_surface(
+            {
+                "source_type": "tracked_article",
+                "topic_title": f"{theme}的新选题",
+                "topic_angle": "从本篇自己的判断或选择切入。",
+                "reference_article_body_markdown": "参考文章保留主题分析，不提供可复用的具体外壳。",
+                "reference_article_analysis_structure_mode": mode,
+                "reference_article_analysis_theme": theme,
+                "reference_article_analysis_core_conflict": conflict,
+                "reference_article_analysis_emotional_exit": exit_hint,
+                "reference_article_analysis_opening_pattern": "从本篇自己的入口起笔。",
+                "reference_article_analysis_hook_trigger": "一个现实反馈让主题显形。",
+                "reference_article_analysis_progression_drive": "从核心矛盾推进到正向变化。",
+                "reference_article_analysis_share_reason": "让读者在自己的生活里认出这件事。",
+                "reference_article_analysis_do_not_turn_into": "不要写成另一个主题。",
+                "reference_article_analysis_content_pillars": pillars,
+            }
+        )
+
+    response = build(
+        "response_priority",
+        "真正的在乎会在注意力里显形",
+        "表面互动和真正理解之间有落差",
+        "把心力留给愿意认真停留的人",
+        ["回应质量显出位置", "被理解后情绪重新落地"],
+    )
+    resilience = build(
+        "resilience_reconstruction",
+        "人的底气来自一次次重来",
+        "限制和继续行动之间有张力",
+        "用持续行动重建人生主动权",
+        ["限制带来新方法", "重复行动累积主动权"],
+    )
+
+    assert response["packaging_focus"] != resilience["packaging_focus"]
+    assert response["recomposition_recipe"] != resilience["recomposition_recipe"]
+    assert "回应" in " ".join(str(item) for item in response["recomposition_recipe"])
+    assert "训练" in " ".join(str(item) for item in resilience["recomposition_recipe"])
+    assert "回得快" in " ".join(str(item) for item in response["divergence_axes"])
+    assert "苦难" in " ".join(str(item) for item in resilience["divergence_axes"])
+
+
+def test_complete_contract_execution_surface_rejects_semantic_source_mismatch() -> None:
+    surface = build_complete_contract_execution_surface(
+        {
+            "source_type": "tracked_article",
+            "topic_title": "把幸福放回日常",
+            "topic_angle": "从一个普通愿望切入。",
+            "reference_article_title": "信任很贵，请别辜负",
+            "reference_article_summary": "文章讨论隐瞒怎样改变信任，以及坦诚如何重新托住关系。",
+            "reference_article_body_markdown": (
+                "一句谎言，一次隐瞒，那个叫信任的东西就裂了一道缝。"
+                "真正的修复需要坦诚、交代和持续兑现。"
+            ),
+            "reference_article_analysis_structure_mode": "everyday_warmth_return",
+            "reference_article_analysis_theme": "幸福来自普通日子的陪伴和安稳。",
+            "reference_article_analysis_core_conflict": "外在拥有和生活踏实之间有落差。",
+            "reference_article_analysis_emotional_exit": "重新看见家人、知己和日常的分量。",
+            "reference_article_analysis_opening_pattern": "从一句关于幸福的判断起笔。",
+            "reference_article_analysis_hook_trigger": "一个普通愿望让幸福坐标变化。",
+            "reference_article_analysis_progression_drive": "从比较推进到知足和陪伴。",
+            "reference_article_analysis_share_reason": "让忙着追赶的人重新看见眼前生活。",
+            "reference_article_analysis_do_not_turn_into": "不要写成关系修复稿。",
+            "reference_article_analysis_content_pillars": [
+                "幸福标准从外在拥有转向知足",
+                "家人的平安和日常温度构成归处",
+            ],
+        }
+    )
+
+    assert surface == {}
 
 
 def test_resolve_tracked_article_structure_mode_prefers_response_priority_for_comment_followup_article() -> None:
@@ -625,6 +1155,31 @@ def test_resolve_tracked_article_structure_mode_prefers_everyday_warmth_return_f
     assert resolved == "everyday_warmth_return"
 
 
+def test_resolve_tracked_article_structure_mode_corrects_generic_partial_contract_from_source_evidence() -> None:
+    resolved = resolve_tracked_article_structure_mode(
+        article_title="万般辛苦，皆为序章，人间安稳，终会如愿",
+        body_markdown=(
+            "电话的那头，是父母、孩子和每个月如期而至的账单。"
+            "电话的这头，你只能故作轻松地说：没事，有我。\n\n"
+            "那些请假、缴费和多想一步的安排，后来慢慢换来一家人的安稳。"
+        ),
+        summary="文章写成年人先把父母、孩子和家里的安排理顺，后来这些辛苦变成一家人的安稳。",
+        structure_notes="从电话、账单和没事有我切入，结尾落回家里的安稳。",
+        analysis_structure_mode_hint="emotional_engine_direct",
+        analysis_theme="成年人如何把责任接住",
+        analysis_core_conflict="部分分析合同字段存在，但模式可能只是通用判断",
+        analysis_emotional_exit="让认真安排生活变成家里的安稳",
+        analysis_opening_pattern="从电话和账单切入",
+        analysis_hook_trigger="电话里的没事有我",
+        analysis_progression_drive="从责任安排推进到家人安稳",
+        analysis_share_reason="让承担家庭责任的人被看见",
+        analysis_do_not_turn_into="不要写成泛泛的情绪释放",
+        trust_complete_analysis_contract=True,
+    )
+
+    assert resolved == "everyday_warmth_return"
+
+
 def test_resolve_tracked_article_structure_mode_recognizes_compact_reference_signals() -> None:
     response_priority = resolve_tracked_article_structure_mode(
         article_title="什么是没时间",
@@ -645,6 +1200,229 @@ def test_resolve_tracked_article_structure_mode_recognizes_compact_reference_sig
     assert response_priority == "response_priority"
     assert simple_happiness == "everyday_warmth_return"
     assert self_compassion == "self_reliance_inward_support"
+
+
+def test_resolve_tracked_article_structure_mode_rejects_response_priority_for_low_frequency_old_relationship() -> None:
+    body_markdown = (
+        "有些人，不是不想联系，只是后来各自生活，再也没有互相打扰。\n\n"
+        "从经常联系，到偶尔联系，再到几乎不聊；我们也许不再见面，也许不再聊天。\n\n"
+        "看到晚霞、听到旧歌，仍会想起那个人，牵挂只是安静地留在心里。"
+    )
+
+    resolved = resolve_tracked_article_structure_mode(
+        article_title="有些旧关系，不必重启也能被好好安放",
+        body_markdown=body_markdown,
+        summary="旧关系从频繁相伴转为低频联系，联系减少并不等于感情消失。",
+        structure_notes="写各自生活、互不打扰，以及旧歌和晚霞勾起的牵挂。",
+        analysis_structure_mode_hint="response_priority",
+        analysis_theme="旧关系如何从频繁相伴转为远距离牵挂。",
+        analysis_core_conflict="想重新靠近又害怕打扰，不知道该以什么身份开口。",
+        analysis_emotional_exit="允许彼此不常联系，也保留祝福和牵挂，各自把生活过好。",
+        analysis_opening_pattern="从一处旧关系留下的生活余波切入。",
+        analysis_hook_trigger="想联系却停在开口之前的那一下。",
+        analysis_progression_drive="从身份困惑推进到联系减少，再回到低频关系里的安静牵挂。",
+        analysis_share_reason="让曾经亲近、如今各自生活的人得到不必强行重启关系的安定感。",
+        analysis_do_not_turn_into="不要写成必须挽回或必须彻底切断的二选一。",
+        analysis_content_pillars=[
+            "旧关系重启前的身份困惑",
+            "生活迁移怎样让联系自然减少",
+        ],
+        trust_complete_analysis_contract=True,
+    )
+
+    assert resolved == "emotional_engine_direct"
+
+
+def test_source_aligned_topic_rejects_reference_surface_for_low_frequency_relationship() -> None:
+    source = {
+        "source_title": "嗨，你最近还好吗",
+        "source_summary": "旧关系从频繁相伴转为低频联系，牵挂仍然留在各自生活里。",
+        "source_body_markdown": "有些人后来各自生活，联系从经常变成偶尔。看到晚霞和旧歌，仍会想起故人。",
+        "analysis_structure_mode_hint": "response_priority",
+        "analysis_theme": "旧关系如何从频繁相伴转为远距离牵挂。",
+        "analysis_core_conflict": "想重新靠近又害怕打扰，不知道该以什么身份开口。",
+        "analysis_emotional_exit": "允许彼此不常联系，也保留祝福和牵挂。",
+        "analysis_opening_pattern": "从一处关系距离变化的现实接口切入。",
+        "analysis_hook_trigger": "想联系却停在开口之前的那一下。",
+        "analysis_progression_drive": "从身份困惑推进到联系减少，再回到低频关系里的安静牵挂。",
+        "analysis_share_reason": "让曾经亲近、如今各自生活的人得到安定感。",
+        "analysis_do_not_turn_into": "不要写成必须挽回或必须彻底切断的二选一。",
+        "analysis_content_pillars": [
+            "旧关系重启前的身份困惑",
+            "生活迁移怎样让联系自然减少",
+        ],
+    }
+
+    assert has_source_aligned_tracked_article_topic(
+        **source,
+        topic_title="那句最近还好吗，最后没有发出去",
+        topic_angle="从输入框里的旧问候切入，写成年人如何面对渐远关系。",
+    ) is False
+    assert has_source_aligned_tracked_article_topic(
+        **source,
+        topic_title="旧友搬远以后，牵挂会换一种形状",
+        topic_angle="从多年后偶然听见一首歌时的停顿切入，写联系减少后仍然保留的祝福与分寸。",
+    ) is True
+
+
+def test_complete_contract_surface_re_resolves_stale_mode_and_strips_low_frequency_shell() -> None:
+    source = {
+        "source_type": "tracked_article",
+        "reference_article_title": "嗨，你最近还好吗",
+        "reference_article_summary": "旧关系从频繁相伴转为低频联系，牵挂仍然留在各自生活里。",
+        "reference_article_body_markdown": (
+            "有些人，不是不想联系，只是该如何开口，又该以什么身份？"
+            "看到晚霞和旧歌，仍会想起故人。"
+        ),
+        "reference_article_analysis_structure_mode": "response_priority",
+        "reference_article_analysis_theme": "旧关系如何从频繁相伴转为远距离牵挂。",
+        "reference_article_analysis_core_conflict": "想重新靠近又害怕打扰，不知道该以什么身份开口。",
+        "reference_article_analysis_emotional_exit": "允许彼此不常联系，也保留祝福和牵挂。",
+        "reference_article_analysis_opening_pattern": "从关系现场切入，以一条反复输入又删掉的问候起笔。",
+        "reference_article_analysis_hook_trigger": "对话框里那句被反复修改、始终没有发出的近况问候。",
+        "reference_article_analysis_progression_drive": "先写身份困惑，再通过晚霞、歌曲和故地说明低频联系中的牵挂。",
+        "reference_article_analysis_share_reason": "让多年未联系的人得到安定感。",
+        "reference_article_analysis_do_not_turn_into": "不要写成必须挽回或必须彻底切断的二选一。",
+        "reference_article_analysis_content_pillars": [
+            "未发出的问候呈现旧关系重启前的心理迟疑",
+            "晚霞、歌曲和故地证明低频互动仍有牵挂",
+        ],
+    }
+
+    surface = build_complete_contract_execution_surface(source)
+    rendered = json.dumps(surface, ensure_ascii=False)
+
+    assert surface["structure_mode"] == "emotional_engine_direct"
+    assert "看似有人回应" not in rendered
+    assert "对话框" not in rendered
+    assert "问候" not in rendered
+    assert "晚霞" not in rendered
+    assert "歌曲" not in rendered
+    assert "故地" not in rendered
+
+
+def test_complete_contract_surface_drops_content_pillar_that_repeats_source_entry() -> None:
+    source = {
+        "source_type": "tracked_article",
+        "reference_article_title": "得不到的巧克力，可能是命运的保护",
+        "reference_article_summary": "文章借猫不能吃巧克力的寓言，讨论人如何接纳求不得。",
+        "reference_article_body_markdown": "猫看见巧克力却不能吃，主人把它收起来，是为了保护它。",
+        "reference_article_analysis_structure_mode": "emotional_engine_direct",
+        "reference_article_analysis_theme": "停止把未得到当成命运亏欠。",
+        "reference_article_analysis_core_conflict": "想追回失去，又需要承认某些东西并不适合自己。",
+        "reference_article_analysis_emotional_exit": "把注意力收回当下正在经营的生活。",
+        "reference_article_analysis_opening_pattern": "从寓言式故事切入，再转入人生判断。",
+        "reference_article_analysis_hook_trigger": "被拒绝却不知道原因的错位感。",
+        "reference_article_analysis_progression_drive": "从失去的反转推进到接纳。",
+        "reference_article_analysis_share_reason": "给正在惦记失去的人一个重新安顿自己的角度。",
+        "reference_article_analysis_do_not_turn_into": "不要把接纳写成对所有不公平的无条件服从。",
+        "reference_article_analysis_content_pillars": [
+            "用猫与巧克力的寓言呈现求不得者的认知盲区。",
+            "把接纳落到对机会、关系和日常得失的重新排序。",
+        ],
+    }
+
+    surface = build_complete_contract_execution_surface(source)
+    rendered = json.dumps(surface, ensure_ascii=False)
+
+    assert "猫与巧克力" not in rendered
+    assert "吃巧克力" not in rendered
+    assert "猫的困惑" not in rendered
+    assert "求不得者的认知盲区" not in rendered
+    assert "重新排序" in rendered
+
+
+def test_observer_judgment_theme_is_not_trusted_as_trust_boundary_and_rejects_family_drift() -> None:
+    source = {
+        "source_title": "未经他人苦，莫劝他人善",
+        "source_summary": "文章写旁观者不了解事实，却用轻飘的议论和大度要求覆盖当事人的伤痛。",
+        "source_body_markdown": (
+            "明明不懂你，却要对你说三道四；明明不了解发生了什么，却要劝你大度一点。"
+            "有人把别人的难过当笑话，也有人没经历过他人的伤痛，却劝人算了、原谅。"
+            "不必在意看客的眼光，把判断权留给自己。"
+        ),
+        "analysis_theme": "外界用无知的议论和廉价的宽容要求当事人消化伤害时，如何确认自己的感受。",
+        "analysis_core_conflict": "受伤的人需要被理解，旁观者却用不了解事实的劝解替代支持。",
+        "analysis_emotional_exit": "收回判断权，对不值得的人保留距离，把善意留给真正理解的人。",
+        "analysis_opening_pattern": "从不了解却评价、没经历却劝解的现场切入。",
+        "analysis_hook_trigger": "明明不懂你却急着替你下结论的那一下。",
+        "analysis_progression_drive": "从轻飘议论与真实代价的落差推进到判断权回到当事人手里。",
+        "analysis_share_reason": "让被劝大度的人知道，自己的感受不需要旁观者批准。",
+        "analysis_do_not_turn_into": "不要写成单纯拒绝所有建议或鼓励以沉默对抗一切关系。",
+        "analysis_content_pillars": [
+            "旁观者如何把别人的处境当成轻松结论",
+            "当事人如何从被评判里收回自己的判断权",
+        ],
+    }
+
+    resolved = resolve_tracked_article_structure_mode(
+        article_title=source["source_title"],
+        body_markdown=source["source_body_markdown"],
+        summary=source["source_summary"],
+        analysis_structure_mode_hint="trust_boundary",
+        **{key: source[key] for key in source if key.startswith("analysis_")},
+        trust_complete_analysis_contract=True,
+    )
+
+    assert resolved == "observer_judgment_boundary"
+    assert has_source_aligned_tracked_article_topic(
+        **source,
+        analysis_structure_mode_hint=resolved,
+        topic_title="有些委屈，不必再向家人解释",
+        topic_angle="从家庭群里一句都是一家人切入，写女性如何在不争吵中建立边界。",
+    ) is False
+    assert has_source_aligned_tracked_article_topic(
+        **source,
+        analysis_structure_mode_hint=resolved,
+        topic_title="未经经历的人，别替你安排大度",
+        topic_angle="从旁观者只看见结果的轻飘评价切入，写当事人如何把判断权收回自己手里。",
+    ) is True
+
+
+def test_build_strategy_package_rechecks_stale_generic_mode_against_observer_source() -> None:
+    result = build_strategy_package(
+        project={
+            "slug": "observer-strategy-mode-recheck",
+            "topic_title": "被要求原谅时，先把判断权还给自己",
+            "topic_angle": "从一次饭局上被要求和解的关系现场切入，写当事人如何拒绝轻率评价，把感受和判断权收回自己手里。",
+            "trend_title": "参考文章 / 手动录入",
+            "source_type": "tracked_article",
+            "reference_article_title": "未经他人苦，莫劝他人善",
+            "reference_article_source_name": "manual-originality-check",
+            "reference_article_summary": "文章写旁观者不了解事实，却用轻飘的议论和大度要求覆盖当事人的伤痛。",
+            "reference_article_structure_notes": "先写被议论和被劝大度的处境，再回到当事人收回判断权。",
+            "reference_article_body_markdown": (
+                "明明不懂你，却要对你说三道四；明明不了解发生了什么，却要劝你大度一点。"
+                "有人把别人的难过当笑话，也有人没经历过他人的伤痛，却劝人算了、原谅。"
+                "不必在意看客的眼光，把判断权留给自己。"
+            ),
+            # Simulate a persisted generic hint left by an older run.
+            "reference_article_analysis_structure_mode": "emotional_engine_direct",
+            "reference_article_analysis_theme": "人在遭遇痛苦时，如何拒绝未经了解的评价，重新把生活的判断权拿回自己手里。",
+            "reference_article_analysis_core_conflict": "当事人正在承受真实代价，旁观者却用轻飘的劝解替他下结论。",
+            "reference_article_analysis_emotional_exit": "不再被闲言碎语牵着走，把宽容留给值得的人，把注意力放回自己的生活。",
+            "reference_article_analysis_opening_pattern": "从不了解却评价、没经历却劝解的现场切入。",
+            "reference_article_analysis_hook_trigger": "明明不懂你却急着替你下结论的那一下。",
+            "reference_article_analysis_progression_drive": "从轻率议论与真实代价的落差推进到判断权回到当事人手里。",
+            "reference_article_analysis_share_reason": "让被劝大度的人知道，自己的感受不需要旁观者批准。",
+            "reference_article_analysis_do_not_turn_into": "不要写成拒绝所有建议或鼓励以沉默对抗一切关系。",
+            "reference_article_analysis_content_pillars": [
+                "旁观者如何把别人的处境当成轻松结论",
+                "当事人如何从被评判里收回自己的判断权",
+            ],
+            "reference_article_analysis_expression_profile": [
+                "从关系现场切入，让判断从现实反馈里出现",
+                "用短句和案例推进，不平铺抽象道理",
+                "结尾回到自我确认和继续生活的动作",
+            ],
+        },
+        problem_brief_version=1,
+        strategy_version=1,
+        created_at="2026-08-05T00:00:00Z",
+        trust_complete_analysis_contract=True,
+    )
+
+    assert result.strategy_card.structure_mode == "observer_judgment_boundary"
 
 
 def test_build_strategy_package_simple_happiness_uses_updated_everyday_angle() -> None:

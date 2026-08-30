@@ -86,6 +86,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--check-text-only", action="store_true", help="Only run the live text-model connectivity check.")
     parser.add_argument("--check-image-only", action="store_true", help="Only run the live image-model connectivity check.")
     parser.add_argument(
+        "--skip-ai-preflight",
+        action="store_true",
+        help="Skip the text-generation probe, but keep the zero-token model compatibility check before the smoke pipeline.",
+    )
+    parser.add_argument(
         "--probe-text-routes",
         action="store_true",
         help="Probe responses.create / responses.parse / chat.completions directly before running the full smoke chain.",
@@ -225,6 +230,7 @@ def _load_backend_bindings() -> dict[str, Any]:
         TopicGenerationResult,
         get_ai_config_summary,
         run_ai_config_check,
+        run_ai_model_compatibility_check,
         run_ai_image_config_check,
     )
     from app.services.workbench import (
@@ -246,6 +252,7 @@ def _load_backend_bindings() -> dict[str, Any]:
         "TopicGenerationResult": TopicGenerationResult,
         "get_ai_config_summary": get_ai_config_summary,
         "run_ai_config_check": run_ai_config_check,
+        "run_ai_model_compatibility_check": run_ai_model_compatibility_check,
         "run_ai_image_config_check": run_ai_image_config_check,
         "initialize_store": initialize_store,
         "generate_topic_from_trend": generate_topic_from_trend,
@@ -567,6 +574,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     run_ai_config_check = backend["run_ai_config_check"]
+    run_ai_model_compatibility_check = backend.get(
+        "run_ai_model_compatibility_check",
+        run_ai_config_check,
+    )
     run_ai_image_config_check = backend["run_ai_image_config_check"]
 
     if args.probe_text_routes:
@@ -599,6 +610,28 @@ def main(argv: list[str] | None = None) -> int:
 
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
+
+    if not args.cover_regeneration_only:
+        preflight = (
+            run_ai_model_compatibility_check()
+            if args.skip_ai_preflight
+            else run_ai_config_check()
+        )
+        if preflight is not None and not preflight.ok:
+            _safe_print_json(
+                {
+                    "ai_config": get_ai_config_summary().model_dump(),
+                    "ai_preflight": preflight.model_dump(),
+                    "stage_error": {
+                        "stage": "ai_model_compatibility" if args.skip_ai_preflight else "ai_preflight",
+                        "error": {
+                            "type": "AIConfigPreflightError",
+                            "message": preflight.message,
+                        },
+                    },
+                }
+            )
+            return 1
 
     if not args.skip_reset:
         backend["initialize_store"](reset=True)

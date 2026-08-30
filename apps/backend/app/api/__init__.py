@@ -12,6 +12,8 @@ from app.api import (
     tracked_articles,
     trends,
     wechat_mp,
+    wechat_mp_automation,
+    wechat_mp_styles,
 )
 
 api_router = APIRouter()
@@ -23,6 +25,8 @@ api_router.include_router(settings.router)
 api_router.include_router(trends.router)
 api_router.include_router(tracked_articles.router)
 api_router.include_router(wechat_mp.router)
+api_router.include_router(wechat_mp_automation.router)
+api_router.include_router(wechat_mp_styles.router)
 api_router.include_router(topics.router)
 api_router.include_router(projects.router)
 api_router.include_router(tone_profiles.router)

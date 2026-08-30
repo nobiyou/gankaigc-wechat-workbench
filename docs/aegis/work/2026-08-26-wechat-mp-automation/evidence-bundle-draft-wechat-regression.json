@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "wechat-regression",
+  "type": "test",
+  "source": "python -m pytest apps/backend/tests/test_wechat_mp_automation.py apps/backend/tests/test_wechat_mp_draft_publisher.py apps/backend/tests/test_wechat_mp_html.py apps/backend/tests/test_wechat_mp_import.py apps/backend/tests/test_wechat_mp_styles.py -q",
+  "summary": "Fresh WeChat-related backend suite passed 55 tests. The full backend result is recorded separately in full-backend-regression.",
+  "verifier": "Codex"
+}

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "baselineRefs": [
+    "docs/aegis/BASELINE-GOVERNANCE.md",
+    "docs/aegis/plans/2026-05-16-gankaigc-wechat-content-workbench-plan.md",
+    "specs/004-creative-workflow/spec.md"
+  ],
+  "impactStatement": "docs/aegis/work/2026-08-26-wechat-mp-automation/impact-statement-draft.json",
+  "compatPlan": "保留现有扫码会话、手动工作台链路、人工草稿发布入口和所有用户未提交改动",
+  "retirementPlan": "No old owner retired; Windows Task Scheduler and final group-send remain excluded",
+  "evidenceBundle": [
+    "docs/aegis/work/2026-08-26-wechat-mp-automation/evidence-bundle-draft-automation-regression.json",
+    "docs/aegis/work/2026-08-26-wechat-mp-automation/evidence-bundle-draft-boundary-scan.json",
+    "docs/aegis/work/2026-08-26-wechat-mp-automation/evidence-bundle-draft-frontend-regression.json",
+    "docs/aegis/work/2026-08-26-wechat-mp-automation/evidence-bundle-draft-full-backend-regression.json",
+    "docs/aegis/work/2026-08-26-wechat-mp-automation/evidence-bundle-draft-spec-self-review.json",
+    "docs/aegis/work/2026-08-26-wechat-mp-automation/evidence-bundle-draft-wechat-regression.json",
+    "docs/aegis/work/2026-08-26-wechat-mp-automation/evidence-bundle-draft-workspace-check.json"
+  ]
+}

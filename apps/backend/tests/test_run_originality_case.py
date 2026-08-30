@@ -81,7 +81,176 @@ def test_request_budget_accounts_for_one_analysis_retry() -> None:
         reuse_topic=False,
     )
 
+    assert budget["analysis_topic"] == 2
+    assert budget["metadata"] == 0
+    assert budget["topic"] == 0
+    assert budget["preflight"] == 1
+
+
+def test_request_budget_keeps_legacy_metadata_budget_for_reused_topic_flow() -> None:
+    script = _load_run_originality_case_module()
+
+    budget = script._build_request_budget(
+        include_assets_publish=False,
+        skip_metadata=False,
+        reuse_topic=True,
+    )
+
+    assert budget["analysis_topic"] == 0
     assert budget["metadata"] == 2
+    assert budget["topic"] == 0
+
+
+def test_request_budget_can_skip_ai_preflight() -> None:
+    script = _load_run_originality_case_module()
+
+    budget = script._build_request_budget(
+        include_assets_publish=False,
+        skip_metadata=True,
+        reuse_topic=True,
+        skip_ai_preflight=True,
+    )
+
+    assert budget["preflight"] == 0
+    assert budget["model_compatibility"] == 1
+
+
+def test_export_prompt_budget_does_not_claim_a_model_check_it_does_not_run() -> None:
+    script = _load_run_originality_case_module()
+
+    budget = script._build_request_budget(
+        include_assets_publish=False,
+        skip_metadata=True,
+        reuse_topic=True,
+        skip_ai_preflight=True,
+        perform_model_compatibility_check=False,
+    )
+
+    assert budget["preflight"] == 0
+    assert budget["model_compatibility"] == 0
+
+
+def test_pipeline_skip_preflight_still_stops_on_model_compatibility_failure(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    script = _load_run_originality_case_module()
+    source_file = tmp_path / "source.md"
+    source_file.write_text("# 参考文章\n\n这是一段用于模型兼容性检查的参考文章。", encoding="utf-8")
+
+    from app.services import ai_generator, workbench
+
+    calls: list[str] = []
+
+    class FailedCompatibility:
+        ok = False
+        message = "当前上游不支持配置的文本模型 gpt-5.4-mini。"
+
+        def model_dump(self) -> dict[str, object]:
+            return {
+                "ok": self.ok,
+                "status": "model_unavailable",
+                "message": self.message,
+            }
+
+    def fake_model_compatibility_check() -> FailedCompatibility:
+        ai_generator._record_request("model_compatibility")
+        calls.append("model_compatibility")
+        return FailedCompatibility()
+
+    monkeypatch.setattr(ai_generator, "run_ai_model_compatibility_check", fake_model_compatibility_check)
+    monkeypatch.setattr(
+        workbench,
+        "initialize_store",
+        lambda **_kwargs: calls.append("initialize") or pytest.fail("creative stages must not start"),
+    )
+
+    args = script._build_parser().parse_args(
+        [
+            "--input-file",
+            str(source_file),
+            "--output-root",
+            str(tmp_path / "runs"),
+            "--label",
+            "compatibility-stop",
+            "--openai-model",
+            "gpt-5.4-mini",
+            "--skip-ai-preflight",
+        ]
+    )
+
+    exit_code = script._run_pipeline_mode(args)
+
+    assert exit_code == 1
+    assert calls == ["model_compatibility"]
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "failed"
+    assert result["last_completed_stage"] == "ai_model_compatibility_failed"
+    assert result["request_counts"] == {"total": 1, "model_compatibility": 1}
+    assert result["request_budget_within_limit"] is True
+    assert not (tmp_path / "runs" / "compatibility-stop" / "draft.md").exists()
+
+
+def test_pipeline_stops_before_creative_stages_when_ai_preflight_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    script = _load_run_originality_case_module()
+    source_file = tmp_path / "source.md"
+    source_file.write_text("# 参考文章\n\n这是一段只用于预检的参考文章。", encoding="utf-8")
+
+    from app.services import ai_generator, workbench
+
+    calls: list[str] = []
+
+    class FailedPreflight:
+        ok = False
+        message = "模型或接口不存在：gpt-5.4-mini"
+
+        def model_dump(self) -> dict[str, object]:
+            return {
+                "ok": self.ok,
+                "status": "not_found",
+                "message": self.message,
+            }
+
+    def fake_run_ai_config_check() -> FailedPreflight:
+        ai_generator._record_request("preflight")
+        calls.append("preflight")
+        return FailedPreflight()
+
+    monkeypatch.setattr(ai_generator, "run_ai_config_check", fake_run_ai_config_check)
+    monkeypatch.setattr(
+        workbench,
+        "initialize_store",
+        lambda **_kwargs: calls.append("initialize") or pytest.fail("creative stages must not start"),
+    )
+
+    args = script._build_parser().parse_args(
+        [
+            "--input-file",
+            str(source_file),
+            "--output-root",
+            str(tmp_path / "runs"),
+            "--label",
+            "preflight-stop",
+            "--openai-model",
+            "gpt-5.4-mini",
+        ]
+    )
+
+    exit_code = script._run_pipeline_mode(args)
+
+    assert exit_code == 1
+    assert calls == ["preflight"]
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "failed"
+    assert result["last_completed_stage"] == "ai_preflight_failed"
+    assert result["request_counts"] == {"total": 1, "preflight": 1}
+    assert result["request_budget_within_limit"] is True
+    assert not (tmp_path / "runs" / "preflight-stop" / "draft.md").exists()
 
 
 def test_request_budget_accounts_for_one_outline_retry() -> None:
@@ -283,7 +452,13 @@ def test_reuse_bundle_only_skips_metadata_when_analysis_contract_is_complete() -
     complete_bundle = {
         "tracked_article": {
             **{field: field for field in script._TRACKED_ARTICLE_ANALYSIS_FIELDS},
+            "analysis_structure_mode": "scene_first_progression",
             "analysis_content_pillars": ["第一层内容", "第二层内容"],
+            "analysis_expression_profile": [
+                "先从一个具体现场落笔，再让判断从动作余波里出现。",
+                "中段用现实选择承接主题，不平铺抽象观点。",
+                "结尾回到下一步行动，留下明确的生活动作。",
+            ],
         }
     }
     legacy_complete_bundle = {
@@ -331,6 +506,7 @@ def test_build_tracked_article_seed_sanitizes_reused_responsibility_metadata() -
         assert article_title == "万般辛苦，皆为序章"
         assert "电话" in body_markdown
         assert tags == ["长期扛压", "不能倒"]
+        assert metadata["analysis_expression_profile"] == ["先写现场，再让判断跟着反馈出现。"]
         return {
             **metadata,
             "summary": "长期把家里的事放在心上，也会被家里人的回应托住。",
@@ -355,8 +531,9 @@ def test_build_tracked_article_seed_sanitizes_reused_responsibility_metadata() -
                 "analysis_theme": "硬撑和不能倒下。",
                 "analysis_hook_trigger": "白天扛事晚上崩一下。",
                 "analysis_progression_drive": "多能扛才有回报。",
-                "analysis_share_reason": "辛苦没有白扛。",
-                "source_name": "old-run",
+            "analysis_share_reason": "辛苦没有白扛。",
+            "analysis_expression_profile": ["先写现场，再让判断跟着反馈出现。"],
+            "source_name": "old-run",
                 "tags": ["长期扛压", "不能倒"],
             }
         },
@@ -379,6 +556,7 @@ def test_build_tracked_article_seed_sanitizes_reused_responsibility_metadata() -
     assert seed["source_name"] == "old-run"
     assert seed["tags"] == ["责任被看见", "家里踏实"]
     assert seed["analysis_hook_trigger"] == "家里临时有事时，自己先把顺序理清。"
+    assert seed["analysis_expression_profile"] == ["先写现场，再让判断跟着反馈出现。"]
 
 
 def test_probe_ai_text_routes_collects_route_status_from_backend_mapping() -> None:
@@ -2288,6 +2466,7 @@ def test_annotate_cleanup_replay_priorities_sets_rank_and_reason() -> None:
 
 
 def test_export_prompts_only_mode_writes_prompt_bundles(tmp_path: Path) -> None:
+    script = _load_run_originality_case_module()
     source_file = tmp_path / "source.md"
     source_file.write_text(
         (
@@ -2299,10 +2478,16 @@ def test_export_prompts_only_mode_writes_prompt_bundles(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+    source_identity = script._build_source_identity(
+        source_title="别把日子过反了",
+        source_markdown=source_file.read_text(encoding="utf-8"),
+    )
     reuse_bundle = tmp_path / "reuse-result.json"
     reuse_bundle.write_text(
         json.dumps(
             {
+                "source_identity": source_identity,
+                "analysis_source_identity": source_identity,
                 "topic": {
                     "title": "别把日子过反了",
                     "angle": "从身体、关系和生活排序被不断往后放的处境切入，直接写清推迟的代价。",
@@ -2311,6 +2496,21 @@ def test_export_prompts_only_mode_writes_prompt_bundles(tmp_path: Path) -> None:
                     "summary": "围绕长期推迟导致生活排序失衡的参考文章。",
                     "structure_notes": "以短小节推进身体、关系和幸福排序。",
                     "tags": ["生活排序", "推迟"],
+                    "analysis_theme": "总把重要的生活往后放，最后失去的是当下的感受。",
+                    "analysis_core_conflict": "人以忙碌为理由推迟真正重要的事，却把生活的代价留给未来。",
+                    "analysis_emotional_exit": "把注意力收回今天，主动为健康、关系和生活留出位置。",
+                    "analysis_structure_mode": "scene_first_progression",
+                    "analysis_opening_pattern": "从一个被顺手推迟的生活现场切入。",
+                    "analysis_hook_trigger": "现场里那个本来可以当下完成却被再次推后的动作。",
+                    "analysis_progression_drive": "沿着推迟带来的细小代价推进，再回到今天的选择。",
+                    "analysis_share_reason": "让总说等以后的人重新看见当下的分量。",
+                    "analysis_do_not_turn_into": "不要写成泛泛的时间管理说教或统一的自我安慰。",
+                    "analysis_content_pillars": ["推迟如何改变生活排序", "今天如何重新拿回主动权"],
+                    "analysis_expression_profile": [
+                        "先用生活现场落笔，再让判断从动作余波里出现。",
+                        "中段写具体代价，不把观点铺成抽象口号。",
+                        "结尾回到今天能做的选择，留下向前的动作。",
+                    ],
                 },
             },
             ensure_ascii=False,
@@ -2356,9 +2556,9 @@ def test_export_prompts_only_mode_writes_prompt_bundles(tmp_path: Path) -> None:
 
     assert "创作策略包（执行摘要）" in outline_payload["prompt"]
     assert "创作策略包（执行摘要）" in draft_payload["prompt"]
-    assert "主题锚点卡：" in draft_payload["prompt"]
-    assert "执行顺序：" in draft_payload["prompt"]
-    assert "当前任务是参考文章策略稿的首稿阶段" in draft_payload["instructions"]
+    assert "先用生活现场落笔" in outline_payload["instructions"]
+    assert "先用生活现场落笔" in draft_payload["instructions"]
+    assert draft_payload["payload"]["reference_article_analysis_expression_profile"]
 
 
 def test_extract_reuse_topic_seed_falls_back_to_compare_bundle_titles() -> None:
@@ -2415,6 +2615,7 @@ def test_extract_reuse_topic_seed_uses_first_sentence_from_long_compare_draft_ti
 
 
 def test_export_prompts_only_mode_uses_compare_bundle_fallback_seed(tmp_path: Path) -> None:
+    script = _load_run_originality_case_module()
     source_file = tmp_path / "source.md"
     source_file.write_text(
         (
@@ -2424,6 +2625,10 @@ def test_export_prompts_only_mode_uses_compare_bundle_fallback_seed(tmp_path: Pa
         ),
         encoding="utf-8",
     )
+    source_identity = script._build_source_identity(
+        source_title="别把日子过反了",
+        source_markdown=source_file.read_text(encoding="utf-8"),
+    )
     reuse_bundle = tmp_path / "compare-result.json"
     reuse_bundle.write_text(
         json.dumps(
@@ -2431,10 +2636,27 @@ def test_export_prompts_only_mode_uses_compare_bundle_fallback_seed(tmp_path: Pa
                 "mode": "compare",
                 "source_title": "别把日子过反了",
                 "draft_title": "包带还挂在肩上，勒得锁骨发酸",
+                "source_identity": source_identity,
+                "analysis_source_identity": source_identity,
                 "tracked_article": {
                     "summary": "一篇围绕长期推迟与生活失序的参考文章。",
                     "structure_notes": "原文带有命令式分节和案例轮转壳子。",
                     "tags": ["生活排序", "推迟"],
+                    "analysis_theme": "总把重要的生活往后放，最后失去的是当下的感受。",
+                    "analysis_core_conflict": "人以忙碌为理由推迟真正重要的事，却把生活的代价留给未来。",
+                    "analysis_emotional_exit": "把注意力收回今天，主动为健康、关系和生活留出位置。",
+                    "analysis_structure_mode": "scene_first_progression",
+                    "analysis_opening_pattern": "从一个被顺手推迟的生活现场切入。",
+                    "analysis_hook_trigger": "现场里那个本来可以当下完成却被再次推后的动作。",
+                    "analysis_progression_drive": "沿着推迟带来的细小代价推进，再回到今天的选择。",
+                    "analysis_share_reason": "让总说等以后的人重新看见当下的分量。",
+                    "analysis_do_not_turn_into": "不要写成泛泛的时间管理说教或统一的自我安慰。",
+                    "analysis_content_pillars": ["推迟如何改变生活排序", "今天如何重新拿回主动权"],
+                    "analysis_expression_profile": [
+                        "先用生活现场落笔，再让判断从动作余波里出现。",
+                        "中段写具体代价，不把观点铺成抽象口号。",
+                        "结尾回到今天能做的选择，留下向前的动作。",
+                    ],
                 },
             },
             ensure_ascii=False,
@@ -2497,9 +2719,15 @@ def test_export_prompts_only_mode_skips_metadata_enrichment_when_reuse_bundle_ha
                 "tracked_article": {
                     "summary": "围绕长期推迟导致生活排序失衡的参考文章。",
                     "structure_notes": "以短小节推进身体、关系和幸福排序。",
-                    "tags": ["生活排序", "推迟"],
-                    **{field: field for field in script._TRACKED_ARTICLE_ANALYSIS_FIELDS},
-                    "analysis_content_pillars": ["第一层内容", "第二层内容"],
+                        "tags": ["生活排序", "推迟"],
+                        **{field: field for field in script._TRACKED_ARTICLE_ANALYSIS_FIELDS},
+                        "analysis_structure_mode": "scene_first_progression",
+                        "analysis_content_pillars": ["第一层内容", "第二层内容"],
+                    "analysis_expression_profile": [
+                        "先从一个生活现场落笔，再让判断从动作余波里出现。",
+                        "中段用具体代价承接主题，不平铺抽象观点。",
+                        "结尾回到今天能做的选择，留下明确动作。",
+                    ],
                 },
             },
             ensure_ascii=False,
@@ -2539,6 +2767,65 @@ def test_export_prompts_only_mode_skips_metadata_enrichment_when_reuse_bundle_ha
     result = json.loads(result_path.read_text(encoding="utf-8"))
     assert result["status"] == "done"
     assert calls == []
+
+
+def test_export_prompts_only_mode_stops_incomplete_reuse_analysis_before_strategy(
+    tmp_path: Path,
+) -> None:
+    script = _load_run_originality_case_module()
+    source_file = tmp_path / "source.md"
+    source_file.write_text("# 参考文章\n\n原文内容。", encoding="utf-8")
+    source_identity = script._build_source_identity(
+        source_title="参考文章",
+        source_markdown=source_file.read_text(encoding="utf-8"),
+    )
+    reuse_bundle = tmp_path / "incomplete-result.json"
+    reuse_bundle.write_text(
+        json.dumps(
+            {
+                "source_identity": source_identity,
+                "topic": {
+                    "title": "沿着原文处境重建一个入口",
+                    "angle": "从一个具体的生活动作切入，重新组织原文主题。",
+                },
+                "tracked_article": {
+                    "analysis_theme": "只返回了主题，其他分析字段还没有完成。",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--input-file",
+            str(source_file),
+            "--output-root",
+            str(tmp_path / "runs"),
+            "--label",
+            "export-prompts-incomplete-analysis",
+            "--skip-enrich",
+            "--reuse-bundle-json",
+            str(reuse_bundle),
+            "--reuse-topic-from-bundle",
+            "--export-prompts-only",
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(REPO_ROOT),
+    )
+
+    assert completed.returncode == 1
+    result = json.loads(completed.stdout)
+    assert result["status"] == "failed"
+    assert "--skip-enrich" in result["error"]["message"]
+    assert "分析不完整" in result["error"]["message"]
+    assert not (tmp_path / "runs" / "export-prompts-incomplete-analysis" / "outline-prompt.json").exists()
 
 
 def test_best_effort_enrich_tracked_article_records_warning_and_keeps_seed_payload() -> None:

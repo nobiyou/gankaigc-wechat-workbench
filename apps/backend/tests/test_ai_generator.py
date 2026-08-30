@@ -13,6 +13,7 @@ from app.services.ai_generator import (
     OpenAIWorkbenchGenerator,
     OutlineGenerationResult,
     PublishPackageGenerationResult,
+    TrackedArticleAnalysisTopicGenerationResult,
     TrackedArticleMetadataGenerationResult,
     TopicGenerationResult,
     begin_request_telemetry,
@@ -20,6 +21,7 @@ from app.services.ai_generator import (
     get_request_telemetry,
     get_ai_config_summary,
     run_ai_config_check,
+    run_ai_model_compatibility_check,
     run_ai_image_config_check,
     run_ai_image_route_probe,
 )
@@ -101,6 +103,18 @@ def test_normalize_draft_generation_result_removes_markdown_code_fences() -> Non
 
     assert result.body_markdown == "电话响起来的时候，家里的安排就变了。\n\n有人把饭热上，等你回家。"
 
+
+def test_normalize_draft_generation_result_removes_leaked_bold_wrappers() -> None:
+    result = ai_generator_module._normalize_draft_generation_result(
+        DraftGenerationResult(
+            title="**那句没等来的解释，后来卡在了你的身体里",
+            body_markdown="**\n\n事情已经结束，生活还在继续。",
+        )
+    )
+
+    assert result.title == "那句没等来的解释，后来卡在了你的身体里"
+    assert result.body_markdown == "事情已经结束，生活还在继续。"
+
 def test_generator_clients_disable_sdk_internal_retries() -> None:
     generator = build_generator()
 
@@ -137,6 +151,7 @@ def test_generate_outline_prompt_mentions_target_word_count(monkeypatch) -> None
         response_format,
         timeout_seconds_override=None,
         max_attempts_override=None,
+        request_stage=None,
     ):
         captured["instructions"] = instructions
         captured["prompt"] = prompt
@@ -2268,6 +2283,7 @@ def test_generate_topic_supports_tracked_article_payload(monkeypatch) -> None:
         response_format,
         timeout_seconds_override=None,
         max_attempts_override=None,
+        request_stage=None,
     ):
         captured["instructions"] = instructions
         captured["prompt"] = prompt
@@ -2324,6 +2340,7 @@ def test_generate_topic_uses_chat_json_fast_path_for_tracked_article_on_custom_b
         include_custom_base_url_extra_body: bool = True,
         include_response_format: bool = True,
         retry_on_output_error: bool = True,
+        request_stage: str | None = None,
     ):
         captured["instructions"] = instructions
         captured["prompt"] = prompt
@@ -2333,6 +2350,7 @@ def test_generate_topic_uses_chat_json_fast_path_for_tracked_article_on_custom_b
         captured["enforce_custom_base_url_retry_floor"] = enforce_custom_base_url_retry_floor
         captured["include_custom_base_url_extra_body"] = include_custom_base_url_extra_body
         captured["retry_on_output_error"] = retry_on_output_error
+        captured["request_stage"] = request_stage
         return TopicGenerationResult(
             title="先把那句压回去的话说清楚",
             angle="从参考文章提炼新的现实入口",
@@ -2762,7 +2780,7 @@ def test_generate_tracked_article_metadata_uses_chat_json_fast_path_on_custom_ba
     assert captured["timeout"] == 60.0
 
 
-def test_generate_tracked_article_metadata_does_not_retry_invalid_json_on_custom_base_url(
+def test_generate_tracked_article_metadata_retries_invalid_json_once_on_custom_base_url(
     monkeypatch,
 ) -> None:
     generator = build_custom_base_url_generator()
@@ -2804,7 +2822,70 @@ def test_generate_tracked_article_metadata_does_not_retry_invalid_json_on_custom
             }
         )
 
-    assert chat_calls["count"] == 1
+    assert chat_calls["count"] == 2
+
+
+def test_generate_tracked_article_analysis_recovers_missing_contract_fields_once(monkeypatch) -> None:
+    generator = build_custom_base_url_generator()
+    calls: list[str | None] = []
+
+    complete_analysis = {
+        "author": "",
+        "summary": "文章写成年人如何把责任接住，并在家人的平安里重新确认这些辛苦的分量。",
+        "structure_notes": "先落到家庭责任的现实重量，再写承担怎样变成家里的安稳。",
+        "tags": ["中年生活", "家庭责任"],
+        "analysis_theme": "很多成年人的辛苦，最后都在为一个家的安稳托底。",
+        "analysis_core_conflict": "生活的压力不断向前推，而一个成年人仍要把父母、孩子和伴侣的需要接在自己身上。",
+        "analysis_emotional_exit": "看见那些认真承担没有白费，也把家人的安稳当作继续向前的底气。",
+        "analysis_structure_mode": "responsibility_shelter",
+        "analysis_opening_pattern": "从一句“没事，有我”和电话另一头的家庭账单起笔。",
+        "analysis_hook_trigger": "电话、账单和家人的需要同时压到眼前。",
+        "analysis_progression_drive": "从责任的现实重量推进到一次次安排怎样变成家里的安稳。",
+        "analysis_share_reason": "让正在承担家庭责任的人知道，自己撑住的不是抽象的苦，而是家人可以安心生活的具体日子。",
+        "analysis_do_not_turn_into": "不要写成单纯歌颂吃苦或泛泛的中年疲惫倾诉稿。",
+        "analysis_content_pillars": ["家庭责任怎样压到日常安排里", "认真承担怎样慢慢落成家里的安稳"],
+        "analysis_expression_profile": [
+            "先写电话、账单或临时安排的现实重量，再让判断从行动里出现",
+            "中段用家庭成员的具体变化承接责任回报，不平铺抽象苦难",
+            "结尾回到家里的灯、饭和安稳，不用统一励志口号收束",
+        ],
+    }
+
+    def fake_chat_json_fallback(**kwargs):
+        calls.append(kwargs.get("request_stage"))
+        if len(calls) == 1:
+            return TrackedArticleAnalysisTopicGenerationResult(
+                author="",
+                summary="先返回了一个选题，但分析字段不完整。",
+                structure_notes="",
+                tags=[],
+                topic_title="把家稳住的人，也需要被看见",
+                topic_angle="从一次临时家庭安排切入，写成年人怎样把责任接住，又怎样在家人的安稳里确认自己的付出有了回声。",
+            )
+        return TrackedArticleMetadataGenerationResult(**complete_analysis)
+
+    monkeypatch.setattr(generator, "_parse_response_with_chat_json_fallback", fake_chat_json_fallback)
+
+    result = generator.generate_tracked_article_analysis_and_topic(
+        {
+            "source_kind": "manual",
+            "source_name": "手动录入",
+            "article_title": "熬过万般辛苦，终得人间安稳",
+            "article_url": "local://middlelife",
+            "author": "",
+            "summary": "",
+            "structure_notes": "",
+            "tags": [],
+            "body_source": "manual",
+            "body_markdown": "电话的那头，是父母、孩子和每个月如期而至的账单。电话的这头，你只能故作轻松地说：没事，有我。",
+        }
+    )
+
+    assert calls == ["analysis_topic", "analysis_topic"]
+    assert result["topic_title"] == "把家稳住的人，也需要被看见"
+    assert result["analysis_structure_mode"] == "responsibility_shelter"
+    assert len(result["analysis_content_pillars"]) == 2
+    assert len(result["analysis_expression_profile"]) == 3
 
 
 def test_generator_passes_configured_timeout_to_openai_client(monkeypatch) -> None:
@@ -3005,7 +3086,7 @@ def test_generate_cover_image_does_not_retry_transient_provider_errors_for_custo
         generator.generate_cover_image({"cover_prompt": "prompt"})
 
     assert len(calls) == 1
-    assert calls[0]["size"] == "16:9"
+    assert calls[0]["size"] == "1536x864"
     assert calls[0]["timeout"] == 90.0
     assert "quality" not in calls[0]
 
@@ -3043,7 +3124,7 @@ def test_generate_cover_image_custom_provider_moves_to_second_variant_after_time
 
     assert result == b"second-variant-custom"
     assert len(calls) == 2
-    assert calls[0]["size"] == "16:9"
+    assert calls[0]["size"] == "1536x864"
     assert calls[0]["timeout"] == 90.0
     assert "quality" not in calls[0]
     assert calls[1]["size"] == "1536x864"
@@ -3433,6 +3514,7 @@ def test_run_ai_config_check_returns_success_when_probe_passes(monkeypatch) -> N
             return FakeResponse()
 
     monkeypatch.setattr(generator._client, "responses", FakeResponses())
+    monkeypatch.setattr(generator, "list_available_text_models", lambda: ["test-model"])
     monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", lambda config: generator)
 
     result = run_ai_config_check(
@@ -3451,6 +3533,34 @@ def test_run_ai_config_check_returns_success_when_probe_passes(monkeypatch) -> N
     assert captured["input"] == "Reply with exactly OK."
     assert captured["max_output_tokens"] == 8
     assert captured["reasoning"] == {"effort": "medium"}
+
+
+def test_run_ai_config_check_records_one_preflight_request(monkeypatch) -> None:
+    class PassingGenerator:
+        def __init__(self, _config) -> None:
+            pass
+
+        def list_available_text_models(self) -> list[str]:
+            return ["test-model"]
+
+        def check_connection(self) -> None:
+            return None
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", PassingGenerator)
+    begin_request_telemetry()
+    try:
+        result = run_ai_config_check(
+            Settings(
+                openai_api_key="test-key",
+                openai_model="test-model",
+                openai_image_model="test-image-model",
+            )
+        )
+
+        assert result.ok is True
+        assert get_request_telemetry() == {"total": 1, "preflight": 1}
+    finally:
+        clear_request_telemetry()
 
 
 def test_check_connection_retries_transient_upstream_errors() -> None:
@@ -3489,6 +3599,9 @@ def test_run_ai_config_check_surfaces_upstream_failures(monkeypatch) -> None:
         def __init__(self, _config) -> None:
             pass
 
+        def list_available_text_models(self) -> None:
+            return None
+
         def check_connection(self) -> None:
             raise openai.InternalServerError(
                 "Upstream service temporarily unavailable",
@@ -3510,6 +3623,71 @@ def test_run_ai_config_check_surfaces_upstream_failures(monkeypatch) -> None:
     assert result.status == "upstream_error"
     assert "上游服务异常" in result.message
     assert "Upstream service temporarily unavailable" in result.message
+
+
+def test_run_ai_config_check_stops_before_generation_when_model_is_not_listed(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class ModelListingGenerator:
+        def __init__(self, _config) -> None:
+            pass
+
+        def list_available_text_models(self) -> list[str]:
+            calls.append("models")
+            return ["mimo-v2.5", "mimo-v2.5-pro"]
+
+        def check_connection(self) -> None:
+            calls.append("probe")
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", ModelListingGenerator)
+
+    result = run_ai_config_check(
+        Settings(
+            openai_api_key="test-key",
+            openai_model="gpt-5.4-mini",
+            openai_image_model="test-image-model",
+        )
+    )
+
+    assert result.ok is False
+    assert result.status == "model_unavailable"
+    assert "gpt-5.4-mini" in result.message
+    assert "mimo-v2.5" in result.message
+    assert "OPENAI_MODEL" in result.recovery_actions[0]
+    assert calls == ["models"]
+
+
+def test_run_ai_model_compatibility_check_uses_models_without_text_probe(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class ModelListingGenerator:
+        def __init__(self, _config) -> None:
+            pass
+
+        def list_available_text_models(self) -> list[str]:
+            calls.append("models")
+            return ["mimo-v2.5", "mimo-v2.5-pro"]
+
+        def check_connection(self) -> None:
+            calls.append("probe")
+
+    monkeypatch.setattr(ai_generator_module, "OpenAIWorkbenchGenerator", ModelListingGenerator)
+    begin_request_telemetry()
+    try:
+        result = run_ai_model_compatibility_check(
+            Settings(
+                openai_api_key="test-key",
+                openai_model="gpt-5.4-mini",
+                openai_image_model="test-image-model",
+            )
+        )
+
+        assert result.ok is False
+        assert result.status == "model_unavailable"
+        assert calls == ["models"]
+        assert get_request_telemetry() == {"total": 1, "model_compatibility": 1}
+    finally:
+        clear_request_telemetry()
 
 
 def test_run_ai_image_config_check_returns_success_when_probe_passes(monkeypatch) -> None:

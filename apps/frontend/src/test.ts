@@ -13,6 +13,8 @@ import "./retroDraft.test.ts";
 import "./wechatMpImport.test.ts";
 import "./wechatMp.test.ts";
 import "./wechatMpSession.test.ts";
+import "./wechatMpStyles.test.ts";
+import "./automation.test.ts";
 import "./trackedArticleCreation.test.ts";
 import "./trackedArticleApi.test.ts";
 import "./trackedArticleEnrichment.test.ts";

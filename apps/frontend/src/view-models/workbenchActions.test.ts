@@ -417,11 +417,13 @@ test("buildWorkbenchActionPlan sends quality-blocked assets back to asset genera
 test("shouldKeepWorkbenchActionActive only keeps submitted background actions locked", () => {
   assert.equal(shouldKeepWorkbenchActionActive("build_publish_package", true), true);
   assert.equal(shouldKeepWorkbenchActionActive("polish_and_build_publish_package", true), true);
+  assert.equal(shouldKeepWorkbenchActionActive("publish_wechat_mp_draft", true), true);
   assert.equal(shouldKeepWorkbenchActionActive("regenerate_from_review", true), true);
   assert.equal(shouldKeepWorkbenchActionActive("regenerate_cover_image", true), true);
 
   assert.equal(shouldKeepWorkbenchActionActive("build_publish_package", false), false);
   assert.equal(shouldKeepWorkbenchActionActive("polish_and_build_publish_package", false), false);
+  assert.equal(shouldKeepWorkbenchActionActive("publish_wechat_mp_draft", false), false);
   assert.equal(shouldKeepWorkbenchActionActive("regenerate_from_review", false), false);
   assert.equal(shouldKeepWorkbenchActionActive("regenerate_cover_image", false), false);
   assert.equal(shouldKeepWorkbenchActionActive("generate_assets", true), false);
@@ -485,6 +487,15 @@ test("getWorkbenchBackgroundTaskCopy returns route-specific copy for cover regen
     completedMessage: "封面图重生成已完成，Workbench 已刷新到最新素材版本。",
     failedMessage: "重生成封面图失败。当前封面只走 API 图片链路。",
     progressMessage: "当前正在通过 API 图片链路重生成封面图，并写入新的素材版本。",
+  });
+});
+
+test("getWorkbenchBackgroundTaskCopy returns draft-box-specific copy", () => {
+  assert.deepEqual(getWorkbenchBackgroundTaskCopy("publish_wechat_mp_draft"), {
+    submittedMessage: "已提交写入公众号草稿箱任务，正在复用当前扫码登录会话完成封面与正文提交。",
+    completedMessage: "公众号草稿已写入草稿箱，请打开公众号后台预览后再手动发布。",
+    failedMessage: "写入公众号草稿箱失败。请检查扫码会话、封面文件和公众号后台状态。",
+    progressMessage: "当前正在通过扫码登录会话写入公众号草稿箱，不会自动群发。",
   });
 });
 
@@ -700,6 +711,152 @@ test("buildWorkbenchActionPlan exposes polish-before-publish generation when pac
   assert.equal(plan.primaryAction?.label, "原创增强后生成发布包");
   assert.equal(plan.secondaryActions.some((action) => action.kind === "build_publish_package"), true);
   assert.equal(plan.showInstructionField, true);
+});
+
+test("buildWorkbenchActionPlan exposes draft-box writing after package approval", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "publish",
+    detail: {
+      project: {
+        ...baseProject,
+        stage: "published",
+        chain_status: "ready",
+        current_chain_state: "published",
+        next_required_step: null,
+        current_outline_version: 1,
+        current_draft_version: 1,
+        current_assets_version: 1,
+        current_publish_package_version: 1,
+      },
+      outline: null,
+      draft: null,
+      assets: null,
+      publish_package: {
+        project_slug: "demo-project",
+        draft_version: 1,
+        assets_version: 1,
+        version: 1,
+        abstract: "摘要",
+        tags: [],
+        publish_checklist: [],
+        editor_note: "",
+        markdown_path: "article.md",
+        markdown_url: "/article.md",
+        manifest_path: "article.json",
+        manifest_url: "/article.json",
+        status: "approved",
+        review_comment: null,
+        reviewed_by: "editor",
+        reviewed_at: "2026-08-26T00:00:00Z",
+        tone_profile_id: null,
+        tone_profile_name: null,
+        wechat_mp_draft_status: "not_published",
+        wechat_mp_draft_id: null,
+        wechat_mp_draft_error: null,
+        wechat_mp_draft_published_at: null,
+      },
+      retro: null,
+    },
+    historyEntryCount: 1,
+  });
+
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "publish_wechat_mp_draft"), true);
+});
+
+test("buildWorkbenchActionPlan changes draft-box action to retry after a failed write", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "publish",
+    detail: {
+      ...baseCreativeDetail,
+      project: {
+        ...baseProject,
+        stage: "published",
+        current_chain_state: "published",
+        next_required_step: null,
+        current_publish_package_version: 1,
+      },
+      publish_package: {
+        project_slug: "demo-project",
+        draft_version: 1,
+        assets_version: 1,
+        version: 1,
+        abstract: "摘要",
+        tags: [],
+        publish_checklist: [],
+        editor_note: "",
+        markdown_path: "article.md",
+        markdown_url: "/article.md",
+        manifest_path: "article.json",
+        manifest_url: "/article.json",
+        status: "approved",
+        review_comment: null,
+        reviewed_by: "editor",
+        reviewed_at: "2026-08-26T00:00:00Z",
+        tone_profile_id: null,
+        tone_profile_name: null,
+        wechat_mp_draft_status: "failed",
+        wechat_mp_draft_id: null,
+        wechat_mp_draft_error: "公众号登录已过期",
+        wechat_mp_draft_published_at: null,
+      },
+    },
+    historyEntryCount: 1,
+  });
+
+  assert.deepEqual(
+    plan.secondaryActions.find((action) => action.kind === "publish_wechat_mp_draft"),
+    { kind: "publish_wechat_mp_draft", label: "重试写入公众号草稿" },
+  );
+});
+
+test("buildWorkbenchActionPlan uses ordinary publish generation before tracked strategy adoption", () => {
+  const plan = buildWorkbenchActionPlan({
+    stage: "publish",
+    detail: {
+      project: {
+        ...baseProject,
+        stage: "assets_ready",
+        chain_status: "stale",
+        current_chain_state: "strategy_ready",
+        next_required_step: "build_publish_package",
+        current_outline_version: 1,
+        current_draft_version: 2,
+        current_assets_version: 2,
+        current_publish_package_version: null,
+      },
+      outline: null,
+      draft: {
+        project_slug: "demo-project",
+        outline_version: 1,
+        version: 2,
+        title: "已有初稿",
+        body_markdown: "# draft",
+        word_count: 1280,
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      assets: {
+        project_slug: "demo-project",
+        draft_version: 2,
+        version: 2,
+        title_options: ["title a"],
+        cover_prompt: "prompt",
+        cover_copy: "cover copy",
+        social_teaser: "teaser",
+        cover_image_path: "cover.png",
+        cover_image_url: "/cover.png",
+        tone_profile_id: null,
+        tone_profile_name: null,
+      },
+      publish_package: null,
+      retro: null,
+    },
+    historyEntryCount: 1,
+  });
+
+  assert.deepEqual(plan.primaryAction, { kind: "build_publish_package", label: "生成发布包" });
+  assert.equal(plan.secondaryActions.some((action) => action.kind === "polish_and_build_publish_package"), false);
+  assert.equal(plan.showInstructionField, false);
 });
 
 test("buildWorkbenchActionPlan suppresses publish regeneration while rollback chain is still upstream", () => {

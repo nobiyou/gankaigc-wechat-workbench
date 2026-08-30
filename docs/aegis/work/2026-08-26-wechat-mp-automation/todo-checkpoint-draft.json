@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-08-26-wechat-mp-automation",
+  "currentTodo": "完成 fresh verification and handoff with known unrelated regression",
+  "completedTodos": [
+    "TaskStartSnapshot and baseline readback",
+    "Automation storage, subscriptions, scheduling, and runner",
+    "Resumable orchestration, automatic approval, draft-only boundary, and provenance",
+    "Automation management UI and preview links",
+    "Fake orchestration, API, retry, and failure recovery tests",
+    "WeChat regression and frontend test/build verification"
+  ],
+  "activeSlice": "Final evidence and drift closeout",
+  "evidenceRefs": [
+    "automation-regression",
+    "wechat-regression",
+    "frontend-regression",
+    "boundary-scan"
+  ],
+  "blockedOn": "6 pre-existing content-quality test failures outside this task-owned automation slice",
+  "nextStep": "No commit; hand off the uncommitted feature and track the unrelated content-quality failures separately",
+  "updatedAt": "2026-08-26"
+}

@@ -33,6 +33,17 @@ _TRACKED_ARTICLE_ANALYSIS_FIELDS: tuple[str, ...] = (
     "analysis_do_not_turn_into",
 )
 _ANALYSIS_CONTENT_PILLARS_FIELD = "analysis_content_pillars"
+_ANALYSIS_EXPRESSION_PROFILE_FIELD = "analysis_expression_profile"
+_ANALYSIS_EXPRESSION_PROFILE_GENERIC_MARKERS: tuple[str, ...] = (
+    "语言优美",
+    "语言自然",
+    "表达流畅",
+    "真实具体",
+    "有共鸣",
+    "情绪饱满",
+    "正能量",
+    "金句频出",
+)
 AI_OVERRIDE_ENV_FIELDS: tuple[tuple[str, str], ...] = (
     ("openai_api_key", "OPENAI_API_KEY"),
     ("openai_base_url", "OPENAI_BASE_URL"),
@@ -555,6 +566,63 @@ def _reuse_bundle_has_analysis_contract(
     )
 
 
+def _mapping_has_complete_analysis_contract(candidate: Mapping[str, Any]) -> bool:
+    """Require the article-specific contract before entering creative stages."""
+    try:
+        backend_root = str(BACKEND_ROOT)
+        if backend_root not in sys.path:
+            sys.path.insert(0, backend_root)
+        from app.services.creative_strategy import has_complete_tracked_article_generation_contract
+
+        return bool(
+            has_complete_tracked_article_generation_contract(
+                analysis_structure_mode_hint=str(candidate.get("analysis_structure_mode") or ""),
+                analysis_theme=str(candidate.get("analysis_theme") or ""),
+                analysis_core_conflict=str(candidate.get("analysis_core_conflict") or ""),
+                analysis_emotional_exit=str(candidate.get("analysis_emotional_exit") or ""),
+                analysis_opening_pattern=str(candidate.get("analysis_opening_pattern") or ""),
+                analysis_hook_trigger=str(candidate.get("analysis_hook_trigger") or ""),
+                analysis_progression_drive=str(candidate.get("analysis_progression_drive") or ""),
+                analysis_share_reason=str(candidate.get("analysis_share_reason") or ""),
+                analysis_do_not_turn_into=str(candidate.get("analysis_do_not_turn_into") or ""),
+                analysis_content_pillars=(
+                    candidate.get(_ANALYSIS_CONTENT_PILLARS_FIELD)
+                    if isinstance(candidate.get(_ANALYSIS_CONTENT_PILLARS_FIELD), list)
+                    else []
+                ),
+                analysis_expression_profile=(
+                    candidate.get(_ANALYSIS_EXPRESSION_PROFILE_FIELD)
+                    if isinstance(candidate.get(_ANALYSIS_EXPRESSION_PROFILE_FIELD), list)
+                    else []
+                ),
+            )
+        )
+    except ImportError:
+        # Keep the standalone helper usable when backend dependencies are absent.
+        pass
+
+    if not all(bool(str(candidate.get(field) or "").strip()) for field in _TRACKED_ARTICLE_ANALYSIS_FIELDS):
+        return False
+
+    pillars = candidate.get(_ANALYSIS_CONTENT_PILLARS_FIELD)
+    if not isinstance(pillars, list) or len([item for item in pillars if str(item).strip()]) < 2:
+        return False
+
+    profile = candidate.get(_ANALYSIS_EXPRESSION_PROFILE_FIELD)
+    if not isinstance(profile, list):
+        return False
+    normalized_profile = [" ".join(str(item or "").split()) for item in profile if str(item or "").strip()]
+    if not 3 <= len(normalized_profile) <= 5:
+        return False
+    if any(
+        len(item.replace(" ", "")) < 5
+        or item in _ANALYSIS_EXPRESSION_PROFILE_GENERIC_MARKERS
+        for item in normalized_profile
+    ):
+        return False
+    return True
+
+
 def _reuse_bundle_has_complete_analysis_contract(
     reuse_bundle_payload: Mapping[str, Any] | None,
 ) -> bool:
@@ -564,14 +632,7 @@ def _reuse_bundle_has_complete_analysis_contract(
     tracked_article = reuse_bundle_payload.get("tracked_article")
     if isinstance(tracked_article, Mapping):
         candidates.append(tracked_article)
-    for candidate in candidates:
-        if not all(bool(str(candidate.get(field) or "").strip()) for field in _TRACKED_ARTICLE_ANALYSIS_FIELDS):
-            continue
-        pillars = candidate.get(_ANALYSIS_CONTENT_PILLARS_FIELD)
-        if not isinstance(pillars, list) or len([item for item in pillars if str(item).strip()]) < 2:
-            continue
-        return True
-    return False
+    return any(_mapping_has_complete_analysis_contract(candidate) for candidate in candidates)
 
 
 def _validate_reuse_bundle_identity(
@@ -650,14 +711,31 @@ def _build_request_budget(
     include_assets_publish: bool,
     skip_metadata: bool,
     reuse_topic: bool = False,
+    skip_ai_preflight: bool = False,
+    perform_model_compatibility_check: bool = True,
 ) -> dict[str, int]:
+    if skip_metadata:
+        analysis_topic_budget = 0
+        metadata_budget = 0
+        topic_budget = 0 if reuse_topic else 2
+    elif reuse_topic:
+        analysis_topic_budget = 0
+        metadata_budget = 2
+        topic_budget = 0
+    else:
+        # The normal tracked-article path combines analysis and topic selection
+        # into one structured request. A topic overage then clearly indicates
+        # the explicit fallback path was entered.
+        analysis_topic_budget = 2
+        metadata_budget = 0
+        topic_budget = 0
     return {
-        # Metadata analysis is the gate for the whole tracked-article chain;
-        # allow one same-prompt retry for a transient upstream 5xx.
-        "metadata": 0 if skip_metadata else 2,
-        # Tracked-article topic generation uses one initial request plus one
-        # same-protocol retry on custom text routes when the provider returns 5xx.
-        "topic": 0 if reuse_topic else 2,
+        "preflight": 0 if skip_ai_preflight else 1,
+        # Skipping the text probe still performs a zero-token /models check.
+        "model_compatibility": 1 if skip_ai_preflight and perform_model_compatibility_check else 0,
+        "analysis_topic": analysis_topic_budget,
+        "metadata": metadata_budget,
+        "topic": topic_budget,
         "strategy": 0,
         # Strategy-first tracked-article outlines make one same-prompt retry
         # for a transient 5xx before surfacing the upstream failure.
@@ -1218,6 +1296,7 @@ def _build_tracked_article_seed(
         "analysis_share_reason": "",
         "analysis_do_not_turn_into": "",
         "analysis_content_pillars": [],
+        _ANALYSIS_EXPRESSION_PROFILE_FIELD: [],
         "tags": [],
     }
     if not isinstance(reuse_bundle_payload, Mapping):
@@ -1251,6 +1330,9 @@ def _build_tracked_article_seed(
     content_pillars = _normalize_string_list(tracked_article.get(_ANALYSIS_CONTENT_PILLARS_FIELD))
     if content_pillars:
         seed[_ANALYSIS_CONTENT_PILLARS_FIELD] = content_pillars[:4]
+    expression_profile = _normalize_string_list(tracked_article.get(_ANALYSIS_EXPRESSION_PROFILE_FIELD))
+    if expression_profile:
+        seed[_ANALYSIS_EXPRESSION_PROFILE_FIELD] = expression_profile[:5]
     if callable(metadata_sanitizer):
         sanitized = metadata_sanitizer(
             {
@@ -1258,6 +1340,7 @@ def _build_tracked_article_seed(
                 "structure_notes": seed.get("structure_notes", ""),
                 **{field: seed.get(field, "") for field in analysis_fields},
                 _ANALYSIS_CONTENT_PILLARS_FIELD: seed.get(_ANALYSIS_CONTENT_PILLARS_FIELD, []),
+                _ANALYSIS_EXPRESSION_PROFILE_FIELD: seed.get(_ANALYSIS_EXPRESSION_PROFILE_FIELD, []),
                 "tags": seed.get("tags", []),
             },
             article_title=article_title,
@@ -1270,6 +1353,9 @@ def _build_tracked_article_seed(
             seed[_ANALYSIS_CONTENT_PILLARS_FIELD] = _normalize_string_list(
                 sanitized.get(_ANALYSIS_CONTENT_PILLARS_FIELD)
             )[:4]
+            seed[_ANALYSIS_EXPRESSION_PROFILE_FIELD] = _normalize_string_list(
+                sanitized.get(_ANALYSIS_EXPRESSION_PROFILE_FIELD)
+            )[:5]
             sanitized_tags = _normalize_string_list(sanitized.get("tags"))
             if sanitized_tags:
                 seed["tags"] = sanitized_tags
@@ -1281,9 +1367,34 @@ def _should_skip_tracked_article_enrichment(
     args: argparse.Namespace,
     reuse_bundle_payload: Mapping[str, Any] | None,
 ) -> bool:
-    if getattr(args, "skip_enrich", False):
-        return True
+    # `--skip-enrich` only suppresses an enrichment request. It must not turn
+    # an incomplete reference into permission to enter the creative chain.
     return _reuse_bundle_has_complete_analysis_contract(reuse_bundle_payload)
+
+
+def _require_complete_reuse_analysis_for_skip_enrich(
+    *,
+    args: argparse.Namespace,
+    reuse_bundle_payload: Mapping[str, Any] | None,
+) -> None:
+    if not getattr(args, "skip_enrich", False):
+        return
+    if _reuse_bundle_has_complete_analysis_contract(reuse_bundle_payload):
+        return
+    raise ValueError(
+        "--skip-enrich 只能用于已包含完整参考文章分析合同的 bundle；"
+        "当前分析不完整，已停止进入选题、策略包和正文链路。"
+    )
+
+
+def _require_complete_tracked_article_analysis(partial: Mapping[str, Any]) -> None:
+    tracked_article = partial.get("tracked_article")
+    if isinstance(tracked_article, Mapping) and _mapping_has_complete_analysis_contract(tracked_article):
+        return
+    raise ValueError(
+        "参考文章分析合同不完整，已停止生成选题、策略包和正文。"
+        "请先重新运行参考文章分析，确认分析主题、推进关系、内容支柱和表达风格指纹完整后再继续。"
+    )
 
 
 def _build_tracked_article_enrichment_warning(*, article_slug: str, exc: Exception) -> dict[str, object]:
@@ -1318,6 +1429,43 @@ def _best_effort_enrich_tracked_article(
 
     partial["tracked_article"] = enriched.model_dump()
     return True
+
+
+def _best_effort_generate_topic_with_analysis(
+    *,
+    article_slug: str,
+    article_payload: Any,
+    generate_topic_from_tracked_article: Any,
+    list_tracked_articles: Any,
+    should_skip: bool,
+    partial: dict[str, Any],
+) -> tuple[Any | None, bool]:
+    """Use the combined analysis/topic request for the normal run path."""
+    if should_skip:
+        partial["tracked_article"] = article_payload.model_dump()
+        return None, False
+
+    try:
+        topic = generate_topic_from_tracked_article(
+            article_slug,
+            auto_enrich_analysis=True,
+            analysis_already_attempted=False,
+        )
+    except Exception as exc:
+        partial["tracked_article"] = article_payload.model_dump()
+        partial.setdefault("warnings", []).append(
+            _build_tracked_article_enrichment_warning(article_slug=article_slug, exc=exc)
+        )
+        return None, True
+
+    enriched_article = next(
+        (article for article in list_tracked_articles() if article.slug == article_slug),
+        None,
+    )
+    partial["tracked_article"] = (
+        enriched_article.model_dump() if enriched_article is not None else article_payload.model_dump()
+    )
+    return topic, True
 
 
 def _extract_reuse_strategy_card(
@@ -2896,6 +3044,7 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         get_project_tone_profile,
         import_tracked_articles,
         initialize_store,
+        list_tracked_articles,
         list_tone_profiles,
     )
 
@@ -2934,6 +3083,8 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
             include_assets_publish=False,
             skip_metadata=_should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload),
             reuse_topic=bool(args.reuse_topic_from_bundle and _extract_reuse_topic_seed(reuse_bundle_payload)),
+            skip_ai_preflight=True,
+            perform_model_compatibility_check=False,
         ),
         "request_counts": {"total": 0},
         "artifacts": {
@@ -2972,20 +3123,40 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
         import_result = import_tracked_articles([article_payload], source_kind="manual")
         partial["import_result"] = import_result
 
-        analysis_attempted = _best_effort_enrich_tracked_article(
-            article_slug=article_slug,
-            article_payload=article_payload,
-            enrich_tracked_article_metadata=enrich_tracked_article_metadata,
-            should_skip=_should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload),
-            partial=partial,
-        )
-        partial["analysis_source_identity"] = dict(partial["source_identity"])
-
         reuse_topic_seed = (
             _extract_reuse_topic_seed(reuse_bundle_payload)
             if args.reuse_topic_from_bundle
             else None
         )
+        should_skip_enrichment = _should_skip_tracked_article_enrichment(
+            args=args,
+            reuse_bundle_payload=reuse_bundle_payload,
+        )
+        _require_complete_reuse_analysis_for_skip_enrich(
+            args=args,
+            reuse_bundle_payload=reuse_bundle_payload,
+        )
+        if reuse_topic_seed:
+            analysis_attempted = _best_effort_enrich_tracked_article(
+                article_slug=article_slug,
+                article_payload=article_payload,
+                enrich_tracked_article_metadata=enrich_tracked_article_metadata,
+                should_skip=should_skip_enrichment,
+                partial=partial,
+            )
+            combined_topic = None
+        else:
+            combined_topic, analysis_attempted = _best_effort_generate_topic_with_analysis(
+                article_slug=article_slug,
+                article_payload=article_payload,
+                generate_topic_from_tracked_article=generate_topic_from_tracked_article,
+                list_tracked_articles=list_tracked_articles,
+                should_skip=should_skip_enrichment,
+                partial=partial,
+            )
+        _require_complete_tracked_article_analysis(partial)
+        partial["analysis_source_identity"] = dict(partial["source_identity"])
+
         if reuse_topic_seed:
             reuse_topic_seed = _apply_current_tracked_article_topic_seed_rewrites(
                 topic_seed=reuse_topic_seed,
@@ -3009,13 +3180,12 @@ def _run_export_prompts_mode(args: argparse.Namespace) -> int:
                 ),
             )
             partial["topic_seed"] = reuse_topic_seed
+        elif combined_topic is not None:
+            topic = combined_topic
         else:
             topic = generate_topic_from_tracked_article(
                 article_slug,
-                auto_enrich_analysis=not _should_skip_tracked_article_enrichment(
-                    args=args,
-                    reuse_bundle_payload=reuse_bundle_payload,
-                ),
+                auto_enrich_analysis=not should_skip_enrichment,
                 analysis_already_attempted=analysis_attempted,
             )
         partial["topic"] = topic.model_dump()
@@ -3169,6 +3339,8 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         clear_request_telemetry,
         get_ai_config_summary,
         get_request_telemetry,
+        run_ai_config_check,
+        run_ai_model_compatibility_check,
     )
     from app.services.workbench import (
         _rewrite_everyday_warmth_return_topic,
@@ -3192,6 +3364,7 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         initialize_store,
         import_tracked_articles,
         list_tone_profiles,
+        list_tracked_articles,
     )
 
     run_id = output_dir.name
@@ -3229,6 +3402,7 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
             include_assets_publish=args.include_assets_publish,
             skip_metadata=_should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload),
             reuse_topic=bool(args.reuse_topic_from_bundle and _extract_reuse_topic_seed(reuse_bundle_payload)),
+            skip_ai_preflight=args.skip_ai_preflight,
         ),
         "request_counts": {"total": 0},
         "artifacts": {
@@ -3244,9 +3418,6 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         "ai_config": get_ai_config_summary().model_dump(),
     }
     begin_request_telemetry()
-    if args.probe_ai_routes:
-        partial["ai_text_routes_probe"] = _probe_ai_text_routes()
-        partial["ai_image_routes_probe"] = _probe_ai_image_routes()
     partial["artifacts"]["external_detector_templates"] = _build_external_detector_templates(
         output_dir=output_dir,
         source_file=str(source_detector_text_path),
@@ -3256,6 +3427,40 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
     _persist_result_snapshot(result_path, partial, stage="initialized")
 
     try:
+        if args.skip_ai_preflight:
+            preflight = run_ai_model_compatibility_check()
+            partial["ai_model_compatibility"] = preflight.model_dump()
+            preflight_stage = "ai_model_compatibility"
+        else:
+            preflight = run_ai_config_check()
+            partial["ai_preflight"] = preflight.model_dump()
+            preflight_stage = "ai_preflight"
+        _update_request_telemetry(
+            partial,
+            telemetry=get_request_telemetry(),
+            budget=partial["request_budget"],
+        )
+        if not preflight.ok:
+            partial["status"] = "failed"
+            partial["error"] = {
+                "type": "AIConfigPreflightError",
+                "message": preflight.message,
+            }
+            _persist_result_snapshot(
+                result_path,
+                partial,
+                stage=f"{preflight_stage}_failed",
+                runtime_db_path=runtime_db_path,
+                bundle_db_path=bundle_db_path,
+            )
+            clear_request_telemetry()
+            _safe_print_json(partial)
+            return 1
+
+        if args.probe_ai_routes:
+            partial["ai_text_routes_probe"] = _probe_ai_text_routes()
+            partial["ai_image_routes_probe"] = _probe_ai_image_routes()
+
         initialize_store(reset=True)
         tone_profile_backend = {
             "list_tone_profiles": list_tone_profiles,
@@ -3273,20 +3478,40 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
         import_result = import_tracked_articles([article_payload], source_kind="manual")
         partial["import_result"] = import_result
 
-        analysis_attempted = _best_effort_enrich_tracked_article(
-            article_slug=article_slug,
-            article_payload=article_payload,
-            enrich_tracked_article_metadata=enrich_tracked_article_metadata,
-            should_skip=_should_skip_tracked_article_enrichment(args=args, reuse_bundle_payload=reuse_bundle_payload),
-            partial=partial,
-        )
-        partial["analysis_source_identity"] = dict(partial["source_identity"])
-
         reuse_topic_seed = (
             _extract_reuse_topic_seed(reuse_bundle_payload)
             if args.reuse_topic_from_bundle
             else None
         )
+        should_skip_enrichment = _should_skip_tracked_article_enrichment(
+            args=args,
+            reuse_bundle_payload=reuse_bundle_payload,
+        )
+        _require_complete_reuse_analysis_for_skip_enrich(
+            args=args,
+            reuse_bundle_payload=reuse_bundle_payload,
+        )
+        if reuse_topic_seed:
+            analysis_attempted = _best_effort_enrich_tracked_article(
+                article_slug=article_slug,
+                article_payload=article_payload,
+                enrich_tracked_article_metadata=enrich_tracked_article_metadata,
+                should_skip=should_skip_enrichment,
+                partial=partial,
+            )
+            combined_topic = None
+        else:
+            combined_topic, analysis_attempted = _best_effort_generate_topic_with_analysis(
+                article_slug=article_slug,
+                article_payload=article_payload,
+                generate_topic_from_tracked_article=generate_topic_from_tracked_article,
+                list_tracked_articles=list_tracked_articles,
+                should_skip=should_skip_enrichment,
+                partial=partial,
+            )
+        _require_complete_tracked_article_analysis(partial)
+        partial["analysis_source_identity"] = dict(partial["source_identity"])
+
         if reuse_topic_seed:
             reuse_topic_seed = _apply_current_tracked_article_topic_seed_rewrites(
                 topic_seed=reuse_topic_seed,
@@ -3310,13 +3535,12 @@ def _run_pipeline_mode(args: argparse.Namespace) -> int:
                 ),
             )
             partial["topic_seed"] = reuse_topic_seed
+        elif combined_topic is not None:
+            topic = combined_topic
         else:
             topic = generate_topic_from_tracked_article(
                 article_slug,
-                auto_enrich_analysis=not _should_skip_tracked_article_enrichment(
-                    args=args,
-                    reuse_bundle_payload=reuse_bundle_payload,
-                ),
+                auto_enrich_analysis=not should_skip_enrichment,
                 analysis_already_attempted=analysis_attempted,
             )
         partial["topic"] = topic.model_dump()
@@ -3542,6 +3766,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--probe-ai-routes",
         action="store_true",
         help="Probe the current text and image AI routes, then persist the route status into result.json.",
+    )
+    parser.add_argument(
+        "--skip-ai-preflight",
+        action="store_true",
+        help="Skip the text-generation probe, but keep the zero-token model compatibility check before pipeline mode.",
     )
     parser.add_argument("--openai-image-fallback-api-key", default=None, help="Optional OPENAI_IMAGE_FALLBACK_API_KEY override for this run only.")
     parser.add_argument("--openai-image-fallback-base-url", default=None, help="Optional OPENAI_IMAGE_FALLBACK_BASE_URL override for this run only.")

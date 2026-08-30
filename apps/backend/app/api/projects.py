@@ -134,8 +134,14 @@ def post_regenerate_cover_image(project_slug: str) -> dict[str, object]:
 
 
 @router.post("/{project_slug}/build-publish-package", status_code=201)
-def post_build_publish_package(project_slug: str) -> dict[str, object]:
-    return build_publish_package(project_slug).model_dump()
+def post_build_publish_package(
+    project_slug: str,
+    payload: BuildPublishPackageAction | None = None,
+) -> dict[str, object]:
+    return build_publish_package(
+        project_slug,
+        wechat_html_style_key=payload.wechat_html_style_key if payload else None,
+    ).model_dump()
 
 
 @router.post("/{project_slug}/build-publish-package/background", status_code=status.HTTP_202_ACCEPTED)
@@ -149,17 +155,29 @@ def post_build_publish_package_background(
             {
                 "project_slug": project_slug,
                 "polish_instruction": payload.polish_instruction,
+                "wechat_html_style_key": payload.wechat_html_style_key,
             },
         ).model_dump()
     return submit_background_task(
         "build_publish_package",
-        {"project_slug": project_slug},
+        {
+            "project_slug": project_slug,
+            "wechat_html_style_key": payload.wechat_html_style_key if payload else None,
+        },
     ).model_dump()
 
 
 @router.post("/{project_slug}/approve-publish-package")
 def post_approve_publish_package(project_slug: str, payload: PublishReviewAction) -> dict[str, object]:
     return approve_publish_package(project_slug, reviewer=payload.reviewer, comment=payload.comment).model_dump()
+
+
+@router.post("/{project_slug}/publish-wechat-draft/background", status_code=status.HTTP_202_ACCEPTED)
+def post_publish_wechat_draft_background(project_slug: str) -> dict[str, object]:
+    return submit_background_task(
+        "publish_wechat_mp_draft",
+        {"project_slug": project_slug},
+    ).model_dump()
 
 
 @router.post("/{project_slug}/retro")
