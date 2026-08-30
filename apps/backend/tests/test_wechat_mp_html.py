@@ -62,6 +62,23 @@ print('<安全内容>')
     assert document.startswith("<!doctype html>")
     assert '<title>文章标题</title>' in document
     assert '<body style="' in document
+    assert '<h1 style="' in document
+
+
+def test_build_wechat_preview_document_includes_publish_metadata() -> None:
+    rendered = render_wechat_html("正文内容", title="文章标题")
+
+    document = build_wechat_preview_document(
+        rendered,
+        title="文章标题",
+        lead="这是文章导语。",
+        cover_image_url="/generated-assets/cover.png",
+    )
+
+    assert '<h1 style="' in document
+    assert "文章标题" in document
+    assert "这是文章导语。" in document
+    assert '<img src="/generated-assets/cover.png" alt="文章标题" style="' in document
 
 
 def test_render_wechat_html_downgrades_later_h1_to_h2() -> None:

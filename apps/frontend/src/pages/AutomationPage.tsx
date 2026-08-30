@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { Link } from "react-router-dom";
 import {
   createAutomationSubscription,
   disableAutomationSubscription,
@@ -16,6 +17,7 @@ import {
   type AutomationSubscription,
   type WechatMpSessionStatus,
 } from "../api/workbench";
+import { resolveBackendAssetUrl } from "../view-models/workbenchPreview";
 import {
   type AutomationAccount,
   canRetryAutomationRun,
@@ -345,7 +347,7 @@ export function AutomationPage() {
 
       <section className="workspace-section automation-page__runs">
         <div className="workspace-section__header"><div><p className="workspace-section__eyebrow">Run history</p><h3>运行记录与预览</h3><p className="workspace-section__description">每条失败记录都保留当前阶段；重试会沿用已写入的工作流，不重新创建已完成的文章。</p></div><button className="dashboard-button dashboard-button--ghost" type="button" onClick={() => void reload()} disabled={pendingAction !== null}>刷新记录</button></div>
-        {runs.length === 0 ? <div className="workspace-note workspace-note--info">还没有自动化运行记录。可以点击订阅上的“立即运行”验证当前扫码会话。</div> : <div className="automation-run-list">{runs.map((run) => <article key={run.id} className="automation-run"><div className="automation-run__header"><div><h4>{getAutomationRunDisplayTitle(run)}</h4><p>运行 #{run.id} · {run.trigger === "scheduled" ? "定时" : run.trigger === "retry" ? "重试" : "手动"} · {formatDateTime(run.created_at)}</p></div><span className={run.status === "failed" ? "workspace-pill workspace-pill--danger" : run.status === "completed" ? "workspace-pill workspace-pill--success" : "workspace-pill"}>{formatAutomationRunStatus(run)}</span></div><div className="automation-run__meta"><span>抓取 {run.fetched_count} · 新增 {run.imported_count} · 跳过 {run.skipped_count}</span><span>{formatDraftStatus(run)}</span><span>{run.style_name ? `排版：${run.style_name}` : "排版待生成"}</span></div>{run.error ? <div className="workspace-note workspace-note--error"><strong>失败原因：</strong>{run.error}</div> : null}<div className="workspace-actions">{run.source_url ? <a className="dashboard-inline-link dashboard-inline-link--compact" href={run.source_url} target="_blank" rel="noreferrer">查看来源文章</a> : null}{run.project_url ? <a className="dashboard-inline-link dashboard-inline-link--compact" href={run.project_url}>打开项目预览</a> : null}{run.preview_url ? <a className="dashboard-inline-link dashboard-inline-link--compact" href={run.preview_url} target="_blank" rel="noreferrer">查看 HTML 排版</a> : null}{canRetryAutomationRun(run) ? <button className="dashboard-button dashboard-button--compact" type="button" onClick={() => void handleRetry(run)} disabled={pendingAction !== null}>{pendingAction === `retry-${run.id}` ? "提交中..." : "沿用工作流重试"}</button> : null}</div></article>)}</div>}
+        {runs.length === 0 ? <div className="workspace-note workspace-note--info">还没有自动化运行记录。可以点击订阅上的“立即运行”验证当前扫码会话。</div> : <div className="automation-run-list">{runs.map((run) => <article key={run.id} className="automation-run"><div className="automation-run__header"><div><h4>{getAutomationRunDisplayTitle(run)}</h4><p>运行 #{run.id} · {run.trigger === "scheduled" ? "定时" : run.trigger === "retry" ? "重试" : "手动"} · {formatDateTime(run.created_at)}</p></div><span className={run.status === "failed" ? "workspace-pill workspace-pill--danger" : run.status === "completed" ? "workspace-pill workspace-pill--success" : "workspace-pill"}>{formatAutomationRunStatus(run)}</span></div><div className="automation-run__meta"><span>抓取 {run.fetched_count} · 新增 {run.imported_count} · 跳过 {run.skipped_count}</span><span>{formatDraftStatus(run)}</span><span>{run.style_name ? `排版：${run.style_name}` : "排版待生成"}</span></div>{run.error ? <div className="workspace-note workspace-note--error"><strong>失败原因：</strong>{run.error}</div> : null}<div className="workspace-actions workspace-actions--row automation-run__actions" aria-label="运行记录操作">{run.source_url ? <a className="dashboard-inline-link dashboard-inline-link--compact" href={run.source_url} target="_blank" rel="noreferrer">查看来源文章</a> : null}{run.project_url ? <Link className="dashboard-inline-link dashboard-inline-link--compact" to={run.project_url}>打开项目预览</Link> : null}{run.preview_url ? <a className="dashboard-inline-link dashboard-inline-link--compact" href={resolveBackendAssetUrl(run.preview_url)} target="_blank" rel="noreferrer">查看 HTML 排版</a> : null}{canRetryAutomationRun(run) ? <button className="dashboard-button dashboard-button--compact" type="button" onClick={() => void handleRetry(run)} disabled={pendingAction !== null}>{pendingAction === `retry-${run.id}` ? "提交中..." : "沿用工作流重试"}</button> : null}</div></article>)}</div>}
       </section>
     </section>
   );

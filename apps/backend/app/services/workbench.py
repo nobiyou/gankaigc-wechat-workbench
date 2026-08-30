@@ -24898,23 +24898,30 @@ def _create_publish_package(
             markdown_url = f"/generated-assets/{markdown_filename}"
             html_url = f"/generated-assets/{html_filename}"
             manifest_url = f"/generated-assets/{manifest_filename}"
+            publish_markdown_args = {
+                "project_title": project["title"],
+                "draft_title": draft_title,
+                "draft_body": draft_body_markdown,
+                "assets": assets,
+                "abstract": str(ai_result["abstract"]),
+                "tags": list(ai_result["tags"]),
+                "publish_checklist": publish_checklist,
+                "editor_note": str(ai_result["editor_note"]),
+                "publish_title": publish_title,
+                "publish_lead": publish_lead,
+                "intro_options": intro_options,
+                "tone_profile_name": effective_tone_profile_name,
+            }
             markdown_body = _build_publish_markdown(
-                project_title=project["title"],
-                draft_title=draft_title,
-                draft_body=draft_body_markdown,
-                assets=assets,
-                abstract=str(ai_result["abstract"]),
-                tags=list(ai_result["tags"]),
-                publish_checklist=publish_checklist,
-                editor_note=str(ai_result["editor_note"]),
-                publish_title=publish_title,
-                publish_lead=publish_lead,
-                intro_options=intro_options,
-                tone_profile_name=effective_tone_profile_name,
+                **publish_markdown_args,
+            )
+            html_markdown_body = _build_publish_markdown(
+                **publish_markdown_args,
+                include_lead=False,
             )
             try:
                 rendered_html = render_wechat_html(
-                    markdown_body,
+                    html_markdown_body,
                     base_dir=GENERATED_ASSETS_DIR,
                     image_resolver=_resolve_publish_preview_image,
                     title=publish_title or draft_title,
@@ -24923,6 +24930,8 @@ def _create_publish_package(
                 html_body = build_wechat_preview_document(
                     rendered_html,
                     title=publish_title or draft_title,
+                    lead=_normalize_publish_lead(publish_lead, draft_body_markdown),
+                    cover_image_url=assets.cover_image_url,
                 )
             except WechatMpHtmlRenderError as exc:
                 raise HTTPException(status_code=409, detail=f"发布包 HTML 生成失败：{exc}") from None
@@ -25560,13 +25569,25 @@ def _build_publish_markdown(
     publish_lead: str,
     intro_options: list[str],
     tone_profile_name: str | None,
+    include_lead: bool = True,
 ) -> str:
     sections = [f"# {publish_title or draft_title}".strip()]
-    lead = str(publish_lead or "").strip()
     body = str(draft_body or "").strip()
-    if lead and body:
+    lead = _normalize_publish_lead(publish_lead, body)
+
+    if include_lead and lead:
+        sections.append(lead)
+    if body:
+        sections.append(body)
+    return "\n\n".join(section for section in sections if section).rstrip() + "\n"
+
+
+def _normalize_publish_lead(publish_lead: str, body: str) -> str:
+    lead = str(publish_lead or "").strip()
+    normalized_body = str(body or "").strip()
+    if lead and normalized_body:
         first_body_sentence = ""
-        for paragraph in _extract_non_heading_paragraphs(body):
+        for paragraph in _extract_non_heading_paragraphs(normalized_body):
             sentences = _split_block_sentences(paragraph)
             if sentences:
                 first_body_sentence = sentences[0].strip()
@@ -25575,11 +25596,7 @@ def _build_publish_markdown(
             trimmed_lead = lead[len(first_body_sentence) :].lstrip("，,；;。.!?？、 ").strip()
             if trimmed_lead:
                 lead = trimmed_lead
-    if lead:
-        sections.append(lead)
-    if body:
-        sections.append(body)
-    return "\n\n".join(section for section in sections if section).rstrip() + "\n"
+    return lead
 
 
 def get_dashboard_summary() -> dict[str, object]:

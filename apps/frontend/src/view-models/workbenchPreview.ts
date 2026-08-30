@@ -24,6 +24,17 @@ const API_BASE_URL =
     ? (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL
     : undefined) ?? "http://localhost:8000/api";
 
+export function resolveBackendAssetUrl(path: string | null | undefined): string {
+  const normalizedPath = path?.trim();
+  if (!normalizedPath) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(normalizedPath)) {
+    return normalizedPath;
+  }
+  return new URL(normalizedPath, `${new URL(API_BASE_URL).origin}/`).toString();
+}
+
 function joinLines(lines: Array<string | null | undefined>): string {
   return lines
     .map((line) => line?.trim())
@@ -44,17 +55,6 @@ function buildPublishArticleMarkdown(title: string, bodyMarkdown: string): strin
   }
 
   return normalizedTitle ? `# ${normalizedTitle}\n\n${normalizedBody}` : normalizedBody;
-}
-
-function resolvePreviewAssetUrl(path: string | null | undefined): string {
-  const normalizedPath = path?.trim();
-  if (!normalizedPath) {
-    return "";
-  }
-  if (/^https?:\/\//i.test(normalizedPath)) {
-    return normalizedPath;
-  }
-  return new URL(normalizedPath, `${new URL(API_BASE_URL).origin}/`).toString();
 }
 
 type PublishPackagePreviewItem = NonNullable<ProjectDetail["publish_package"]>;
@@ -102,7 +102,7 @@ function buildPublishCoverPreviewBlock(detail: ProjectDetail): WorkbenchPreviewB
     return null;
   }
 
-  const imageUrl = resolvePreviewAssetUrl(asset.cover_image_url);
+  const imageUrl = resolveBackendAssetUrl(asset.cover_image_url);
   return {
     key: "publish-cover-image",
     label: "公众号封面预览",
@@ -795,7 +795,7 @@ export function buildWorkbenchPreview(
         label: "封面图",
         content: detail.assets.cover_image_url || "未生成（图片服务暂时不可用）",
         kind: detail.assets.cover_image_url ? "image" : "text",
-        imageUrl: resolvePreviewAssetUrl(detail.assets.cover_image_url),
+        imageUrl: resolveBackendAssetUrl(detail.assets.cover_image_url),
       },
     ];
 
@@ -923,7 +923,7 @@ export function buildWorkbenchPreview(
 
     if (detail.draft) {
       const articleMarkdown = buildPublishArticleMarkdown(detail.draft.title, detail.draft.body_markdown);
-      const articleHtmlUrl = resolvePreviewAssetUrl(detail.publish_package?.html_url);
+      const articleHtmlUrl = resolveBackendAssetUrl(detail.publish_package?.html_url);
       blocks.push(
         articleHtmlUrl
           ? {

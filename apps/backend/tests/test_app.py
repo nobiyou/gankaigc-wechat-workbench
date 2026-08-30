@@ -6363,6 +6363,10 @@ def test_generate_outline_draft_assets_and_publish_package_for_project(monkeypat
     html_text = Path(publish_package["html_path"]).read_text(encoding="utf-8")
     assert html_text.startswith("<!doctype html>")
     assert '<title>不是你矫情，是你真的太久没休息了</title>' in html_text
+    assert '<h1 style="' in html_text
+    assert "从情绪崩点写到恢复动作" in html_text
+    assert html_text.count("从情绪崩点写到恢复动作") == 1
+    assert '<img src="/generated-assets/office-burnout-recovery-weekly-assets-v1.png"' in html_text
     assert '<p style="' in html_text
     assert "<style" not in html_text
 

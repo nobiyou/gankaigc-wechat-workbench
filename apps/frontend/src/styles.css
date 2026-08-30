@@ -1885,6 +1885,17 @@ a {
   min-width: 82px;
 }
 
+.automation-run__actions {
+  justify-content: flex-end;
+  padding-top: 14px;
+  border-top: 1px solid rgba(146, 64, 14, 0.09);
+}
+
+.automation-run__actions .dashboard-inline-link,
+.automation-run__actions .dashboard-button {
+  min-height: 36px;
+}
+
 .workspace-pill--success {
   background: rgba(22, 101, 52, 0.12);
   color: #166534;
@@ -1946,5 +1957,9 @@ a {
 
   .automation-subscription .workspace-actions .dashboard-button {
     flex: 1 1 0;
+  }
+
+  .automation-run__actions {
+    justify-content: flex-start;
   }
 }

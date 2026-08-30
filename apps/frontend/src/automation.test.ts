@@ -10,6 +10,7 @@ import {
   formatAutomationSchedule,
   getAutomationAccountIdentity,
 } from "./automation.ts";
+import { resolveBackendAssetUrl } from "./view-models/workbenchPreview.ts";
 
 function test(name: string, fn: () => void) {
   try {
@@ -153,4 +154,16 @@ test("duplicate subscription errors point to editing the existing subscription",
     "该公众号已经有订阅，请在右侧订阅列表中点击“编辑”修改。",
   );
   assert.equal(formatAutomationSaveError(new Error("network unavailable")), "network unavailable");
+});
+
+test("generated asset links resolve against the backend origin", () => {
+  assert.equal(
+    resolveBackendAssetUrl("/generated-assets/run-preview.html"),
+    "http://localhost:8000/generated-assets/run-preview.html",
+  );
+  assert.equal(
+    resolveBackendAssetUrl("https://cdn.example.com/run-preview.html"),
+    "https://cdn.example.com/run-preview.html",
+  );
+  assert.equal(resolveBackendAssetUrl("  "), "");
 });

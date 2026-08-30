@@ -218,18 +218,38 @@ def build_wechat_preview_document(
     rendered: WechatMpHtmlRenderResult,
     *,
     title: str | None = None,
+    lead: str | None = None,
+    cover_image_url: str | None = None,
 ) -> str:
     """Wrap the shared article fragment in a standalone local-preview document."""
 
     document_title = _clean_title(title if title is not None else rendered.title)
     style = get_wechat_mp_html_style(rendered.style_key)
+    header_blocks: list[str] = []
+    if document_title:
+        header_blocks.append(
+            f'<h1 style="{style.style_for("h1")}">{html.escape(document_title, quote=False)}</h1>'
+        )
+    normalized_cover_image_url = str(cover_image_url or "").strip()
+    if normalized_cover_image_url:
+        header_blocks.append(
+            f'<img src="{html.escape(normalized_cover_image_url, quote=True)}" '
+            f'alt="{html.escape(document_title, quote=True)}" style="{style.style_for("img")}">'
+        )
+    normalized_lead = str(lead or "").strip()
+    if normalized_lead:
+        header_blocks.append(
+            f'<p style="{style.style_for("p")}font-weight:650;">'
+            f"{html.escape(normalized_lead, quote=False)}</p>"
+        )
+    header_html = "".join(header_blocks)
     return (
         "<!doctype html>"
         '<html lang="zh-CN"><head>'
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{html.escape(document_title, quote=False)}</title>"
-        f'</head><body style="box-sizing:border-box;{style.body_style}">{rendered.body_html}</body></html>'
+        f'</head><body style="box-sizing:border-box;{style.body_style}">{header_html}{rendered.body_html}</body></html>'
     )
 
 
