@@ -8651,7 +8651,7 @@ def test_generate_assets_skips_packaging_quality_retry_by_default(monkeypatch) -
     assert "那句我没事" in assets.recommended_title
 
 
-def test_generate_assets_skips_cover_api_when_packaging_quality_gate_still_fails(monkeypatch) -> None:
+def test_generate_assets_continues_to_cover_api_when_packaging_quality_gate_still_fails(monkeypatch) -> None:
     client.post(
         "/api/tracked-articles",
         json={
@@ -8693,6 +8693,7 @@ def test_generate_assets_skips_cover_api_when_packaging_quality_gate_still_fails
         def __init__(self) -> None:
             self.asset_calls: list[dict[str, object]] = []
             self.cover_calls: list[dict[str, object]] = []
+            self.publish_calls: list[dict[str, object]] = []
 
         def generate_outline(self, payload: dict[str, object]) -> dict[str, str]:
             return {
@@ -8719,7 +8720,18 @@ def test_generate_assets_skips_cover_api_when_packaging_quality_gate_still_fails
 
         def generate_cover_image(self, payload: dict[str, object]) -> bytes:
             self.cover_calls.append(dict(payload))
-            raise AssertionError("cover image API should not run when assets packaging is quality-blocked")
+            return b"img"
+
+        def generate_publish_package(self, payload: dict[str, object]) -> dict[str, object]:
+            self.publish_calls.append(dict(payload))
+            return {
+                "abstract": "先把生活接住，也别忘了给自己留一点余地。",
+                "tags": ["生活", "自我照顾"],
+                "editor_note": "保留正文的现实感，不把质量提示误当成发布阻断。",
+                "publish_title": "肩上有责任的人，心里也要留一盏灯",
+                "publish_lead": "生活需要被接住，自己也需要被看见。",
+                "intro_options": ["生活需要被接住，自己也需要被看见。"],
+            }
 
     fake_generator = FakeGenerator()
     monkeypatch.setattr(workbench, "get_ai_generator", lambda: fake_generator, raising=False)
@@ -8737,24 +8749,37 @@ def test_generate_assets_skips_cover_api_when_packaging_quality_gate_still_fails
     assets = workbench.generate_assets("assets-quality-blocked-project")
 
     assert len(fake_generator.asset_calls) == 1
-    assert fake_generator.cover_calls == []
-    assert assets.cover_image_status == "quality_blocked"
-    assert "已跳过封面图 API" in str(assets.cover_image_error)
+    assert len(fake_generator.cover_calls) == 1
+    assert assets.cover_image_status == "ready"
+    assert assets.cover_image_url
+    assert assets.cover_image_error is None
     detail = workbench.get_project_detail("assets-quality-blocked-project")
-    assert detail.project.stage == "assets_quality_blocked"
-    assert detail.project.current_chain_state == "assets_quality_blocked"
-    assert detail.project.next_required_step == "generate_assets"
+    assert detail.project.stage == "assets_ready"
+    assert detail.project.current_chain_state == "assets_ready"
+    assert detail.project.next_required_step == "build_publish_package"
 
-    with pytest.raises(HTTPException) as exc_info:
-        workbench.build_publish_package("assets-quality-blocked-project")
-    assert exc_info.value.status_code == 409
-    assert "素材包装未通过主题质量门" in str(exc_info.value.detail)
+    package = workbench.build_publish_package("assets-quality-blocked-project")
+    assert package.status == "ready"
+    assert Path(package.markdown_path).is_file()
+    assert Path(package.html_path).is_file()
+    assert Path(package.manifest_path).is_file()
+    assert len(fake_generator.publish_calls) == 1
 
-    with pytest.raises(HTTPException) as cover_exc_info:
-        workbench.regenerate_cover_image("assets-quality-blocked-project")
-    assert cover_exc_info.value.status_code == 409
-    assert "素材包装未通过主题质量门" in str(cover_exc_info.value.detail)
-    assert fake_generator.cover_calls == []
+    with workbench._get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE assets
+            SET cover_image_status = 'quality_blocked', cover_image_path = '', cover_image_url = '',
+                cover_image_error = '历史版本遗留质量门状态'
+            WHERE project_slug = ? AND version = ?
+            """,
+            ("assets-quality-blocked-project", assets.version),
+        )
+        connection.commit()
+
+    recovered_cover = workbench.regenerate_cover_image("assets-quality-blocked-project")
+    assert recovered_cover.cover_image_status == "ready"
+    assert len(fake_generator.cover_calls) == 2
 
     restored_assets = workbench.restore_assets_version("assets-quality-blocked-project", assets.version)
     assert restored_assets.cover_image_status == "quality_blocked"
@@ -8764,14 +8789,16 @@ def test_generate_assets_skips_cover_api_when_packaging_quality_gate_still_fails
     assert restored_detail.project.next_required_step == "generate_assets"
 
     batch_result = workbench.batch_continue_projects(["assets-quality-blocked-project"])
-    assert batch_result.processed_count == 0
+    assert batch_result.processed_count == 1
     assert batch_result.failed_count == 0
-    assert batch_result.skipped_count == 1
-    assert batch_result.results[0].status == "blocked"
+    assert batch_result.skipped_count == 0
+    assert batch_result.results[0].status == "done"
     assert batch_result.results[0].started_next_step == "generate_assets"
-    assert batch_result.results[0].completed_steps == []
-    assert "素材包装未通过主题质量门" in str(batch_result.results[0].error)
-    assert len(fake_generator.asset_calls) == 1
+    assert batch_result.results[0].completed_steps == ["generate_assets", "build_publish_package"]
+    assert batch_result.results[0].error is None
+    assert len(fake_generator.asset_calls) == 2
+    assert len(fake_generator.cover_calls) == 3
+    assert len(fake_generator.publish_calls) == 2
 
 
 def test_build_publish_package_keeps_api_result_when_packaging_retry_stays_generic(monkeypatch) -> None:

@@ -7859,7 +7859,7 @@ def _build_recomposition_recipe(
     if "imperative_title_banner" in shell_signals:
         recipe.append("如果参考标题本身是“别…… / 不要……”式提醒句，你的新标题必须改成情绪发动机入口，不能再像劝告。")
     if "banner_case_banner_case_banner" in shell_signals or "imperative_heading_chain" in shell_signals:
-        recipe.append("正文默认不用分节小标题，整篇靠自然段推进；如果出现小标题，必须确保它不是命令句，也不负责替段落下结论。")
+        recipe.append("不要照搬参考文的分节小标题；正文可按新主题自拟 2 到 4 个简洁的 ## 小标题，也可在连续场景自然时少用；小标题不能是命令句、目录标签或替段落下结论。")
     if "self_check_triplet_closing" in shell_signals or "quoted_waiting_list" in shell_signals:
         recipe.append("尾段不要做三连问、三连引语或自查清单；只留一个最小但真实的余波动作。")
     if "blessing_close" in shell_signals:

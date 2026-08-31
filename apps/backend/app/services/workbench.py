@@ -23843,15 +23843,6 @@ def regenerate_cover_image(project_slug: str) -> AssetItem:
             ).fetchone()
             if not assets_row:
                 raise HTTPException(status_code=409, detail="Assets not generated")
-            if str(assets_row["cover_image_status"] or "pending") == "quality_blocked":
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "封面图暂未重生成：素材包装未通过主题质量门。请先重新生成素材包，再生成封面图。"
-                        + (f" 原始返回：{assets_row['cover_image_error']}" if assets_row["cover_image_error"] else "")
-                    ),
-                )
-
             current = connection.execute(
                 "SELECT COALESCE(MAX(version), 0) AS version FROM assets WHERE project_slug = ?",
                 (project_slug,),
@@ -24308,45 +24299,38 @@ def _generate_assets(project_slug: str, *, review_comment: str | None = None) ->
             cover_image_route_label: str | None = None
             cover_image_route_model: str | None = None
             cover_image_route_base_url: str | None = None
-            packaging_quality_blocked = (
-                str(project["source_type"]) == "tracked_article"
-                and bool(assets_packaging_quality_failed)
-            )
-            if packaging_quality_blocked:
-                cover_image_status = "quality_blocked"
-                cover_image_error = "素材包装未通过主题质量门，已跳过封面图 API。请先重新生成素材包。"
+            if assets_packaging_quality_failed:
                 logger.warning(
-                    "Assets packaging quality gate failed for project %s; skipping cover image API call.",
+                    "Assets packaging quality gate failed for project %s; continuing with cover image API so the publish package can be completed.",
+                    project_slug,
+                )
+            try:
+                cover_result = _generate_cover_image_file(
+                    generator=generator,
+                    project_slug=project_slug,
+                    project_title=str(project["title"]),
+                    normalized_cover_prompt=normalized_cover_prompt,
+                    cover_copy=str(ai_result["cover_copy"]),
+                    cover_file_path=cover_file_path,
+                )
+            except HTTPException as exc:
+                if exc.status_code != 502:
+                    raise
+                cover_image_error = str(exc.detail)
+                cover_image_route_label = getattr(exc, "cover_image_route_label", None)
+                cover_image_route_model = getattr(exc, "cover_image_route_model", None)
+                cover_image_route_base_url = getattr(exc, "cover_image_route_base_url", None)
+                logger.warning(
+                    "Cover image remains pending for project %s; preserving generated text assets for API retry.",
                     project_slug,
                 )
             else:
-                try:
-                    cover_result = _generate_cover_image_file(
-                        generator=generator,
-                        project_slug=project_slug,
-                        project_title=str(project["title"]),
-                        normalized_cover_prompt=normalized_cover_prompt,
-                        cover_copy=str(ai_result["cover_copy"]),
-                        cover_file_path=cover_file_path,
-                    )
-                except HTTPException as exc:
-                    if exc.status_code != 502:
-                        raise
-                    cover_image_error = str(exc.detail)
-                    cover_image_route_label = getattr(exc, "cover_image_route_label", None)
-                    cover_image_route_model = getattr(exc, "cover_image_route_model", None)
-                    cover_image_route_base_url = getattr(exc, "cover_image_route_base_url", None)
-                    logger.warning(
-                        "Cover image remains pending for project %s; preserving generated text assets for API retry.",
-                        project_slug,
-                    )
-                else:
-                    cover_image_path = cover_result.path
-                    cover_image_url = cover_result.url
-                    cover_image_status = "ready"
-                    cover_image_route_label = cover_result.route_label
-                    cover_image_route_model = cover_result.route_model
-                    cover_image_route_base_url = cover_result.route_base_url
+                cover_image_path = cover_result.path
+                cover_image_url = cover_result.url
+                cover_image_status = "ready"
+                cover_image_route_label = cover_result.route_label
+                cover_image_route_model = cover_result.route_model
+                cover_image_route_base_url = cover_result.route_base_url
             connection.execute(
                 """
                 INSERT INTO assets (
@@ -24682,14 +24666,6 @@ def _create_publish_package(
             )
         assets = _hydrate_asset_row(assets_row)
         if assets.cover_image_status != "ready" or not assets.cover_image_url.strip():
-            if assets.cover_image_status == "quality_blocked":
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "发布包暂未生成：素材包装未通过主题质量门。请先重新生成素材包，再生成封面和发布包。"
-                        + (f" 原始返回：{assets.cover_image_error}" if assets.cover_image_error else "")
-                    ),
-                )
             cover_pending_error = HTTPException(
                 status_code=409,
                 detail=(
@@ -25724,19 +25700,6 @@ def batch_continue_projects(project_slugs: list[str] | None = None) -> BatchCont
                 )
             )
             continue
-        if project.current_chain_state == "assets_quality_blocked":
-            skipped_count += 1
-            results.append(
-                BatchContinueProjectResult(
-                    slug=project.slug,
-                    status="blocked",
-                    started_next_step=started_next_step,
-                    error="素材包装未通过主题质量门；批量续链已停止，避免重复消耗文本和图片 API。请先重新生成素材包。",
-                    project=project,
-                )
-            )
-            continue
-
         completed_steps: list[str] = []
         try:
             current_project = project

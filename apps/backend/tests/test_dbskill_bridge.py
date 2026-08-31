@@ -255,7 +255,7 @@ def test_build_strategy_package_adds_recomposition_recipe_for_shell_heavy_source
     )
 
     assert any("标题和开头都换成新的现实入口" in item for item in result.strategy_card.recomposition_recipe)
-    assert any("正文默认不用分节小标题" in item for item in result.strategy_card.recomposition_recipe)
+    assert any("不要照搬参考文的分节小标题" in item for item in result.strategy_card.recomposition_recipe)
     assert any("最后一句不要写成“愿你 / 愿我们 / 希望你”式抚慰总结" in item for item in result.strategy_card.recomposition_recipe)
 
 

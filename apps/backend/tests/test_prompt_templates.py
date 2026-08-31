@@ -322,7 +322,9 @@ def test_responsibility_contract_requires_a_physical_family_entry_not_a_message(
     assert "某人发来消息" in combined
     assert "首段禁止用手机、短信、微信、电话、来电、聊天窗口、回消息、回复或朋友圈作为事件触发器" in variant_combined
     assert "body_markdown 直接从第一段正文开始" in combined
-    assert "不重复标题、不另起副标题、不使用 # 或 ## 小标题" in combined
+    assert "不重复主标题，也不另起副标题" in combined
+    assert "按内容自然安排 2 到 4 个 ## 小标题" in combined
+    assert "允许少量 > 重点句和 **重点短语**" in combined
 
 
 def test_complete_contract_treats_reference_opening_as_function_not_draft_material() -> None:
@@ -1764,7 +1766,7 @@ def test_build_outline_and_draft_prompt_surface_recomposition_recipe() -> None:
             "ending_move": "收在一个没发出去的动作上。",
             "recomposition_recipe": [
                 "标题和开头都改成具体处境入口：标题不用命令句或判断句，首段先落一个能摸到的动作。",
-                "正文默认不用分节小标题，整篇靠自然段推进。",
+                "不要照搬参考文分节小标题，可按新主题自拟 2 到 4 个 ## 小标题，不机械分节。",
                 "结尾只收在一个还没完全处理完的小动作上，不提问、不祝福、不列清单。",
             ],
             "expression_constraints": ["不要用口号式收尾"],
@@ -1782,7 +1784,8 @@ def test_build_outline_and_draft_prompt_surface_recomposition_recipe() -> None:
 
     assert "如果策略包已经给出替代骨架，大纲必须优先服从这套新骨架" in outline_template.instructions
     assert "替代骨架：" in outline_template.prompt
-    assert "正文默认不用分节小标题" in outline_template.prompt
+    assert "不要照搬参考文分节小标题" in outline_template.prompt
+    assert "2 到 4 个 ## 小标题" in draft_template.prompt
     assert "如果策略包已经给出替代骨架，正文必须沿着这套新骨架推进" in draft_template.instructions
     assert "不要回到参考文常见的标题、小节和收尾节拍" in draft_template.instructions
     assert "结尾只收在一个还没完全处理完的小动作上，不提问、不祝福、不列清单。" in draft_template.prompt

@@ -491,6 +491,58 @@ def test_execute_run_uses_wx_channel_source_by_biz_without_scan_session(
     assert fake["calls"]["import_tracked_articles"] == 1
 
 
+def test_execute_run_orders_same_publish_time_by_article_idx_ascending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_article = {
+        "article_id": "mid:2650828096:idx:1",
+        "link": "https://mp.weixin.qq.com/s/first",
+        "title": "第一篇",
+        "update_time": 1788091200,
+    }
+    second_article = {
+        "article_id": "mid:2650828096:idx:2",
+        "link": "https://mp.weixin.qq.com/s/second",
+        "title": "第二篇",
+        "update_time": 1788091200,
+    }
+    selected: dict[str, object] = {}
+
+    class Source:
+        def get_session_status(self) -> dict[str, object]:
+            return {"logged_in": True}
+
+        def list_articles(self, **_: object) -> list[dict[str, object]]:
+            return [second_article, first_article]
+
+    def capture_stage(
+        _run_id: int,
+        _workflow_id: int,
+        _subscription_id: int,
+        article: dict[str, object],
+        **_: object,
+    ) -> dict[str, object]:
+        selected.update(article)
+        return {
+            "status": "completed",
+            "source_article_id": article["article_id"],
+            "source_article_link": article["link"],
+            "source_article_title": article["title"],
+            "completion_stage": "draft_written",
+            "provenance": automation.AUTOMATION_PROVENANCE,
+        }
+
+    monkeypatch.setattr(automation, "get_wechat_mp_client", lambda: Source())
+    monkeypatch.setattr(automation, "_run_workflow_stages", capture_stage)
+    subscription = create_subscription(_subscription("same-publish-time-fakeid"))
+
+    result = execute_run(create_manual_run(subscription.id).run_id)
+
+    assert result.status == "completed"
+    assert selected["article_id"] == first_article["article_id"]
+    assert result.source_article_title == "第一篇"
+
+
 def test_retry_uses_persisted_workflow_without_fetching_latest_articles(monkeypatch: pytest.MonkeyPatch) -> None:
     article = {
         "article_id": "persisted-article",

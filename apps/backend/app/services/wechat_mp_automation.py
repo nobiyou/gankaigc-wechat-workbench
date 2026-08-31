@@ -10,6 +10,7 @@ import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from urllib.parse import parse_qsl, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
@@ -1010,8 +1011,36 @@ def _safe_int(value: object) -> int | None:
         return None
 
 
-def _article_sort_key(article: Mapping[str, object]) -> tuple[int, str]:
-    return (_safe_int(article.get("update_time")) or 0, str(article.get("article_id") or article.get("link") or ""))
+def _article_index(article: Mapping[str, object]) -> int | None:
+    article_id = str(article.get("article_id") or "").strip()
+    match = re.search(r"(?:^|:)idx:(\d+)$", article_id)
+    if match:
+        return int(match.group(1))
+
+    link = str(article.get("link") or "").strip()
+    if not link:
+        return None
+    try:
+        value = parse_qsl(urlsplit(link).query, keep_blank_values=True)
+    except ValueError:
+        return None
+    for key, raw_value in value:
+        if key != "idx":
+            continue
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _article_sort_key(article: Mapping[str, object]) -> tuple[int, int, int]:
+    article_index = _article_index(article)
+    return (
+        -(_safe_int(article.get("update_time")) or 0),
+        0 if article_index is not None else 1,
+        article_index or 0,
+    )
 
 
 def _find_existing_tracked_article(url: str):
@@ -1443,7 +1472,6 @@ def execute_run(run_id: int) -> AutomationRunItem:
             articles = sorted(
                 [item for item in raw_articles if isinstance(item, Mapping)],
                 key=_article_sort_key,
-                reverse=True,
             )
             _update_run(run_id, stage="fetched", status="running", fetched_count=len(articles))
             for article in articles:
